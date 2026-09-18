@@ -82,8 +82,9 @@ button{font:inherit;}
 
 /* ================= Sidebar ================= */
 .sidebar{
-  width:var(--sidebar-w);flex:0 0 auto;background:var(--sidebar-bg);color:var(--sidebar-ink);
-  display:flex;flex-direction:column;padding:26px 16px;position:sticky;top:0;height:100vh;
+  width:var(--sidebar-w);background:var(--sidebar-bg);color:var(--sidebar-ink);
+  display:flex;flex-direction:column;padding:26px 16px;
+  position:fixed;top:0;left:0;bottom:0;overflow-y:auto;z-index:30;
 }
 .brand{display:flex;align-items:center;gap:10px;padding:0 8px 26px;border-bottom:1px solid rgba(255,255,255,.08);margin-bottom:22px;}
 .brand .mark{
@@ -115,7 +116,7 @@ button{font:inherit;}
 .sidebar-foot p{margin:0;font-size:11px;color:var(--sidebar-ink-dim);line-height:1.5;}
 
 /* ================= Main ================= */
-.main{flex:1 1 auto;min-width:0;}
+.main{flex:1 1 auto;min-width:0;margin-left:var(--sidebar-w);}
 .wrap{max-width:900px;margin:0 auto;padding:34px 32px 90px;}
 
 header.top{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:30px;}
@@ -358,9 +359,10 @@ table.cn td.num{font-family:var(--font-mono);}
 @media (max-width:860px){
   body{flex-direction:column;}
   .sidebar{
-    position:sticky;top:0;z-index:50;width:100%;height:auto;flex-direction:row;align-items:center;
-    padding:12px 16px;
+    position:fixed;top:0;left:0;right:0;bottom:auto;z-index:50;width:100%;height:auto;
+    flex-direction:row;align-items:center;padding:12px 16px;overflow:visible;
   }
+  .main{margin-left:0;margin-top:64px;}
   .brand{border-bottom:none;margin-bottom:0;padding:0;flex:1 1 auto;}
   .sidenav{position:absolute;top:64px;left:12px;right:12px;background:var(--sidebar-bg);flex-direction:column;
     padding:8px;border-radius:var(--radius);box-shadow:var(--shadow-md);display:none;}
