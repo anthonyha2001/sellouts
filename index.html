@@ -201,7 +201,8 @@ button:focus-visible{outline:2px solid var(--pine);outline-offset:2px;}
 .sellout.open .sellout-head .chev{transform:rotate(90deg);}
 .sellout-head .who{flex:1 1 auto;min-width:0;}
 .sellout-head .who .name{font-weight:600;font-size:15px;}
-.sellout-head .who .dates{font-family:var(--font-mono);font-size:12px;color:var(--ink-soft);margin-top:3px;}
+.sellout-head .who .dates{font-family:var(--font-mono);font-size:12px;color:var(--ink-soft);margin-top:3px;display:flex;align-items:center;gap:5px;}
+.sellout-head .who .dates svg{width:11px;height:11px;stroke:currentColor;flex:0 0 auto;}
 .badge-row{display:flex;gap:6px;flex:0 0 auto;}
 .icon-actions{display:flex;gap:6px;flex:0 0 auto;}
 .icon-btn{
@@ -262,34 +263,6 @@ button:focus-visible{outline:2px solid var(--pine);outline-offset:2px;}
 }
 .cn-edit-input:focus{outline:none;border-color:var(--pine);box-shadow:0 0 0 3px var(--pine-tint);}
 
-/* ================= Reconcile ================= */
-.muted-note{font-family:var(--font-body);font-weight:400;font-size:12.5px;color:var(--ink-faint);}
-.file-info{
-  display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
-  background:var(--paper);border:1px solid var(--line);border-radius:var(--radius-sm);padding:12px 14px;
-}
-.file-info .fi-name{font-weight:600;font-size:13.5px;}
-.file-info .fi-meta{font-family:var(--font-mono);font-size:12px;color:var(--ink-soft);margin-top:2px;}
-.file-info.empty{color:var(--ink-faint);font-size:13px;font-style:italic;border-style:dashed;}
-.summary-row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px;}
-.summary-stat{
-  flex:1 1 140px;background:var(--paper-raised);border:1px solid var(--line);border-radius:var(--radius);
-  padding:14px 16px;box-shadow:var(--shadow-sm);
-}
-.summary-stat .num{font-family:var(--font-head);font-size:26px;font-weight:600;line-height:1;}
-.summary-stat .lbl{font-family:var(--font-mono);font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-soft);margin-top:6px;}
-.summary-stat.missing .num{color:var(--brick);}
-.summary-stat.extra .num{color:var(--gold);}
-.summary-stat.matched .num{color:var(--pine);}
-.result-block{margin-bottom:24px;}
-.result-block h4{
-  font-family:var(--font-head);font-size:16px;font-weight:600;margin:0 0 4px;display:flex;align-items:center;gap:8px;
-}
-.result-block .rb-sub{color:var(--ink-soft);font-size:12.5px;margin:0 0 12px;}
-.result-block.ok .rb-ok{
-  display:flex;align-items:center;gap:8px;color:var(--pine);background:var(--pine-tint);
-  border-radius:var(--radius-sm);padding:12px 14px;font-size:13.5px;font-weight:500;
-}
 .items-scroll{overflow-x:auto;border:1px solid var(--line);border-radius:var(--radius-sm);margin-bottom:20px;}
 table.items{border-collapse:collapse;width:100%;font-size:13px;}
 table.items th,table.items td{padding:8px 11px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap;}
@@ -398,13 +371,9 @@ table.cn td.num{font-family:var(--font-mono);}
       <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h11l3 3v15H5z"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>
       <span class="label">Credit Notes</span>
     </button>
-    <button class="nav-btn" data-tab="reconcile">
-      <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3H5a2 2 0 0 0-2 2v4"/><path d="M15 3h4a2 2 0 0 1 2 2v4"/><path d="M9 21H5a2 2 0 0 1-2-2v-4"/><path d="M15 21h4a2 2 0 0 0 2-2v-4"/><path d="M8 12l2.5 2.5L16 9"/></svg>
-      <span class="label">Reconcile</span>
-    </button>
   </ul>
 
-  <div class="sidebar-foot"><p>Stored locally in this browser only â€” nothing is uploaded anywhere.</p></div>
+  <div class="sidebar-foot"><p>Stored locally in this browser only &mdash; nothing is uploaded anywhere.</p></div>
 </aside>
 
 <div class="main">
@@ -504,7 +473,7 @@ table.cn td.num{font-family:var(--font-mono);}
             <div></div>
             <div class="full">
               <label for="cnDetails">Details <span style="opacity:.6;">(optional)</span></label>
-              <textarea id="cnDetails" placeholder="Notes about this credit noteâ€¦"></textarea>
+              <textarea id="cnDetails" placeholder="Notes about this credit note&hellip;"></textarea>
             </div>
           </div>
           <div class="actions-row">
@@ -528,52 +497,6 @@ table.cn td.num{font-family:var(--font-mono);}
       </div>
     </section>
 
-    <!-- RECONCILE -->
-    <section class="panel" id="panel-reconcile">
-      <div class="card elevated">
-        <h3>Master file <span class="muted-note">â€” your real, active sell-out</span></h3>
-        <div id="masterInfo"></div>
-        <div class="form-grid" style="margin-top:14px;">
-          <div class="full">
-            <label for="masterFileInput">Upload / replace master file</label>
-            <input type="file" id="masterFileInput" accept=".xlsx,.xls,.csv">
-          </div>
-          <div>
-            <label for="masterKeyCol">Item code column</label>
-            <select id="masterKeyCol" disabled></select>
-          </div>
-          <div>
-            <label for="masterDescCol">Description column <span style="opacity:.6;">(optional, used to spot extras)</span></label>
-            <select id="masterDescCol" disabled></select>
-          </div>
-        </div>
-      </div>
-
-      <div class="card elevated">
-        <h3>Check file <span class="muted-note">â€” the list to verify against the master</span></h3>
-        <div class="form-grid">
-          <div class="full">
-            <label for="checkFileInput">Upload file to check</label>
-            <input type="file" id="checkFileInput" accept=".xlsx,.xls,.csv">
-          </div>
-          <div>
-            <label for="checkKeyCol">Item code column</label>
-            <select id="checkKeyCol" disabled></select>
-          </div>
-          <div>
-            <label for="checkDescCol">Description column <span style="opacity:.6;">(optional)</span></label>
-            <select id="checkDescCol" disabled></select>
-          </div>
-        </div>
-        <div id="checkInfo"></div>
-        <div class="actions-row">
-          <button type="button" class="btn" id="runReconcileBtn" disabled>Run check</button>
-        </div>
-      </div>
-
-      <div id="reconcileResults"></div>
-    </section>
-
   </div>
 </div>
 
@@ -590,7 +513,7 @@ table.cn td.num{font-family:var(--font-mono);}
 
 <script>
 /* ============================================================
-   Storage â€” Supabase (so data is shared across every PC you use)
+   Storage - Supabase (so data is shared across every PC you use)
    ============================================================ */
 const SUPABASE_URL = 'https://sezjqcbkiydckhirycjb.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_LRI-MmDPYE_IjrHG-LZ7Xg_mQovg24F';
@@ -658,13 +581,13 @@ async function idbPut(store, val) {
       row.file_base64 = await blobToBase64(val.fileBlob);
     }
     const { error } = await sb.from('sellouts').upsert(row);
-    if (error) { console.error(error); showToast('Could not save to Supabase â€” check your connection.', true); }
+    if (error) { console.error(error); showToast('Could not save to Supabase \u2014 check your connection.', true); }
     return;
   }
   if (store === 'creditnotes') {
     const row = { id: val.id, number: val.number, supplier: val.supplier, details: val.details, status: val.status };
     const { error } = await sb.from('credit_notes').upsert(row);
-    if (error) { console.error(error); showToast('Could not save to Supabase â€” check your connection.', true); }
+    if (error) { console.error(error); showToast('Could not save to Supabase \u2014 check your connection.', true); }
     return;
   }
 }
@@ -694,12 +617,12 @@ function daysBetween(a, b) {
   return Math.round((B - A) / 86400000);
 }
 function fmtDate(d) {
-  if (!d) return 'â€”';
+  if (!d) return '\u2014';
   return new Date(d + 'T00:00:00').toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 }
 function fmtTs(iso) {
   const dt = new Date(iso);
-  return dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' Â· ' +
+  return dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' \u00B7 ' +
          dt.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
 }
 function escapeHtml(s) {
@@ -748,7 +671,7 @@ function showToast(message, isError = false) {
 }
 
 /* ============================================================
-   Sound â€” synthesized chime via Web Audio (no external file needed)
+   Sound - synthesized chime via Web Audio (no external file needed)
    ============================================================ */
 let audioCtx = null;
 function ensureAudio() {
@@ -808,7 +731,7 @@ document.getElementById('selloutForm').addEventListener('submit', async (e) => {
   if (!file) return;
 
   if (new Date(to) < new Date(from)) {
-    showToast('The "To" date is before the "From" date â€” please check the dates.', true);
+    showToast('The "To" date is before the "From" date \u2014 please check the dates.', true);
     return;
   }
 
@@ -910,7 +833,7 @@ function renderSellouts() {
     const logHtml = so.log.length
       ? '<ul class="log-list">' + so.log.slice().reverse().map(l =>
           `<li><span class="dot2 ${l.action === 'activated' ? 'on' : 'off'}"></span>
-           <div>${l.action === 'activated' ? 'Activated' : 'Deactivated'} <span class="ts">â€” ${fmtTs(l.at)}</span></div></li>`
+           <div>${l.action === 'activated' ? 'Activated' : 'Deactivated'} <span class="ts">\u2014 ${fmtTs(l.at)}</span></div></li>`
         ).join('') + '</ul>'
       : '<p class="empty-note">No activity yet.</p>';
 
@@ -953,7 +876,7 @@ function renderSellouts() {
         <span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></span>
         <div class="who">
           <div class="name">${escapeHtml(so.name)}</div>
-          <div class="dates">${fmtDate(so.from)} â†’ ${fmtDate(so.to)}</div>
+          <div class="dates"><span>${fmtDate(so.from)}</span><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></svg><span>${fmtDate(so.to)}</span></div>
         </div>
         <div class="badge-row">${selloutStatusBadge(so)}</div>
         <div class="icon-actions">
@@ -1037,7 +960,7 @@ function renderSellouts() {
 }
 
 /* ============================================================
-   Credit notes â€” a fully independent tracker, no link to sell-outs
+   Credit notes - a fully independent tracker, no link to sell-outs
    ============================================================ */
 document.getElementById('cnForm').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -1101,7 +1024,7 @@ function renderCreditNotes() {
       tr.innerHTML = `
         <td class="num">${escapeHtml(cn.number)}</td>
         <td>${escapeHtml(cn.supplier)}</td>
-        <td style="max-width:260px;white-space:normal;">${cn.details ? escapeHtml(cn.details) : '<span style="color:var(--ink-faint);">â€”</span>'}</td>
+        <td style="max-width:260px;white-space:normal;">${cn.details ? escapeHtml(cn.details) : '<span style="color:var(--ink-faint);">\u2014</span>'}</td>
         <td><button class="status-pill ${cn.status}" data-role="toggle-status">${cn.status}</button></td>
         <td style="white-space:nowrap;">
           <button class="icon-btn" data-role="edit-cn" title="Edit credit note" aria-label="Edit credit note">
@@ -1138,9 +1061,8 @@ function renderCreditNotes() {
    ============================================================ */
 const PAGES = {
   sellouts:    { eyebrow: 'Overview', title: 'Sell-outs', sub: 'Every sell-out you\u2019re tracking, with items and activation history.' },
-  add:         { eyebrow: 'New entry', title: 'Add a sell-out', sub: 'Upload the Excel file for a new sell-out â€” its item rows are read automatically.' },
-  creditnotes: { eyebrow: 'Tracker', title: 'Credit notes', sub: 'Every credit note logged against your suppliers, issued or signed.' },
-  reconcile:   { eyebrow: 'Check', title: 'Reconcile', sub: 'Compare a supplier list against your real sell-out and see what\u2019s missing or extra.' }
+  add:         { eyebrow: 'New entry', title: 'Add a sell-out', sub: 'Upload the Excel file for a new sell-out \u2014 its item rows are read automatically.' },
+  creditnotes: { eyebrow: 'Tracker', title: 'Credit notes', sub: 'Every credit note logged against your suppliers, issued or signed.' }
 };
 function switchTab(name) {
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
@@ -1207,9 +1129,9 @@ async function runNotificationCheck() {
       if (daysToStart < 0) fire('startOverdue', `"${so.name}" was due to start on ${fmtDate(so.from)} and has still not been activated.`);
     }
     if (so.active) {
-      if (daysToEnd === 1) fire('endSoon', `"${so.name}" ends tomorrow (${fmtDate(so.to)}) â€” remember to deactivate it.`);
-      if (daysToEnd === 0) fire('endDay', `"${so.name}" ends today â€” deactivate it.`);
-      if (daysToEnd < 0) fire('endOverdue', `"${so.name}" ended on ${fmtDate(so.to)} and is still active â€” deactivate it.`);
+      if (daysToEnd === 1) fire('endSoon', `"${so.name}" ends tomorrow (${fmtDate(so.to)}) \u2014 remember to deactivate it.`);
+      if (daysToEnd === 0) fire('endDay', `"${so.name}" ends today \u2014 deactivate it.`);
+      if (daysToEnd < 0) fire('endOverdue', `"${so.name}" ended on ${fmtDate(so.to)} and is still active \u2014 deactivate it.`);
     }
   }
   if (changed) for (const so of sellouts) await idbPut('sellouts', so);
