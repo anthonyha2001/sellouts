@@ -723,23 +723,28 @@ async function idbDelete(store, id) {
 /* ============================================================
    Promotions - catalog, settings, promotions, promotion rows
    ============================================================ */
+function sbErrText(error) {
+  if (!error) return 'Unknown error';
+  return error.message || error.details || error.hint || JSON.stringify(error);
+}
+
 async function loadCatalog() {
   const { data, error } = await sb.from('catalog_items').select('*').order('id', { ascending: true });
-  if (error) { console.error(error); showToast('Could not load the catalog from Supabase.', true); return; }
+  if (error) { console.error(error); showToast('Could not load the catalog \u2014 ' + sbErrText(error), true); return; }
   catalogItems = (data || []).map(r => ({ code: r.id, description: r.description || '', balance: r.balance, salePrice: r.sale_price === undefined ? null : r.sale_price }));
   catalogMap = new Map(catalogItems.map(i => [i.code, i]));
 }
 
 async function replaceCatalog(rows, fileName) {
   const { error: delErr } = await sb.from('catalog_items').delete().not('id', 'is', null);
-  if (delErr) { console.error(delErr); showToast('Could not clear the old catalog.', true); return false; }
+  if (delErr) { console.error(delErr); showToast('Could not clear the old catalog \u2014 ' + sbErrText(delErr), true); return false; }
   const now = new Date().toISOString();
   const payload = rows.map(r => ({ id: r.code, description: r.description, balance: r.balance, sale_price: r.salePrice, updated_at: now }));
   const chunkSize = 500;
   for (let i = 0; i < payload.length; i += chunkSize) {
     const chunk = payload.slice(i, i + chunkSize);
     const { error } = await sb.from('catalog_items').insert(chunk);
-    if (error) { console.error(error); showToast('Could not upload the full catalog \u2014 check your connection.', true); return false; }
+    if (error) { console.error(error); showToast('Could not upload the catalog \u2014 ' + sbErrText(error), true); return false; }
   }
   catalogMeta.fileName = fileName;
   await loadCatalog();
@@ -1551,14 +1556,23 @@ document.getElementById('catalogFileInput').addEventListener('change', async (e)
   const balanceKey = findExact('balance');
   const saleKey = findExact('saleprice') || findExact('salesprice');
 
-  const parsed = rows.map(r => ({
+  const rawParsed = rows.map(r => ({
     code: String(r[codeKey] ?? '').trim(),
     description: descKey ? String(r[descKey] ?? '').trim() : '',
     balance: (balanceKey && r[balanceKey] !== '' && !isNaN(Number(r[balanceKey]))) ? Number(r[balanceKey]) : null,
     salePrice: (saleKey && r[saleKey] !== '' && !isNaN(Number(r[saleKey]))) ? Number(r[saleKey]) : null
   })).filter(r => r.code);
 
-  const skipped = rows.length - parsed.length;
+  const skipped = rows.length - rawParsed.length;
+
+  // Two rows sharing the same code would violate the catalog's unique-code
+  // constraint within the same upload, so keep only the last occurrence of
+  // each code (a re-exported catalog usually supersedes earlier duplicates).
+  const byCode = new Map();
+  rawParsed.forEach(r => byCode.set(r.code, r));
+  const parsed = Array.from(byCode.values());
+  const dupCount = rawParsed.length - parsed.length;
+
   if (!parsed.length) { showToast('Could not find an item code column in that file.', true); e.target.value = ''; return; }
 
   const ok = await replaceCatalog(parsed, file.name);
@@ -1572,6 +1586,7 @@ document.getElementById('catalogFileInput').addEventListener('change', async (e)
   if (!balanceKey) warnings.push('no "Balance" column was found, so low-stock flags won’t work');
   if (!saleKey) warnings.push('no "Saleprice" column was found, so Sale Price won’t auto-fill');
   if (skipped > 0) warnings.push(`${skipped} row${skipped === 1 ? '' : 's'} had no code and ${skipped === 1 ? 'was' : 'were'} skipped`);
+  if (dupCount > 0) warnings.push(`${dupCount} duplicate code${dupCount === 1 ? '' : 's'} \u2014 kept the last row for each`);
 
   if (warnings.length) showToast(`Catalog updated (${parsed.length} items) \u2014 but ${warnings.join('; ')}.`, true);
   else showToast(`Catalog updated \u2014 ${parsed.length} items loaded.`);
