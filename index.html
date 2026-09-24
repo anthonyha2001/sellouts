@@ -605,6 +605,7 @@ td.row-actions{width:1%;white-space:nowrap;}
 
       <div class="promo-tabstrip-wrap">
         <div class="promo-tabstrip" id="promoTabstrip"></div>
+        <button class="btn ghost small" id="toggleArchivedBtn">Archived</button>
         <button class="btn small" id="newPromoBtn">+ New promotion</button>
       </div>
 
@@ -764,10 +765,18 @@ async function saveSettings() {
 async function loadPromotions() {
   const { data, error } = await sb.from('promotions').select('*').order('created_at', { ascending: false });
   if (error) { console.error(error); showToast('Could not load promotions.', true); return; }
-  promotions = (data || []).map(r => ({ id: r.id, name: r.name, from: r.from_date, to: r.to_date, createdAt: r.created_at }));
+  promotions = (data || []).map(r => ({
+    id: r.id, name: r.name, from: r.from_date, to: r.to_date, createdAt: r.created_at,
+    archived: !!r.archived,
+    autoArchive: r.auto_archive === false ? false : true
+  }));
 }
 async function savePromotion(promo) {
-  const row = { id: promo.id, name: promo.name, from_date: promo.from || null, to_date: promo.to || null };
+  const row = {
+    id: promo.id, name: promo.name, from_date: promo.from || null, to_date: promo.to || null,
+    archived: !!promo.archived,
+    auto_archive: promo.autoArchive !== false
+  };
   const { error } = await sb.from('promotions').upsert(row);
   if (error) { console.error(error); showToast('Could not save the promotion.', true); }
 }
@@ -913,9 +922,48 @@ let currentPromoId = null;
 let currentRows = [];
 let selectedRowIds = new Set();
 let catalogCollapsed = localStorage.getItem('sol-catalog-collapsed') === 'true';
+let showArchivedPromos = false;
 
 const uid = () => 'id-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
-const todayStr = () => new Date().toISOString().slice(0, 10);
+// Local calendar date as YYYY-MM-DD. Deliberately avoids toISOString() here,
+// since that reports the UTC date and would read as "yesterday" or
+// "tomorrow" for part of the day in any timezone ahead of or behind UTC.
+function localDateStr(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const da = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${da}`;
+}
+const todayStr = () => localDateStr(new Date());
+
+/* Default a new promotion to the upcoming Friday-through-Monday run, since
+   that is the usual pattern, while staying fully editable afterward. Built
+   entirely from local Y/M/D components (no toISOString on a local Date) so
+   it lands on the right calendar day regardless of timezone. */
+function nextFridayToMonday() {
+  const now = new Date();
+  const day = now.getDay(); // 0=Sun ... 5=Fri, 6=Sat
+  const daysUntilFriday = (5 - day + 7) % 7;
+  const friday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + daysUntilFriday);
+  const monday = new Date(friday.getFullYear(), friday.getMonth(), friday.getDate() + 3);
+  return { from: localDateStr(friday), to: localDateStr(monday) };
+}
+function fmtDMY(iso) {
+  if (!iso) return '';
+  const d = new Date(iso + 'T00:00:00');
+  return `${d.getDate()}-${d.getMonth() + 1}-${d.getFullYear()}`;
+}
+/* Auto-archive any promotion whose "to" date has passed, unless the person
+   has turned auto-archive off for that one. Runs on load and periodically
+   while the page stays open, and is always reversible from the UI. */
+async function autoArchiveDuePromotions() {
+  const today = todayStr();
+  const due = promotions.filter(p => !p.archived && p.autoArchive !== false && p.to && p.to < today);
+  if (!due.length) return false;
+  due.forEach(p => { p.archived = true; });
+  await Promise.all(due.map(p => savePromotion(p)));
+  return true;
+}
 function daysBetween(a, b) {
   const A = new Date(a + 'T00:00:00'); const B = new Date(b + 'T00:00:00');
   return Math.round((B - A) / 86400000);
@@ -1605,19 +1653,41 @@ document.getElementById('lowStockInput').addEventListener('change', async (e) =>
 function renderPromoTabstrip() {
   const strip = document.getElementById('promoTabstrip');
   const emptyEl = document.getElementById('promoEmpty');
-  if (!promotions.length) {
+  const archivedCount = promotions.filter(p => p.archived).length;
+  const toggleBtn = document.getElementById('toggleArchivedBtn');
+  if (toggleBtn) {
+    toggleBtn.textContent = showArchivedPromos ? 'Active promotions' : `Archived (${archivedCount})`;
+    toggleBtn.classList.toggle('secondary', showArchivedPromos);
+  }
+
+  const visible = promotions.filter(p => !!p.archived === showArchivedPromos);
+  if (!visible.length) {
     strip.innerHTML = '';
     emptyEl.style.display = 'block';
+    const bigP = emptyEl.querySelector('p.big');
+    const smallP = emptyEl.querySelector('p:not(.big)');
+    if (bigP) bigP.textContent = showArchivedPromos ? 'No archived promotions' : 'No promotions yet';
+    if (smallP) smallP.textContent = showArchivedPromos ? 'Promotions archive automatically once their "To" date passes.' : 'Click "+ New promotion" to start one.';
     return;
   }
   emptyEl.style.display = 'none';
-  strip.innerHTML = promotions.map(p => `
+  strip.innerHTML = visible.map(p => `
     <button class="promo-tab ${p.id === currentPromoId ? 'active' : ''}" data-promo-id="${p.id}">${escapeHtml(p.name || 'Untitled')}</button>
   `).join('');
   strip.querySelectorAll('.promo-tab').forEach(btn => {
     btn.addEventListener('click', () => selectPromotion(btn.dataset.promoId));
   });
 }
+
+document.getElementById('toggleArchivedBtn').addEventListener('click', async () => {
+  showArchivedPromos = !showArchivedPromos;
+  const visible = promotions.filter(p => !!p.archived === showArchivedPromos);
+  currentPromoId = visible.length ? visible[0].id : null;
+  currentRows = currentPromoId ? await loadPromoRows(currentPromoId) : [];
+  selectedRowIds.clear();
+  renderPromoTabstrip();
+  await renderPromoWorkspace();
+});
 
 async function selectPromotion(id) {
   if (id === currentPromoId) return;
@@ -1629,7 +1699,12 @@ async function selectPromotion(id) {
 }
 
 document.getElementById('newPromoBtn').addEventListener('click', async () => {
-  const promo = { id: uid(), name: 'New promotion', from: null, to: null, createdAt: new Date().toISOString() };
+  showArchivedPromos = false;
+  const { from, to } = nextFridayToMonday();
+  const promo = {
+    id: uid(), name: `Promotion ${fmtDMY(from)}`, from, to,
+    archived: false, autoArchive: true, createdAt: new Date().toISOString()
+  };
   promotions.unshift(promo);
   await savePromotion(promo);
   currentPromoId = promo.id;
@@ -1706,7 +1781,7 @@ async function renderPromoWorkspace() {
     <div class="card promo-header-card">
       <div class="promo-header-fields">
         <div class="field">
-          <label for="promoName">Promotion name</label>
+          <label for="promoName">Promotion name ${promo.archived ? '<span class="muted-note">(archived)</span>' : ''}</label>
           <input type="text" id="promoName" value="${escapeHtml(promo.name)}">
         </div>
         <div class="field">
@@ -1717,10 +1792,17 @@ async function renderPromoWorkspace() {
           <label for="promoTo">To</label>
           <input type="date" id="promoTo" value="${promo.to || ''}">
         </div>
+        <div class="field" style="min-width:auto;flex:0 0 auto;align-self:flex-end;padding-bottom:9px;">
+          <label style="display:flex;align-items:center;gap:6px;margin:0;cursor:pointer;font-weight:400;">
+            <input type="checkbox" id="promoAutoArchive" ${promo.autoArchive !== false ? 'checked' : ''} style="width:auto;">
+            Auto-archive after "To" date
+          </label>
+        </div>
       </div>
       <div class="promo-header-actions">
         <button class="btn secondary small" id="copyCodesBtn">Copy codes</button>
         <button class="btn secondary small" id="exportPromoBtn">Export to Excel</button>
+        <button class="btn ghost small" id="toggleArchivePromoBtn">${promo.archived ? 'Unarchive' : 'Archive now'}</button>
         <button class="btn ghost small" id="deletePromoBtn">Delete</button>
       </div>
     </div>
@@ -1755,6 +1837,7 @@ function wirePromoWorkspaceEvents(promo) {
   const nameInput = document.getElementById('promoName');
   const fromInput = document.getElementById('promoFrom');
   const toInput = document.getElementById('promoTo');
+  const autoArchiveCb = document.getElementById('promoAutoArchive');
 
   const saveHeader = async () => {
     promo.name = nameInput.value.trim() || 'Untitled promotion';
@@ -1766,6 +1849,26 @@ function wirePromoWorkspaceEvents(promo) {
   nameInput.addEventListener('blur', saveHeader);
   fromInput.addEventListener('change', saveHeader);
   toInput.addEventListener('change', saveHeader);
+
+  autoArchiveCb.addEventListener('change', async () => {
+    promo.autoArchive = autoArchiveCb.checked;
+    await savePromotion(promo);
+    showToast(promo.autoArchive ? 'Will auto-archive once the "To" date passes.' : 'Auto-archive turned off for this promotion.');
+  });
+
+  document.getElementById('toggleArchivePromoBtn').addEventListener('click', async () => {
+    promo.archived = !promo.archived;
+    await savePromotion(promo);
+    showToast(promo.archived ? 'Promotion archived.' : 'Promotion unarchived.');
+    const stillVisible = !!promo.archived === showArchivedPromos;
+    if (!stillVisible) {
+      const visible = promotions.filter(p => !!p.archived === showArchivedPromos && p.id !== promo.id);
+      currentPromoId = visible.length ? visible[0].id : null;
+      currentRows = currentPromoId ? await loadPromoRows(currentPromoId) : [];
+    }
+    renderPromoTabstrip();
+    await renderPromoWorkspace();
+  });
 
   document.getElementById('exportPromoBtn').addEventListener('click', () => exportPromotionToExcel(promo));
 
@@ -1784,7 +1887,8 @@ function wirePromoWorkspaceEvents(promo) {
     promotions = promotions.filter(p => p.id !== promo.id);
     selectedRowIds.clear();
     if (currentPromoId === promo.id) {
-      currentPromoId = promotions.length ? promotions[0].id : null;
+      const visible = promotions.filter(p => !!p.archived === showArchivedPromos);
+      currentPromoId = visible.length ? visible[0].id : null;
       currentRows = currentPromoId ? await loadPromoRows(currentPromoId) : [];
     }
     renderPromoTabstrip();
@@ -2105,17 +2209,36 @@ function exportPromotionToExcel(promo) {
 
 async function initPromotions() {
   await Promise.all([loadCatalog(), loadSettings(), loadPromotions()]);
+  await autoArchiveDuePromotions();
   const thresholdInput = document.getElementById('lowStockInput');
   if (thresholdInput) thresholdInput.value = lowStockThreshold;
   renderCatalogInfo();
   applyCatalogCollapse();
   renderPromoTabstrip();
-  if (promotions.length) {
-    currentPromoId = promotions[0].id;
+  const activePromos = promotions.filter(p => !p.archived);
+  if (activePromos.length) {
+    currentPromoId = activePromos[0].id;
     currentRows = await loadPromoRows(currentPromoId);
     renderPromoTabstrip();
   }
   await renderPromoWorkspace();
+
+  // Re-check every hour in case this tab is left open across the weekend,
+  // so a promotion still archives on time without needing a page reload.
+  setInterval(async () => {
+    const changed = await autoArchiveDuePromotions();
+    if (!changed) return;
+    if (currentPromoId) {
+      const cur = promotions.find(p => p.id === currentPromoId);
+      if (cur && !!cur.archived !== showArchivedPromos) {
+        const visible = promotions.filter(p => !!p.archived === showArchivedPromos);
+        currentPromoId = visible.length ? visible[0].id : null;
+        currentRows = currentPromoId ? await loadPromoRows(currentPromoId) : [];
+      }
+    }
+    renderPromoTabstrip();
+    await renderPromoWorkspace();
+  }, 60 * 60 * 1000);
 }
 
 loadAll();
