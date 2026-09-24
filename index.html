@@ -1000,6 +1000,29 @@ function showToast(message, isError = false) {
   }, 3200);
 }
 
+async function copyTextToClipboard(text) {
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch (err) { /* fall through to legacy method */ }
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok;
+  } catch (err) {
+    return false;
+  }
+}
+
 /* ============================================================
    Sound - synthesized chime via Web Audio (no external file needed)
    ============================================================ */
@@ -1676,6 +1699,7 @@ async function renderPromoWorkspace() {
         </div>
       </div>
       <div class="promo-header-actions">
+        <button class="btn secondary small" id="copyCodesBtn">Copy codes</button>
         <button class="btn secondary small" id="exportPromoBtn">Export to Excel</button>
         <button class="btn ghost small" id="deletePromoBtn">Delete</button>
       </div>
@@ -1724,6 +1748,14 @@ function wirePromoWorkspaceEvents(promo) {
   toInput.addEventListener('change', saveHeader);
 
   document.getElementById('exportPromoBtn').addEventListener('click', () => exportPromotionToExcel(promo));
+
+  document.getElementById('copyCodesBtn').addEventListener('click', async () => {
+    const codes = currentRows.map(r => (r.code || '').trim()).filter(Boolean);
+    if (!codes.length) { showToast('No codes to copy yet.', true); return; }
+    const ok = await copyTextToClipboard(codes.join(','));
+    if (ok) showToast(`Copied ${codes.length} code${codes.length === 1 ? '' : 's'}.`);
+    else showToast('Could not copy \u2014 your browser blocked clipboard access.', true);
+  });
 
   document.getElementById('deletePromoBtn').addEventListener('click', async () => {
     const ok = await showConfirm(`Delete "${promo.name}"? This removes all its rows too.`, 'Delete');
@@ -2000,6 +2032,18 @@ function wirePromoWorkspaceEvents(promo) {
       }
       touchedRows.push(row2);
     }
+
+    // Sync the DOM value of the cell that was actually pasted into. Re-rendering
+    // below removes it from the document while it still has focus, which fires a
+    // native "blur" on it \u2014 if its value still shows the pre-paste text (since
+    // the real paste was prevented), that stale blur handler would overwrite the
+    // freshly-pasted value with the old one.
+    const targetRow = currentRows[startRowIdx];
+    if (targetRow && target.tagName !== 'SELECT') {
+      const v = targetRow[startField];
+      target.value = (v === null || v === undefined) ? '' : String(v);
+    }
+
     renumberRows();
     await renderPromoWorkspace();
     await persistRowsBulk(touchedRows);
