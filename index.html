@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Sell-Out Ledger</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>ðŸ“’</text></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📒</text></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,500;0,8..60,600;0,8..60,700;1,8..60,500&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -213,6 +213,7 @@ button:focus-visible{outline:2px solid var(--pine);outline-offset:2px;}
 .icon-btn svg{width:16px;height:16px;stroke:currentColor;}
 .icon-btn:hover{border-color:var(--pine);color:var(--pine);}
 .icon-btn.danger:hover{border-color:var(--brick);color:var(--brick);background:var(--brick-tint);}
+.icon-btn.flag-on{border-color:var(--brick);color:var(--brick);background:var(--brick-tint);}
 .cn-status-row{display:flex;align-items:center;gap:10px;margin-bottom:18px;}
 .cn-status-label{font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-faint);}
 
@@ -303,6 +304,69 @@ table.cn td.num{font-family:var(--font-mono);}
 .status-pill.issued{background:var(--gold-tint);color:var(--gold);}
 .status-pill.signed{background:var(--pine-tint);color:var(--pine);}
 
+/* ================= Promotions ================= */
+.muted-note{font-family:var(--font-body);font-weight:400;font-size:12.5px;color:var(--ink-faint);}
+.file-info{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
+  background:var(--paper);border:1px solid var(--line);border-radius:var(--radius-sm);padding:12px 14px;
+  font-size:13.5px;
+}
+.file-info.empty{color:var(--ink-faint);font-style:italic;border-style:dashed;}
+.catalog-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;}
+#catalogChevron{transition:transform .15s ease;}
+.file-info .fi-name{font-weight:600;}
+.file-info .fi-meta{font-family:var(--font-mono);font-size:12px;color:var(--ink-soft);margin-top:2px;}
+
+.promo-tabstrip-wrap{display:flex;align-items:center;gap:10px;margin:22px 0 16px;flex-wrap:wrap;}
+.promo-tabstrip{display:flex;gap:6px;flex-wrap:wrap;flex:1 1 auto;}
+.promo-tab{
+  font-family:var(--font-body);font-size:13px;font-weight:500;padding:8px 14px;border-radius:20px;
+  background:var(--paper-raised);border:1px solid var(--line-strong);color:var(--ink-soft);cursor:pointer;
+  display:flex;align-items:center;gap:7px;
+}
+.promo-tab:hover{border-color:var(--pine);color:var(--pine);}
+.promo-tab.active{background:var(--pine);border-color:var(--pine);color:#fff;}
+.promo-tab .plow{width:7px;height:7px;border-radius:50%;background:var(--brick);flex:0 0 auto;}
+
+.promo-header-card{display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end;justify-content:space-between;}
+.promo-header-fields{display:flex;flex-wrap:wrap;gap:14px;flex:1 1 auto;}
+.promo-header-fields .field{min-width:160px;flex:1 1 160px;}
+.promo-header-actions{display:flex;gap:8px;flex:0 0 auto;}
+
+table.promo{width:100%;border-collapse:collapse;font-size:13.5px;}
+table.promo th{
+  font-family:var(--font-mono);font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-soft);
+  text-align:left;padding:9px 10px;border-bottom:1px solid var(--line-strong);white-space:nowrap;
+}
+table.promo td{padding:6px 10px;border-bottom:1px solid var(--line);vertical-align:middle;}
+table.promo tr:last-child td{border-bottom:none;}
+table.promo input{
+  width:100%;font-family:var(--font-body);font-size:13.5px;color:var(--ink);background:transparent;
+  border:1px solid transparent;border-radius:6px;padding:7px 8px;
+}
+table.promo input:hover{border-color:var(--line-strong);background:var(--paper);}
+table.promo input:focus{outline:none;border-color:var(--pine);background:var(--paper);box-shadow:0 0 0 3px var(--pine-tint);}
+table.promo select{
+  width:100%;font-family:var(--font-body);font-size:13px;color:var(--ink);background:var(--paper);
+  border:1px solid var(--line-strong);border-radius:6px;padding:6px 6px;
+}
+table.promo select:focus{outline:none;border-color:var(--pine);box-shadow:0 0 0 3px var(--pine-tint);}
+table.promo .code-cell{font-family:var(--font-mono);}
+table.promo .balance-cell input{text-align:right;}
+table.promo th.chk-col,table.promo td.chk-col{width:1%;white-space:nowrap;text-align:center;padding-right:2px;}
+.stock-cell-wrap{display:flex;align-items:center;gap:6px;}
+table.promo .stock-input{width:56px;flex:0 0 56px;text-align:right;}
+td.row-actions{width:1%;white-space:nowrap;}
+.low-stock-badge{
+  display:inline-flex;align-items:center;gap:5px;font-family:var(--font-mono);font-size:10.5px;font-weight:700;
+  text-transform:uppercase;letter-spacing:.03em;padding:4px 9px;border-radius:20px;background:var(--brick-tint);color:var(--brick);
+  white-space:nowrap;
+}
+.low-stock-badge .pulse{position:relative;width:6px;height:6px;border-radius:50%;background:currentColor;flex:0 0 auto;}
+.ok-stock-note{font-family:var(--font-mono);font-size:11px;color:var(--ink-faint);}
+.promo-table-foot{display:flex;justify-content:space-between;align-items:center;margin-top:14px;flex-wrap:wrap;gap:10px;}
+.promo-foot-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+
 /* ================= Modal & toast ================= */
 .modal-overlay{
   position:fixed;inset:0;background:rgba(14,26,21,.45);display:none;align-items:center;justify-content:center;z-index:100;padding:20px;
@@ -312,6 +376,11 @@ table.cn td.num{font-family:var(--font-mono);}
   background:var(--paper-raised);border-radius:var(--radius);box-shadow:var(--shadow-md);padding:24px;max-width:360px;width:100%;
 }
 .modal-box p{margin:0 0 20px;font-size:14.5px;line-height:1.5;}
+.modal-input{
+  display:block;width:100%;margin:-8px 0 18px;padding:9px 10px;border:1px solid var(--line-strong);
+  border-radius:8px;font-size:14px;font-family:var(--font-body);background:var(--paper);color:var(--ink);
+}
+.modal-input:focus{outline:none;border-color:var(--pine);box-shadow:0 0 0 3px var(--pine-tint);}
 .modal-actions{display:flex;gap:10px;justify-content:flex-end;}
 .toast-stack{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:120;display:flex;flex-direction:column;gap:8px;align-items:center;}
 .toast{
@@ -370,6 +439,10 @@ table.cn td.num{font-family:var(--font-mono);}
     <button class="nav-btn" data-tab="creditnotes">
       <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h11l3 3v15H5z"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>
       <span class="label">Credit Notes</span>
+    </button>
+    <button class="nav-btn" data-tab="promotions">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41 11 3.83A2 2 0 0 0 9.59 3.24L4 3a1 1 0 0 0-1 1l.24 5.59a2 2 0 0 0 .59 1.41l9.58 9.58a2 2 0 0 0 2.83 0l4.35-4.35a2 2 0 0 0 0-2.82Z"/><circle cx="7.5" cy="7.5" r="1.2" fill="currentColor" stroke="none"/></svg>
+      <span class="label">Promotions</span>
     </button>
   </ul>
 
@@ -497,12 +570,56 @@ table.cn td.num{font-family:var(--font-mono);}
       </div>
     </section>
 
+    <!-- PROMOTIONS -->
+    <section class="panel" id="panel-promotions">
+
+      <div class="card">
+        <div class="catalog-card-head">
+          <div>
+            <h3 style="margin-bottom:2px;">Item catalog</h3>
+            <span class="muted-note" id="catalogSummaryInline">No catalog uploaded yet.</span>
+          </div>
+          <button class="icon-btn" id="toggleCatalogBtn" title="Show/hide catalog settings" aria-label="Show/hide catalog settings">
+            <svg id="catalogChevron" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
+        </div>
+        <div id="catalogBody" style="margin-top:14px;">
+          <div id="catalogInfo" class="file-info empty">No catalog uploaded yet.</div>
+          <div class="form-grid" style="margin-top:14px;">
+            <div>
+              <label for="catalogFileInput">Upload / replace catalog file</label>
+              <input type="file" id="catalogFileInput" accept=".xlsx,.xls,.csv">
+            </div>
+            <div>
+              <label for="lowStockInput">Low-stock threshold <span style="opacity:.6;">(flag when Balance is below this)</span></label>
+              <input type="text" inputmode="numeric" id="lowStockInput" placeholder="e.g. 20">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="promo-tabstrip-wrap">
+        <div class="promo-tabstrip" id="promoTabstrip"></div>
+        <button class="btn small" id="newPromoBtn">+ New promotion</button>
+      </div>
+
+      <div id="promoWorkspace"></div>
+
+      <div class="empty-state" id="promoEmpty" style="display:none;">
+        <div class="glyph"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41 11 3.83A2 2 0 0 0 9.59 3.24L4 3a1 1 0 0 0-1 1l.24 5.59a2 2 0 0 0 .59 1.41l9.58 9.58a2 2 0 0 0 2.83 0l4.35-4.35a2 2 0 0 0 0-2.82Z"/></svg></div>
+        <p class="big">No promotions yet</p>
+        <p>Click "+ New promotion" to start one.</p>
+      </div>
+
+    </section>
+
   </div>
 </div>
 
 <div class="modal-overlay" id="modalOverlay">
   <div class="modal-box">
     <p id="modalMsg"></p>
+    <input type="text" id="modalInput" class="modal-input" style="display:none;">
     <div class="modal-actions">
       <button class="btn ghost small" id="modalCancel">Cancel</button>
       <button class="btn small" id="modalConfirm">Delete</button>
@@ -599,6 +716,172 @@ async function idbDelete(store, id) {
 }
 
 /* ============================================================
+   Promotions - catalog, settings, promotions, promotion rows
+   ============================================================ */
+async function loadCatalog() {
+  const { data, error } = await sb.from('catalog_items').select('*').order('id', { ascending: true });
+  if (error) { console.error(error); showToast('Could not load the catalog from Supabase.', true); return; }
+  catalogItems = (data || []).map(r => ({ code: r.id, description: r.description || '', balance: r.balance, salePrice: r.sale_price === undefined ? null : r.sale_price }));
+  catalogMap = new Map(catalogItems.map(i => [i.code, i]));
+}
+
+async function replaceCatalog(rows, fileName) {
+  const { error: delErr } = await sb.from('catalog_items').delete().not('id', 'is', null);
+  if (delErr) { console.error(delErr); showToast('Could not clear the old catalog.', true); return false; }
+  const now = new Date().toISOString();
+  const payload = rows.map(r => ({ id: r.code, description: r.description, balance: r.balance, sale_price: r.salePrice, updated_at: now }));
+  const chunkSize = 500;
+  for (let i = 0; i < payload.length; i += chunkSize) {
+    const chunk = payload.slice(i, i + chunkSize);
+    const { error } = await sb.from('catalog_items').insert(chunk);
+    if (error) { console.error(error); showToast('Could not upload the full catalog \u2014 check your connection.', true); return false; }
+  }
+  catalogMeta.fileName = fileName;
+  await loadCatalog();
+  return true;
+}
+
+async function loadSettings() {
+  const { data, error } = await sb.from('app_settings').select('*').eq('id', 'singleton').maybeSingle();
+  if (error) { console.error(error); return; }
+  if (data && typeof data.low_stock_threshold === 'number') lowStockThreshold = data.low_stock_threshold;
+}
+async function saveSettings() {
+  const { error } = await sb.from('app_settings').upsert({ id: 'singleton', low_stock_threshold: lowStockThreshold });
+  if (error) { console.error(error); showToast('Could not save the threshold.', true); }
+}
+
+async function loadPromotions() {
+  const { data, error } = await sb.from('promotions').select('*').order('created_at', { ascending: false });
+  if (error) { console.error(error); showToast('Could not load promotions.', true); return; }
+  promotions = (data || []).map(r => ({ id: r.id, name: r.name, from: r.from_date, to: r.to_date, createdAt: r.created_at }));
+}
+async function savePromotion(promo) {
+  const row = { id: promo.id, name: promo.name, from_date: promo.from || null, to_date: promo.to || null };
+  const { error } = await sb.from('promotions').upsert(row);
+  if (error) { console.error(error); showToast('Could not save the promotion.', true); }
+}
+async function deletePromotionRemote(id) {
+  const { error } = await sb.from('promotions').delete().eq('id', id);
+  if (error) { console.error(error); showToast('Could not delete the promotion.', true); }
+}
+
+async function loadPromoRows(promoId) {
+  const { data, error } = await sb.from('promotion_rows').select('*').eq('promotion_id', promoId).order('sort_order', { ascending: true });
+  if (error) { console.error(error); showToast('Could not load this promotion’s items.', true); return []; }
+  return (data || []).map(r => ({
+    id: r.id, code: r.code || '', description: r.description || '',
+    balance: r.balance === undefined ? null : r.balance,
+    promoPrice: r.promo_price === undefined ? null : r.promo_price,
+    discount: r.discount === undefined ? null : r.discount,
+    beforePrice: r.before_price === undefined ? null : r.before_price,
+    salePrice: r.sale_price === undefined ? null : r.sale_price,
+    priceType: r.price_type || '',
+    flagged: !!r.flagged,
+    sortOrder: r.sort_order || 0, _lastLookupCode: r.code || ''
+  }));
+}
+function numOrNull(v) {
+  if (v === '' || v === null || v === undefined) return null;
+  const n = Number(v);
+  return isNaN(n) ? null : n;
+}
+function promoRowPayload(row) {
+  return {
+    id: row.id, promotion_id: currentPromoId, code: row.code, description: row.description,
+    balance: numOrNull(row.balance),
+    promo_price: numOrNull(row.promoPrice),
+    discount: numOrNull(row.discount),
+    before_price: numOrNull(row.beforePrice),
+    sale_price: numOrNull(row.salePrice),
+    price_type: row.priceType || null,
+    flagged: !!row.flagged,
+    sort_order: row.sortOrder
+  };
+}
+async function savePromoRow(row) {
+  const { error } = await sb.from('promotion_rows').upsert(promoRowPayload(row));
+  if (error) { console.error(error); showToast('Could not save that row.', true); }
+}
+async function persistRowsBulk(rows) {
+  if (!rows.length) return;
+  const payload = rows.map(promoRowPayload);
+  const chunkSize = 500;
+  for (let i = 0; i < payload.length; i += chunkSize) {
+    const chunk = payload.slice(i, i + chunkSize);
+    const { error } = await sb.from('promotion_rows').upsert(chunk);
+    if (error) { console.error(error); showToast('Could not save some of the rows.', true); return; }
+  }
+}
+async function deletePromoRow(id) {
+  const { error } = await sb.from('promotion_rows').delete().eq('id', id);
+  if (error) { console.error(error); showToast('Could not delete that row.', true); }
+}
+async function deleteRowsBulk(ids) {
+  if (!ids.length) return;
+  const { error } = await sb.from('promotion_rows').delete().in('id', ids);
+  if (error) { console.error(error); showToast('Could not delete the selected rows.', true); }
+}
+function renumberRows() {
+  currentRows.forEach((r, i) => { r.sortOrder = i; });
+}
+function blankPromoRow() {
+  return { id: uid(), code: '', description: '', promoPrice: null, discount: null, beforePrice: null, salePrice: null, balance: null, priceType: '', flagged: false, sortOrder: currentRows.length, _lastLookupCode: '' };
+}
+const PROMO_FIELDS = ['code', 'description', 'promoPrice', 'discount', 'beforePrice', 'salePrice', 'balance', 'priceType'];
+const PRICE_RISK_RATIO = 0.25;
+function isPriceRisk(row) {
+  const promo = Number(row.promoPrice);
+  const sale = Number(row.salePrice);
+  if (row.promoPrice === null || row.promoPrice === undefined || row.promoPrice === '') return false;
+  if (row.salePrice === null || row.salePrice === undefined || row.salePrice === '') return false;
+  if (isNaN(promo) || isNaN(sale) || sale <= 0) return false;
+  return promo < sale * PRICE_RISK_RATIO;
+}
+function rowNeedsFlag(row) {
+  return !!row.flagged || isPriceRisk(row);
+}
+function refreshRowFlagUi(tr, row) {
+  const btn = tr.querySelector('[data-role="toggle-flag"]');
+  if (!btn) return;
+  const priceRisk = isPriceRisk(row);
+  btn.classList.toggle('flag-on', rowNeedsFlag(row));
+  btn.title = row.flagged
+    ? 'Flagged for review \u2014 click to unflag'
+    : (priceRisk ? 'Promo price is under 25% of the sale price \u2014 click to mark as reviewed' : 'Flag this row for review');
+}
+function isRowEmpty(row) {
+  return !row.code && !row.description &&
+    row.promoPrice === null && row.discount === null &&
+    row.beforePrice === null && row.salePrice === null && row.balance === null;
+}
+function computePromoStats(rows) {
+  return {
+    total: rows.length,
+    flagged: rows.filter(rowNeedsFlag).length,
+    empty: rows.filter(isRowEmpty).length
+  };
+}
+function fieldValueParse(field, raw) {
+  raw = (raw ?? '').trim();
+  if (['promoPrice', 'discount', 'beforePrice', 'salePrice', 'balance'].includes(field)) {
+    if (raw === '') return null;
+    const cleaned = raw.replace(/[^0-9.\-]/g, '');
+    const n = Number(cleaned);
+    return isNaN(n) ? null : n;
+  }
+  if (field === 'priceType') {
+    const norm = raw.toLowerCase();
+    if (!norm || norm === '\u2014') return '';
+    if (norm.includes('sell')) return 'sellout';
+    if (norm.includes('c/n') || norm === 'cn' || norm.includes('credit')) return 'cn';
+    if (norm.includes('right')) return 'rightprice';
+    return '';
+  }
+  return raw;
+}
+
+/* ============================================================
    State
    ============================================================ */
 let sellouts = [];
@@ -609,6 +892,17 @@ let soundEnabled = localStorage.getItem('sol-sound') !== 'off';
 let openIds = new Set();
 let editingSelloutId = null;
 let editingCnId = null;
+
+// Promotions
+let catalogItems = [];
+let catalogMap = new Map();
+let catalogMeta = { fileName: null };
+let lowStockThreshold = 20;
+let promotions = [];
+let currentPromoId = null;
+let currentRows = [];
+let selectedRowIds = new Set();
+let catalogCollapsed = localStorage.getItem('sol-catalog-collapsed') === 'true';
 
 const uid = () => 'id-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
 const todayStr = () => new Date().toISOString().slice(0, 10);
@@ -638,6 +932,8 @@ function showConfirm(message, confirmLabel = 'Delete') {
     const overlay = document.getElementById('modalOverlay');
     const confirmBtn = document.getElementById('modalConfirm');
     const cancelBtn = document.getElementById('modalCancel');
+    const input = document.getElementById('modalInput');
+    if (input) input.style.display = 'none';
     document.getElementById('modalMsg').textContent = message;
     confirmBtn.textContent = confirmLabel;
     overlay.classList.add('open');
@@ -655,6 +951,40 @@ function showConfirm(message, confirmLabel = 'Delete') {
     confirmBtn.addEventListener('click', onConfirm);
     cancelBtn.addEventListener('click', onCancel);
     overlay.addEventListener('click', onOverlay);
+  });
+}
+function showPrompt(message, opts = {}) {
+  const { defaultValue = '', confirmLabel = 'Add', placeholder = '' } = opts;
+  return new Promise((resolve) => {
+    const overlay = document.getElementById('modalOverlay');
+    const confirmBtn = document.getElementById('modalConfirm');
+    const cancelBtn = document.getElementById('modalCancel');
+    const input = document.getElementById('modalInput');
+    document.getElementById('modalMsg').textContent = message;
+    confirmBtn.textContent = confirmLabel;
+    input.style.display = 'block';
+    input.value = defaultValue;
+    input.placeholder = placeholder;
+    overlay.classList.add('open');
+    setTimeout(() => { input.focus(); input.select(); }, 30);
+
+    const cleanup = (result) => {
+      overlay.classList.remove('open');
+      input.style.display = 'none';
+      confirmBtn.removeEventListener('click', onConfirm);
+      cancelBtn.removeEventListener('click', onCancel);
+      overlay.removeEventListener('click', onOverlay);
+      input.removeEventListener('keydown', onKeydown);
+      resolve(result);
+    };
+    const onConfirm = () => cleanup(input.value);
+    const onCancel = () => cleanup(null);
+    const onOverlay = (e) => { if (e.target === overlay) cleanup(null); };
+    const onKeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); cleanup(input.value); } };
+    confirmBtn.addEventListener('click', onConfirm);
+    cancelBtn.addEventListener('click', onCancel);
+    overlay.addEventListener('click', onOverlay);
+    input.addEventListener('keydown', onKeydown);
   });
 }
 function showToast(message, isError = false) {
@@ -1062,7 +1392,8 @@ function renderCreditNotes() {
 const PAGES = {
   sellouts:    { eyebrow: 'Overview', title: 'Sell-outs', sub: 'Every sell-out you\u2019re tracking, with items and activation history.' },
   add:         { eyebrow: 'New entry', title: 'Add a sell-out', sub: 'Upload the Excel file for a new sell-out \u2014 its item rows are read automatically.' },
-  creditnotes: { eyebrow: 'Tracker', title: 'Credit notes', sub: 'Every credit note logged against your suppliers, issued or signed.' }
+  creditnotes: { eyebrow: 'Tracker', title: 'Credit notes', sub: 'Every credit note logged against your suppliers, issued or signed.' },
+  promotions:  { eyebrow: 'Builder', title: 'Promotions', sub: 'Look up items by code, build a flyer, and export it when it’s ready.' }
 };
 function switchTab(name) {
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
@@ -1139,7 +1470,579 @@ async function runNotificationCheck() {
 }
 setInterval(runNotificationCheck, 5 * 60 * 1000);
 
+/* ============================================================
+   Promotions - UI
+   ============================================================ */
+function renderCatalogInfo() {
+  const el = document.getElementById('catalogInfo');
+  const inline = document.getElementById('catalogSummaryInline');
+  if (!catalogItems.length) {
+    el.className = 'file-info empty';
+    el.textContent = 'No catalog uploaded yet.';
+    if (inline) inline.textContent = 'No catalog uploaded yet.';
+    return;
+  }
+  el.className = 'file-info';
+  el.innerHTML = `
+    <div>
+      <div class="fi-name">${escapeHtml(catalogMeta.fileName || 'Catalog on file')}</div>
+      <div class="fi-meta">${catalogItems.length} item${catalogItems.length === 1 ? '' : 's'} loaded</div>
+    </div>
+  `;
+  if (inline) inline.textContent = `${catalogItems.length} item${catalogItems.length === 1 ? '' : 's'} loaded \u2014 threshold ${lowStockThreshold}`;
+}
+
+function applyCatalogCollapse() {
+  const bodyEl = document.getElementById('catalogBody');
+  const chev = document.getElementById('catalogChevron');
+  if (bodyEl) bodyEl.style.display = catalogCollapsed ? 'none' : '';
+  if (chev) chev.style.transform = catalogCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)';
+}
+document.getElementById('toggleCatalogBtn').addEventListener('click', () => {
+  catalogCollapsed = !catalogCollapsed;
+  localStorage.setItem('sol-catalog-collapsed', String(catalogCollapsed));
+  applyCatalogCollapse();
+});
+
+document.getElementById('catalogFileInput').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const buf = await file.arrayBuffer();
+  let wb;
+  try { wb = XLSX.read(buf, { type: 'array' }); }
+  catch (err) { showToast('Could not read that file \u2014 check the format.', true); e.target.value = ''; return; }
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+  if (!rows.length) { showToast('That file has no rows.', true); e.target.value = ''; return; }
+
+  const headerKeys = Object.keys(rows[0]);
+  const norm = (s) => s.trim().toLowerCase().replace(/\s+/g, '');
+  const findExact = (want) => headerKeys.find(k => norm(k) === want);
+  const codeKey = findExact('code') || findExact('item') || headerKeys[0];
+  const descKey = findExact('description') || headerKeys[1];
+  const balanceKey = findExact('balance');
+  const saleKey = findExact('saleprice') || findExact('salesprice');
+
+  const parsed = rows.map(r => ({
+    code: String(r[codeKey] ?? '').trim(),
+    description: descKey ? String(r[descKey] ?? '').trim() : '',
+    balance: (balanceKey && r[balanceKey] !== '' && !isNaN(Number(r[balanceKey]))) ? Number(r[balanceKey]) : null,
+    salePrice: (saleKey && r[saleKey] !== '' && !isNaN(Number(r[saleKey]))) ? Number(r[saleKey]) : null
+  })).filter(r => r.code);
+
+  const skipped = rows.length - parsed.length;
+  if (!parsed.length) { showToast('Could not find an item code column in that file.', true); e.target.value = ''; return; }
+
+  const ok = await replaceCatalog(parsed, file.name);
+  e.target.value = '';
+  if (!ok) return;
+
+  renderCatalogInfo();
+  await renderPromoWorkspace();
+
+  const warnings = [];
+  if (!balanceKey) warnings.push('no "Balance" column was found, so low-stock flags won’t work');
+  if (!saleKey) warnings.push('no "Saleprice" column was found, so Sale Price won’t auto-fill');
+  if (skipped > 0) warnings.push(`${skipped} row${skipped === 1 ? '' : 's'} had no code and ${skipped === 1 ? 'was' : 'were'} skipped`);
+
+  if (warnings.length) showToast(`Catalog updated (${parsed.length} items) \u2014 but ${warnings.join('; ')}.`, true);
+  else showToast(`Catalog updated \u2014 ${parsed.length} items loaded.`);
+});
+
+document.getElementById('lowStockInput').addEventListener('change', async (e) => {
+  const val = Number(e.target.value);
+  if (isNaN(val)) { showToast('Enter a valid number for the threshold.', true); e.target.value = lowStockThreshold; return; }
+  lowStockThreshold = val;
+  await saveSettings();
+  renderCatalogInfo();
+  await renderPromoWorkspace();
+  showToast(`Low-stock threshold set to ${val}.`);
+});
+
+function renderPromoTabstrip() {
+  const strip = document.getElementById('promoTabstrip');
+  const emptyEl = document.getElementById('promoEmpty');
+  if (!promotions.length) {
+    strip.innerHTML = '';
+    emptyEl.style.display = 'block';
+    return;
+  }
+  emptyEl.style.display = 'none';
+  strip.innerHTML = promotions.map(p => `
+    <button class="promo-tab ${p.id === currentPromoId ? 'active' : ''}" data-promo-id="${p.id}">${escapeHtml(p.name || 'Untitled')}</button>
+  `).join('');
+  strip.querySelectorAll('.promo-tab').forEach(btn => {
+    btn.addEventListener('click', () => selectPromotion(btn.dataset.promoId));
+  });
+}
+
+async function selectPromotion(id) {
+  if (id === currentPromoId) return;
+  currentPromoId = id;
+  currentRows = await loadPromoRows(id);
+  selectedRowIds.clear();
+  renderPromoTabstrip();
+  await renderPromoWorkspace();
+}
+
+document.getElementById('newPromoBtn').addEventListener('click', async () => {
+  const promo = { id: uid(), name: 'New promotion', from: null, to: null, createdAt: new Date().toISOString() };
+  promotions.unshift(promo);
+  await savePromotion(promo);
+  currentPromoId = promo.id;
+  currentRows = [];
+  selectedRowIds.clear();
+  renderPromoTabstrip();
+  await renderPromoWorkspace();
+  const nameField = document.getElementById('promoName');
+  if (nameField) { nameField.focus(); nameField.select(); }
+});
+
+function rowStockBadgeHtml(row) {
+  const isLow = row.balance !== null && row.balance !== undefined && Number(row.balance) < lowStockThreshold;
+  return isLow
+    ? '<span class="low-stock-badge"><span class="pulse"></span>Low stock</span>'
+    : '<span class="ok-stock-note">\u2014</span>';
+}
+function numToStr(v) { return (v === null || v === undefined) ? '' : v; }
+
+async function renderPromoWorkspace() {
+  const workspace = document.getElementById('promoWorkspace');
+  if (!currentPromoId) { workspace.innerHTML = ''; return; }
+  const promo = promotions.find(p => p.id === currentPromoId);
+  if (!promo) { workspace.innerHTML = ''; return; }
+
+  const rowsHtml = currentRows.map(row => {
+    const priceRisk = isPriceRisk(row);
+    const needsFlag = rowNeedsFlag(row);
+    const flagTitle = row.flagged
+      ? 'Flagged for review \u2014 click to unflag'
+      : (priceRisk ? 'Promo price is under 25% of the sale price \u2014 click to mark as reviewed' : 'Flag this row for review');
+    return `
+    <tr data-row-id="${row.id}">
+      <td class="chk-col"><input type="checkbox" data-role="select-row" tabindex="-1" ${selectedRowIds.has(row.id) ? 'checked' : ''}></td>
+      <td class="code-cell"><input type="text" value="${escapeHtml(row.code)}" data-field="code" placeholder="Code"></td>
+      <td><input type="text" value="${escapeHtml(row.description)}" data-field="description" placeholder="Description"></td>
+      <td class="balance-cell"><input type="text" inputmode="decimal" value="${numToStr(row.promoPrice)}" data-field="promoPrice" placeholder="0.00"></td>
+      <td class="balance-cell"><input type="text" inputmode="decimal" value="${numToStr(row.discount)}" data-field="discount" placeholder="0%"></td>
+      <td class="balance-cell"><input type="text" inputmode="decimal" value="${numToStr(row.beforePrice)}" data-field="beforePrice" placeholder="0.00"></td>
+      <td class="balance-cell"><input type="text" inputmode="decimal" value="${numToStr(row.salePrice)}" data-field="salePrice" placeholder="0.00"></td>
+      <td class="stock-cell">
+        <div class="stock-cell-wrap">
+          <input type="text" inputmode="numeric" class="stock-input" value="${numToStr(row.balance)}" data-field="balance" placeholder="0">
+          <span class="stock-badge-slot">${rowStockBadgeHtml(row)}</span>
+        </div>
+      </td>
+      <td>
+        <select data-field="priceType">
+          <option value="" ${!row.priceType ? 'selected' : ''}>\u2014</option>
+          <option value="sellout" ${row.priceType === 'sellout' ? 'selected' : ''}>Sell Out</option>
+          <option value="cn" ${row.priceType === 'cn' ? 'selected' : ''}>C/N</option>
+          <option value="rightprice" ${row.priceType === 'rightprice' ? 'selected' : ''}>Right Price</option>
+        </select>
+      </td>
+      <td class="row-actions">
+        <div class="icon-actions">
+          <button class="icon-btn ${needsFlag ? 'flag-on' : ''}" data-role="toggle-flag" tabindex="-1" title="${flagTitle}" aria-label="Flag row">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21V4a1 1 0 0 1 1-1h11.2a.6.6 0 0 1 .45 1l-3.15 4 3.15 4a.6.6 0 0 1-.45 1H6"/></svg>
+          </button>
+          <button class="icon-btn" data-role="insert-row" tabindex="-1" title="Insert row below" aria-label="Insert row below">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+          </button>
+          <button class="icon-btn danger" data-role="remove-row" tabindex="-1" title="Remove row" aria-label="Remove row">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/><path d="M10 11v6M14 11v6"/></svg>
+          </button>
+        </div>
+      </td>
+    </tr>
+  `;
+  }).join('');
+  const promoStats = computePromoStats(currentRows);
+
+  workspace.innerHTML = `
+    <div class="card promo-header-card">
+      <div class="promo-header-fields">
+        <div class="field">
+          <label for="promoName">Promotion name</label>
+          <input type="text" id="promoName" value="${escapeHtml(promo.name)}">
+        </div>
+        <div class="field">
+          <label for="promoFrom">From</label>
+          <input type="date" id="promoFrom" value="${promo.from || ''}">
+        </div>
+        <div class="field">
+          <label for="promoTo">To</label>
+          <input type="date" id="promoTo" value="${promo.to || ''}">
+        </div>
+      </div>
+      <div class="promo-header-actions">
+        <button class="btn secondary small" id="exportPromoBtn">Export to Excel</button>
+        <button class="btn ghost small" id="deletePromoBtn">Delete</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <p class="muted-note" style="margin:0 0 4px;">${promoStats.total} row${promoStats.total === 1 ? '' : 's'} \u00b7 ${promoStats.flagged} flagged \u00b7 ${promoStats.empty} empty row${promoStats.empty === 1 ? '' : 's'}</p>
+      <p class="muted-note" style="margin:0 0 10px;">Tip: copy a block of cells from Excel and paste directly into the table \u2014 it will fill rows and columns starting from where you paste, adding new rows if needed. Enter moves down a column, Tab at the last field adds a new row.</p>
+      <div class="items-scroll">
+        <table class="promo">
+          <thead><tr>
+            <th class="chk-col"><input type="checkbox" id="selectAllRows"></th>
+            <th>Code</th><th>Description</th><th>Promo Price</th><th>Discount</th><th>Before Price</th><th>Sale Price</th><th>Stock</th><th>Type</th><th></th>
+          </tr></thead>
+          <tbody id="promoRowsBody">${rowsHtml}</tbody>
+        </table>
+      </div>
+      <div class="promo-table-foot">
+        <div class="promo-foot-actions">
+          <button class="btn secondary small" id="addRowBtn">+ Add row</button>
+          <button class="btn secondary small" id="addRowsBulkBtn">+ Add rows\u2026</button>
+          <button class="btn ghost small" id="deleteSelectedBtn" style="display:${selectedRowIds.size ? 'inline-flex' : 'none'};color:var(--brick);">Delete selected (${selectedRowIds.size})</button>
+        </div>
+        <span class="muted-note">${currentRows.length} item${currentRows.length === 1 ? '' : 's'}</span>
+      </div>
+    </div>
+  `;
+
+  wirePromoWorkspaceEvents(promo);
+}
+
+function wirePromoWorkspaceEvents(promo) {
+  const nameInput = document.getElementById('promoName');
+  const fromInput = document.getElementById('promoFrom');
+  const toInput = document.getElementById('promoTo');
+
+  const saveHeader = async () => {
+    promo.name = nameInput.value.trim() || 'Untitled promotion';
+    promo.from = fromInput.value || null;
+    promo.to = toInput.value || null;
+    await savePromotion(promo);
+    renderPromoTabstrip();
+  };
+  nameInput.addEventListener('blur', saveHeader);
+  fromInput.addEventListener('change', saveHeader);
+  toInput.addEventListener('change', saveHeader);
+
+  document.getElementById('exportPromoBtn').addEventListener('click', () => exportPromotionToExcel(promo));
+
+  document.getElementById('deletePromoBtn').addEventListener('click', async () => {
+    const ok = await showConfirm(`Delete "${promo.name}"? This removes all its rows too.`, 'Delete');
+    if (!ok) return;
+    await deletePromotionRemote(promo.id);
+    promotions = promotions.filter(p => p.id !== promo.id);
+    selectedRowIds.clear();
+    if (currentPromoId === promo.id) {
+      currentPromoId = promotions.length ? promotions[0].id : null;
+      currentRows = currentPromoId ? await loadPromoRows(currentPromoId) : [];
+    }
+    renderPromoTabstrip();
+    await renderPromoWorkspace();
+    showToast('Promotion deleted.');
+  });
+
+  document.getElementById('addRowBtn').addEventListener('click', async () => {
+    const row = blankPromoRow();
+    currentRows.push(row);
+    await renderPromoWorkspace();
+    await savePromoRow(row);
+    const bodyEl = document.getElementById('promoRowsBody');
+    const lastRow = bodyEl && bodyEl.lastElementChild;
+    const codeField = lastRow && lastRow.querySelector('[data-field="code"]');
+    if (codeField) codeField.focus();
+  });
+
+  document.getElementById('addRowsBulkBtn').addEventListener('click', async () => {
+    const val = await showPrompt('How many rows do you want to add?', { defaultValue: '5', confirmLabel: 'Add rows', placeholder: 'e.g. 5' });
+    if (val === null) return;
+    const n = parseInt(val, 10);
+    if (!n || n < 1) { showToast('Enter a number of rows greater than 0.', true); return; }
+    const newRows = [];
+    for (let i = 0; i < n; i++) {
+      const row = blankPromoRow();
+      row.sortOrder = currentRows.length;
+      currentRows.push(row);
+      newRows.push(row);
+    }
+    await renderPromoWorkspace();
+    await persistRowsBulk(newRows);
+    showToast(`${n} row${n === 1 ? '' : 's'} added.`);
+  });
+
+  document.getElementById('deleteSelectedBtn').addEventListener('click', async () => {
+    const ids = Array.from(selectedRowIds);
+    if (!ids.length) return;
+    const ok = await showConfirm(`Delete ${ids.length} selected row${ids.length === 1 ? '' : 's'}?`, 'Delete');
+    if (!ok) return;
+    currentRows = currentRows.filter(r => !selectedRowIds.has(r.id));
+    selectedRowIds.clear();
+    renumberRows();
+    await deleteRowsBulk(ids);
+    await persistRowsBulk(currentRows);
+    await renderPromoWorkspace();
+    showToast('Selected rows deleted.');
+  });
+
+  const selectAllCb = document.getElementById('selectAllRows');
+  if (selectAllCb) {
+    selectAllCb.checked = currentRows.length > 0 && currentRows.every(r => selectedRowIds.has(r.id));
+    selectAllCb.addEventListener('change', async () => {
+      if (selectAllCb.checked) currentRows.forEach(r => selectedRowIds.add(r.id));
+      else selectedRowIds.clear();
+      await renderPromoWorkspace();
+    });
+  }
+
+  const body = document.getElementById('promoRowsBody');
+  if (!body) return;
+
+  body.querySelectorAll('tr').forEach(tr => {
+    const rowId = tr.dataset.rowId;
+    const row = currentRows.find(r => r.id === rowId);
+    if (!row) return;
+    const rowIdx = Array.prototype.indexOf.call(body.children, tr);
+
+    const focusDown = (field) => {
+      const nextTr = body.children[rowIdx + 1];
+      if (!nextTr) return;
+      const el = nextTr.querySelector(`[data-field="${field}"]`);
+      if (el) { el.focus(); if (el.select) el.select(); }
+    };
+    const goToNextRowOrCreate = async () => {
+      const nextTr = body.children[rowIdx + 1];
+      if (nextTr) {
+        const el = nextTr.querySelector('[data-field="code"]');
+        if (el) { el.focus(); if (el.select) el.select(); }
+        return;
+      }
+      const newRow = blankPromoRow();
+      currentRows.push(newRow);
+      await renderPromoWorkspace();
+      await savePromoRow(newRow);
+      const bodyEl = document.getElementById('promoRowsBody');
+      const newTr = bodyEl && bodyEl.lastElementChild;
+      const codeField = newTr && newTr.querySelector('[data-field="code"]');
+      if (codeField) codeField.focus();
+    };
+
+    const selectCb = tr.querySelector('[data-role="select-row"]');
+    const codeInput = tr.querySelector('[data-field="code"]');
+    const descInput = tr.querySelector('[data-field="description"]');
+    const promoPriceInput = tr.querySelector('[data-field="promoPrice"]');
+    const discountInput = tr.querySelector('[data-field="discount"]');
+    const beforePriceInput = tr.querySelector('[data-field="beforePrice"]');
+    const salePriceInput = tr.querySelector('[data-field="salePrice"]');
+    const balInput = tr.querySelector('[data-field="balance"]');
+    const typeSelect = tr.querySelector('[data-field="priceType"]');
+    const stockBadgeSlot = tr.querySelector('.stock-badge-slot');
+
+    selectCb.addEventListener('change', () => {
+      if (selectCb.checked) selectedRowIds.add(rowId); else selectedRowIds.delete(rowId);
+      const delBtn = document.getElementById('deleteSelectedBtn');
+      if (delBtn) {
+        delBtn.style.display = selectedRowIds.size ? 'inline-flex' : 'none';
+        delBtn.textContent = `Delete selected (${selectedRowIds.size})`;
+      }
+      const selectAllCb2 = document.getElementById('selectAllRows');
+      if (selectAllCb2) selectAllCb2.checked = currentRows.length > 0 && currentRows.every(r => selectedRowIds.has(r.id));
+    });
+
+    const doLookup = () => {
+      const code = codeInput.value.trim();
+      row.code = code;
+      if (code === row._lastLookupCode) return;
+      row._lastLookupCode = code;
+      if (!code) { savePromoRow(row); return; }
+      const item = catalogMap.get(code);
+      if (item) {
+        row.description = item.description;
+        row.balance = item.balance === undefined ? null : item.balance;
+        row.salePrice = item.salePrice === undefined ? null : item.salePrice;
+        descInput.value = item.description;
+        balInput.value = row.balance === null ? '' : row.balance;
+        salePriceInput.value = row.salePrice === null ? '' : row.salePrice;
+        stockBadgeSlot.innerHTML = rowStockBadgeHtml(row);
+        refreshRowFlagUi(tr, row);
+      } else {
+        showToast(`Code "${code}" not found in the catalog \u2014 fill it in manually.`, true);
+      }
+      savePromoRow(row);
+    };
+
+    codeInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); doLookup(); focusDown('code'); }
+    });
+    codeInput.addEventListener('blur', doLookup);
+
+    descInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); focusDown('description'); } });
+    descInput.addEventListener('blur', () => { row.description = descInput.value; savePromoRow(row); });
+
+    promoPriceInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); focusDown('promoPrice'); } });
+    promoPriceInput.addEventListener('blur', () => { row.promoPrice = numOrNull(promoPriceInput.value); savePromoRow(row); refreshRowFlagUi(tr, row); });
+
+    discountInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); focusDown('discount'); } });
+    discountInput.addEventListener('blur', () => { row.discount = numOrNull(discountInput.value); savePromoRow(row); });
+
+    beforePriceInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); focusDown('beforePrice'); } });
+    beforePriceInput.addEventListener('blur', () => { row.beforePrice = numOrNull(beforePriceInput.value); savePromoRow(row); });
+
+    salePriceInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); focusDown('salePrice'); } });
+    salePriceInput.addEventListener('blur', () => { row.salePrice = numOrNull(salePriceInput.value); savePromoRow(row); refreshRowFlagUi(tr, row); });
+
+    balInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); focusDown('balance'); } });
+    balInput.addEventListener('blur', () => {
+      row.balance = numOrNull(balInput.value);
+      stockBadgeSlot.innerHTML = rowStockBadgeHtml(row);
+      savePromoRow(row);
+    });
+
+    typeSelect.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); focusDown('priceType'); }
+      else if (e.key === 'Tab' && !e.shiftKey) { e.preventDefault(); goToNextRowOrCreate(); }
+    });
+    typeSelect.addEventListener('change', () => {
+      row.priceType = typeSelect.value;
+      savePromoRow(row);
+    });
+
+    tr.querySelector('[data-role="toggle-flag"]').addEventListener('click', async () => {
+      row.flagged = !row.flagged;
+      await savePromoRow(row);
+      await renderPromoWorkspace();
+    });
+
+    tr.querySelector('[data-role="insert-row"]').addEventListener('click', async () => {
+      const idx = currentRows.findIndex(r => r.id === rowId);
+      const newRow = blankPromoRow();
+      currentRows.splice(idx + 1, 0, newRow);
+      renumberRows();
+      await renderPromoWorkspace();
+      await persistRowsBulk(currentRows);
+      const bodyEl = document.getElementById('promoRowsBody');
+      const newTr = bodyEl && bodyEl.querySelector(`tr[data-row-id="${newRow.id}"]`);
+      const codeField = newTr && newTr.querySelector('[data-field="code"]');
+      if (codeField) codeField.focus();
+    });
+
+    tr.querySelector('[data-role="remove-row"]').addEventListener('click', async () => {
+      const ok = await showConfirm('Remove this row?', 'Remove');
+      if (!ok) return;
+      currentRows = currentRows.filter(r => r.id !== rowId);
+      selectedRowIds.delete(rowId);
+      renumberRows();
+      await deletePromoRow(rowId);
+      await renderPromoWorkspace();
+    });
+  });
+
+  body.addEventListener('paste', async (e) => {
+    const target = e.target;
+    if (!target || !target.matches('input[data-field], select[data-field]')) return;
+    const clipboard = e.clipboardData || window.clipboardData;
+    if (!clipboard) return;
+    const text = clipboard.getData('text/plain');
+    if (!text) return;
+    let gridRows = text.replace(/\r/g, '').split('\n');
+    while (gridRows.length && gridRows[gridRows.length - 1] === '') gridRows.pop();
+    if (!gridRows.length) return;
+    const grid = gridRows.map(line => line.split('\t'));
+    if (grid.length === 1 && grid[0].length === 1) return;
+    e.preventDefault();
+
+    const startTr = target.closest('tr');
+    const startRowId = startTr && startTr.dataset.rowId;
+    const startRowIdx = currentRows.findIndex(r => r.id === startRowId);
+    const startField = target.dataset.field;
+    const startColIdx = PROMO_FIELDS.indexOf(startField);
+    if (startRowIdx === -1 || startColIdx === -1) return;
+
+    const touchedRows = [];
+    for (let r = 0; r < grid.length; r++) {
+      const rowIdx = startRowIdx + r;
+      let row2;
+      if (rowIdx < currentRows.length) {
+        row2 = currentRows[rowIdx];
+      } else {
+        row2 = blankPromoRow();
+        currentRows.push(row2);
+      }
+      const cols = grid[r];
+      for (let c = 0; c < cols.length; c++) {
+        const fieldIdx = startColIdx + c;
+        if (fieldIdx >= PROMO_FIELDS.length) break;
+        const field = PROMO_FIELDS[fieldIdx];
+        const raw = cols[c];
+        if (field === 'code') {
+          const code = raw.trim();
+          row2.code = code;
+          row2._lastLookupCode = code;
+          const item = catalogMap.get(code);
+          if (item) {
+            row2.description = item.description;
+            row2.balance = item.balance === undefined ? null : item.balance;
+            row2.salePrice = item.salePrice === undefined ? null : item.salePrice;
+          }
+        } else {
+          row2[field] = fieldValueParse(field, raw);
+        }
+      }
+      touchedRows.push(row2);
+    }
+    renumberRows();
+    await renderPromoWorkspace();
+    await persistRowsBulk(touchedRows);
+    showToast(`Pasted ${grid.length} row${grid.length === 1 ? '' : 's'}.`);
+  });
+}
+
+const PRICE_TYPE_LABELS = { sellout: 'Sell Out', cn: 'C/N', rightprice: 'Right Price', '': '' };
+
+function exportPromotionToExcel(promo) {
+  if (!currentRows.length) { showToast('Add at least one item before exporting.', true); return; }
+  const aoa = [
+    [promo.name || 'Untitled promotion'],
+    [`${promo.from ? fmtDate(promo.from) : '?'} \u2192 ${promo.to ? fmtDate(promo.to) : '?'}`],
+    [],
+    ['Code', 'Description', 'Promo Price', 'Discount', 'Before Price', 'Sale Price', 'Stock', 'Low Stock', 'Type']
+  ];
+  currentRows.forEach(r => {
+    const isLow = r.balance !== null && r.balance !== undefined && Number(r.balance) < lowStockThreshold;
+    aoa.push([
+      r.code, r.description,
+      (r.promoPrice === null || r.promoPrice === undefined) ? '' : r.promoPrice,
+      (r.discount === null || r.discount === undefined) ? '' : r.discount,
+      (r.beforePrice === null || r.beforePrice === undefined) ? '' : r.beforePrice,
+      (r.salePrice === null || r.salePrice === undefined) ? '' : r.salePrice,
+      (r.balance === null || r.balance === undefined) ? '' : r.balance,
+      isLow ? 'Yes' : 'No',
+      PRICE_TYPE_LABELS[r.priceType || ''] || ''
+    ]);
+  });
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [{ wch: 14 }, { wch: 40 }, { wch: 12 }, { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 9 }, { wch: 10 }, { wch: 12 }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Promotion');
+  const safeName = (promo.name || 'promotion').replace(/[\\/:*?"<>|]/g, '-').trim() || 'promotion';
+  XLSX.writeFile(wb, `${safeName}.xlsx`);
+  showToast('Promotion exported.');
+}
+
+async function initPromotions() {
+  await Promise.all([loadCatalog(), loadSettings(), loadPromotions()]);
+  const thresholdInput = document.getElementById('lowStockInput');
+  if (thresholdInput) thresholdInput.value = lowStockThreshold;
+  renderCatalogInfo();
+  applyCatalogCollapse();
+  renderPromoTabstrip();
+  if (promotions.length) {
+    currentPromoId = promotions[0].id;
+    currentRows = await loadPromoRows(currentPromoId);
+    renderPromoTabstrip();
+  }
+  await renderPromoWorkspace();
+}
+
 loadAll();
+initPromotions();
 </script>
 </body>
 </html>
