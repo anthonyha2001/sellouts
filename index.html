@@ -371,6 +371,16 @@ td.row-actions{width:1%;white-space:nowrap;}
 .ok-stock-note{font-family:var(--font-mono);font-size:11px;color:var(--ink-faint);}
 .promo-table-foot{display:flex;justify-content:space-between;align-items:center;margin-top:14px;flex-wrap:wrap;gap:10px;}
 .promo-foot-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+.discount-cell-wrap{display:flex;align-items:center;gap:6px;}
+.big-discount-dot{position:relative;width:8px;height:8px;border-radius:50%;background:var(--brick);flex:0 0 auto;}
+.big-discount-dot:after{
+  content:"";position:absolute;inset:-5px;border-radius:50%;background:var(--brick);opacity:.4;
+  animation:pulseRing 1.5s ease-out infinite;
+}
+@media (prefers-reduced-motion: reduce){
+  .big-discount-dot:after{animation:none;opacity:.3;}
+}
+input.cell-missing{border-color:var(--brick) !important;box-shadow:0 0 0 1px var(--brick) inset;}
 
 /* ================= Vendors: orders & rentals ================= */
 .date-nav-row .icon-btn{width:36px;height:36px;}
@@ -1139,6 +1149,53 @@ function refreshRowFlagUi(tr, row) {
   btn.title = row.flagged
     ? 'Flagged for review \u2014 click to unflag'
     : (priceRisk ? 'Promo price is under 25% of the sale price \u2014 click to mark as reviewed' : 'Flag this row for review');
+}
+
+/* Auto-calculated discount (Sale Price vs Promo Price), and the two
+   validation cues that go with it: a blinking dot for a discount over 25%,
+   and a red border on cells that are missing something they need. */
+const BIG_DISCOUNT_RATIO = 0.25;
+function mround(value, multiple) {
+  if (!multiple) return value;
+  return Math.round(value / multiple) * multiple;
+}
+function discountFraction(row) {
+  if (row.salePrice === null || row.salePrice === undefined || row.salePrice === '') return null;
+  if (row.promoPrice === null || row.promoPrice === undefined || row.promoPrice === '') return null;
+  const sale = Number(row.salePrice), promo = Number(row.promoPrice);
+  if (isNaN(sale) || isNaN(promo) || sale <= 0) return null;
+  return (sale - promo) / sale;
+}
+function computeAutoDiscountPct(row) {
+  const frac = discountFraction(row);
+  if (frac === null) return null;
+  return Math.round(mround(frac, 0.05) * 100);
+}
+function applyAutoDiscount(row) {
+  const pct = computeAutoDiscountPct(row);
+  if (pct !== null) row.discount = pct;
+}
+function isBigDiscount(row) {
+  const frac = discountFraction(row);
+  return frac !== null && frac > BIG_DISCOUNT_RATIO;
+}
+function isCodeMissingFromCatalog(row) {
+  const code = (row.code || '').trim();
+  return !!code && !catalogMap.has(code);
+}
+function isPromoPriceMissing(row) {
+  const hasCode = !!(row.code && row.code.trim());
+  return hasCode && (row.promoPrice === null || row.promoPrice === undefined || row.promoPrice === '');
+}
+function refreshDiscountUi(tr, row) {
+  const dot = tr.querySelector('[data-role="big-discount-dot"]');
+  if (dot) dot.style.display = isBigDiscount(row) ? 'inline-block' : 'none';
+}
+function refreshRowValidationUi(tr, row) {
+  const codeInput = tr.querySelector('[data-field="code"]');
+  const promoPriceInput = tr.querySelector('[data-field="promoPrice"]');
+  if (codeInput) codeInput.classList.toggle('cell-missing', isCodeMissingFromCatalog(row));
+  if (promoPriceInput) promoPriceInput.classList.toggle('cell-missing', isPromoPriceMissing(row));
 }
 function isRowEmpty(row) {
   return !row.code && !row.description &&
@@ -2025,10 +2082,15 @@ async function renderPromoWorkspace() {
     return `
     <tr data-row-id="${row.id}">
       <td class="chk-col"><input type="checkbox" data-role="select-row" tabindex="-1" ${selectedRowIds.has(row.id) ? 'checked' : ''}></td>
-      <td class="code-cell"><input type="text" value="${escapeHtml(row.code)}" data-field="code" placeholder="Code"></td>
+      <td class="code-cell"><input type="text" class="${isCodeMissingFromCatalog(row) ? 'cell-missing' : ''}" value="${escapeHtml(row.code)}" data-field="code" placeholder="Code" title="${isCodeMissingFromCatalog(row) ? 'This code was not found in the catalog' : ''}"></td>
       <td class="desc-cell"><input type="text" value="${escapeHtml(row.description)}" data-field="description" placeholder="Description"></td>
-      <td class="balance-cell"><input type="text" inputmode="decimal" value="${numToStr(row.promoPrice)}" data-field="promoPrice" placeholder="0.00"></td>
-      <td class="balance-cell"><input type="text" inputmode="decimal" value="${numToStr(row.discount)}" data-field="discount" placeholder="0%"></td>
+      <td class="balance-cell"><input type="text" inputmode="decimal" class="${isPromoPriceMissing(row) ? 'cell-missing' : ''}" value="${numToStr(row.promoPrice)}" data-field="promoPrice" placeholder="0.00" title="${isPromoPriceMissing(row) ? 'Missing the promo price' : ''}"></td>
+      <td class="balance-cell">
+        <div class="discount-cell-wrap">
+          <input type="text" inputmode="decimal" value="${numToStr(row.discount)}" data-field="discount" placeholder="0%">
+          <span class="big-discount-dot" data-role="big-discount-dot" title="Promo price is more than 25% below the sale price" style="display:${isBigDiscount(row) ? 'inline-block' : 'none'};"></span>
+        </div>
+      </td>
       <td class="balance-cell"><input type="text" inputmode="decimal" value="${numToStr(row.beforePrice)}" data-field="beforePrice" placeholder="0.00"></td>
       <td class="balance-cell"><input type="text" inputmode="decimal" value="${numToStr(row.salePrice)}" data-field="salePrice" placeholder="0.00"></td>
       <td class="stock-cell">
@@ -2393,9 +2455,9 @@ function wirePromoWorkspaceEvents(promo) {
     const doLookup = () => {
       const code = codeInput.value.trim();
       row.code = code;
-      if (code === row._lastLookupCode) return;
+      if (code === row._lastLookupCode) { refreshRowValidationUi(tr, row); return; }
       row._lastLookupCode = code;
-      if (!code) { savePromoRow(row); return; }
+      if (!code) { savePromoRow(row); refreshRowValidationUi(tr, row); refreshDiscountUi(tr, row); return; }
       const item = catalogMap.get(code);
       if (item) {
         row.description = item.description;
@@ -2405,6 +2467,8 @@ function wirePromoWorkspaceEvents(promo) {
         descInput.value = item.description;
         balInput.value = row.balance === null ? '' : row.balance;
         salePriceInput.value = row.salePrice === null ? '' : row.salePrice;
+        applyAutoDiscount(row);
+        discountInput.value = row.discount === null ? '' : row.discount;
         stockBadgeSlot.innerHTML = rowStockBadgeHtml(row);
         refreshRowFlagUi(tr, row);
         const supplierDetail = document.querySelector(`tr[data-supplier-row-id="${row.id}"] strong`);
@@ -2412,6 +2476,8 @@ function wirePromoWorkspaceEvents(promo) {
       } else {
         showToast(`Code "${code}" not found in the catalog \u2014 fill it in manually.`, true);
       }
+      refreshRowValidationUi(tr, row);
+      refreshDiscountUi(tr, row);
       savePromoRow(row);
     };
 
@@ -2424,7 +2490,15 @@ function wirePromoWorkspaceEvents(promo) {
     descInput.addEventListener('blur', () => { row.description = descInput.value; savePromoRow(row); });
 
     promoPriceInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); focusDown('promoPrice'); } });
-    promoPriceInput.addEventListener('blur', () => { row.promoPrice = numOrNull(promoPriceInput.value); savePromoRow(row); refreshRowFlagUi(tr, row); });
+    promoPriceInput.addEventListener('blur', () => {
+      row.promoPrice = numOrNull(promoPriceInput.value);
+      applyAutoDiscount(row);
+      discountInput.value = row.discount === null ? '' : row.discount;
+      savePromoRow(row);
+      refreshRowFlagUi(tr, row);
+      refreshRowValidationUi(tr, row);
+      refreshDiscountUi(tr, row);
+    });
 
     discountInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); focusDown('discount'); } });
     discountInput.addEventListener('blur', () => { row.discount = numOrNull(discountInput.value); savePromoRow(row); });
@@ -2433,7 +2507,14 @@ function wirePromoWorkspaceEvents(promo) {
     beforePriceInput.addEventListener('blur', () => { row.beforePrice = numOrNull(beforePriceInput.value); savePromoRow(row); });
 
     salePriceInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); focusDown('salePrice'); } });
-    salePriceInput.addEventListener('blur', () => { row.salePrice = numOrNull(salePriceInput.value); savePromoRow(row); refreshRowFlagUi(tr, row); });
+    salePriceInput.addEventListener('blur', () => {
+      row.salePrice = numOrNull(salePriceInput.value);
+      applyAutoDiscount(row);
+      discountInput.value = row.discount === null ? '' : row.discount;
+      savePromoRow(row);
+      refreshRowFlagUi(tr, row);
+      refreshDiscountUi(tr, row);
+    });
 
     balInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); focusDown('balance'); } });
     balInput.addEventListener('blur', () => {
@@ -2552,6 +2633,7 @@ function wirePromoWorkspaceEvents(promo) {
           row2[field] = fieldValueParse(field, raw);
         }
       }
+      applyAutoDiscount(row2);
       touchedRows.push(row2);
     }
 
