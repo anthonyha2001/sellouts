@@ -732,7 +732,7 @@ function sbErrText(error) {
 async function loadCatalog() {
   const { data, error } = await sb.from('catalog_items').select('*').order('id', { ascending: true });
   if (error) { console.error(error); showToast('Could not load the catalog \u2014 ' + sbErrText(error), true); return; }
-  catalogItems = (data || []).map(r => ({ code: r.id, description: r.description || '', balance: r.balance, salePrice: r.sale_price === undefined ? null : r.sale_price }));
+  catalogItems = (data || []).map(r => ({ code: r.id, description: r.description || '', balance: r.balance, salePrice: r.sale_price === undefined ? null : r.sale_price, supplier: r.supplier || '' }));
   catalogMap = new Map(catalogItems.map(i => [i.code, i]));
 }
 
@@ -740,7 +740,7 @@ async function replaceCatalog(rows, fileName) {
   const { error: delErr } = await sb.from('catalog_items').delete().not('id', 'is', null);
   if (delErr) { console.error(delErr); showToast('Could not clear the old catalog \u2014 ' + sbErrText(delErr), true); return false; }
   const now = new Date().toISOString();
-  const payload = rows.map(r => ({ id: r.code, description: r.description, balance: r.balance, sale_price: r.salePrice, updated_at: now }));
+  const payload = rows.map(r => ({ id: r.code, description: r.description, balance: r.balance, sale_price: r.salePrice, supplier: r.supplier || null, updated_at: now }));
   const chunkSize = 500;
   for (let i = 0; i < payload.length; i += chunkSize) {
     const chunk = payload.slice(i, i + chunkSize);
@@ -796,6 +796,7 @@ async function loadPromoRows(promoId) {
     beforePrice: r.before_price === undefined ? null : r.before_price,
     salePrice: r.sale_price === undefined ? null : r.sale_price,
     priceType: r.price_type || '',
+    supplier: r.supplier || '',
     flagged: !!r.flagged,
     sortOrder: r.sort_order || 0, _lastLookupCode: r.code || ''
   }));
@@ -814,6 +815,7 @@ function promoRowPayload(row) {
     before_price: numOrNull(row.beforePrice),
     sale_price: numOrNull(row.salePrice),
     price_type: row.priceType || null,
+    supplier: row.supplier || null,
     flagged: !!row.flagged,
     sort_order: row.sortOrder
   };
@@ -845,7 +847,7 @@ function renumberRows() {
   currentRows.forEach((r, i) => { r.sortOrder = i; });
 }
 function blankPromoRow() {
-  return { id: uid(), code: '', description: '', promoPrice: null, discount: null, beforePrice: null, salePrice: null, balance: null, priceType: '', flagged: false, sortOrder: currentRows.length, _lastLookupCode: '' };
+  return { id: uid(), code: '', description: '', promoPrice: null, discount: null, beforePrice: null, salePrice: null, balance: null, priceType: '', supplier: '', flagged: false, sortOrder: currentRows.length, _lastLookupCode: '' };
 }
 const PROMO_FIELDS = ['code', 'description', 'promoPrice', 'discount', 'beforePrice', 'salePrice', 'balance', 'priceType'];
 const PRICE_RISK_RATIO = 0.25;
@@ -921,6 +923,9 @@ let promotions = [];
 let currentPromoId = null;
 let currentRows = [];
 let selectedRowIds = new Set();
+let expandedSupplierRowIds = new Set();
+let promoViewMode = 'table'; // 'table' or 'supplier'
+let expandedSupplierGroups = new Set();
 let catalogCollapsed = localStorage.getItem('sol-catalog-collapsed') === 'true';
 let showArchivedPromos = false;
 
@@ -1603,12 +1608,14 @@ document.getElementById('catalogFileInput').addEventListener('change', async (e)
   const descKey = findExact('description') || headerKeys[1];
   const balanceKey = findExact('balance');
   const saleKey = findExact('saleprice') || findExact('salesprice');
+  const supplierKey = findExact('supplierdesc') || findExact('supplier') || findExact('suppliername');
 
   const rawParsed = rows.map(r => ({
     code: String(r[codeKey] ?? '').trim(),
     description: descKey ? String(r[descKey] ?? '').trim() : '',
     balance: (balanceKey && r[balanceKey] !== '' && !isNaN(Number(r[balanceKey]))) ? Number(r[balanceKey]) : null,
-    salePrice: (saleKey && r[saleKey] !== '' && !isNaN(Number(r[saleKey]))) ? Number(r[saleKey]) : null
+    salePrice: (saleKey && r[saleKey] !== '' && !isNaN(Number(r[saleKey]))) ? Number(r[saleKey]) : null,
+    supplier: supplierKey ? String(r[supplierKey] ?? '').trim() : ''
   })).filter(r => r.code);
 
   const skipped = rows.length - rawParsed.length;
@@ -1633,6 +1640,7 @@ document.getElementById('catalogFileInput').addEventListener('change', async (e)
   const warnings = [];
   if (!balanceKey) warnings.push('no "Balance" column was found, so low-stock flags won’t work');
   if (!saleKey) warnings.push('no "Saleprice" column was found, so Sale Price won’t auto-fill');
+  if (!supplierKey) warnings.push('no "Supplier" column was found, so supplier info won’t show');
   if (skipped > 0) warnings.push(`${skipped} row${skipped === 1 ? '' : 's'} had no code and ${skipped === 1 ? 'was' : 'were'} skipped`);
   if (dupCount > 0) warnings.push(`${dupCount} duplicate code${dupCount === 1 ? '' : 's'} \u2014 kept the last row for each`);
 
@@ -1736,6 +1744,13 @@ async function renderPromoWorkspace() {
     const flagTitle = row.flagged
       ? 'Flagged for review \u2014 click to unflag'
       : (priceRisk ? 'Promo price is under 25% of the sale price \u2014 click to mark as reviewed' : 'Flag this row for review');
+    const supplierOpen = expandedSupplierRowIds.has(row.id);
+    const supplierRow = supplierOpen ? `
+    <tr class="supplier-detail-row" data-supplier-row-id="${row.id}">
+      <td colspan="10" style="background:var(--paper);font-size:12.5px;color:var(--ink-soft);padding:6px 10px 8px 40px;">
+        Supplier: <strong style="color:var(--ink);">${escapeHtml(row.supplier || 'Not listed in the catalog')}</strong>
+      </td>
+    </tr>` : '';
     return `
     <tr data-row-id="${row.id}">
       <td class="chk-col"><input type="checkbox" data-role="select-row" tabindex="-1" ${selectedRowIds.has(row.id) ? 'checked' : ''}></td>
@@ -1761,6 +1776,9 @@ async function renderPromoWorkspace() {
       </td>
       <td class="row-actions">
         <div class="icon-actions">
+          <button class="icon-btn ${supplierOpen ? 'flag-on' : ''}" data-role="toggle-supplier" tabindex="-1" title="${supplierOpen ? 'Hide supplier' : 'Show supplier'}" aria-label="Show supplier">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 20V6a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v14"/><path d="M6 20h12"/><path d="M9 9h1M14 9h1M9 13h1M14 13h1"/><path d="M10 20v-4h4v4"/></svg>
+          </button>
           <button class="icon-btn ${needsFlag ? 'flag-on' : ''}" data-role="toggle-flag" tabindex="-1" title="${flagTitle}" aria-label="Flag row">
             <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21V4a1 1 0 0 1 1-1h11.2a.6.6 0 0 1 .45 1l-3.15 4 3.15 4a.6.6 0 0 1-.45 1H6"/></svg>
           </button>
@@ -1772,8 +1790,7 @@ async function renderPromoWorkspace() {
           </button>
         </div>
       </td>
-    </tr>
-  `;
+    </tr>${supplierRow}`;
   }).join('');
   const promoStats = computePromoStats(currentRows);
 
@@ -1808,29 +1825,124 @@ async function renderPromoWorkspace() {
     </div>
 
     <div class="card">
-      <p class="muted-note" style="margin:0 0 4px;">${promoStats.total} row${promoStats.total === 1 ? '' : 's'} \u00b7 ${promoStats.flagged} flagged \u00b7 ${promoStats.empty} empty row${promoStats.empty === 1 ? '' : 's'}</p>
-      <p class="muted-note" style="margin:0 0 10px;">Tip: copy a block of cells from Excel and paste directly into the table \u2014 it will fill rows and columns starting from where you paste, adding new rows if needed. Enter moves down a column, Tab at the last field adds a new row.</p>
-      <div class="items-scroll">
-        <table class="promo">
-          <thead><tr>
-            <th class="chk-col"><input type="checkbox" id="selectAllRows"></th>
-            <th class="code-cell">Code</th><th class="desc-cell">Description</th><th class="balance-cell">Promo Price</th><th class="balance-cell">Discount</th><th class="balance-cell">Before Price</th><th class="balance-cell">Sale Price</th><th class="stock-cell">Stock</th><th class="type-cell">Type</th><th></th>
-          </tr></thead>
-          <tbody id="promoRowsBody">${rowsHtml}</tbody>
-        </table>
-      </div>
-      <div class="promo-table-foot">
-        <div class="promo-foot-actions">
-          <button class="btn secondary small" id="addRowBtn">+ Add row</button>
-          <button class="btn secondary small" id="addRowsBulkBtn">+ Add rows\u2026</button>
-          <button class="btn ghost small" id="deleteSelectedBtn" style="display:${selectedRowIds.size ? 'inline-flex' : 'none'};color:var(--brick);">Delete selected (${selectedRowIds.size})</button>
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;">
+        <div>
+          <p class="muted-note" style="margin:0 0 4px;">${promoStats.total} row${promoStats.total === 1 ? '' : 's'} \u00b7 ${promoStats.flagged} flagged \u00b7 ${promoStats.empty} empty row${promoStats.empty === 1 ? '' : 's'}</p>
+          <p class="muted-note" style="margin:0 0 10px;">${promoViewMode === 'supplier'
+            ? 'Sell Out and C/N items grouped by supplier. Right Price items and rows without a Type are left out.'
+            : 'Tip: copy a block of cells from Excel and paste directly into the table \u2014 it will fill rows and columns starting from where you paste, adding new rows if needed. Enter moves down a column, Tab at the last field adds a new row.'}</p>
         </div>
-        <span class="muted-note">${currentRows.length} item${currentRows.length === 1 ? '' : 's'}</span>
+        <button class="btn ghost small" id="toggleSupplierViewBtn">${promoViewMode === 'supplier' ? 'Back to table' : 'Group by supplier'}</button>
+      </div>
+
+      <div id="promoTableView" style="display:${promoViewMode === 'table' ? '' : 'none'};">
+        <div class="items-scroll">
+          <table class="promo">
+            <thead><tr>
+              <th class="chk-col"><input type="checkbox" id="selectAllRows"></th>
+              <th class="code-cell">Code</th><th class="desc-cell">Description</th><th class="balance-cell">Promo Price</th><th class="balance-cell">Discount</th><th class="balance-cell">Before Price</th><th class="balance-cell">Sale Price</th><th class="stock-cell">Stock</th><th class="type-cell">Type</th><th></th>
+            </tr></thead>
+            <tbody id="promoRowsBody">${rowsHtml}</tbody>
+          </table>
+        </div>
+        <div class="promo-table-foot">
+          <div class="promo-foot-actions">
+            <button class="btn secondary small" id="addRowBtn">+ Add row</button>
+            <button class="btn secondary small" id="addRowsBulkBtn">+ Add rows\u2026</button>
+            <button class="btn ghost small" id="deleteSelectedBtn" style="display:${selectedRowIds.size ? 'inline-flex' : 'none'};color:var(--brick);">Delete selected (${selectedRowIds.size})</button>
+          </div>
+          <span class="muted-note">${currentRows.length} item${currentRows.length === 1 ? '' : 's'}</span>
+        </div>
+      </div>
+
+      <div id="promoSupplierView" style="display:${promoViewMode === 'supplier' ? '' : 'none'};">
+        ${buildSupplierGroupedHtml(currentRows)}
       </div>
     </div>
   `;
 
   wirePromoWorkspaceEvents(promo);
+  if (promoViewMode === 'supplier') wireSupplierGroupEvents();
+}
+
+function buildSupplierGroupedHtml(rows) {
+  const relevant = rows.filter(r => r.priceType === 'sellout' || r.priceType === 'cn');
+  if (!relevant.length) {
+    return `
+      <div class="empty-state" style="padding:34px 16px;">
+        <p class="big">Nothing to group yet</p>
+        <p>Mark rows as "Sell Out" or "C/N" in the Type column, then come back here.</p>
+      </div>`;
+  }
+  const bySupplier = new Map();
+  relevant.forEach(r => {
+    const key = (r.supplier || '').trim() || 'No supplier listed';
+    if (!bySupplier.has(key)) bySupplier.set(key, []);
+    bySupplier.get(key).push(r);
+  });
+  const supplierNames = Array.from(bySupplier.keys()).sort((a, b) => a.localeCompare(b));
+
+  const subTable = (label, list) => {
+    if (!list.length) return '';
+    return `
+      <h4>${label} (${list.length})</h4>
+      <div class="items-scroll" style="margin-bottom:14px;">
+        <table class="items">
+          <thead><tr><th>Code</th><th>Description</th><th>Promo Price</th><th>Stock</th></tr></thead>
+          <tbody>
+            ${list.map(r => `<tr><td>${escapeHtml(r.code)}</td><td>${escapeHtml(r.description)}</td><td>${numToStr(r.promoPrice)}</td><td>${numToStr(r.balance)}</td></tr>`).join('')}
+          </tbody>
+        </table>
+      </div>`;
+  };
+
+  return supplierNames.map(name => {
+    const items = bySupplier.get(name);
+    const sellouts = items.filter(r => r.priceType === 'sellout');
+    const cns = items.filter(r => r.priceType === 'cn');
+    const isOpen = expandedSupplierGroups.has(name);
+    return `
+    <div class="sellout ${isOpen ? 'open' : ''}" data-supplier-group="${escapeHtml(name)}">
+      <div class="sellout-head" data-role="supplier-group-toggle">
+        <span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></span>
+        <div class="who">
+          <div class="name">${escapeHtml(name)}</div>
+          <div class="dates">${sellouts.length} sell out \u00b7 ${cns.length} c/n</div>
+        </div>
+        <button class="btn ghost small" data-role="copy-supplier-codes" data-supplier="${escapeHtml(name)}">Copy codes</button>
+      </div>
+      <div class="sellout-body">
+        ${subTable('Sell Out', sellouts)}
+        ${subTable('C/N', cns)}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function wireSupplierGroupEvents() {
+  document.querySelectorAll('#promoSupplierView .sellout[data-supplier-group]').forEach(el => {
+    const name = el.dataset.supplierGroup;
+    const head = el.querySelector('.sellout-head');
+    head.addEventListener('click', (e) => {
+      if (e.target.closest('[data-role="copy-supplier-codes"]')) return;
+      el.classList.toggle('open');
+      if (el.classList.contains('open')) expandedSupplierGroups.add(name);
+      else expandedSupplierGroups.delete(name);
+    });
+  });
+  document.querySelectorAll('#promoSupplierView [data-role="copy-supplier-codes"]').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const name = btn.dataset.supplier;
+      const codes = currentRows
+        .filter(r => ((r.supplier || '').trim() || 'No supplier listed') === name && (r.priceType === 'sellout' || r.priceType === 'cn'))
+        .map(r => (r.code || '').trim()).filter(Boolean);
+      if (!codes.length) { showToast('No codes to copy for this supplier.', true); return; }
+      const ok = await copyTextToClipboard(codes.join(','));
+      if (ok) showToast(`Copied ${codes.length} code${codes.length === 1 ? '' : 's'} for ${name}.`);
+      else showToast('Could not copy \u2014 your browser blocked clipboard access.', true);
+    });
+  });
 }
 
 function wirePromoWorkspaceEvents(promo) {
@@ -1849,6 +1961,11 @@ function wirePromoWorkspaceEvents(promo) {
   nameInput.addEventListener('blur', saveHeader);
   fromInput.addEventListener('change', saveHeader);
   toInput.addEventListener('change', saveHeader);
+
+  document.getElementById('toggleSupplierViewBtn').addEventListener('click', async () => {
+    promoViewMode = promoViewMode === 'supplier' ? 'table' : 'supplier';
+    await renderPromoWorkspace();
+  });
 
   autoArchiveCb.addEventListener('change', async () => {
     promo.autoArchive = autoArchiveCb.checked;
@@ -2013,11 +2130,14 @@ function wirePromoWorkspaceEvents(promo) {
         row.description = item.description;
         row.balance = item.balance === undefined ? null : item.balance;
         row.salePrice = item.salePrice === undefined ? null : item.salePrice;
+        row.supplier = item.supplier || '';
         descInput.value = item.description;
         balInput.value = row.balance === null ? '' : row.balance;
         salePriceInput.value = row.salePrice === null ? '' : row.salePrice;
         stockBadgeSlot.innerHTML = rowStockBadgeHtml(row);
         refreshRowFlagUi(tr, row);
+        const supplierDetail = document.querySelector(`tr[data-supplier-row-id="${row.id}"] strong`);
+        if (supplierDetail) supplierDetail.textContent = row.supplier || 'Not listed in the catalog';
       } else {
         showToast(`Code "${code}" not found in the catalog \u2014 fill it in manually.`, true);
       }
@@ -2064,6 +2184,12 @@ function wirePromoWorkspaceEvents(promo) {
       row.flagged = !row.flagged;
       await savePromoRow(row);
       await renderPromoWorkspace();
+    });
+
+    tr.querySelector('[data-role="toggle-supplier"]').addEventListener('click', () => {
+      if (expandedSupplierRowIds.has(row.id)) expandedSupplierRowIds.delete(row.id);
+      else expandedSupplierRowIds.add(row.id);
+      renderPromoWorkspace();
     });
 
     tr.querySelector('[data-role="insert-row"]').addEventListener('click', async () => {
@@ -2149,6 +2275,7 @@ function wirePromoWorkspaceEvents(promo) {
             row2.description = item.description;
             row2.balance = item.balance === undefined ? null : item.balance;
             row2.salePrice = item.salePrice === undefined ? null : item.salePrice;
+            row2.supplier = item.supplier || '';
           }
         } else {
           row2[field] = fieldValueParse(field, raw);
