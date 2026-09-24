@@ -1944,8 +1944,21 @@ function wirePromoWorkspaceEvents(promo) {
     let gridRows = text.replace(/\r/g, '').split('\n');
     while (gridRows.length && gridRows[gridRows.length - 1] === '') gridRows.pop();
     if (!gridRows.length) return;
-    const grid = gridRows.map(line => line.split('\t'));
-    if (grid.length === 1 && grid[0].length === 1) return;
+    let grid = gridRows.map(line => line.split('\t'));
+
+    // Treat "/" as an extra row separator when pasting a single column of
+    // values (e.g. "111/222/333") \u2014 each part becomes its own row.
+    const singleColumn = grid.every(r => r.length === 1);
+    const hasSlashList = singleColumn && grid.some(r => r[0].includes('/'));
+    if (hasSlashList) {
+      const expanded = [];
+      grid.forEach(r => {
+        r[0].split('/').map(s => s.trim()).filter(Boolean).forEach(v => expanded.push([v]));
+      });
+      if (expanded.length) grid = expanded;
+    }
+
+    if (grid.length === 1 && grid[0].length === 1 && !hasSlashList) return;
     e.preventDefault();
 
     const startTr = target.closest('tr');
