@@ -117,7 +117,7 @@ button{font:inherit;}
 
 /* ================= Main ================= */
 .main{flex:1 1 auto;min-width:0;margin-left:var(--sidebar-w);}
-.wrap{max-width:900px;margin:0 auto;padding:34px 32px 90px;}
+.wrap{max-width:1040px;margin:0 auto;padding:34px 32px 90px;}
 
 header.top{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:30px;}
 header.top .eyebrow{font-family:var(--font-mono);font-size:11.5px;color:var(--ink-faint);letter-spacing:.04em;margin:0 0 6px;}
@@ -354,6 +354,11 @@ table.promo select:focus{outline:none;border-color:var(--pine);box-shadow:0 0 0 
 table.promo .code-cell{font-family:var(--font-mono);}
 table.promo .balance-cell input{text-align:right;}
 table.promo th.chk-col,table.promo td.chk-col{width:1%;white-space:nowrap;text-align:center;padding-right:2px;}
+table.promo th.code-cell,table.promo td.code-cell{min-width:120px;}
+table.promo th.desc-cell,table.promo td.desc-cell{min-width:260px;}
+table.promo th.balance-cell,table.promo td.balance-cell{min-width:96px;}
+table.promo th.stock-cell,table.promo td.stock-cell{min-width:140px;}
+table.promo th.type-cell,table.promo td.type-cell{min-width:120px;}
 .stock-cell-wrap{display:flex;align-items:center;gap:6px;}
 table.promo .stock-input{width:56px;flex:0 0 56px;text-align:right;}
 td.row-actions{width:1%;white-space:nowrap;}
@@ -1645,7 +1650,7 @@ async function renderPromoWorkspace() {
     <tr data-row-id="${row.id}">
       <td class="chk-col"><input type="checkbox" data-role="select-row" tabindex="-1" ${selectedRowIds.has(row.id) ? 'checked' : ''}></td>
       <td class="code-cell"><input type="text" value="${escapeHtml(row.code)}" data-field="code" placeholder="Code"></td>
-      <td><input type="text" value="${escapeHtml(row.description)}" data-field="description" placeholder="Description"></td>
+      <td class="desc-cell"><input type="text" value="${escapeHtml(row.description)}" data-field="description" placeholder="Description"></td>
       <td class="balance-cell"><input type="text" inputmode="decimal" value="${numToStr(row.promoPrice)}" data-field="promoPrice" placeholder="0.00"></td>
       <td class="balance-cell"><input type="text" inputmode="decimal" value="${numToStr(row.discount)}" data-field="discount" placeholder="0%"></td>
       <td class="balance-cell"><input type="text" inputmode="decimal" value="${numToStr(row.beforePrice)}" data-field="beforePrice" placeholder="0.00"></td>
@@ -1656,7 +1661,7 @@ async function renderPromoWorkspace() {
           <span class="stock-badge-slot">${rowStockBadgeHtml(row)}</span>
         </div>
       </td>
-      <td>
+      <td class="type-cell">
         <select data-field="priceType">
           <option value="" ${!row.priceType ? 'selected' : ''}>\u2014</option>
           <option value="sellout" ${row.priceType === 'sellout' ? 'selected' : ''}>Sell Out</option>
@@ -1712,7 +1717,7 @@ async function renderPromoWorkspace() {
         <table class="promo">
           <thead><tr>
             <th class="chk-col"><input type="checkbox" id="selectAllRows"></th>
-            <th>Code</th><th>Description</th><th>Promo Price</th><th>Discount</th><th>Before Price</th><th>Sale Price</th><th>Stock</th><th>Type</th><th></th>
+            <th class="code-cell">Code</th><th class="desc-cell">Description</th><th class="balance-cell">Promo Price</th><th class="balance-cell">Discount</th><th class="balance-cell">Before Price</th><th class="balance-cell">Sale Price</th><th class="stock-cell">Stock</th><th class="type-cell">Type</th><th></th>
           </tr></thead>
           <tbody id="promoRowsBody">${rowsHtml}</tbody>
         </table>
