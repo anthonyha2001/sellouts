@@ -372,6 +372,19 @@ td.row-actions{width:1%;white-space:nowrap;}
 .promo-table-foot{display:flex;justify-content:space-between;align-items:center;margin-top:14px;flex-wrap:wrap;gap:10px;}
 .promo-foot-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
 
+/* ================= Vendors: orders & rentals ================= */
+.date-nav-row .icon-btn{width:36px;height:36px;}
+.rental-month-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(58px,1fr));gap:8px;margin-top:8px;}
+.rental-month-grid .rm-cell label{font-size:10px;margin-bottom:3px;text-transform:uppercase;letter-spacing:.03em;}
+.rental-month-input{width:100%;font-family:var(--font-body);font-size:12.5px;color:var(--ink);background:var(--paper);border:1px solid var(--line-strong);border-radius:6px;padding:6px 7px;text-align:right;}
+.rental-month-input:focus{outline:none;border-color:var(--pine);box-shadow:0 0 0 3px var(--pine-tint);}
+.rental-year-table{width:100%;border-collapse:collapse;font-size:12.5px;margin-bottom:14px;}
+.rental-year-table th,.rental-year-table td{padding:6px 8px;text-align:right;border-bottom:1px solid var(--line);font-family:var(--font-mono);}
+.rental-year-table th:first-child,.rental-year-table td:first-child{text-align:left;font-family:var(--font-body);}
+.rental-summary{display:flex;gap:16px;flex-wrap:wrap;align-items:center;}
+.rental-summary .rs-item{font-size:12.5px;color:var(--ink-soft);}
+.rental-summary .rs-item strong{color:var(--ink);font-family:var(--font-mono);}
+
 /* ================= Modal & toast ================= */
 .modal-overlay{
   position:fixed;inset:0;background:rgba(14,26,21,.45);display:none;align-items:center;justify-content:center;z-index:100;padding:20px;
@@ -448,6 +461,14 @@ td.row-actions{width:1%;white-space:nowrap;}
     <button class="nav-btn" data-tab="promotions">
       <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41 11 3.83A2 2 0 0 0 9.59 3.24L4 3a1 1 0 0 0-1 1l.24 5.59a2 2 0 0 0 .59 1.41l9.58 9.58a2 2 0 0 0 2.83 0l4.35-4.35a2 2 0 0 0 0-2.82Z"/><circle cx="7.5" cy="7.5" r="1.2" fill="currentColor" stroke="none"/></svg>
       <span class="label">Promotions</span>
+    </button>
+    <button class="nav-btn" data-tab="vendors">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      <span class="label">Vendors</span>
+    </button>
+    <button class="nav-btn" data-tab="rentals">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="10" width="18" height="10" rx="1"/><path d="M7 10V6a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v4"/><path d="M7 15h2M15 15h2M11 15h2"/></svg>
+      <span class="label">Rentals</span>
     </button>
   </ul>
 
@@ -619,6 +640,254 @@ td.row-actions{width:1%;white-space:nowrap;}
 
     </section>
 
+    <!-- VENDORS -->
+    <section class="panel" id="panel-vendors">
+
+      <div class="filter-row" id="vendorSubTabs">
+        <button class="active" data-vsub="directory">Directory</button>
+        <button data-vsub="orders">Orders</button>
+      </div>
+
+      <div id="vendorDirectoryView">
+
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">
+            <div>
+              <h3 style="margin-bottom:2px;">Vendor directory</h3>
+              <span class="muted-note" id="vendorCountNote">No vendors yet.</span>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button class="btn secondary small" id="importVendorsBtn">Import from Excel</button>
+              <input type="file" id="vendorFileInput" accept=".xlsx,.xls,.csv" style="display:none;">
+              <button class="btn small" id="addVendorBtn">+ Add vendor</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" id="vendorFormCard" style="display:none;">
+          <h3 id="vendorFormTitle">Add vendor</h3>
+          <div class="form-grid">
+            <div>
+              <label for="vendorName">Vendor name</label>
+              <input type="text" id="vendorName" placeholder="e.g. Golden Food">
+            </div>
+            <div>
+              <label for="vendorSalesman">Salesman</label>
+              <input type="text" id="vendorSalesman" placeholder="e.g. Tony Barmo">
+            </div>
+            <div>
+              <label for="vendorPhone">Phone</label>
+              <input type="text" id="vendorPhone" placeholder="e.g. 03 123 456">
+            </div>
+            <div>
+              <label for="vendorDay">Delivery day</label>
+              <select id="vendorDay">
+                <option value="0">Sunday</option>
+                <option value="1">Monday</option>
+                <option value="2">Tuesday</option>
+                <option value="3">Wednesday</option>
+                <option value="4">Thursday</option>
+                <option value="5" selected>Friday</option>
+                <option value="6">Saturday</option>
+              </select>
+            </div>
+            <div>
+              <label for="vendorFrequency">Frequency</label>
+              <select id="vendorFrequency">
+                <option value="1" selected>Every week</option>
+                <option value="2">Every 2 weeks</option>
+                <option value="3">Every 3 weeks</option>
+                <option value="4">Every 4 weeks (monthly)</option>
+              </select>
+            </div>
+            <div>
+              <label for="vendorLeadTime">Lead time (days)</label>
+              <input type="text" inputmode="numeric" id="vendorLeadTime" placeholder="e.g. 4">
+            </div>
+            <div>
+              <label for="vendorAnchor">Anchor date <span style="opacity:.6;">(any date this vendor was scheduled)</span></label>
+              <input type="date" id="vendorAnchor">
+            </div>
+          </div>
+          <div class="actions-row">
+            <button class="btn ghost small" id="cancelVendorFormBtn">Cancel</button>
+            <button class="btn small" id="saveVendorBtn">Add vendor</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <input type="text" id="vendorSearchInput" placeholder="Search by vendor, salesman, or phone...">
+          <div class="items-scroll" style="margin-top:14px;">
+            <table class="items">
+              <thead><tr>
+                <th>Name</th><th>Salesman</th><th>Phone</th><th>Day</th><th>Frequency</th><th>Lead time</th><th>Anchor date</th><th></th>
+              </tr></thead>
+              <tbody id="vendorTableBody"></tbody>
+            </table>
+          </div>
+          <div class="empty-state" id="vendorEmpty" style="display:none;">
+            <p class="big">No vendors yet</p>
+            <p>Add one, or import them from an Excel file.</p>
+          </div>
+          <div class="empty-state" id="vendorNoMatch" style="display:none;padding:20px;">
+            <p>No vendors match your search.</p>
+          </div>
+        </div>
+
+      </div>
+
+      <div id="vendorOrdersView" style="display:none;">
+
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+            <div class="date-nav-row" style="display:flex;align-items:center;gap:10px;">
+              <button class="icon-btn" id="ordersDatePrev" aria-label="Previous day">
+                <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+              </button>
+              <div>
+                <div style="font-weight:600;font-size:15px;" id="ordersDateLabel">&nbsp;</div>
+                <button class="btn ghost small" id="ordersDateTodayBtn" style="margin-top:4px;display:none;">Jump to today</button>
+              </div>
+              <button class="icon-btn" id="ordersDateNext" aria-label="Next day">
+                <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+              </button>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button class="btn secondary small" id="importOrdersBtn">Import from Excel</button>
+              <input type="file" id="ordersFileInput" accept=".xlsx,.xls,.csv" style="display:none;">
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;">
+            <span class="badge warn" id="ordersDueBadge">0 due</span>
+            <span class="badge active" id="ordersAwaitingBadge">0 awaiting</span>
+            <span class="badge danger" id="ordersOverdueBadge">0 overdue</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3 id="ordersDueTitle" style="margin-bottom:12px;">Due today</h3>
+          <div class="items-scroll">
+            <table class="items">
+              <thead><tr><th>Vendor</th><th>Salesman</th><th>Phone</th><th>Lead time</th><th></th></tr></thead>
+              <tbody id="ordersDueBody"></tbody>
+            </table>
+          </div>
+          <div class="empty-state" id="ordersDueEmpty" style="display:none;padding:20px;">
+            <p>Nothing waiting on an order for this date.</p>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3 style="margin-bottom:12px;">Awaiting delivery</h3>
+          <div class="items-scroll">
+            <table class="items">
+              <thead><tr><th>Vendor</th><th>Salesman</th><th>Ordered</th><th>Expected</th><th>Status</th><th></th></tr></thead>
+              <tbody id="ordersAwaitingBody"></tbody>
+            </table>
+          </div>
+          <div class="empty-state" id="ordersAwaitingEmpty" style="display:none;padding:20px;">
+            <p>Nothing awaiting delivery right now.</p>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3 id="ordersSkippedTitle" style="margin-bottom:12px;">No order logged</h3>
+          <div class="items-scroll">
+            <table class="items">
+              <thead><tr><th>Vendor</th><th>Salesman</th><th>Date</th><th></th></tr></thead>
+              <tbody id="ordersSkippedBody"></tbody>
+            </table>
+          </div>
+          <div class="empty-state" id="ordersSkippedEmpty" style="display:none;padding:20px;">
+            <p>Nothing logged as "no order" for this date.</p>
+          </div>
+        </div>
+
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:12px;">
+            <h3 style="margin:0;">Order history</h3>
+            <div class="filter-row" id="orderHistoryFilters" style="margin:0;">
+              <button class="active" data-ofilter="all">All</button>
+              <button data-ofilter="pending">Pending</button>
+              <button data-ofilter="overdue">Overdue</button>
+              <button data-ofilter="delivered">Delivered</button>
+            </div>
+          </div>
+          <div class="items-scroll">
+            <table class="items">
+              <thead><tr><th>Vendor</th><th>Ordered</th><th>Expected</th><th>Status</th><th>Delivered</th><th></th></tr></thead>
+              <tbody id="orderHistoryBody"></tbody>
+            </table>
+          </div>
+          <div class="empty-state" id="orderHistoryEmpty" style="display:none;padding:20px;">
+            <p>No orders in this view.</p>
+          </div>
+        </div>
+
+      </div>
+
+    </section>
+
+    <!-- RENTALS -->
+    <section class="panel" id="panel-rentals">
+
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">
+          <div>
+            <h3 style="margin-bottom:2px;">Gondola &amp; shelf rentals</h3>
+            <span class="muted-note" id="rentalCountNote">No rentals yet.</span>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn secondary small" id="importRentalsBtn">Import from Excel</button>
+            <input type="file" id="rentalFileInput" accept=".xlsx,.xls,.csv" style="display:none;">
+            <button class="btn small" id="addRentalBtn">+ Add rental</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" id="rentalFormCard" style="display:none;">
+        <h3 id="rentalFormTitle">Add rental</h3>
+        <div class="form-grid">
+          <div>
+            <label for="rentalSupplier">Supplier</label>
+            <input type="text" id="rentalSupplier" placeholder="e.g. Halwani">
+          </div>
+          <div>
+            <label for="rentalGondola">Gondola / description</label>
+            <input type="text" id="rentalGondola" placeholder="e.g. Gondola + Freezer cap">
+          </div>
+          <div>
+            <label for="rentalDateFrom">Date from</label>
+            <input type="date" id="rentalDateFrom">
+          </div>
+          <div>
+            <label for="rentalDateTo">Date to</label>
+            <input type="date" id="rentalDateTo">
+          </div>
+        </div>
+        <div style="margin-top:16px;">
+          <label id="rentalPrevYearLabel">Monthly amount</label>
+          <div class="rental-month-grid" id="rentalPrevYearGrid"></div>
+        </div>
+        <div style="margin-top:16px;">
+          <label id="rentalCurYearLabel">Monthly amount</label>
+          <div class="rental-month-grid" id="rentalCurYearGrid"></div>
+        </div>
+        <div class="actions-row">
+          <button class="btn ghost small" id="cancelRentalFormBtn">Cancel</button>
+          <button class="btn small" id="saveRentalBtn">Add rental</button>
+        </div>
+      </div>
+
+      <div id="rentalList"></div>
+
+      <div class="empty-state" id="rentalEmpty" style="display:none;">
+        <p class="big">No rentals yet</p>
+        <p>Add one, or import them from an Excel file.</p>
+      </div>
+
+    </section>
+
   </div>
 </div>
 
@@ -666,7 +935,7 @@ function guessMime(fileName) {
 async function idbAll(store) {
   if (store === 'sellouts') {
     const { data, error } = await sb.from('sellouts').select('*').order('created_at', { ascending: false });
-    if (error) { console.error(error); showToast('Could not load sell-outs from Supabase.', true); return []; }
+    if (error) { console.error(error); showToast('Could not load sell-outs — ' + sbErrText(error), true); return []; }
     return data.map(row => ({
       id: row.id,
       name: row.name,
@@ -683,7 +952,7 @@ async function idbAll(store) {
   }
   if (store === 'creditnotes') {
     const { data, error } = await sb.from('credit_notes').select('*').order('created_at', { ascending: false });
-    if (error) { console.error(error); showToast('Could not load credit notes from Supabase.', true); return []; }
+    if (error) { console.error(error); showToast('Could not load credit notes — ' + sbErrText(error), true); return []; }
     return data.map(row => ({
       id: row.id, number: row.number, supplier: row.supplier,
       details: row.details, status: row.status, createdAt: row.created_at
@@ -704,13 +973,13 @@ async function idbPut(store, val) {
       row.file_base64 = await blobToBase64(val.fileBlob);
     }
     const { error } = await sb.from('sellouts').upsert(row);
-    if (error) { console.error(error); showToast('Could not save to Supabase \u2014 check your connection.', true); }
+    if (error) { console.error(error); showToast('Could not save that sell-out \u2014 ' + sbErrText(error), true); }
     return;
   }
   if (store === 'creditnotes') {
     const row = { id: val.id, number: val.number, supplier: val.supplier, details: val.details, status: val.status };
     const { error } = await sb.from('credit_notes').upsert(row);
-    if (error) { console.error(error); showToast('Could not save to Supabase \u2014 check your connection.', true); }
+    if (error) { console.error(error); showToast('Could not save that credit note \u2014 ' + sbErrText(error), true); }
     return;
   }
 }
@@ -718,7 +987,7 @@ async function idbPut(store, val) {
 async function idbDelete(store, id) {
   const table = store === 'sellouts' ? 'sellouts' : 'credit_notes';
   const { error } = await sb.from(table).delete().eq('id', id);
-  if (error) { console.error(error); showToast('Could not delete from Supabase.', true); }
+  if (error) { console.error(error); showToast('Could not delete \u2014 ' + sbErrText(error), true); }
 }
 
 /* ============================================================
@@ -759,12 +1028,12 @@ async function loadSettings() {
 }
 async function saveSettings() {
   const { error } = await sb.from('app_settings').upsert({ id: 'singleton', low_stock_threshold: lowStockThreshold });
-  if (error) { console.error(error); showToast('Could not save the threshold.', true); }
+  if (error) { console.error(error); showToast('Could not save the threshold — ' + sbErrText(error), true); }
 }
 
 async function loadPromotions() {
   const { data, error } = await sb.from('promotions').select('*').order('created_at', { ascending: false });
-  if (error) { console.error(error); showToast('Could not load promotions.', true); return; }
+  if (error) { console.error(error); showToast('Could not load promotions — ' + sbErrText(error), true); return; }
   promotions = (data || []).map(r => ({
     id: r.id, name: r.name, from: r.from_date, to: r.to_date, createdAt: r.created_at,
     archived: !!r.archived,
@@ -778,16 +1047,16 @@ async function savePromotion(promo) {
     auto_archive: promo.autoArchive !== false
   };
   const { error } = await sb.from('promotions').upsert(row);
-  if (error) { console.error(error); showToast('Could not save the promotion.', true); }
+  if (error) { console.error(error); showToast('Could not save the promotion — ' + sbErrText(error), true); }
 }
 async function deletePromotionRemote(id) {
   const { error } = await sb.from('promotions').delete().eq('id', id);
-  if (error) { console.error(error); showToast('Could not delete the promotion.', true); }
+  if (error) { console.error(error); showToast('Could not delete the promotion — ' + sbErrText(error), true); }
 }
 
 async function loadPromoRows(promoId) {
   const { data, error } = await sb.from('promotion_rows').select('*').eq('promotion_id', promoId).order('sort_order', { ascending: true });
-  if (error) { console.error(error); showToast('Could not load this promotion’s items.', true); return []; }
+  if (error) { console.error(error); showToast('Could not load this promotion’s items — ' + sbErrText(error), true); return []; }
   return (data || []).map(r => ({
     id: r.id, code: r.code || '', description: r.description || '',
     balance: r.balance === undefined ? null : r.balance,
@@ -822,7 +1091,7 @@ function promoRowPayload(row) {
 }
 async function savePromoRow(row) {
   const { error } = await sb.from('promotion_rows').upsert(promoRowPayload(row));
-  if (error) { console.error(error); showToast('Could not save that row.', true); }
+  if (error) { console.error(error); showToast('Could not save that row — ' + sbErrText(error), true); }
 }
 async function persistRowsBulk(rows) {
   if (!rows.length) return;
@@ -831,17 +1100,17 @@ async function persistRowsBulk(rows) {
   for (let i = 0; i < payload.length; i += chunkSize) {
     const chunk = payload.slice(i, i + chunkSize);
     const { error } = await sb.from('promotion_rows').upsert(chunk);
-    if (error) { console.error(error); showToast('Could not save some of the rows.', true); return; }
+    if (error) { console.error(error); showToast('Could not save some of the rows — ' + sbErrText(error), true); return; }
   }
 }
 async function deletePromoRow(id) {
   const { error } = await sb.from('promotion_rows').delete().eq('id', id);
-  if (error) { console.error(error); showToast('Could not delete that row.', true); }
+  if (error) { console.error(error); showToast('Could not delete that row — ' + sbErrText(error), true); }
 }
 async function deleteRowsBulk(ids) {
   if (!ids.length) return;
   const { error } = await sb.from('promotion_rows').delete().in('id', ids);
-  if (error) { console.error(error); showToast('Could not delete the selected rows.', true); }
+  if (error) { console.error(error); showToast('Could not delete the selected rows — ' + sbErrText(error), true); }
 }
 function renumberRows() {
   currentRows.forEach((r, i) => { r.sortOrder = i; });
@@ -1479,7 +1748,9 @@ const PAGES = {
   sellouts:    { eyebrow: 'Overview', title: 'Sell-outs', sub: 'Every sell-out you\u2019re tracking, with items and activation history.' },
   add:         { eyebrow: 'New entry', title: 'Add a sell-out', sub: 'Upload the Excel file for a new sell-out \u2014 its item rows are read automatically.' },
   creditnotes: { eyebrow: 'Tracker', title: 'Credit notes', sub: 'Every credit note logged against your suppliers, issued or signed.' },
-  promotions:  { eyebrow: 'Builder', title: 'Promotions', sub: 'Look up items by code, build a flyer, and export it when it’s ready.' }
+  promotions:  { eyebrow: 'Builder', title: 'Promotions', sub: 'Look up items by code, build a flyer, and export it when it’s ready.' },
+  vendors:     { eyebrow: 'Directory', title: 'Vendors', sub: 'Salesman contacts, delivery schedule, and placing orders.' },
+  rentals:     { eyebrow: 'Gondolas', title: 'Rentals', sub: 'Gondola and shelf-space rentals by supplier, tracked year over year.' }
 };
 function switchTab(name) {
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
@@ -2368,8 +2639,896 @@ async function initPromotions() {
   }, 60 * 60 * 1000);
 }
 
+/* ============================================================
+   Vendors
+   ============================================================ */
+let vendorsList = [];
+let editingVendorId = null;
+let vendorSearchTerm = '';
+let vendorSubTab = 'directory';
+
+// Orders / no-order weeks / rentals
+let ordersList = [];
+let skipsList = [];
+let rentalsList = [];
+let ordersViewDate = todayStr();
+let orderHistoryFilter = 'all';
+let editingRentalId = null;
+let expandedRentalIds = new Set();
+
+const VENDOR_DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const VENDOR_FREQ_LABELS = { 1: 'Every week', 2: 'Every 2 weeks', 3: 'Every 3 weeks', 4: 'Every 4 weeks (monthly)' };
+const VENDOR_DAY_MAP = {
+  sun: 0, sunday: 0, mon: 1, monday: 1, tue: 2, tues: 2, tuesday: 2, wed: 3, weds: 3, wednesday: 3,
+  thu: 4, thur: 4, thurs: 4, thursday: 4, fri: 5, friday: 5, sat: 6, saturday: 6
+};
+function parseVendorDay(raw) {
+  if (raw === undefined || raw === null || String(raw).trim() === '') return null;
+  const s = String(raw).trim().toLowerCase();
+  if (VENDOR_DAY_MAP.hasOwnProperty(s)) return VENDOR_DAY_MAP[s];
+  const n = Number(s);
+  if (!isNaN(n) && n >= 0 && n <= 6) return n;
+  return null;
+}
+function parseVendorFrequency(raw) {
+  if (raw === undefined || raw === null || String(raw).trim() === '') return 1;
+  const s = String(raw).trim().toLowerCase();
+  const digitMatch = s.match(/\d+/);
+  if (digitMatch) {
+    const n = Number(digitMatch[0]);
+    if (n >= 1 && n <= 4) return n;
+  }
+  if (s.includes('month')) return 4;
+  if (s.includes('bi')) return 2;
+  return 1;
+}
+function findVendorHeaderKey(headers, candidates) {
+  const lower = headers.map(h => String(h).trim().toLowerCase());
+  for (const c of candidates) {
+    const idx = lower.indexOf(c);
+    if (idx > -1) return headers[idx];
+  }
+  for (let i = 0; i < lower.length; i++) {
+    for (const c of candidates) {
+      if (lower[i].includes(c)) return headers[i];
+    }
+  }
+  return null;
+}
+
+async function loadVendorsData() {
+  const { data, error } = await sb.from('vendors').select('*').order('name', { ascending: true });
+  if (error) { console.error(error); showToast('Could not load vendors — ' + sbErrText(error), true); return; }
+  vendorsList = (data || []).map(r => ({
+    id: r.id, name: r.name || '', salesmanName: r.salesman_name || '', phone: r.phone || '',
+    dayOfWeek: r.day_of_week === undefined ? null : r.day_of_week,
+    frequencyWeeks: r.frequency_weeks || 1,
+    leadTimeDays: r.lead_time_days === undefined ? null : r.lead_time_days,
+    anchorDate: r.anchor_date || ''
+  }));
+}
+async function saveVendorRemote(v) {
+  const row = {
+    id: v.id, name: v.name, salesman_name: v.salesmanName || null, phone: v.phone || null,
+    day_of_week: v.dayOfWeek, frequency_weeks: v.frequencyWeeks || 1,
+    lead_time_days: v.leadTimeDays === null || v.leadTimeDays === '' ? null : Number(v.leadTimeDays),
+    anchor_date: v.anchorDate || null
+  };
+  const { error } = await sb.from('vendors').upsert(row);
+  if (error) { console.error(error); showToast('Could not save that vendor — ' + sbErrText(error), true); return false; }
+  return true;
+}
+async function deleteVendorRemote(id) {
+  const { error } = await sb.from('vendors').delete().eq('id', id);
+  if (error) { console.error(error); showToast('Could not delete that vendor — ' + sbErrText(error), true); }
+}
+
+function renderVendorsPage() {
+  const term = vendorSearchTerm.trim().toLowerCase();
+  const filtered = vendorsList.filter(v => {
+    if (!term) return true;
+    return ((v.name || '') + ' ' + (v.salesmanName || '') + ' ' + (v.phone || '')).toLowerCase().includes(term);
+  });
+
+  document.getElementById('vendorCountNote').textContent =
+    vendorsList.length ? `${vendorsList.length} vendor${vendorsList.length === 1 ? '' : 's'}` : 'No vendors yet.';
+
+  const body = document.getElementById('vendorTableBody');
+  body.innerHTML = filtered.map(v => `
+    <tr data-vendor-id="${v.id}">
+      <td><strong>${escapeHtml(v.name)}</strong></td>
+      <td>${escapeHtml(v.salesmanName || '—')}</td>
+      <td class="mono">${escapeHtml(v.phone || '—')}</td>
+      <td>${v.dayOfWeek === null ? '—' : VENDOR_DAY_NAMES[v.dayOfWeek]}</td>
+      <td>${VENDOR_FREQ_LABELS[v.frequencyWeeks] || '—'}</td>
+      <td>${v.leadTimeDays === null ? '—' : v.leadTimeDays + 'd'}</td>
+      <td class="mono">${escapeHtml(v.anchorDate || '—')}</td>
+      <td style="white-space:nowrap;">
+        <button class="btn ghost small" data-role="edit-vendor">Edit</button>
+        <button class="btn ghost small" data-role="delete-vendor" style="color:var(--brick);">Delete</button>
+      </td>
+    </tr>
+  `).join('');
+
+  document.getElementById('vendorEmpty').style.display = vendorsList.length ? 'none' : 'block';
+  document.getElementById('vendorNoMatch').style.display = (vendorsList.length && term && !filtered.length) ? 'block' : 'none';
+
+  body.querySelectorAll('tr[data-vendor-id]').forEach(tr => {
+    const id = tr.dataset.vendorId;
+    tr.querySelector('[data-role="edit-vendor"]').addEventListener('click', () => openVendorForm(id));
+    tr.querySelector('[data-role="delete-vendor"]').addEventListener('click', async () => {
+      const v = vendorsList.find(x => x.id === id);
+      const ok = await showConfirm(`Delete "${v ? v.name : 'this vendor'}"?`, 'Delete');
+      if (!ok) return;
+      await deleteVendorRemote(id);
+      vendorsList = vendorsList.filter(x => x.id !== id);
+      renderVendorsPage();
+      showToast('Vendor deleted.');
+    });
+  });
+}
+
+function openVendorForm(id) {
+  editingVendorId = id || null;
+  const v = id ? vendorsList.find(x => x.id === id) : null;
+  document.getElementById('vendorFormTitle').textContent = v ? 'Edit vendor' : 'Add vendor';
+  document.getElementById('saveVendorBtn').textContent = v ? 'Save changes' : 'Add vendor';
+  document.getElementById('vendorName').value = v ? v.name : '';
+  document.getElementById('vendorSalesman').value = v ? v.salesmanName : '';
+  document.getElementById('vendorPhone').value = v ? v.phone : '';
+  document.getElementById('vendorDay').value = v && v.dayOfWeek !== null ? String(v.dayOfWeek) : '5';
+  document.getElementById('vendorFrequency').value = v ? String(v.frequencyWeeks) : '1';
+  document.getElementById('vendorLeadTime').value = v && v.leadTimeDays !== null ? v.leadTimeDays : '';
+  document.getElementById('vendorAnchor').value = v ? v.anchorDate : '';
+  document.getElementById('vendorFormCard').style.display = 'block';
+  document.getElementById('vendorFormCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  document.getElementById('vendorName').focus();
+}
+function closeVendorForm() {
+  editingVendorId = null;
+  document.getElementById('vendorFormCard').style.display = 'none';
+}
+
+document.getElementById('addVendorBtn').addEventListener('click', () => openVendorForm(null));
+document.getElementById('cancelVendorFormBtn').addEventListener('click', closeVendorForm);
+
+document.getElementById('saveVendorBtn').addEventListener('click', async () => {
+  const name = document.getElementById('vendorName').value.trim();
+  if (!name) { showToast('Enter a vendor name.', true); return; }
+  const leadRaw = document.getElementById('vendorLeadTime').value.trim();
+  const vendor = {
+    id: editingVendorId || uid(),
+    name,
+    salesmanName: document.getElementById('vendorSalesman').value.trim(),
+    phone: document.getElementById('vendorPhone').value.trim(),
+    dayOfWeek: Number(document.getElementById('vendorDay').value),
+    frequencyWeeks: Number(document.getElementById('vendorFrequency').value),
+    leadTimeDays: leadRaw === '' ? null : Number(leadRaw),
+    anchorDate: document.getElementById('vendorAnchor').value || ''
+  };
+  const ok = await saveVendorRemote(vendor);
+  if (!ok) return;
+  if (editingVendorId) {
+    const idx = vendorsList.findIndex(x => x.id === editingVendorId);
+    if (idx > -1) vendorsList[idx] = vendor; else vendorsList.push(vendor);
+  } else {
+    vendorsList.push(vendor);
+  }
+  vendorsList.sort((a, b) => a.name.localeCompare(b.name));
+  closeVendorForm();
+  renderVendorsPage();
+  showToast(editingVendorId ? 'Vendor updated.' : 'Vendor added.');
+});
+
+document.getElementById('vendorSearchInput').addEventListener('input', (e) => {
+  vendorSearchTerm = e.target.value;
+  renderVendorsPage();
+});
+
+document.getElementById('importVendorsBtn').addEventListener('click', () => {
+  document.getElementById('vendorFileInput').click();
+});
+
+document.getElementById('vendorFileInput').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const buf = await file.arrayBuffer();
+  let wb;
+  try { wb = XLSX.read(buf, { type: 'array' }); }
+  catch (err) { showToast('Could not read that file — check the format.', true); e.target.value = ''; return; }
+
+  const sheetName = wb.SheetNames.find(n => n.trim().toLowerCase() === 'vendors') || wb.SheetNames[0];
+  const ws = wb.Sheets[sheetName];
+  const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+  if (!rows.length) { showToast('That sheet has no rows.', true); e.target.value = ''; return; }
+
+  const headerKeys = Object.keys(rows[0]);
+  const nameKey = findVendorHeaderKey(headerKeys, ['name', 'vendor', 'vendor name', 'supplier', 'supplier name']);
+  const salesKey = findVendorHeaderKey(headerKeys, ['salesman', 'salesman name', 'rep', 'sales rep', 'contact']);
+  const phoneKey = findVendorHeaderKey(headerKeys, ['phone', 'phone number', 'contact number', 'tel', 'mobile']);
+  const dayKey = findVendorHeaderKey(headerKeys, ['day', 'day of week', 'delivery day', 'routing day']);
+  const freqKey = findVendorHeaderKey(headerKeys, ['frequency', 'routing', 'interval']);
+  const leadKey = findVendorHeaderKey(headerKeys, ['lead time', 'lead time days', 'leadtime', 'lead']);
+  const anchorKey = findVendorHeaderKey(headerKeys, ['anchor date', 'start date', 'first date', 'anchor']);
+
+  if (!nameKey) { showToast('Could not find a vendor name column in that file.', true); e.target.value = ''; return; }
+
+  const parsed = [];
+  let skipped = 0;
+  rows.forEach(row => {
+    const name = String(row[nameKey] ?? '').trim();
+    if (!name) { skipped++; return; }
+    let anchorDate = anchorKey ? String(row[anchorKey] ?? '').trim() : '';
+    if (anchorDate && !isNaN(Date.parse(anchorDate))) {
+      anchorDate = localDateStr(new Date(anchorDate));
+    } else if (anchorDate) {
+      anchorDate = '';
+    }
+    parsed.push({
+      id: uid(),
+      name,
+      salesmanName: salesKey ? String(row[salesKey] ?? '').trim() : '',
+      phone: phoneKey ? String(row[phoneKey] ?? '').trim() : '',
+      dayOfWeek: dayKey ? parseVendorDay(row[dayKey]) : null,
+      frequencyWeeks: freqKey ? parseVendorFrequency(row[freqKey]) : 1,
+      leadTimeDays: (leadKey && row[leadKey] !== '' && !isNaN(Number(row[leadKey]))) ? Number(row[leadKey]) : null,
+      anchorDate
+    });
+  });
+
+  if (!parsed.length) { showToast('No vendors found to import.', true); e.target.value = ''; return; }
+
+  const chunkSize = 500;
+  for (let i = 0; i < parsed.length; i += chunkSize) {
+    const chunk = parsed.slice(i, i + chunkSize).map(v => ({
+      id: v.id, name: v.name, salesman_name: v.salesmanName || null, phone: v.phone || null,
+      day_of_week: v.dayOfWeek, frequency_weeks: v.frequencyWeeks,
+      lead_time_days: v.leadTimeDays, anchor_date: v.anchorDate || null
+    }));
+    const { error } = await sb.from('vendors').insert(chunk);
+    if (error) { console.error(error); showToast('Import failed partway through — ' + sbErrText(error), true); e.target.value = ''; await loadVendorsData(); renderVendorsPage(); return; }
+  }
+
+  e.target.value = '';
+  await loadVendorsData();
+  renderVendorsPage();
+  const skippedNote = skipped ? ` (${skipped} row${skipped === 1 ? '' : 's'} skipped — no name)` : '';
+  showToast(`Imported ${parsed.length} vendor${parsed.length === 1 ? '' : 's'}${skippedNote}.`);
+});
+
+/* ============================================================
+   Orders & no-order weeks (placing/tracking orders per vendor)
+   ============================================================ */
+function parseLocalDate(s) {
+  const [y, m, d] = s.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+function addDaysStr(dateStr, n) {
+  const d = parseLocalDate(dateStr);
+  d.setDate(d.getDate() + n);
+  return localDateStr(d);
+}
+function fmtOrdersDate(dateStr) {
+  if (!dateStr) return '';
+  const d = parseLocalDate(dateStr);
+  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  return days[d.getDay()] + ', ' + d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}
+function isVendorDueOn(v, dateStr) {
+  if (v.dayOfWeek === null || v.dayOfWeek === undefined || !v.anchorDate) return false;
+  const date = parseLocalDate(dateStr);
+  if (date.getDay() !== Number(v.dayOfWeek)) return false;
+  const anchor = parseLocalDate(v.anchorDate);
+  const diffDays = Math.round((date - anchor) / 86400000);
+  if (diffDays < 0) return false;
+  const diffWeeks = Math.round(diffDays / 7);
+  return diffWeeks % Number(v.frequencyWeeks || 1) === 0;
+}
+function pendingOrderForVendor(vendorId) {
+  const list = ordersList.filter(o => o.vendorId === vendorId && o.status === 'pending')
+    .sort((a, b) => (a.orderDate || '') < (b.orderDate || '') ? 1 : -1);
+  return list.length ? list[0] : null;
+}
+function isOrderOverdue(o) {
+  return !!o && o.status === 'pending' && !!o.expectedDelivery && o.expectedDelivery < todayStr();
+}
+function hasSkipOnDate(vendorId, dateStr) {
+  return skipsList.some(s => s.vendorId === vendorId && s.skipDate === dateStr);
+}
+function skipForDate(vendorId, dateStr) {
+  return skipsList.find(s => s.vendorId === vendorId && s.skipDate === dateStr);
+}
+
+async function loadOrdersData() {
+  const { data, error } = await sb.from('vendor_orders').select('*').order('order_date', { ascending: false });
+  if (error) { console.error(error); showToast('Could not load orders — ' + sbErrText(error), true); return; }
+  ordersList = (data || []).map(r => ({
+    id: r.id, vendorId: r.vendor_id, vendorName: r.vendor_name || '',
+    orderDate: r.order_date, leadTimeDays: r.lead_time_days === undefined ? null : r.lead_time_days,
+    expectedDelivery: r.expected_delivery, status: r.status || 'pending', deliveredDate: r.delivered_date
+  }));
+}
+async function saveOrderRemote(o) {
+  const row = {
+    id: o.id, vendor_id: o.vendorId || null, vendor_name: o.vendorName || null,
+    order_date: o.orderDate || null,
+    lead_time_days: (o.leadTimeDays === null || o.leadTimeDays === undefined) ? null : Number(o.leadTimeDays),
+    expected_delivery: o.expectedDelivery || null, status: o.status || 'pending', delivered_date: o.deliveredDate || null
+  };
+  const { error } = await sb.from('vendor_orders').upsert(row);
+  if (error) { console.error(error); showToast('Could not save that order — ' + sbErrText(error), true); return false; }
+  return true;
+}
+async function deleteOrderRemote(id) {
+  const { error } = await sb.from('vendor_orders').delete().eq('id', id);
+  if (error) { console.error(error); showToast('Could not delete that order — ' + sbErrText(error), true); }
+}
+async function loadSkipsData() {
+  const { data, error } = await sb.from('vendor_skips').select('*');
+  if (error) { console.error(error); showToast('Could not load no-order weeks — ' + sbErrText(error), true); return; }
+  skipsList = (data || []).map(r => ({ id: r.id, vendorId: r.vendor_id, vendorName: r.vendor_name || '', skipDate: r.skip_date }));
+}
+async function saveSkipRemote(s) {
+  const row = { id: s.id, vendor_id: s.vendorId || null, vendor_name: s.vendorName || null, skip_date: s.skipDate };
+  const { error } = await sb.from('vendor_skips').upsert(row);
+  if (error) { console.error(error); showToast('Could not save that — ' + sbErrText(error), true); return false; }
+  return true;
+}
+async function deleteSkipRemote(id) {
+  const { error } = await sb.from('vendor_skips').delete().eq('id', id);
+  if (error) { console.error(error); showToast('Could not undo that — ' + sbErrText(error), true); }
+}
+
+document.querySelectorAll('#vendorSubTabs button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    vendorSubTab = btn.dataset.vsub;
+    document.querySelectorAll('#vendorSubTabs button').forEach(b => b.classList.toggle('active', b === btn));
+    document.getElementById('vendorDirectoryView').style.display = vendorSubTab === 'directory' ? 'block' : 'none';
+    document.getElementById('vendorOrdersView').style.display = vendorSubTab === 'orders' ? 'block' : 'none';
+    if (vendorSubTab === 'orders') renderOrdersView();
+  });
+});
+
+function renderOrdersView() {
+  const dateStr = ordersViewDate;
+  const isToday = dateStr === todayStr();
+  document.getElementById('ordersDateLabel').textContent = fmtOrdersDate(dateStr) + (isToday ? ' · Today' : '');
+  document.getElementById('ordersDateTodayBtn').style.display = isToday ? 'none' : '';
+  document.getElementById('ordersDueTitle').textContent = 'Due ' + (isToday ? 'today' : 'on this date');
+  document.getElementById('ordersSkippedTitle').textContent = 'No order logged — ' + fmtOrdersDate(dateStr);
+
+  const dueVendors = vendorsList.filter(v => isVendorDueOn(v, dateStr));
+  const dueNeedAction = dueVendors.filter(v => !pendingOrderForVendor(v.id) && !hasSkipOnDate(v.id, dateStr));
+  const skippedForDate = vendorsList.filter(v => !pendingOrderForVendor(v.id) && hasSkipOnDate(v.id, dateStr));
+  const awaiting = vendorsList.filter(v => pendingOrderForVendor(v.id)).sort((a, b) => {
+    const oa = pendingOrderForVendor(a.id), ob = pendingOrderForVendor(b.id);
+    return (oa.expectedDelivery || '') < (ob.expectedDelivery || '') ? -1 : 1;
+  });
+  const overdueCount = awaiting.filter(v => isOrderOverdue(pendingOrderForVendor(v.id))).length;
+
+  document.getElementById('ordersDueBadge').textContent = dueNeedAction.length + ' due';
+  document.getElementById('ordersAwaitingBadge').textContent = awaiting.length + ' awaiting';
+  document.getElementById('ordersOverdueBadge').textContent = overdueCount + ' overdue';
+
+  const dueBody = document.getElementById('ordersDueBody');
+  dueBody.innerHTML = dueNeedAction.map(v => `
+    <tr data-vendor-id="${v.id}">
+      <td><strong>${escapeHtml(v.name)}</strong></td>
+      <td>${escapeHtml(v.salesmanName || '—')}</td>
+      <td class="mono">${escapeHtml(v.phone || '—')}</td>
+      <td>${v.leadTimeDays === null ? '—' : v.leadTimeDays + 'd'}</td>
+      <td style="white-space:nowrap;">
+        <button class="btn small" data-role="place-order">Place order</button>
+        <button class="btn ghost small" data-role="no-order">No order</button>
+      </td>
+    </tr>
+  `).join('');
+  document.getElementById('ordersDueEmpty').style.display = dueNeedAction.length ? 'none' : 'block';
+  dueBody.querySelectorAll('tr[data-vendor-id]').forEach(tr => {
+    const v = vendorsList.find(x => x.id === tr.dataset.vendorId);
+    tr.querySelector('[data-role="place-order"]').addEventListener('click', () => placeOrderForVendor(v));
+    tr.querySelector('[data-role="no-order"]').addEventListener('click', () => logNoOrder(v, dateStr));
+  });
+
+  const awaitBody = document.getElementById('ordersAwaitingBody');
+  awaitBody.innerHTML = awaiting.map(v => {
+    const o = pendingOrderForVendor(v.id);
+    const overdue = isOrderOverdue(o);
+    return `
+    <tr data-order-id="${o.id}">
+      <td><strong>${escapeHtml(v.name)}</strong></td>
+      <td>${escapeHtml(v.salesmanName || '—')}</td>
+      <td class="mono">${escapeHtml(o.orderDate || '—')}</td>
+      <td class="mono">${escapeHtml(o.expectedDelivery || '—')}</td>
+      <td><span class="badge ${overdue ? 'danger' : 'warn'}">${overdue ? 'Overdue' : 'Pending'}</span></td>
+      <td style="white-space:nowrap;">
+        <button class="btn small" data-role="mark-delivered">Mark delivered</button>
+        <button class="btn ghost small" data-role="delete-order" style="color:var(--brick);">Delete</button>
+      </td>
+    </tr>`;
+  }).join('');
+  document.getElementById('ordersAwaitingEmpty').style.display = awaiting.length ? 'none' : 'block';
+  awaitBody.querySelectorAll('tr[data-order-id]').forEach(tr => {
+    const id = tr.dataset.orderId;
+    tr.querySelector('[data-role="mark-delivered"]').addEventListener('click', () => markOrderDelivered(id));
+    tr.querySelector('[data-role="delete-order"]').addEventListener('click', () => deleteOrderRow(id));
+  });
+
+  const skipBody = document.getElementById('ordersSkippedBody');
+  skipBody.innerHTML = skippedForDate.map(v => `
+    <tr data-vendor-id="${v.id}">
+      <td><strong>${escapeHtml(v.name)}</strong></td>
+      <td>${escapeHtml(v.salesmanName || '—')}</td>
+      <td class="mono">${dateStr}</td>
+      <td><button class="btn ghost small" data-role="undo-skip">Undo</button></td>
+    </tr>
+  `).join('');
+  document.getElementById('ordersSkippedEmpty').style.display = skippedForDate.length ? 'none' : 'block';
+  skipBody.querySelectorAll('tr[data-vendor-id]').forEach(tr => {
+    tr.querySelector('[data-role="undo-skip"]').addEventListener('click', () => undoSkip(tr.dataset.vendorId, dateStr));
+  });
+
+  renderOrderHistory();
+}
+
+async function placeOrderForVendor(v) {
+  const orderDate = ordersViewDate;
+  const leadTimeDays = (v.leadTimeDays === null || v.leadTimeDays === undefined) ? 4 : Number(v.leadTimeDays);
+  const expected = addDaysStr(orderDate, leadTimeDays);
+  const ok = await showConfirm(`Place an order for "${v.name}" dated ${orderDate}? Expected delivery ${expected} (lead time ${leadTimeDays}d).`, 'Place order');
+  if (!ok) return;
+  const order = { id: uid(), vendorId: v.id, vendorName: v.name, orderDate, leadTimeDays, expectedDelivery: expected, status: 'pending', deliveredDate: null };
+  const saved = await saveOrderRemote(order);
+  if (!saved) return;
+  ordersList.push(order);
+  renderOrdersView();
+  showToast('Order placed for ' + v.name + '.');
+}
+async function logNoOrder(v, dateStr) {
+  const ok = await showConfirm(`Log "no order" for "${v.name}" on ${dateStr}?`, 'Log no order');
+  if (!ok) return;
+  const skip = { id: uid(), vendorId: v.id, vendorName: v.name, skipDate: dateStr };
+  const saved = await saveSkipRemote(skip);
+  if (!saved) return;
+  skipsList.push(skip);
+  renderOrdersView();
+  showToast('Logged — no order for ' + v.name + '.');
+}
+async function undoSkip(vendorId, dateStr) {
+  const skip = skipForDate(vendorId, dateStr);
+  if (!skip) return;
+  await deleteSkipRemote(skip.id);
+  skipsList = skipsList.filter(s => s.id !== skip.id);
+  renderOrdersView();
+}
+async function markOrderDelivered(orderId) {
+  const o = ordersList.find(x => x.id === orderId);
+  if (!o) return;
+  const deliveredDate = todayStr();
+  const ok = await showConfirm(`Mark this order delivered today (${deliveredDate})?`, 'Mark delivered');
+  if (!ok) return;
+  o.status = 'delivered';
+  o.deliveredDate = deliveredDate;
+  const saved = await saveOrderRemote(o);
+  if (!saved) return;
+  renderOrdersView();
+  showToast('Marked delivered.');
+}
+async function deleteOrderRow(orderId) {
+  const ok = await showConfirm('Delete this order? This can’t be undone.', 'Delete');
+  if (!ok) return;
+  await deleteOrderRemote(orderId);
+  ordersList = ordersList.filter(o => o.id !== orderId);
+  renderOrdersView();
+  showToast('Order deleted.');
+}
+
+function renderOrderHistory() {
+  let list = ordersList.slice().sort((a, b) => (b.orderDate || '').localeCompare(a.orderDate || ''));
+  if (orderHistoryFilter === 'pending') list = list.filter(o => o.status === 'pending' && !isOrderOverdue(o));
+  if (orderHistoryFilter === 'overdue') list = list.filter(isOrderOverdue);
+  if (orderHistoryFilter === 'delivered') list = list.filter(o => o.status === 'delivered');
+
+  const body = document.getElementById('orderHistoryBody');
+  body.innerHTML = list.map(o => {
+    const v = o.vendorId ? vendorsList.find(x => x.id === o.vendorId) : null;
+    const name = v ? v.name : (o.vendorName || 'Unknown vendor');
+    const overdue = isOrderOverdue(o);
+    const statusBadge = o.status === 'delivered'
+      ? '<span class="badge active">Delivered</span>'
+      : (overdue ? '<span class="badge danger">Overdue</span>' : '<span class="badge warn">Pending</span>');
+    return `
+    <tr data-order-id="${o.id}">
+      <td><strong>${escapeHtml(name)}</strong></td>
+      <td class="mono">${escapeHtml(o.orderDate || '—')}</td>
+      <td class="mono">${escapeHtml(o.expectedDelivery || '—')}</td>
+      <td>${statusBadge}</td>
+      <td class="mono">${escapeHtml(o.deliveredDate || '—')}</td>
+      <td><button class="btn ghost small" data-role="delete-order-h" style="color:var(--brick);">Delete</button></td>
+    </tr>`;
+  }).join('');
+  document.getElementById('orderHistoryEmpty').style.display = list.length ? 'none' : 'block';
+  body.querySelectorAll('tr[data-order-id]').forEach(tr => {
+    tr.querySelector('[data-role="delete-order-h"]').addEventListener('click', () => deleteOrderRow(tr.dataset.orderId));
+  });
+}
+document.querySelectorAll('#orderHistoryFilters button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    orderHistoryFilter = btn.dataset.ofilter;
+    document.querySelectorAll('#orderHistoryFilters button').forEach(b => b.classList.toggle('active', b === btn));
+    renderOrderHistory();
+  });
+});
+document.getElementById('ordersDatePrev').addEventListener('click', () => { ordersViewDate = addDaysStr(ordersViewDate, -1); renderOrdersView(); });
+document.getElementById('ordersDateNext').addEventListener('click', () => { ordersViewDate = addDaysStr(ordersViewDate, 1); renderOrdersView(); });
+document.getElementById('ordersDateTodayBtn').addEventListener('click', () => { ordersViewDate = todayStr(); renderOrdersView(); });
+
+document.getElementById('importOrdersBtn').addEventListener('click', () => document.getElementById('ordersFileInput').click());
+document.getElementById('ordersFileInput').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const buf = await file.arrayBuffer();
+  let wb;
+  try { wb = XLSX.read(buf, { type: 'array' }); }
+  catch (err) { showToast('Could not read that file — check the format.', true); e.target.value = ''; return; }
+
+  function vendorIdForName(name) {
+    const n = (name || '').trim().toLowerCase();
+    const v = vendorsList.find(x => x.name.trim().toLowerCase() === n);
+    return v ? v.id : null;
+  }
+
+  let importedOrders = 0, importedSkips = 0;
+
+  const ordersSheetName = wb.SheetNames.find(n => n.trim().toLowerCase() === 'orders');
+  if (ordersSheetName) {
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[ordersSheetName], { defval: '' });
+    const headerKeys = rows.length ? Object.keys(rows[0]) : [];
+    const vendorKey = findVendorHeaderKey(headerKeys, ['vendor', 'vendor name', 'name', 'supplier']);
+    const orderDateKey = findVendorHeaderKey(headerKeys, ['order date', 'ordered', 'date']);
+    const leadKey = findVendorHeaderKey(headerKeys, ['lead time (days)', 'lead time', 'lead']);
+    const expectedKey = findVendorHeaderKey(headerKeys, ['expected delivery', 'expected']);
+    const statusKey = findVendorHeaderKey(headerKeys, ['status']);
+    const deliveredDateKey = findVendorHeaderKey(headerKeys, ['delivered date', 'delivery date']);
+
+    const parsedOrders = [];
+    rows.forEach(row => {
+      const vendorName = vendorKey ? String(row[vendorKey] ?? '').trim() : '';
+      if (!vendorName) return;
+      const orderDateRaw = orderDateKey ? String(row[orderDateKey] ?? '').trim() : '';
+      const orderDate = (orderDateRaw && !isNaN(Date.parse(orderDateRaw))) ? localDateStr(new Date(orderDateRaw)) : '';
+      const expectedRaw = expectedKey ? String(row[expectedKey] ?? '').trim() : '';
+      const expectedDelivery = (expectedRaw && !isNaN(Date.parse(expectedRaw))) ? localDateStr(new Date(expectedRaw)) : '';
+      const deliveredRaw = deliveredDateKey ? String(row[deliveredDateKey] ?? '').trim() : '';
+      const deliveredDate = (deliveredRaw && !isNaN(Date.parse(deliveredRaw))) ? localDateStr(new Date(deliveredRaw)) : null;
+      const statusRaw = (statusKey ? String(row[statusKey] ?? '') : '').trim().toLowerCase();
+      const status = statusRaw.includes('deliver') ? 'delivered' : 'pending';
+      const leadRaw = leadKey ? row[leadKey] : '';
+      parsedOrders.push({
+        id: uid(), vendorId: vendorIdForName(vendorName), vendorName,
+        orderDate: orderDate || null,
+        leadTimeDays: (leadRaw !== '' && !isNaN(Number(leadRaw))) ? Number(leadRaw) : null,
+        expectedDelivery: expectedDelivery || null, status, deliveredDate
+      });
+    });
+    for (let i = 0; i < parsedOrders.length; i += 500) {
+      const chunk = parsedOrders.slice(i, i + 500).map(o => ({
+        id: o.id, vendor_id: o.vendorId, vendor_name: o.vendorName, order_date: o.orderDate,
+        lead_time_days: o.leadTimeDays, expected_delivery: o.expectedDelivery, status: o.status, delivered_date: o.deliveredDate
+      }));
+      const { error } = await sb.from('vendor_orders').insert(chunk);
+      if (error) { console.error(error); showToast('Order import failed partway — ' + sbErrText(error), true); e.target.value = ''; await loadOrdersData(); renderOrdersView(); return; }
+    }
+    importedOrders = parsedOrders.length;
+  }
+
+  const skipsSheetName = wb.SheetNames.find(n => ['no-order weeks', 'no order weeks'].includes(n.trim().toLowerCase()));
+  if (skipsSheetName) {
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[skipsSheetName], { defval: '' });
+    const headerKeys = rows.length ? Object.keys(rows[0]) : [];
+    const vendorKey = findVendorHeaderKey(headerKeys, ['vendor', 'vendor name', 'name']);
+    const dateKey = findVendorHeaderKey(headerKeys, ['no-order date', 'no order date', 'date']);
+    const parsedSkips = [];
+    rows.forEach(row => {
+      const vendorName = vendorKey ? String(row[vendorKey] ?? '').trim() : '';
+      if (!vendorName) return;
+      const dateRaw = dateKey ? String(row[dateKey] ?? '').trim() : '';
+      const skipDate = (dateRaw && !isNaN(Date.parse(dateRaw))) ? localDateStr(new Date(dateRaw)) : '';
+      if (!skipDate) return;
+      parsedSkips.push({ id: uid(), vendorId: vendorIdForName(vendorName), vendorName, skipDate });
+    });
+    for (let i = 0; i < parsedSkips.length; i += 500) {
+      const chunk = parsedSkips.slice(i, i + 500).map(s => ({ id: s.id, vendor_id: s.vendorId, vendor_name: s.vendorName, skip_date: s.skipDate }));
+      const { error } = await sb.from('vendor_skips').insert(chunk);
+      if (error) { console.error(error); showToast('No-order import failed partway — ' + sbErrText(error), true); e.target.value = ''; await loadSkipsData(); renderOrdersView(); return; }
+    }
+    importedSkips = parsedSkips.length;
+  }
+
+  e.target.value = '';
+  await loadOrdersData();
+  await loadSkipsData();
+  renderOrdersView();
+  if (!importedOrders && !importedSkips) {
+    showToast('No "Orders" or "No-Order Weeks" sheet found in that file.', true);
+  } else {
+    showToast(`Imported ${importedOrders} order${importedOrders === 1 ? '' : 's'} and ${importedSkips} no-order entr${importedSkips === 1 ? 'y' : 'ies'}.`);
+  }
+});
+
+/* ============================================================
+   Rentals (gondola / shelf space, tracked year over year)
+   ============================================================ */
+const RENTAL_MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const MONTH_NAME_TO_IDX = {
+  jan: 0, january: 0, feb: 1, february: 1, mar: 2, march: 2, apr: 3, april: 3, may: 4,
+  jun: 5, june: 5, jul: 6, july: 6, aug: 7, august: 7, sep: 8, sept: 8, september: 8,
+  oct: 9, october: 9, nov: 10, november: 10, dec: 11, december: 11
+};
+function monthlyKey(year, monthIdx) { return year + '-' + String(monthIdx + 1).padStart(2, '0'); }
+function parseMonthYearHeader(h) {
+  const s = String(h).trim().toLowerCase();
+  const m = s.match(/^([a-z]+)\s+(\d{4})$/);
+  if (!m) return null;
+  const monIdx = MONTH_NAME_TO_IDX[m[1]];
+  if (monIdx === undefined) return null;
+  return monthlyKey(Number(m[2]), monIdx);
+}
+function buildMonthGridHtml(year) {
+  return RENTAL_MONTH_NAMES.map((m, i) => `
+    <div class="rm-cell">
+      <label>${m} ${year}</label>
+      <input type="text" inputmode="decimal" class="rental-month-input" data-mkey="${monthlyKey(year, i)}" placeholder="0">
+    </div>
+  `).join('');
+}
+function rentalYearTotal(rental, year) {
+  let sum = 0;
+  for (let i = 0; i < 12; i++) sum += Number(rental.monthly[monthlyKey(year, i)] || 0);
+  return sum;
+}
+function rentalSignal(prevTotal, curTotal) {
+  if (!prevTotal) return curTotal > 0 ? { label: 'New', cls: 'warn' } : { label: 'No activity', cls: '' };
+  const pct = Math.round(((curTotal - prevTotal) / prevTotal) * 100);
+  if (pct >= 0) return { label: `+${pct}% · Recommend renewal`, cls: 'active' };
+  if (pct <= -15) return { label: `${pct}% · Review`, cls: 'danger' };
+  return { label: `${pct}%`, cls: 'warn' };
+}
+
+async function loadRentalsData() {
+  const { data, error } = await sb.from('vendor_rentals').select('*').order('supplier', { ascending: true });
+  if (error) { console.error(error); showToast('Could not load rentals — ' + sbErrText(error), true); return; }
+  rentalsList = (data || []).map(r => ({
+    id: r.id, supplier: r.supplier || '', gondola: r.gondola || '',
+    dateFrom: r.date_from || '', dateTo: r.date_to || '', monthly: r.monthly || {}
+  }));
+}
+async function saveRentalRemote(r) {
+  const row = {
+    id: r.id, supplier: r.supplier, gondola: r.gondola || null,
+    date_from: r.dateFrom || null, date_to: r.dateTo || null, monthly: r.monthly || {}
+  };
+  const { error } = await sb.from('vendor_rentals').upsert(row);
+  if (error) { console.error(error); showToast('Could not save that rental — ' + sbErrText(error), true); return false; }
+  return true;
+}
+async function deleteRentalRemote(id) {
+  const { error } = await sb.from('vendor_rentals').delete().eq('id', id);
+  if (error) { console.error(error); showToast('Could not delete that rental — ' + sbErrText(error), true); }
+}
+
+function renderRentalsPage() {
+  document.getElementById('rentalCountNote').textContent =
+    rentalsList.length ? `${rentalsList.length} rental${rentalsList.length === 1 ? '' : 's'}` : 'No rentals yet.';
+
+  const curYear = new Date().getFullYear();
+  const prevYear = curYear - 1;
+  const numOpts = { maximumFractionDigits: 2 };
+
+  const container = document.getElementById('rentalList');
+  container.innerHTML = rentalsList.map(r => {
+    const prevTotal = rentalYearTotal(r, prevYear);
+    const curTotal = rentalYearTotal(r, curYear);
+    const signal = rentalSignal(prevTotal, curTotal);
+    const open = expandedRentalIds.has(r.id);
+    return `
+    <div class="sellout ${open ? 'open' : ''}" data-rental-id="${r.id}">
+      <div class="sellout-head" data-role="toggle-rental">
+        <span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></span>
+        <div class="who">
+          <div class="name">${escapeHtml(r.supplier)}${r.gondola ? ' — ' + escapeHtml(r.gondola) : ''}</div>
+          <div class="dates">${escapeHtml(r.dateFrom || '—')} to ${escapeHtml(r.dateTo || '—')}</div>
+        </div>
+        <div class="rental-summary">
+          <span class="rs-item">${prevYear}: <strong>${prevTotal.toLocaleString(undefined, numOpts)}</strong></span>
+          <span class="rs-item">${curYear}: <strong>${curTotal.toLocaleString(undefined, numOpts)}</strong></span>
+          <span class="badge ${signal.cls}">${signal.label}</span>
+        </div>
+        <div class="icon-actions">
+          <button class="icon-btn" data-role="edit-rental" title="Edit" aria-label="Edit">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+          </button>
+          <button class="icon-btn danger" data-role="delete-rental" title="Delete" aria-label="Delete">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="sellout-body">
+        <table class="rental-year-table">
+          <thead><tr><th>${prevYear}</th>${RENTAL_MONTH_NAMES.map(m => `<th>${m}</th>`).join('')}<th>Total</th></tr></thead>
+          <tbody><tr><td>Amount</td>${RENTAL_MONTH_NAMES.map((m, i) => `<td>${Number(r.monthly[monthlyKey(prevYear, i)] || 0).toLocaleString(undefined, numOpts)}</td>`).join('')}<td><strong>${prevTotal.toLocaleString(undefined, numOpts)}</strong></td></tr></tbody>
+        </table>
+        <table class="rental-year-table">
+          <thead><tr><th>${curYear}</th>${RENTAL_MONTH_NAMES.map(m => `<th>${m}</th>`).join('')}<th>Total</th></tr></thead>
+          <tbody><tr><td>Amount</td>${RENTAL_MONTH_NAMES.map((m, i) => `<td>${Number(r.monthly[monthlyKey(curYear, i)] || 0).toLocaleString(undefined, numOpts)}</td>`).join('')}<td><strong>${curTotal.toLocaleString(undefined, numOpts)}</strong></td></tr></tbody>
+        </table>
+      </div>
+    </div>`;
+  }).join('');
+
+  document.getElementById('rentalEmpty').style.display = rentalsList.length ? 'none' : 'block';
+
+  container.querySelectorAll('[data-rental-id]').forEach(el => {
+    const id = el.dataset.rentalId;
+    el.querySelector('[data-role="toggle-rental"]').addEventListener('click', () => {
+      if (expandedRentalIds.has(id)) expandedRentalIds.delete(id); else expandedRentalIds.add(id);
+      renderRentalsPage();
+    });
+    el.querySelector('[data-role="edit-rental"]').addEventListener('click', (ev) => { ev.stopPropagation(); openRentalForm(id); });
+    el.querySelector('[data-role="delete-rental"]').addEventListener('click', async (ev) => {
+      ev.stopPropagation();
+      const r = rentalsList.find(x => x.id === id);
+      const ok = await showConfirm(`Delete the rental for "${r ? r.supplier : 'this supplier'}"?`, 'Delete');
+      if (!ok) return;
+      await deleteRentalRemote(id);
+      rentalsList = rentalsList.filter(x => x.id !== id);
+      renderRentalsPage();
+      showToast('Rental deleted.');
+    });
+  });
+}
+
+function openRentalForm(id) {
+  editingRentalId = id || null;
+  const r = id ? rentalsList.find(x => x.id === id) : null;
+  const curYear = new Date().getFullYear();
+  const prevYear = curYear - 1;
+  document.getElementById('rentalFormTitle').textContent = r ? 'Edit rental' : 'Add rental';
+  document.getElementById('saveRentalBtn').textContent = r ? 'Save changes' : 'Add rental';
+  document.getElementById('rentalSupplier').value = r ? r.supplier : '';
+  document.getElementById('rentalGondola').value = r ? r.gondola : '';
+  document.getElementById('rentalDateFrom').value = r ? r.dateFrom : '';
+  document.getElementById('rentalDateTo').value = r ? r.dateTo : '';
+  document.getElementById('rentalPrevYearLabel').textContent = 'Monthly amount — ' + prevYear;
+  document.getElementById('rentalCurYearLabel').textContent = 'Monthly amount — ' + curYear;
+  document.getElementById('rentalPrevYearGrid').innerHTML = buildMonthGridHtml(prevYear);
+  document.getElementById('rentalCurYearGrid').innerHTML = buildMonthGridHtml(curYear);
+  if (r) {
+    document.querySelectorAll('#rentalPrevYearGrid .rental-month-input, #rentalCurYearGrid .rental-month-input').forEach(inp => {
+      const v = r.monthly[inp.dataset.mkey];
+      inp.value = v ? String(v) : '';
+    });
+  }
+  document.getElementById('rentalFormCard').style.display = 'block';
+  document.getElementById('rentalFormCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  document.getElementById('rentalSupplier').focus();
+}
+function closeRentalForm() {
+  editingRentalId = null;
+  document.getElementById('rentalFormCard').style.display = 'none';
+}
+document.getElementById('addRentalBtn').addEventListener('click', () => openRentalForm(null));
+document.getElementById('cancelRentalFormBtn').addEventListener('click', closeRentalForm);
+
+document.getElementById('saveRentalBtn').addEventListener('click', async () => {
+  const supplier = document.getElementById('rentalSupplier').value.trim();
+  if (!supplier) { showToast('Enter a supplier name.', true); return; }
+  const existing = editingRentalId ? rentalsList.find(x => x.id === editingRentalId) : null;
+  const monthly = existing ? Object.assign({}, existing.monthly) : {};
+  document.querySelectorAll('#rentalPrevYearGrid .rental-month-input, #rentalCurYearGrid .rental-month-input').forEach(inp => {
+    const raw = inp.value.trim();
+    const n = raw === '' ? 0 : Number(raw.replace(/[^0-9.\-]/g, ''));
+    monthly[inp.dataset.mkey] = isNaN(n) ? 0 : n;
+  });
+  const rental = {
+    id: editingRentalId || uid(),
+    supplier,
+    gondola: document.getElementById('rentalGondola').value.trim(),
+    dateFrom: document.getElementById('rentalDateFrom').value || '',
+    dateTo: document.getElementById('rentalDateTo').value || '',
+    monthly
+  };
+  const wasEditing = editingRentalId;
+  const ok = await saveRentalRemote(rental);
+  if (!ok) return;
+  if (wasEditing) {
+    const idx = rentalsList.findIndex(x => x.id === wasEditing);
+    if (idx > -1) rentalsList[idx] = rental; else rentalsList.push(rental);
+  } else {
+    rentalsList.push(rental);
+  }
+  rentalsList.sort((a, b) => a.supplier.localeCompare(b.supplier));
+  closeRentalForm();
+  renderRentalsPage();
+  showToast(wasEditing ? 'Rental updated.' : 'Rental added.');
+});
+
+document.getElementById('importRentalsBtn').addEventListener('click', () => document.getElementById('rentalFileInput').click());
+document.getElementById('rentalFileInput').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const buf = await file.arrayBuffer();
+  let wb;
+  try { wb = XLSX.read(buf, { type: 'array' }); }
+  catch (err) { showToast('Could not read that file — check the format.', true); e.target.value = ''; return; }
+
+  const sheetName = wb.SheetNames.find(n => n.trim().toLowerCase() === 'rentals') || wb.SheetNames[0];
+  const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { defval: '' });
+  if (!rows.length) { showToast('That sheet has no rows.', true); e.target.value = ''; return; }
+
+  const headerKeys = Object.keys(rows[0]);
+  const supplierKey = findVendorHeaderKey(headerKeys, ['supplier', 'vendor', 'name']);
+  const gondolaKey = findVendorHeaderKey(headerKeys, ['gondola', 'description', 'item']);
+  const fromKey = findVendorHeaderKey(headerKeys, ['date from', 'from', 'start date']);
+  const toKey = findVendorHeaderKey(headerKeys, ['date to', 'to', 'end date']);
+  if (!supplierKey) { showToast('Could not find a supplier column in that file.', true); e.target.value = ''; return; }
+
+  const monthKeysByHeader = {};
+  headerKeys.forEach(h => {
+    const mk = parseMonthYearHeader(h);
+    if (mk) monthKeysByHeader[h] = mk;
+  });
+
+  const parsed = [];
+  rows.forEach(row => {
+    const supplier = String(row[supplierKey] ?? '').trim();
+    if (!supplier) return;
+    const monthly = {};
+    Object.keys(monthKeysByHeader).forEach(h => {
+      const n = Number(row[h]);
+      monthly[monthKeysByHeader[h]] = isNaN(n) ? 0 : n;
+    });
+    const fromRaw = fromKey ? String(row[fromKey] ?? '').trim() : '';
+    const toRaw = toKey ? String(row[toKey] ?? '').trim() : '';
+    parsed.push({
+      id: uid(), supplier,
+      gondola: gondolaKey ? String(row[gondolaKey] ?? '').trim() : '',
+      dateFrom: (fromRaw && !isNaN(Date.parse(fromRaw))) ? localDateStr(new Date(fromRaw)) : '',
+      dateTo: (toRaw && !isNaN(Date.parse(toRaw))) ? localDateStr(new Date(toRaw)) : '',
+      monthly
+    });
+  });
+
+  if (!parsed.length) { showToast('No rental rows found to import.', true); e.target.value = ''; return; }
+
+  for (let i = 0; i < parsed.length; i += 500) {
+    const chunk = parsed.slice(i, i + 500).map(r => ({
+      id: r.id, supplier: r.supplier, gondola: r.gondola || null,
+      date_from: r.dateFrom || null, date_to: r.dateTo || null, monthly: r.monthly
+    }));
+    const { error } = await sb.from('vendor_rentals').insert(chunk);
+    if (error) { console.error(error); showToast('Rental import failed partway — ' + sbErrText(error), true); e.target.value = ''; await loadRentalsData(); renderRentalsPage(); return; }
+  }
+
+  e.target.value = '';
+  await loadRentalsData();
+  renderRentalsPage();
+  showToast(`Imported ${parsed.length} rental${parsed.length === 1 ? '' : 's'}.`);
+});
+
+async function initVendors() {
+  await loadVendorsData();
+  renderVendorsPage();
+  await loadOrdersData();
+  await loadSkipsData();
+  renderOrdersView();
+  await loadRentalsData();
+  renderRentalsPage();
+}
+
 loadAll();
 initPromotions();
+initVendors();
 </script>
 </body>
 </html>
