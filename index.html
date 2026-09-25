@@ -353,6 +353,7 @@ table.promo select{
 table.promo select:focus{outline:none;border-color:var(--pine);box-shadow:0 0 0 3px var(--pine-tint);}
 table.promo .code-cell{font-family:var(--font-mono);}
 table.promo .balance-cell input{text-align:right;}
+table.promo th.rowact-col,table.promo td.rowact-col{width:1%;white-space:nowrap;padding-right:2px;}
 table.promo th.chk-col,table.promo td.chk-col{width:1%;white-space:nowrap;text-align:center;padding-right:2px;}
 table.promo th.code-cell,table.promo td.code-cell{min-width:120px;}
 table.promo th.desc-cell,table.promo td.desc-cell{min-width:260px;}
@@ -2123,12 +2124,22 @@ async function renderPromoWorkspace() {
     const supplierOpen = expandedSupplierRowIds.has(row.id);
     const supplierRow = supplierOpen ? `
     <tr class="supplier-detail-row" data-supplier-row-id="${row.id}">
-      <td colspan="10" style="background:var(--paper);font-size:12.5px;color:var(--ink-soft);padding:6px 10px 8px 40px;">
+      <td colspan="11" style="background:var(--paper);font-size:12.5px;color:var(--ink-soft);padding:6px 10px 8px 40px;">
         Supplier: <strong style="color:var(--ink);">${escapeHtml(row.supplier || 'Not listed in the catalog')}</strong>
       </td>
     </tr>` : '';
     return `
     <tr data-row-id="${row.id}">
+      <td class="rowact-col">
+        <div class="icon-actions">
+          <button class="icon-btn" data-role="insert-row" tabindex="-1" title="Insert row below" aria-label="Insert row below">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+          </button>
+          <button class="icon-btn danger" data-role="remove-row" tabindex="-1" title="Remove row" aria-label="Remove row">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/><path d="M10 11v6M14 11v6"/></svg>
+          </button>
+        </div>
+      </td>
       <td class="chk-col"><input type="checkbox" data-role="select-row" tabindex="-1" ${selectedRowIds.has(row.id) ? 'checked' : ''}></td>
       <td class="code-cell"><input type="text" class="${[isDuplicateCodeInPromo(row) ? 'cell-duplicate' : '', isCodeMissingFromCatalog(row) ? 'cell-missing' : ''].filter(Boolean).join(' ')}" value="${escapeHtml(row.code)}" data-field="code" placeholder="Code" title="${isCodeMissingFromCatalog(row) ? 'This code was not found in the catalog' : (isDuplicateCodeInPromo(row) ? 'This code appears more than once in this promotion' : '')}"></td>
       <td class="desc-cell"><input type="text" value="${escapeHtml(row.description)}" data-field="description" placeholder="Description"></td>
@@ -2162,12 +2173,6 @@ async function renderPromoWorkspace() {
           </button>
           <button class="icon-btn ${needsFlag ? 'flag-on' : ''}" data-role="toggle-flag" tabindex="-1" title="${flagTitle}" aria-label="Flag row">
             <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21V4a1 1 0 0 1 1-1h11.2a.6.6 0 0 1 .45 1l-3.15 4 3.15 4a.6.6 0 0 1-.45 1H6"/></svg>
-          </button>
-          <button class="icon-btn" data-role="insert-row" tabindex="-1" title="Insert row below" aria-label="Insert row below">
-            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
-          </button>
-          <button class="icon-btn danger" data-role="remove-row" tabindex="-1" title="Remove row" aria-label="Remove row">
-            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/><path d="M10 11v6M14 11v6"/></svg>
           </button>
         </div>
       </td>
@@ -2220,6 +2225,7 @@ async function renderPromoWorkspace() {
         <div class="items-scroll">
           <table class="promo">
             <thead><tr>
+              <th class="rowact-col"></th>
               <th class="chk-col"><input type="checkbox" id="selectAllRows"></th>
               <th class="code-cell">Code</th><th class="desc-cell">Description</th><th class="balance-cell">Promo Price</th><th class="balance-cell">Discount</th><th class="balance-cell">Before Price</th><th class="balance-cell">Sale Price</th><th class="stock-cell">Stock</th><th class="type-cell">Type</th><th></th>
             </tr></thead>
