@@ -380,6 +380,7 @@ td.row-actions{width:1%;white-space:nowrap;}
 @media (prefers-reduced-motion: reduce){
   .big-discount-dot:after{animation:none;opacity:.3;}
 }
+input.cell-duplicate{border-color:var(--gold) !important;box-shadow:0 0 0 1px var(--gold) inset;}
 input.cell-missing{border-color:var(--brick) !important;box-shadow:0 0 0 1px var(--brick) inset;}
 
 /* ================= Vendors: orders & rentals ================= */
@@ -1068,7 +1069,7 @@ async function loadPromoRows(promoId) {
   const { data, error } = await sb.from('promotion_rows').select('*').eq('promotion_id', promoId).order('sort_order', { ascending: true });
   if (error) { console.error(error); showToast('Could not load this promotion’s items — ' + sbErrText(error), true); return []; }
   return (data || []).map(r => ({
-    id: r.id, code: r.code || '', description: r.description || '',
+    id: r.id, promotionId: r.promotion_id || promoId, code: r.code || '', description: r.description || '',
     balance: r.balance === undefined ? null : r.balance,
     promoPrice: r.promo_price === undefined ? null : r.promo_price,
     discount: r.discount === undefined ? null : r.discount,
@@ -1087,7 +1088,12 @@ function numOrNull(v) {
 }
 function promoRowPayload(row) {
   return {
-    id: row.id, promotion_id: currentPromoId, code: row.code, description: row.description,
+    // Each row remembers which promotion it belongs to at the moment it was
+    // created/loaded (row.promotionId), rather than trusting whatever
+    // promotion happens to be open on screen right now. That avoids a row
+    // getting silently re-parented to the wrong promotion if the person
+    // switches tabs while an edit is still saving.
+    id: row.id, promotion_id: row.promotionId || currentPromoId, code: row.code, description: row.description,
     balance: numOrNull(row.balance),
     promo_price: numOrNull(row.promoPrice),
     discount: numOrNull(row.discount),
@@ -1099,8 +1105,26 @@ function promoRowPayload(row) {
     sort_order: row.sortOrder
   };
 }
+function isFkViolation(error) {
+  if (!error) return false;
+  return error.code === '23503' || /foreign key/i.test(sbErrText(error));
+}
+/* If a row's parent promotion doesn't exist in the database yet (a slower
+   promotion insert hasn't landed before the row insert reached the server)
+   or was removed some other way while it was still open here, re-save the
+   promotion from what's still held locally and retry once, so an edit is
+   never lost to a timing gap or a stale tab. */
+async function ensurePromotionExistsFor(row) {
+  const promo = promotions.find(p => p.id === (row.promotionId || currentPromoId));
+  if (!promo) return false;
+  await savePromotion(promo);
+  return true;
+}
 async function savePromoRow(row) {
-  const { error } = await sb.from('promotion_rows').upsert(promoRowPayload(row));
+  let { error } = await sb.from('promotion_rows').upsert(promoRowPayload(row));
+  if (error && isFkViolation(error) && await ensurePromotionExistsFor(row)) {
+    ({ error } = await sb.from('promotion_rows').upsert(promoRowPayload(row)));
+  }
   if (error) { console.error(error); showToast('Could not save that row — ' + sbErrText(error), true); }
 }
 async function persistRowsBulk(rows) {
@@ -1109,7 +1133,10 @@ async function persistRowsBulk(rows) {
   const chunkSize = 500;
   for (let i = 0; i < payload.length; i += chunkSize) {
     const chunk = payload.slice(i, i + chunkSize);
-    const { error } = await sb.from('promotion_rows').upsert(chunk);
+    let { error } = await sb.from('promotion_rows').upsert(chunk);
+    if (error && isFkViolation(error) && await ensurePromotionExistsFor(rows[i])) {
+      ({ error } = await sb.from('promotion_rows').upsert(chunk));
+    }
     if (error) { console.error(error); showToast('Could not save some of the rows — ' + sbErrText(error), true); return; }
   }
 }
@@ -1126,7 +1153,7 @@ function renumberRows() {
   currentRows.forEach((r, i) => { r.sortOrder = i; });
 }
 function blankPromoRow() {
-  return { id: uid(), code: '', description: '', promoPrice: null, discount: null, beforePrice: null, salePrice: null, balance: null, priceType: '', supplier: '', flagged: false, sortOrder: currentRows.length, _lastLookupCode: '' };
+  return { id: uid(), promotionId: currentPromoId, code: '', description: '', promoPrice: null, discount: null, beforePrice: null, salePrice: null, balance: null, priceType: '', supplier: '', flagged: false, sortOrder: currentRows.length, _lastLookupCode: '' };
 }
 const PROMO_FIELDS = ['code', 'description', 'promoPrice', 'discount', 'beforePrice', 'salePrice', 'balance', 'priceType'];
 const PRICE_RISK_RATIO = 0.25;
@@ -1186,6 +1213,27 @@ function isCodeMissingFromCatalog(row) {
 function isPromoPriceMissing(row) {
   const hasCode = !!(row.code && row.code.trim());
   return hasCode && (row.promoPrice === null || row.promoPrice === undefined || row.promoPrice === '');
+}
+/* Duplicate codes within the same promotion are allowed on purpose (some
+   items legitimately get listed twice) — they're just flagged with a
+   yellow border rather than blocked, so nothing typed is ever lost. */
+function isDuplicateCodeInPromo(row) {
+  const code = (row.code || '').trim();
+  if (!code) return false;
+  return currentRows.filter(r => (r.code || '').trim() === code).length > 1;
+}
+function refreshDuplicateFlagsForCode(code) {
+  const trimmed = (code || '').trim();
+  if (!trimmed) return;
+  const body = document.getElementById('promoRowsBody');
+  if (!body) return;
+  const matches = currentRows.filter(r => (r.code || '').trim() === trimmed);
+  const isDup = matches.length > 1;
+  matches.forEach(r => {
+    const tr = body.querySelector(`tr[data-row-id="${r.id}"]`);
+    const codeInput = tr && tr.querySelector('[data-field="code"]');
+    if (codeInput) codeInput.classList.toggle('cell-duplicate', isDup);
+  });
 }
 function refreshDiscountUi(tr, row) {
   const dot = tr.querySelector('[data-role="big-discount-dot"]');
@@ -2082,7 +2130,7 @@ async function renderPromoWorkspace() {
     return `
     <tr data-row-id="${row.id}">
       <td class="chk-col"><input type="checkbox" data-role="select-row" tabindex="-1" ${selectedRowIds.has(row.id) ? 'checked' : ''}></td>
-      <td class="code-cell"><input type="text" class="${isCodeMissingFromCatalog(row) ? 'cell-missing' : ''}" value="${escapeHtml(row.code)}" data-field="code" placeholder="Code" title="${isCodeMissingFromCatalog(row) ? 'This code was not found in the catalog' : ''}"></td>
+      <td class="code-cell"><input type="text" class="${[isDuplicateCodeInPromo(row) ? 'cell-duplicate' : '', isCodeMissingFromCatalog(row) ? 'cell-missing' : ''].filter(Boolean).join(' ')}" value="${escapeHtml(row.code)}" data-field="code" placeholder="Code" title="${isCodeMissingFromCatalog(row) ? 'This code was not found in the catalog' : (isDuplicateCodeInPromo(row) ? 'This code appears more than once in this promotion' : '')}"></td>
       <td class="desc-cell"><input type="text" value="${escapeHtml(row.description)}" data-field="description" placeholder="Description"></td>
       <td class="balance-cell"><input type="text" inputmode="decimal" class="${isPromoPriceMissing(row) ? 'cell-missing' : ''}" value="${numToStr(row.promoPrice)}" data-field="promoPrice" placeholder="0.00" title="${isPromoPriceMissing(row) ? 'Missing the promo price' : ''}"></td>
       <td class="balance-cell">
@@ -2453,11 +2501,19 @@ function wirePromoWorkspaceEvents(promo) {
     });
 
     const doLookup = () => {
+      const prevCode = row.code;
       const code = codeInput.value.trim();
       row.code = code;
       if (code === row._lastLookupCode) { refreshRowValidationUi(tr, row); return; }
       row._lastLookupCode = code;
-      if (!code) { savePromoRow(row); refreshRowValidationUi(tr, row); refreshDiscountUi(tr, row); return; }
+      if (!code) {
+        savePromoRow(row);
+        refreshRowValidationUi(tr, row);
+        refreshDiscountUi(tr, row);
+        refreshDuplicateFlagsForCode(prevCode);
+        refreshDuplicateFlagsForCode(code);
+        return;
+      }
       const item = catalogMap.get(code);
       if (item) {
         row.description = item.description;
@@ -2478,6 +2534,8 @@ function wirePromoWorkspaceEvents(promo) {
       }
       refreshRowValidationUi(tr, row);
       refreshDiscountUi(tr, row);
+      refreshDuplicateFlagsForCode(prevCode);
+      refreshDuplicateFlagsForCode(code);
       savePromoRow(row);
     };
 
