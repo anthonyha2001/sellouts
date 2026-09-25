@@ -1177,7 +1177,7 @@ function renumberRows() {
 function blankPromoRow() {
   return { id: uid(), promotionId: currentPromoId, code: '', description: '', promoPrice: null, discount: null, beforePrice: null, salePrice: null, balance: null, priceType: '', supplier: '', flagged: false, sortOrder: currentRows.length, _lastLookupCode: '' };
 }
-const PROMO_FIELDS = ['code', 'description', 'promoPrice', 'discount', 'beforePrice', 'salePrice', 'balance', 'priceType'];
+const PROMO_FIELDS = ['code', 'description', 'promoPrice', 'beforePrice', 'discount', 'salePrice', 'balance', 'priceType'];
 const PRICE_RISK_RATIO = 0.25;
 function isPriceRisk(row) {
   const promo = Number(row.promoPrice);
@@ -2263,13 +2263,13 @@ async function renderPromoWorkspace() {
       </td>
       <td class="desc-cell"><input type="text" value="${escapeHtml(row.description)}" data-field="description" placeholder="Description"></td>
       <td class="balance-cell"><input type="text" inputmode="decimal" class="${isPromoPriceMissing(row) ? 'cell-missing' : ''}" value="${numToStr(row.promoPrice)}" data-field="promoPrice" placeholder="0.00" title="${isPromoPriceMissing(row) ? 'Missing the promo price' : ''}"></td>
+      <td class="balance-cell"><input type="text" inputmode="decimal" value="${numToStr(row.beforePrice)}" data-field="beforePrice" placeholder="0.00"></td>
       <td class="balance-cell">
         <div class="discount-cell-wrap">
           <input type="text" inputmode="decimal" value="${numToStr(row.discount)}" data-field="discount" placeholder="0%">
           <span class="big-discount-dot" data-role="big-discount-dot" title="Promo price is more than 25% below the sale price" style="display:${isBigDiscount(row) ? 'inline-block' : 'none'};"></span>
         </div>
       </td>
-      <td class="balance-cell"><input type="text" inputmode="decimal" value="${numToStr(row.beforePrice)}" data-field="beforePrice" placeholder="0.00"></td>
       <td class="balance-cell"><input type="text" inputmode="decimal" value="${numToStr(row.salePrice)}" data-field="salePrice" placeholder="0.00"></td>
       <td class="stock-cell">
         <div class="stock-cell-wrap">
@@ -2322,6 +2322,8 @@ async function renderPromoWorkspace() {
         </div>
       </div>
       <div class="promo-header-actions">
+        <button class="btn secondary small" id="importPriceSheetBtn" title="Upload the raw supplier price sheet — splits multi-codes into rows and fills in Promo/Before Price automatically">Import price sheet</button>
+        <input type="file" id="priceSheetInput" accept=".xlsx,.xls,.csv" style="display:none;">
         <button class="btn secondary small" id="copyCodesBtn">Copy codes</button>
         <button class="btn secondary small" id="exportPromoBtn">Export to Excel</button>
         <button class="btn ghost small" id="toggleArchivePromoBtn">${promo.archived ? 'Unarchive' : 'Archive now'}</button>
@@ -2346,7 +2348,7 @@ async function renderPromoWorkspace() {
             <thead><tr>
               <th class="rowact-col"></th>
               <th class="chk-col"><input type="checkbox" id="selectAllRows"></th>
-              <th class="code-cell">Code</th><th class="desc-cell">Description</th><th class="balance-cell">Promo Price</th><th class="balance-cell">Discount</th><th class="balance-cell">Before Price</th><th class="balance-cell">Sale Price</th><th class="stock-cell">Stock</th><th class="type-cell">Type</th><th></th>
+              <th class="code-cell">Code</th><th class="desc-cell">Description</th><th class="balance-cell">Promo Price</th><th class="balance-cell">Before Price</th><th class="balance-cell">Discount</th><th class="balance-cell">Sale Price</th><th class="stock-cell">Stock</th><th class="type-cell">Type</th><th></th>
             </tr></thead>
             <tbody id="promoRowsBody">${rowsHtml}</tbody>
           </table>
@@ -2494,6 +2496,36 @@ function wirePromoWorkspaceEvents(promo) {
   });
 
   document.getElementById('exportPromoBtn').addEventListener('click', () => exportPromotionToExcel(promo));
+
+  document.getElementById('importPriceSheetBtn').addEventListener('click', () => {
+    document.getElementById('priceSheetInput').click();
+  });
+
+  document.getElementById('priceSheetInput').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    let buf;
+    try { buf = await file.arrayBuffer(); }
+    catch (err) { showToast('Could not read that file — check the format.', true); e.target.value = ''; return; }
+
+    let result;
+    try { result = parsePriceSheetRows(buf); }
+    catch (err) { console.error(err); showToast('Could not read that file — check the format.', true); e.target.value = ''; return; }
+    e.target.value = '';
+
+    if (result.error) { showToast(result.error, true); return; }
+    if (!result.rows.length) { showToast('No item lines found in that file.', true); return; }
+
+    currentRows.push(...result.rows);
+    renumberRows();
+    await renderPromoWorkspace();
+    await persistRowsBulk(result.rows);
+
+    const parts = [`Imported ${result.rows.length} row${result.rows.length === 1 ? '' : 's'} from ${result.sourceLineCount} line${result.sourceLineCount === 1 ? '' : 's'}`];
+    if (result.splitCount) parts.push(`${result.splitCount} multi-code line${result.splitCount === 1 ? '' : 's'} split`);
+    if (result.blankCodeCount) parts.push(`${result.blankCodeCount} line${result.blankCodeCount === 1 ? '' : 's'} had no code — kept blank so you can spot ${result.blankCodeCount === 1 ? 'it' : 'them'}`);
+    showToast(parts.join(', ') + '.', !!result.blankCodeCount);
+  });
 
   document.getElementById('copyCodesBtn').addEventListener('click', async () => {
     const codes = currentRows.map(r => (r.code || '').trim()).filter(Boolean);
@@ -2910,15 +2942,15 @@ function exportPromotionToExcel(promo) {
     [promo.name || 'Untitled promotion'],
     [`${promo.from ? fmtDate(promo.from) : '?'} \u2192 ${promo.to ? fmtDate(promo.to) : '?'}`],
     [],
-    ['Code', 'Description', 'Promo Price', 'Discount', 'Before Price', 'Sale Price', 'Stock', 'Low Stock', 'Type']
+    ['Code', 'Description', 'Promo Price', 'Before Price', 'Discount', 'Sale Price', 'Stock', 'Low Stock', 'Type']
   ];
   currentRows.forEach(r => {
     const isLow = r.balance !== null && r.balance !== undefined && Number(r.balance) < lowStockThreshold;
     aoa.push([
       r.code, r.description,
       (r.promoPrice === null || r.promoPrice === undefined) ? '' : r.promoPrice,
-      (r.discount === null || r.discount === undefined) ? '' : r.discount,
       (r.beforePrice === null || r.beforePrice === undefined) ? '' : r.beforePrice,
+      (r.discount === null || r.discount === undefined) ? '' : r.discount,
       (r.salePrice === null || r.salePrice === undefined) ? '' : r.salePrice,
       (r.balance === null || r.balance === undefined) ? '' : r.balance,
       isLow ? 'Yes' : 'No',
@@ -2932,6 +2964,88 @@ function exportPromotionToExcel(promo) {
   const safeName = (promo.name || 'promotion').replace(/[\\/:*?"<>|]/g, '-').trim() || 'promotion';
   XLSX.writeFile(wb, `${safeName}.xlsx`);
   showToast('Promotion exported.');
+}
+
+// Supplier price sheets often list several SKUs on one line (e.g. "78615/90174")
+// and sometimes skip the code cell entirely for a line item. This turns a raw,
+// as-downloaded sheet like that directly into promotion rows: one row per code,
+// each carrying the line's own Promo Price / Before Price, and a blank row kept
+// in place (instead of silently dropped) wherever the source had no code at all
+// so a missing item is still visible.
+function findPriceSheetHeaderRow(aoa) {
+  const isMatch = (cell, re) => typeof cell === 'string' && re.test(cell.trim());
+  const codeRe = /^item ?code$/i, altCodeRe = /^code$/i, descRe = /^description$/i;
+  for (let i = 0; i < Math.min(aoa.length, 20); i++) {
+    const row = aoa[i] || [];
+    const hasCode = row.some(c => isMatch(c, codeRe) || isMatch(c, altCodeRe));
+    const hasDesc = row.some(c => isMatch(c, descRe));
+    if (hasCode && hasDesc) return i;
+  }
+  return -1;
+}
+
+function parsePriceSheetRows(buf) {
+  const wb = XLSX.read(buf, { type: 'array' });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: true });
+  const headerIdx = findPriceSheetHeaderRow(aoa);
+  if (headerIdx === -1) return { error: 'Could not find an "Itemcode" and "Description" header row in that file.' };
+
+  const header = aoa[headerIdx];
+  const norm = (s) => String(s ?? '').trim().toLowerCase().replace(/\s+/g, '');
+  const findCol = (...wants) => header.findIndex(h => wants.includes(norm(h)));
+  const codeCol = findCol('itemcode', 'code');
+  const descCol = findCol('description');
+  const promoCol = findCol('promoprice', 'promo');
+  const beforeCol = findCol('oldprice', 'beforeprice', 'before');
+  if (codeCol === -1 || descCol === -1) return { error: 'Could not find an "Itemcode" and "Description" header row in that file.' };
+
+  const toNum = (v) => {
+    if (v === '' || v === null || v === undefined) return null;
+    if (typeof v === 'number') return v;
+    const cleaned = String(v).replace(/[^0-9.\-]/g, '');
+    if (!cleaned) return null;
+    const n = Number(cleaned);
+    return isNaN(n) ? null : n;
+  };
+
+  const newRows = [];
+  let splitCount = 0, blankCodeCount = 0, sourceLineCount = 0;
+  for (let i = headerIdx + 1; i < aoa.length; i++) {
+    const line = aoa[i] || [];
+    const rawCode = String(line[codeCol] ?? '').trim();
+    const desc = descCol > -1 ? String(line[descCol] ?? '').trim() : '';
+    const promoPrice = promoCol > -1 ? toNum(line[promoCol]) : null;
+    const beforePrice = beforeCol > -1 ? toNum(line[beforeCol]) : null;
+    const isBlankLine = !rawCode && !desc && promoPrice === null && beforePrice === null;
+    if (isBlankLine) continue;
+    sourceLineCount++;
+
+    const codes = rawCode ? rawCode.split('/').map(s => s.trim()).filter(Boolean) : [];
+    if (codes.length > 1) splitCount++;
+    if (!codes.length) blankCodeCount++;
+    const expansions = codes.length ? codes : [''];
+
+    expansions.forEach(code => {
+      const row = blankPromoRow();
+      row.code = code;
+      row._lastLookupCode = code;
+      row.description = desc;
+      row.promoPrice = promoPrice;
+      row.beforePrice = beforePrice;
+      if (code) {
+        const item = catalogMap.get(code);
+        if (item) {
+          row.balance = item.balance === undefined ? null : item.balance;
+          row.salePrice = item.salePrice === undefined ? null : item.salePrice;
+          row.supplier = item.supplier || '';
+        }
+      }
+      applyAutoDiscount(row);
+      newRows.push(row);
+    });
+  }
+  return { rows: newRows, splitCount, blankCodeCount, sourceLineCount };
 }
 
 async function initPromotions() {
