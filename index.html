@@ -319,6 +319,16 @@ table.cn td.num{font-family:var(--font-mono);}
 
 .promo-tabstrip-wrap{display:flex;align-items:center;gap:10px;margin:22px 0 16px;flex-wrap:wrap;}
 .promo-dropdown{flex:0 0 auto;width:auto;min-width:200px;max-width:260px;}
+.filter-dropdown-wrap{position:relative;flex:0 0 auto;}
+.filter-panel{
+  position:absolute;right:0;top:calc(100% + 6px);width:220px;max-height:280px;overflow:auto;
+  background:var(--paper-raised);border:1px solid var(--line);border-radius:var(--radius-sm);box-shadow:var(--shadow-md);z-index:40;
+}
+.filter-panel-head{display:flex;justify-content:space-between;align-items:center;padding:9px 12px;border-bottom:1px solid var(--line);font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-soft);}
+.filter-panel-option{display:flex;align-items:center;gap:8px;padding:8px 12px;font-size:13px;cursor:pointer;}
+.filter-panel-option:hover{background:var(--paper);}
+.filter-panel-option input{width:auto;}
+.link-btn{background:none;border:none;color:var(--pine);font-size:12px;cursor:pointer;font-family:var(--font-body);font-weight:500;padding:0;}
 .promo-tabstrip{display:flex;gap:6px;flex-wrap:wrap;flex:1 1 auto;}
 .promo-tab{
   font-family:var(--font-body);font-size:13px;font-weight:500;padding:8px 14px;border-radius:20px;
@@ -1041,7 +1051,7 @@ async function loadCatalogFor(promoId) {
   if (!promoId) { catalogItems = []; catalogMap = new Map(); return; }
   const { data, error } = await sb.from('catalog_items').select('*').eq('promotion_id', promoId).order('code', { ascending: true });
   if (error) { console.error(error); showToast('Could not load this promotion\u2019s catalog \u2014 ' + sbErrText(error), true); return; }
-  catalogItems = (data || []).map(r => ({ code: r.code, description: r.description || '', balance: r.balance, salePrice: r.sale_price === undefined ? null : r.sale_price, supplier: r.supplier || '' }));
+  catalogItems = (data || []).map(r => ({ code: r.code, description: r.description || '', balance: r.balance, salePrice: r.sale_price === undefined ? null : r.sale_price, supplier: r.supplier || '', country: r.country || '', outYtd: r.out_ytd === undefined ? null : r.out_ytd }));
   catalogMap = new Map(catalogItems.map(i => [i.code, i]));
 }
 
@@ -1050,7 +1060,7 @@ async function replaceCatalog(rows, fileName, promoId) {
   const { error: delErr } = await sb.from('catalog_items').delete().eq('promotion_id', promoId);
   if (delErr) { console.error(delErr); showToast('Could not clear the old catalog \u2014 ' + sbErrText(delErr), true); return false; }
   const now = new Date().toISOString();
-  const payload = rows.map(r => ({ id: `${promoId}::${r.code}`, code: r.code, promotion_id: promoId, description: r.description, balance: r.balance, sale_price: r.salePrice, supplier: r.supplier || null, updated_at: now }));
+  const payload = rows.map(r => ({ id: `${promoId}::${r.code}`, code: r.code, promotion_id: promoId, description: r.description, balance: r.balance, sale_price: r.salePrice, supplier: r.supplier || null, country: r.country || null, out_ytd: r.outYtd === undefined ? null : r.outYtd, updated_at: now }));
   const chunkSize = 500;
   for (let i = 0; i < payload.length; i += chunkSize) {
     const chunk = payload.slice(i, i + chunkSize);
@@ -1120,6 +1130,8 @@ async function loadPromoRows(promoId) {
     supplier: r.supplier || '',
     flagged: !!r.flagged,
     cost: r.cost === undefined ? null : r.cost,
+    country: r.country || '',
+    outYtd: r.out_ytd === undefined ? null : r.out_ytd,
     sortOrder: r.sort_order || 0, _lastLookupCode: r.code || ''
   }));
 }
@@ -1145,6 +1157,8 @@ function promoRowPayload(row) {
     supplier: row.supplier || null,
     flagged: !!row.flagged,
     cost: numOrNull(row.cost),
+    country: row.country || null,
+    out_ytd: numOrNull(row.outYtd),
     sort_order: row.sortOrder
   };
 }
@@ -1196,7 +1210,7 @@ function renumberRows() {
   currentRows.forEach((r, i) => { r.sortOrder = i; });
 }
 function blankPromoRow() {
-  return { id: uid(), promotionId: currentPromoId, code: '', description: '', promoPrice: null, discount: null, beforePrice: null, salePrice: null, balance: null, priceType: '', supplier: '', flagged: false, cost: null, sortOrder: currentRows.length, _lastLookupCode: '' };
+  return { id: uid(), promotionId: currentPromoId, code: '', description: '', promoPrice: null, discount: null, beforePrice: null, salePrice: null, balance: null, priceType: '', supplier: '', flagged: false, cost: null, country: '', outYtd: null, sortOrder: currentRows.length, _lastLookupCode: '' };
 }
 const PROMO_FIELDS = ['code', 'description', 'promoPrice', 'beforePrice', 'discount', 'salePrice', 'balance', 'priceType'];
 const PRICE_RISK_RATIO = 0.25;
@@ -1218,6 +1232,31 @@ function isPriceGapUnusual(row) {
 }
 function rowNeedsFlag(row) {
   return !!row.flagged || isPriceRisk(row) || isPriceGapUnusual(row);
+}
+// Sales velocity from the catalog's "Out" (units sold year-to-date) column,
+// turned into how many weeks the current stock will last at that pace —
+// a smarter low-stock signal than a single fixed threshold, since a slow
+// mover and a fast mover with the same stock count aren't equally at risk.
+function weeksElapsedThisYear() {
+  const now = new Date();
+  const startOfYear = new Date(now.getFullYear(), 0, 1);
+  const weeks = (now - startOfYear) / (7 * 24 * 3600 * 1000);
+  return Math.max(weeks, 1); // guard against an unstable rate in the first days of January
+}
+function weeksOfStockLeft(row) {
+  const balance = Number(row.balance);
+  const outYtd = Number(row.outYtd);
+  if (row.balance === null || row.balance === undefined || row.balance === '') return null;
+  if (row.outYtd === null || row.outYtd === undefined || row.outYtd === '') return null;
+  if (isNaN(balance) || isNaN(outYtd) || outYtd <= 0) return null;
+  const weeklyRate = outYtd / weeksElapsedThisYear();
+  if (weeklyRate <= 0) return null;
+  return balance / weeklyRate;
+}
+const VELOCITY_LOW_STOCK_WEEKS = 1.5;
+function isVelocityLowStock(row) {
+  const weeks = weeksOfStockLeft(row);
+  return weeks !== null && weeks < VELOCITY_LOW_STOCK_WEEKS;
 }
 function refreshRowFlagUi(tr, row) {
   const btn = tr.querySelector('[data-role="toggle-flag"]');
@@ -1381,8 +1420,10 @@ let currentPromoId = null;
 let currentRows = [];
 let selectedRowIds = new Set();
 let expandedSupplierRowIds = new Set();
-let promoViewMode = 'table'; // 'table' or 'supplier'
+let promoViewMode = 'table'; // 'table', 'supplier' or 'audit'
 let expandedSupplierGroups = new Set();
+let selectedCountries = new Set(); // Country filter, applied across all promo views
+let countryFilterOpen = false;
 let catalogCollapsed = localStorage.getItem('sol-catalog-collapsed') === 'true';
 let showArchivedPromos = false;
 
@@ -2005,6 +2046,19 @@ document.addEventListener('click', (e) => {
 });
 document.getElementById('clearNotifs').addEventListener('click', () => { notifications = []; renderNotifPanel(); });
 
+// The country-filter panel lives inside the Promotions workspace, which gets
+// fully re-rendered often, so this looks the elements up fresh on every click
+// rather than holding onto a reference that a re-render could detach.
+document.addEventListener('click', (e) => {
+  if (!countryFilterOpen) return;
+  const wrap = document.getElementById('countryFilterWrap');
+  if (wrap && !wrap.contains(e.target)) {
+    countryFilterOpen = false;
+    const panel = document.getElementById('countryFilterPanel');
+    if (panel) panel.style.display = 'none';
+  }
+});
+
 async function runNotificationCheck() {
   const today = todayStr();
   let changed = false;
@@ -2091,20 +2145,26 @@ document.getElementById('catalogFileInput').addEventListener('change', async (e)
   if (!rows.length) { showToast('That file has no rows.', true); e.target.value = ''; return; }
 
   const headerKeys = Object.keys(rows[0]);
-  const norm = (s) => s.trim().toLowerCase().replace(/\s+/g, '');
-  const findExact = (want) => headerKeys.find(k => norm(k) === want);
-  const codeKey = findExact('code') || findExact('item') || headerKeys[0];
-  const descKey = findExact('description') || headerKeys[1];
-  const balanceKey = findExact('balance');
-  const saleKey = findExact('saleprice') || findExact('salesprice');
-  const supplierKey = findExact('supplierdesc') || findExact('supplier') || findExact('suppliername');
+  // Stripped down to letters/digits only, so "Supplier Desc", "Supplier_Desc",
+  // "Supplier-Desc." etc. all normalize the same way and still match.
+  const norm = (s) => String(s ?? '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+  const findExact = (...wants) => headerKeys.find(k => wants.includes(norm(k)));
+  const codeKey = findExact('code', 'item', 'itemcode', 'sku') || headerKeys[0];
+  const descKey = findExact('description', 'desc', 'itemdescription') || headerKeys[1];
+  const balanceKey = findExact('balance', 'stock', 'onhand', 'stockonhand', 'qtyonhand');
+  const saleKey = findExact('saleprice', 'salesprice', 'price');
+  const supplierKey = findExact('supplierdesc', 'supplier', 'suppliername', 'supplierdescription', 'vendordesc', 'vendor', 'vendorname');
+  const countryKey = findExact('countrydesc', 'country', 'countryname', 'countryoforigin', 'origincountry');
+  const outKey = findExact('out', 'outytd', 'ytdout', 'salesytd', 'ytdsales', 'qtyout', 'unitsout', 'totalout', 'soldytd');
 
   const rawParsed = rows.map(r => ({
     code: String(r[codeKey] ?? '').trim(),
     description: descKey ? String(r[descKey] ?? '').trim() : '',
     balance: (balanceKey && r[balanceKey] !== '' && !isNaN(Number(r[balanceKey]))) ? Number(r[balanceKey]) : null,
     salePrice: (saleKey && r[saleKey] !== '' && !isNaN(Number(r[saleKey]))) ? Number(r[saleKey]) : null,
-    supplier: supplierKey ? String(r[supplierKey] ?? '').trim() : ''
+    supplier: supplierKey ? String(r[supplierKey] ?? '').trim() : '',
+    country: countryKey ? String(r[countryKey] ?? '').trim() : '',
+    outYtd: (outKey && r[outKey] !== '' && !isNaN(Number(r[outKey]))) ? Number(r[outKey]) : null
   })).filter(r => r.code);
 
   const skipped = rows.length - rawParsed.length;
@@ -2130,6 +2190,8 @@ document.getElementById('catalogFileInput').addEventListener('change', async (e)
   if (!balanceKey) warnings.push('no "Balance" column was found, so low-stock flags won’t work');
   if (!saleKey) warnings.push('no "Saleprice" column was found, so Sale Price won’t auto-fill');
   if (!supplierKey) warnings.push('no "Supplier" column was found, so supplier info won’t show');
+  if (!countryKey) warnings.push('no "Country" column was found, so the country filter won’t have anything to show');
+  if (!outKey) warnings.push('no "Out"/sales column was found, so the stock-weeks flag won’t work');
   if (skipped > 0) warnings.push(`${skipped} row${skipped === 1 ? '' : 's'} had no code and ${skipped === 1 ? 'was' : 'were'} skipped`);
   if (dupCount > 0) warnings.push(`${dupCount} duplicate code${dupCount === 1 ? '' : 's'} \u2014 kept the last row for each`);
 
@@ -2202,6 +2264,8 @@ async function selectPromotion(id) {
   if (id === currentPromoId) return;
   currentPromoId = id;
   selectedRowIds.clear();
+  selectedCountries.clear();
+  countryFilterOpen = false;
   if (id) {
     currentRows = await loadPromoRows(id);
     await loadCatalogFor(id);
@@ -2243,7 +2307,11 @@ async function renderPromoWorkspace() {
   const promo = promotions.find(p => p.id === currentPromoId);
   if (!promo) { workspace.innerHTML = ''; return; }
 
-  const rowsHtml = currentRows.map(row => {
+  const countryOf = (row) => (row.country || '').trim() || 'No country listed';
+  const allCountries = Array.from(new Set(currentRows.map(countryOf))).sort((a, b) => a.localeCompare(b));
+  const visibleRows = selectedCountries.size ? currentRows.filter(r => selectedCountries.has(countryOf(r))) : currentRows;
+
+  const rowsHtml = visibleRows.map(row => {
     const priceRisk = isPriceRisk(row);
     const needsFlag = rowNeedsFlag(row);
     const gapUnusual = isPriceGapUnusual(row);
@@ -2256,6 +2324,7 @@ async function renderPromoWorkspace() {
     <tr class="supplier-detail-row" data-supplier-row-id="${row.id}">
       <td colspan="11" style="background:var(--paper);font-size:12.5px;color:var(--ink-soft);padding:6px 10px 8px 40px;">
         Supplier: <strong style="color:var(--ink);">${escapeHtml(row.supplier || 'Not listed in the catalog')}</strong>
+        &nbsp;&middot;&nbsp; Country: <strong style="color:var(--ink);">${escapeHtml(row.country || 'Not listed in the catalog')}</strong>
       </td>
     </tr>` : '';
     return `
@@ -2318,7 +2387,7 @@ async function renderPromoWorkspace() {
       </td>
     </tr>${supplierRow}`;
   }).join('');
-  const promoStats = computePromoStats(currentRows);
+  const promoStats = computePromoStats(visibleRows);
 
   workspace.innerHTML = `
     <div class="card promo-header-card">
@@ -2367,10 +2436,24 @@ async function renderPromoWorkspace() {
               ? 'Code and description next to the cost from the imported price sheet, for a manual check. Items with no cost on file are left out.'
               : 'Tip: copy a block of cells from Excel and paste directly into the table \u2014 it will fill rows and columns starting from where you paste, adding new rows if needed. Enter moves down a column, Tab at the last field adds a new row.')}</p>
         </div>
-        <div class="filter-row" id="promoViewSwitch" style="margin:0;">
-          <button class="${promoViewMode === 'table' ? 'active' : ''}" data-view="table">Table</button>
-          <button class="${promoViewMode === 'supplier' ? 'active' : ''}" data-view="supplier">Group by supplier</button>
-          <button class="${promoViewMode === 'audit' ? 'active' : ''}" data-view="audit">Audit</button>
+        <div style="display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap;">
+          <div class="filter-dropdown-wrap" id="countryFilterWrap">
+            <button class="btn ghost small" id="countryFilterBtn">Filter${selectedCountries.size ? ` (${selectedCountries.size})` : ''}</button>
+            <div class="filter-panel" id="countryFilterPanel" style="display:${countryFilterOpen ? 'block' : 'none'};">
+              <div class="filter-panel-head">
+                <span>Country</span>
+                <button class="link-btn" id="clearCountryFilterBtn">Clear</button>
+              </div>
+              ${allCountries.length ? allCountries.map(c => `
+                <label class="filter-panel-option"><input type="checkbox" value="${escapeHtml(c)}" data-role="country-option" ${selectedCountries.has(c) ? 'checked' : ''}> ${escapeHtml(c)}</label>
+              `).join('') : '<p class="muted-note" style="padding:8px 10px;">No country data in the catalog yet.</p>'}
+            </div>
+          </div>
+          <div class="filter-row" id="promoViewSwitch" style="margin:0;">
+            <button class="${promoViewMode === 'table' ? 'active' : ''}" data-view="table">Table</button>
+            <button class="${promoViewMode === 'supplier' ? 'active' : ''}" data-view="supplier">Group by supplier</button>
+            <button class="${promoViewMode === 'audit' ? 'active' : ''}" data-view="audit">Audit</button>
+          </div>
         </div>
       </div>
 
@@ -2396,14 +2479,14 @@ async function renderPromoWorkspace() {
       </div>
 
       <div id="promoSupplierView" style="display:${promoViewMode === 'supplier' ? '' : 'none'};">
-        ${buildSupplierGroupedHtml(currentRows)}
+        ${buildSupplierGroupedHtml(visibleRows)}
       </div>
 
       <div id="promoAuditView" style="display:${promoViewMode === 'audit' ? '' : 'none'};">
         <div style="display:flex;justify-content:flex-end;margin-bottom:12px;">
           <button class="btn secondary small" id="printAuditBtn">Print</button>
         </div>
-        ${buildAuditHtml(currentRows)}
+        ${buildAuditHtml(visibleRows)}
       </div>
     </div>
   `;
@@ -2412,8 +2495,43 @@ async function renderPromoWorkspace() {
   if (promoViewMode === 'supplier') wireSupplierGroupEvents();
   if (promoViewMode === 'audit') {
     const printBtn = document.getElementById('printAuditBtn');
-    if (printBtn) printBtn.addEventListener('click', () => printAuditTable(promo, currentRows));
+    if (printBtn) printBtn.addEventListener('click', () => printAuditTable(promo, visibleRows));
   }
+}
+
+// Editing a single row's code (doLookup) updates that row in place rather than
+// doing a full renderPromoWorkspace(), for speed — but that means the Filter
+// panel's country list (built once, at the last full render) can miss a
+// country that only just became known. Rebuilding just the panel keeps the
+// list current without paying for a full re-render on every keystroke.
+function refreshCountryFilterOptions() {
+  const panel = document.getElementById('countryFilterPanel');
+  if (!panel) return;
+  const countryOf = (row) => (row.country || '').trim() || 'No country listed';
+  const allCountries = Array.from(new Set(currentRows.map(countryOf))).sort((a, b) => a.localeCompare(b));
+  panel.innerHTML = `
+    <div class="filter-panel-head">
+      <span>Country</span>
+      <button class="link-btn" id="clearCountryFilterBtn">Clear</button>
+    </div>
+    ${allCountries.length ? allCountries.map(c => `
+      <label class="filter-panel-option"><input type="checkbox" value="${escapeHtml(c)}" data-role="country-option" ${selectedCountries.has(c) ? 'checked' : ''}> ${escapeHtml(c)}</label>
+    `).join('') : '<p class="muted-note" style="padding:8px 10px;">No country data in the catalog yet.</p>'}
+  `;
+  panel.querySelectorAll('[data-role="country-option"]').forEach(cb => {
+    cb.addEventListener('change', async () => {
+      if (cb.checked) selectedCountries.add(cb.value); else selectedCountries.delete(cb.value);
+      countryFilterOpen = true;
+      await renderPromoWorkspace();
+    });
+  });
+  const clearBtn = document.getElementById('clearCountryFilterBtn');
+  if (clearBtn) clearBtn.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    selectedCountries.clear();
+    countryFilterOpen = true;
+    await renderPromoWorkspace();
+  });
 }
 
 function buildSupplierGroupedHtml(rows) {
@@ -2439,9 +2557,16 @@ function buildSupplierGroupedHtml(rows) {
       <h4>${label} (${list.length})</h4>
       <div class="items-scroll" style="margin-bottom:14px;">
         <table class="items">
-          <thead><tr><th>Code</th><th>Description</th><th>Promo Price</th><th>Stock</th></tr></thead>
+          <thead><tr><th>Code</th><th>Description</th><th>Promo Price</th><th>Stock</th><th>Out (YTD)</th><th></th></tr></thead>
           <tbody>
-            ${list.map(r => `<tr><td>${escapeHtml(r.code)}</td><td>${escapeHtml(r.description)}</td><td>${numToStr(r.promoPrice)}</td><td>${numToStr(r.balance)}</td></tr>`).join('')}
+            ${list.map(r => {
+              const weeks = weeksOfStockLeft(r);
+              const lowVelocity = isVelocityLowStock(r);
+              const flagCell = lowVelocity
+                ? `<span class="low-stock-badge" title="At this year's sales pace, stock covers about ${weeks.toFixed(1)} week${weeks < 2 ? '' : 's'} — under the ${VELOCITY_LOW_STOCK_WEEKS}-week mark"><span class="pulse"></span>${weeks.toFixed(1)} wk${weeks < 2 ? '' : 's'} left</span>`
+                : '';
+              return `<tr><td>${escapeHtml(r.code)}</td><td>${escapeHtml(r.description)}</td><td>${numToStr(r.promoPrice)}</td><td>${numToStr(r.balance)}</td><td>${r.outYtd === null || r.outYtd === undefined ? '' : numToStr(r.outYtd)}</td><td>${flagCell}</td></tr>`;
+            }).join('')}
           </tbody>
         </table>
       </div>`;
@@ -2578,6 +2703,31 @@ function wirePromoWorkspaceEvents(promo) {
       await renderPromoWorkspace();
     });
   });
+
+  const countryFilterBtn = document.getElementById('countryFilterBtn');
+  const countryFilterPanel = document.getElementById('countryFilterPanel');
+  if (countryFilterBtn && countryFilterPanel) {
+    countryFilterBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      countryFilterOpen = !countryFilterOpen;
+      countryFilterPanel.style.display = countryFilterOpen ? 'block' : 'none';
+    });
+    countryFilterPanel.addEventListener('click', (e) => e.stopPropagation());
+    countryFilterPanel.querySelectorAll('[data-role="country-option"]').forEach(cb => {
+      cb.addEventListener('change', async () => {
+        if (cb.checked) selectedCountries.add(cb.value); else selectedCountries.delete(cb.value);
+        countryFilterOpen = true; // keep the panel open across the re-render while picking several
+        await renderPromoWorkspace();
+      });
+    });
+    const clearBtn = document.getElementById('clearCountryFilterBtn');
+    if (clearBtn) clearBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      selectedCountries.clear();
+      countryFilterOpen = true;
+      await renderPromoWorkspace();
+    });
+  }
 
   autoArchiveCb.addEventListener('change', async () => {
     promo.autoArchive = autoArchiveCb.checked;
@@ -2797,6 +2947,8 @@ function wirePromoWorkspaceEvents(promo) {
         row.balance = item.balance === undefined ? null : item.balance;
         row.salePrice = item.salePrice === undefined ? null : item.salePrice;
         row.supplier = item.supplier || '';
+        row.country = item.country || '';
+        row.outYtd = item.outYtd === undefined ? null : item.outYtd;
         descInput.value = item.description;
         balInput.value = row.balance === null ? '' : row.balance;
         salePriceInput.value = row.salePrice === null ? '' : row.salePrice;
@@ -2808,8 +2960,13 @@ function wirePromoWorkspaceEvents(promo) {
         discountInput.value = row.discount === null ? '' : row.discount;
         stockBadgeSlot.innerHTML = rowStockBadgeHtml(row);
         refreshRowFlagUi(tr, row);
-        const supplierDetail = document.querySelector(`tr[data-supplier-row-id="${row.id}"] strong`);
-        if (supplierDetail) supplierDetail.textContent = row.supplier || 'Not listed in the catalog';
+        const supplierDetail = document.querySelector(`tr[data-supplier-row-id="${row.id}"]`);
+        if (supplierDetail) {
+          const strongs = supplierDetail.querySelectorAll('strong');
+          if (strongs[0]) strongs[0].textContent = row.supplier || 'Not listed in the catalog';
+          if (strongs[1]) strongs[1].textContent = row.country || 'Not listed in the catalog';
+        }
+        refreshCountryFilterOptions();
       } else {
         showToast(`Code "${code}" not found in this promotion's catalog \u2014 fill it in manually.`, true);
       }
@@ -3024,6 +3181,8 @@ function wirePromoWorkspaceEvents(promo) {
               row2.balance = item.balance === undefined ? null : item.balance;
               row2.salePrice = item.salePrice === undefined ? null : item.salePrice;
               row2.supplier = item.supplier || '';
+              row2.country = item.country || '';
+              row2.outYtd = item.outYtd === undefined ? null : item.outYtd;
             }
           } else {
             row2[field] = fieldValueParse(field, raw);
@@ -3180,6 +3339,8 @@ function parsePriceSheetRows(buf) {
           row.balance = item.balance === undefined ? null : item.balance;
           row.salePrice = item.salePrice === undefined ? null : item.salePrice;
           row.supplier = item.supplier || '';
+          row.country = item.country || '';
+          row.outYtd = item.outYtd === undefined ? null : item.outYtd;
         }
       }
       applyAutoDiscount(row);
