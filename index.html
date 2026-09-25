@@ -429,6 +429,14 @@ input.cell-missing{border-color:var(--brick) !important;box-shadow:0 0 0 1px var
 .toast.show{opacity:1;transform:translateY(0);}
 .toast.err{background:var(--brick);}
 
+/* Printing the Audit view: everything on the page is hidden except a plain,
+   print-friendly copy of the cost table injected at the end of <body>. */
+#auditPrintRoot{display:none;}
+@media print{
+  body.printing-audit > *:not(#auditPrintRoot){display:none !important;}
+  body.printing-audit #auditPrintRoot{display:block !important;color:#111;background:#fff;padding:0 10px;}
+}
+
 .empty-state{text-align:center;padding:60px 20px;color:var(--ink-faint);border:1px dashed var(--line-strong);border-radius:var(--radius);}
 .empty-state .glyph{width:38px;height:38px;margin:0 auto 14px;color:var(--ink-faint);}
 .empty-state .glyph svg{width:100%;height:100%;stroke:currentColor;}
@@ -1070,7 +1078,9 @@ async function loadPromotions() {
   promotions = (data || []).map(r => ({
     id: r.id, name: r.name, from: r.from_date, to: r.to_date, createdAt: r.created_at,
     archived: !!r.archived,
-    autoArchive: r.auto_archive === false ? false : true
+    autoArchive: r.auto_archive === false ? false : true,
+    sourceFileName: r.source_file_name || null,
+    sourceFileBase64: r.source_file_base64 || null
   }));
 }
 async function savePromotion(promo) {
@@ -1081,6 +1091,15 @@ async function savePromotion(promo) {
   };
   const { error } = await sb.from('promotions').upsert(row);
   if (error) { console.error(error); showToast('Could not save the promotion — ' + sbErrText(error), true); }
+}
+// Keeps the raw price-sheet file the person imported, so it stays available
+// after a reload instead of only living in that one browser tab's memory.
+async function savePromotionSourceFile(promoId, file) {
+  const base64 = await blobToBase64(file);
+  const { error } = await sb.from('promotions').upsert({ id: promoId, source_file_name: file.name, source_file_base64: base64 });
+  if (error) { console.error(error); showToast('Imported the rows, but could not save the source file — ' + sbErrText(error), true); return; }
+  const promo = promotions.find(p => p.id === promoId);
+  if (promo) { promo.sourceFileName = file.name; promo.sourceFileBase64 = base64; }
 }
 async function deletePromotionRemote(id) {
   const { error } = await sb.from('promotions').delete().eq('id', id);
@@ -1100,6 +1119,7 @@ async function loadPromoRows(promoId) {
     priceType: r.price_type || '',
     supplier: r.supplier || '',
     flagged: !!r.flagged,
+    cost: r.cost === undefined ? null : r.cost,
     sortOrder: r.sort_order || 0, _lastLookupCode: r.code || ''
   }));
 }
@@ -1124,6 +1144,7 @@ function promoRowPayload(row) {
     price_type: row.priceType || null,
     supplier: row.supplier || null,
     flagged: !!row.flagged,
+    cost: numOrNull(row.cost),
     sort_order: row.sortOrder
   };
 }
@@ -1175,7 +1196,7 @@ function renumberRows() {
   currentRows.forEach((r, i) => { r.sortOrder = i; });
 }
 function blankPromoRow() {
-  return { id: uid(), promotionId: currentPromoId, code: '', description: '', promoPrice: null, discount: null, beforePrice: null, salePrice: null, balance: null, priceType: '', supplier: '', flagged: false, sortOrder: currentRows.length, _lastLookupCode: '' };
+  return { id: uid(), promotionId: currentPromoId, code: '', description: '', promoPrice: null, discount: null, beforePrice: null, salePrice: null, balance: null, priceType: '', supplier: '', flagged: false, cost: null, sortOrder: currentRows.length, _lastLookupCode: '' };
 }
 const PROMO_FIELDS = ['code', 'description', 'promoPrice', 'beforePrice', 'discount', 'salePrice', 'balance', 'priceType'];
 const PRICE_RISK_RATIO = 0.25;
@@ -2329,6 +2350,11 @@ async function renderPromoWorkspace() {
         <button class="btn ghost small" id="toggleArchivePromoBtn">${promo.archived ? 'Unarchive' : 'Archive now'}</button>
         <button class="btn ghost small" id="deletePromoBtn">Delete</button>
       </div>
+      ${promo.sourceFileName ? `
+      <div class="file-info" style="flex:1 1 100%;">
+        <div><span class="fi-name">${escapeHtml(promo.sourceFileName)}</span><div class="fi-meta">Original price sheet saved to this promotion</div></div>
+        <button class="btn ghost small" id="downloadSourceFileBtn">Download</button>
+      </div>` : ''}
     </div>
 
     <div class="card">
@@ -2337,9 +2363,15 @@ async function renderPromoWorkspace() {
           <p class="muted-note" style="margin:0 0 4px;">${promoStats.total} row${promoStats.total === 1 ? '' : 's'} \u00b7 ${promoStats.flagged} flagged \u00b7 ${promoStats.empty} empty row${promoStats.empty === 1 ? '' : 's'}</p>
           <p class="muted-note" style="margin:0 0 10px;">${promoViewMode === 'supplier'
             ? 'Sell Out and C/N items grouped by supplier. Right Price items and rows without a Type are left out.'
-            : 'Tip: copy a block of cells from Excel and paste directly into the table \u2014 it will fill rows and columns starting from where you paste, adding new rows if needed. Enter moves down a column, Tab at the last field adds a new row.'}</p>
+            : (promoViewMode === 'audit'
+              ? 'Code and description next to the cost from the imported price sheet, for a manual check. Items with no cost on file are left out.'
+              : 'Tip: copy a block of cells from Excel and paste directly into the table \u2014 it will fill rows and columns starting from where you paste, adding new rows if needed. Enter moves down a column, Tab at the last field adds a new row.')}</p>
         </div>
-        <button class="btn ghost small" id="toggleSupplierViewBtn">${promoViewMode === 'supplier' ? 'Back to table' : 'Group by supplier'}</button>
+        <div class="filter-row" id="promoViewSwitch" style="margin:0;">
+          <button class="${promoViewMode === 'table' ? 'active' : ''}" data-view="table">Table</button>
+          <button class="${promoViewMode === 'supplier' ? 'active' : ''}" data-view="supplier">Group by supplier</button>
+          <button class="${promoViewMode === 'audit' ? 'active' : ''}" data-view="audit">Audit</button>
+        </div>
       </div>
 
       <div id="promoTableView" style="display:${promoViewMode === 'table' ? '' : 'none'};">
@@ -2366,11 +2398,22 @@ async function renderPromoWorkspace() {
       <div id="promoSupplierView" style="display:${promoViewMode === 'supplier' ? '' : 'none'};">
         ${buildSupplierGroupedHtml(currentRows)}
       </div>
+
+      <div id="promoAuditView" style="display:${promoViewMode === 'audit' ? '' : 'none'};">
+        <div style="display:flex;justify-content:flex-end;margin-bottom:12px;">
+          <button class="btn secondary small" id="printAuditBtn">Print</button>
+        </div>
+        ${buildAuditHtml(currentRows)}
+      </div>
     </div>
   `;
 
   wirePromoWorkspaceEvents(promo);
   if (promoViewMode === 'supplier') wireSupplierGroupEvents();
+  if (promoViewMode === 'audit') {
+    const printBtn = document.getElementById('printAuditBtn');
+    if (printBtn) printBtn.addEventListener('click', () => printAuditTable(promo, currentRows));
+  }
 }
 
 function buildSupplierGroupedHtml(rows) {
@@ -2427,6 +2470,65 @@ function buildSupplierGroupedHtml(rows) {
   }).join('');
 }
 
+// Code + description next to the cost pulled in from "Import price sheet",
+// so someone can print it and check the numbers by hand against invoices.
+// A row with no cost on file (typed manually, or the source sheet had none)
+// is left out rather than shown with a blank.
+function auditableRows(rows) {
+  return rows.filter(r => r.cost !== null && r.cost !== undefined && r.cost !== '');
+}
+function buildAuditHtml(rows) {
+  const auditRows = auditableRows(rows);
+  if (!auditRows.length) {
+    return `
+    <div class="empty-state" style="padding:40px 20px;">
+      <p class="big">No cost data yet</p>
+      <p>Cost comes in from "Import price sheet" — items without a cost in that file are left out here.</p>
+    </div>`;
+  }
+  return `
+    <div class="items-scroll">
+      <table class="items">
+        <thead><tr><th>Code</th><th>Description</th><th style="text-align:right;">Cost</th></tr></thead>
+        <tbody>${auditRows.map(r => `
+        <tr>
+          <td>${escapeHtml(r.code)}</td>
+          <td>${escapeHtml(r.description)}</td>
+          <td style="text-align:right;">${numToStr(r.cost)}</td>
+        </tr>`).join('')}</tbody>
+      </table>
+    </div>`;
+}
+function printAuditTable(promo, rows) {
+  const auditRows = auditableRows(rows);
+  if (!auditRows.length) { showToast('No rows with a cost to print yet.', true); return; }
+  let root = document.getElementById('auditPrintRoot');
+  if (!root) {
+    root = document.createElement('div');
+    root.id = 'auditPrintRoot';
+    document.body.appendChild(root);
+  }
+  root.innerHTML = `
+    <h2 style="font-family:Georgia,serif;margin:0 0 4px;">${escapeHtml(promo.name || 'Untitled promotion')} — Cost audit</h2>
+    <p style="margin:0 0 16px;color:#555;font-size:12.5px;">${auditRows.length} item${auditRows.length === 1 ? '' : 's'} with a cost on file</p>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <thead><tr>
+        <th style="text-align:left;padding:6px 8px;border-bottom:2px solid #333;">Code</th>
+        <th style="text-align:left;padding:6px 8px;border-bottom:2px solid #333;">Description</th>
+        <th style="text-align:right;padding:6px 8px;border-bottom:2px solid #333;">Cost</th>
+      </tr></thead>
+      <tbody>${auditRows.map(r => `
+      <tr>
+        <td style="padding:6px 8px;border-bottom:1px solid #ccc;">${escapeHtml(r.code)}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #ccc;">${escapeHtml(r.description)}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #ccc;text-align:right;">${numToStr(r.cost)}</td>
+      </tr>`).join('')}</tbody>
+    </table>`;
+  document.body.classList.add('printing-audit');
+  window.print();
+}
+window.addEventListener('afterprint', () => document.body.classList.remove('printing-audit'));
+
 function wireSupplierGroupEvents() {
   document.querySelectorAll('#promoSupplierView .sellout[data-supplier-group]').forEach(el => {
     const name = el.dataset.supplierGroup;
@@ -2470,9 +2572,11 @@ function wirePromoWorkspaceEvents(promo) {
   fromInput.addEventListener('change', saveHeader);
   toInput.addEventListener('change', saveHeader);
 
-  document.getElementById('toggleSupplierViewBtn').addEventListener('click', async () => {
-    promoViewMode = promoViewMode === 'supplier' ? 'table' : 'supplier';
-    await renderPromoWorkspace();
+  document.querySelectorAll('#promoViewSwitch [data-view]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      promoViewMode = btn.dataset.view;
+      await renderPromoWorkspace();
+    });
   });
 
   autoArchiveCb.addEventListener('change', async () => {
@@ -2501,6 +2605,19 @@ function wirePromoWorkspaceEvents(promo) {
     document.getElementById('priceSheetInput').click();
   });
 
+  const downloadSourceBtn = document.getElementById('downloadSourceFileBtn');
+  if (downloadSourceBtn) {
+    downloadSourceBtn.addEventListener('click', () => {
+      if (!promo.sourceFileBase64) { showToast('That file isn’t available anymore.', true); return; }
+      const blob = base64ToBlob(promo.sourceFileBase64, guessMime(promo.sourceFileName));
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = promo.sourceFileName || 'price-sheet.xlsx';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+    });
+  }
+
   document.getElementById('priceSheetInput').addEventListener('change', async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -2519,7 +2636,11 @@ function wirePromoWorkspaceEvents(promo) {
     currentRows.push(...result.rows);
     renumberRows();
     await renderPromoWorkspace();
-    await persistRowsBulk(result.rows);
+    await Promise.all([
+      persistRowsBulk(result.rows),
+      savePromotionSourceFile(promo.id, file)
+    ]);
+    await renderPromoWorkspace();
 
     const parts = [`Imported ${result.rows.length} row${result.rows.length === 1 ? '' : 's'} from ${result.sourceLineCount} line${result.sourceLineCount === 1 ? '' : 's'}`];
     if (result.splitCount) parts.push(`${result.splitCount} multi-code line${result.splitCount === 1 ? '' : 's'} split`);
@@ -2998,6 +3119,7 @@ function parsePriceSheetRows(buf) {
   const descCol = findCol('description');
   const promoCol = findCol('promoprice', 'promo');
   const beforeCol = findCol('oldprice', 'beforeprice', 'before');
+  const costCol = findCol('cost');
   if (codeCol === -1 || descCol === -1) return { error: 'Could not find an "Itemcode" and "Description" header row in that file.' };
 
   const toNum = (v) => {
@@ -3008,6 +3130,23 @@ function parsePriceSheetRows(buf) {
     const n = Number(cleaned);
     return isNaN(n) ? null : n;
   };
+  // Cost cells in real supplier sheets are often messy ("2.15 5+1", "6.66$",
+  // "10.874/7+1", or just "N") — the cost itself is the first number in the
+  // cell, with deal terms tacked on after. Pull out just that leading number,
+  // but skip a number immediately followed by "%" (e.g. "15% sellout") since
+  // that's a discount note, not a cost.
+  const toLooseNum = (v) => {
+    if (v === '' || v === null || v === undefined) return null;
+    if (typeof v === 'number') return v;
+    const re = /-?\d+(?:\.\d+)?%?/g;
+    let m;
+    while ((m = re.exec(String(v)))) {
+      if (m[0].endsWith('%')) continue; // a percentage note, not a cost
+      const n = Number(m[0]);
+      return isNaN(n) ? null : n;
+    }
+    return null;
+  };
 
   const newRows = [];
   let splitCount = 0, blankCodeCount = 0, sourceLineCount = 0;
@@ -3017,7 +3156,8 @@ function parsePriceSheetRows(buf) {
     const desc = descCol > -1 ? String(line[descCol] ?? '').trim() : '';
     const promoPrice = promoCol > -1 ? toNum(line[promoCol]) : null;
     const beforePrice = beforeCol > -1 ? toNum(line[beforeCol]) : null;
-    const isBlankLine = !rawCode && !desc && promoPrice === null && beforePrice === null;
+    const cost = costCol > -1 ? toLooseNum(line[costCol]) : null;
+    const isBlankLine = !rawCode && !desc && promoPrice === null && beforePrice === null && cost === null;
     if (isBlankLine) continue;
     sourceLineCount++;
 
@@ -3033,6 +3173,7 @@ function parsePriceSheetRows(buf) {
       row.description = desc;
       row.promoPrice = promoPrice;
       row.beforePrice = beforePrice;
+      row.cost = cost;
       if (code) {
         const item = catalogMap.get(code);
         if (item) {
