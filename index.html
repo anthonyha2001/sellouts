@@ -318,6 +318,7 @@ table.cn td.num{font-family:var(--font-mono);}
 .file-info .fi-meta{font-family:var(--font-mono);font-size:12px;color:var(--ink-soft);margin-top:2px;}
 
 .promo-tabstrip-wrap{display:flex;align-items:center;gap:10px;margin:22px 0 16px;flex-wrap:wrap;}
+.promo-dropdown{flex:0 0 auto;width:auto;min-width:200px;max-width:260px;}
 .promo-tabstrip{display:flex;gap:6px;flex-wrap:wrap;flex:1 1 auto;}
 .promo-tab{
   font-family:var(--font-body);font-size:13px;font-weight:500;padding:8px 14px;border-radius:20px;
@@ -352,6 +353,13 @@ table.promo select{
 }
 table.promo select:focus{outline:none;border-color:var(--pine);box-shadow:0 0 0 3px var(--pine-tint);}
 table.promo .code-cell{font-family:var(--font-mono);}
+.code-cell-wrap{display:flex;align-items:center;gap:5px;}
+.code-cell-wrap input{flex:1 1 auto;min-width:0;}
+.missing-code-icon{
+  display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;flex:0 0 auto;
+  color:var(--brick);cursor:help;
+}
+.missing-code-icon svg{width:100%;height:100%;stroke:currentColor;}
 table.promo .balance-cell input{text-align:right;}
 table.promo th.rowact-col,table.promo td.rowact-col{width:1%;white-space:nowrap;padding-right:2px;}
 table.promo th.chk-col,table.promo td.chk-col{width:1%;white-space:nowrap;text-align:center;padding-right:2px;}
@@ -405,6 +413,7 @@ input.cell-missing{border-color:var(--brick) !important;box-shadow:0 0 0 1px var
 .modal-box{
   background:var(--paper-raised);border-radius:var(--radius);box-shadow:var(--shadow-md);padding:24px;max-width:360px;width:100%;
 }
+.modal-box.form-box{max-width:560px;}
 .modal-box p{margin:0 0 20px;font-size:14.5px;line-height:1.5;}
 .modal-input{
   display:block;width:100%;margin:-8px 0 18px;padding:9px 10px;border:1px solid var(--line-strong);
@@ -462,10 +471,6 @@ input.cell-missing{border-color:var(--brick) !important;box-shadow:0 0 0 1px var
       <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="4" rx="1"/><rect x="3" y="10" width="18" height="4" rx="1"/><rect x="3" y="16" width="18" height="4" rx="1"/></svg>
       <span class="label">Sell-Outs</span>
     </button>
-    <button class="nav-btn" data-tab="add">
-      <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>
-      <span class="label">Add sell-out</span>
-    </button>
     <button class="nav-btn" data-tab="creditnotes">
       <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h11l3 3v15H5z"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>
       <span class="label">Credit Notes</span>
@@ -516,47 +521,20 @@ input.cell-missing{border-color:var(--brick) !important;box-shadow:0 0 0 1px var
 
     <!-- SELL-OUTS LIST -->
     <section class="panel active" id="panel-sellouts">
-      <div class="filter-row">
-        <button class="active" data-filter="all">All</button>
-        <button data-filter="needsaction">Needs action</button>
-        <button data-filter="active">Active</button>
-        <button data-filter="inactive">Inactive</button>
+      <div class="filter-row" style="justify-content:space-between;">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="active" data-filter="all">All</button>
+          <button data-filter="needsaction">Needs action</button>
+          <button data-filter="active">Active</button>
+          <button data-filter="inactive">Inactive</button>
+        </div>
+        <button class="btn small" id="openAddSelloutBtn">+ Add sell-out</button>
       </div>
       <div id="selloutList"></div>
       <div class="empty-state" id="selloutEmpty" style="display:none;">
         <div class="glyph"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M8 9h8M8 13h5"/></svg></div>
         <p class="big">No sell-outs yet</p>
-        <p>Head to "Add sell-out" to bring in your first Excel file.</p>
-      </div>
-    </section>
-
-    <!-- ADD SELL-OUT -->
-    <section class="panel" id="panel-add">
-      <div class="card elevated">
-        <h3>New sell-out</h3>
-        <form id="selloutForm">
-          <div class="form-grid">
-            <div class="full">
-              <label for="soName">Name</label>
-              <input type="text" id="soName" required placeholder="e.g. Northwind Q3 promo">
-            </div>
-            <div>
-              <label for="soFrom">From</label>
-              <input type="date" id="soFrom" required>
-            </div>
-            <div>
-              <label for="soTo">To</label>
-              <input type="date" id="soTo" required>
-            </div>
-            <div class="full">
-              <label for="soFile">Excel file</label>
-              <input type="file" id="soFile" accept=".xlsx,.xls,.csv" required>
-            </div>
-          </div>
-          <div class="actions-row">
-            <button type="submit" class="btn">Add sell-out</button>
-          </div>
-        </form>
+        <p>Click "+ Add sell-out" above to bring in your first Excel file.</p>
       </div>
     </section>
 
@@ -611,22 +589,29 @@ input.cell-missing{border-color:var(--brick) !important;box-shadow:0 0 0 1px var
     <!-- PROMOTIONS -->
     <section class="panel" id="panel-promotions">
 
+      <div class="promo-tabstrip-wrap">
+        <select class="promo-dropdown" id="promoDropdown" aria-label="Jump to promotion"></select>
+        <div class="promo-tabstrip" id="promoTabstrip"></div>
+        <button class="btn ghost small" id="toggleArchivedBtn">Archived</button>
+        <button class="btn small" id="newPromoBtn">+ New promotion</button>
+      </div>
+
       <div class="card">
         <div class="catalog-card-head">
           <div>
             <h3 style="margin-bottom:2px;">Item catalog</h3>
-            <span class="muted-note" id="catalogSummaryInline">No catalog uploaded yet.</span>
+            <span class="muted-note" id="catalogSummaryInline">Select or create a promotion first.</span>
           </div>
           <button class="icon-btn" id="toggleCatalogBtn" title="Show/hide catalog settings" aria-label="Show/hide catalog settings">
             <svg id="catalogChevron" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
           </button>
         </div>
         <div id="catalogBody" style="margin-top:14px;">
-          <div id="catalogInfo" class="file-info empty">No catalog uploaded yet.</div>
+          <div id="catalogInfo" class="file-info empty">Select or create a promotion to manage its catalog.</div>
           <div class="form-grid" style="margin-top:14px;">
             <div>
-              <label for="catalogFileInput">Upload / replace catalog file</label>
-              <input type="file" id="catalogFileInput" accept=".xlsx,.xls,.csv">
+              <label for="catalogFileInput">Upload / replace this promotion's catalog file</label>
+              <input type="file" id="catalogFileInput" accept=".xlsx,.xls,.csv" disabled>
             </div>
             <div>
               <label for="lowStockInput">Low-stock threshold <span style="opacity:.6;">(flag when Balance is below this)</span></label>
@@ -634,12 +619,6 @@ input.cell-missing{border-color:var(--brick) !important;box-shadow:0 0 0 1px var
             </div>
           </div>
         </div>
-      </div>
-
-      <div class="promo-tabstrip-wrap">
-        <div class="promo-tabstrip" id="promoTabstrip"></div>
-        <button class="btn ghost small" id="toggleArchivedBtn">Archived</button>
-        <button class="btn small" id="newPromoBtn">+ New promotion</button>
       </div>
 
       <div id="promoWorkspace"></div>
@@ -903,6 +882,41 @@ input.cell-missing{border-color:var(--brick) !important;box-shadow:0 0 0 1px var
   </div>
 </div>
 
+<div class="modal-overlay" id="addSelloutOverlay">
+  <div class="modal-box form-box">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <h3 style="margin:0;">New sell-out</h3>
+      <button class="icon-btn" id="closeAddSelloutBtn" aria-label="Close" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <form id="selloutForm">
+      <div class="form-grid">
+        <div class="full">
+          <label for="soName">Name</label>
+          <input type="text" id="soName" required placeholder="e.g. Northwind Q3 promo">
+        </div>
+        <div>
+          <label for="soFrom">From</label>
+          <input type="date" id="soFrom" required>
+        </div>
+        <div>
+          <label for="soTo">To</label>
+          <input type="date" id="soTo" required>
+        </div>
+        <div class="full">
+          <label for="soFile">Excel file</label>
+          <input type="file" id="soFile" accept=".xlsx,.xls,.csv" required>
+        </div>
+      </div>
+      <div class="actions-row">
+        <button type="button" class="btn ghost" id="cancelAddSelloutBtn">Cancel</button>
+        <button type="submit" class="btn">Add sell-out</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <div class="modal-overlay" id="modalOverlay">
   <div class="modal-box">
     <p id="modalMsg"></p>
@@ -1010,26 +1024,33 @@ function sbErrText(error) {
   return error.message || error.details || error.hint || JSON.stringify(error);
 }
 
-async function loadCatalog() {
-  const { data, error } = await sb.from('catalog_items').select('*').order('id', { ascending: true });
-  if (error) { console.error(error); showToast('Could not load the catalog \u2014 ' + sbErrText(error), true); return; }
-  catalogItems = (data || []).map(r => ({ code: r.id, description: r.description || '', balance: r.balance, salePrice: r.sale_price === undefined ? null : r.sale_price, supplier: r.supplier || '' }));
+// Each promotion has its own catalog file, so every catalog row is tagged
+// with the promotion it belongs to (promotion_id). The synthetic `id` we
+// send is "<promotionId>::<code>" so the same code can exist in more than
+// one promotion's catalog without colliding on the primary key \u2014 the real
+// code lives in its own `code` column.
+async function loadCatalogFor(promoId) {
+  if (!promoId) { catalogItems = []; catalogMap = new Map(); return; }
+  const { data, error } = await sb.from('catalog_items').select('*').eq('promotion_id', promoId).order('code', { ascending: true });
+  if (error) { console.error(error); showToast('Could not load this promotion\u2019s catalog \u2014 ' + sbErrText(error), true); return; }
+  catalogItems = (data || []).map(r => ({ code: r.code, description: r.description || '', balance: r.balance, salePrice: r.sale_price === undefined ? null : r.sale_price, supplier: r.supplier || '' }));
   catalogMap = new Map(catalogItems.map(i => [i.code, i]));
 }
 
-async function replaceCatalog(rows, fileName) {
-  const { error: delErr } = await sb.from('catalog_items').delete().not('id', 'is', null);
+async function replaceCatalog(rows, fileName, promoId) {
+  if (!promoId) { showToast('Select or create a promotion first.', true); return false; }
+  const { error: delErr } = await sb.from('catalog_items').delete().eq('promotion_id', promoId);
   if (delErr) { console.error(delErr); showToast('Could not clear the old catalog \u2014 ' + sbErrText(delErr), true); return false; }
   const now = new Date().toISOString();
-  const payload = rows.map(r => ({ id: r.code, description: r.description, balance: r.balance, sale_price: r.salePrice, supplier: r.supplier || null, updated_at: now }));
+  const payload = rows.map(r => ({ id: `${promoId}::${r.code}`, code: r.code, promotion_id: promoId, description: r.description, balance: r.balance, sale_price: r.salePrice, supplier: r.supplier || null, updated_at: now }));
   const chunkSize = 500;
   for (let i = 0; i < payload.length; i += chunkSize) {
     const chunk = payload.slice(i, i + chunkSize);
     const { error } = await sb.from('catalog_items').insert(chunk);
     if (error) { console.error(error); showToast('Could not upload the catalog \u2014 ' + sbErrText(error), true); return false; }
   }
-  catalogMeta.fileName = fileName;
-  await loadCatalog();
+  catalogFileNames.set(promoId, fileName);
+  await loadCatalogFor(promoId);
   return true;
 }
 
@@ -1166,17 +1187,27 @@ function isPriceRisk(row) {
   if (isNaN(promo) || isNaN(sale) || sale <= 0) return false;
   return promo < sale * PRICE_RISK_RATIO;
 }
+// A promo price at or above the sale price means zero or negative discount
+// \u2014 almost always a typo (wrong price, missing a digit) rather than an
+// intentional promotion, so it's worth a flag even though it isn't a "deep
+// discount" risk like isPriceRisk() below.
+function isPriceGapUnusual(row) {
+  const frac = discountFraction(row);
+  return frac !== null && frac <= 0;
+}
 function rowNeedsFlag(row) {
-  return !!row.flagged || isPriceRisk(row);
+  return !!row.flagged || isPriceRisk(row) || isPriceGapUnusual(row);
 }
 function refreshRowFlagUi(tr, row) {
   const btn = tr.querySelector('[data-role="toggle-flag"]');
   if (!btn) return;
   const priceRisk = isPriceRisk(row);
+  const gapUnusual = isPriceGapUnusual(row);
   btn.classList.toggle('flag-on', rowNeedsFlag(row));
   btn.title = row.flagged
     ? 'Flagged for review \u2014 click to unflag'
-    : (priceRisk ? 'Promo price is under 25% of the sale price \u2014 click to mark as reviewed' : 'Flag this row for review');
+    : (priceRisk ? 'Promo price is under 25% of the sale price \u2014 click to mark as reviewed'
+      : (gapUnusual ? 'Promo price is not below the sale price \u2014 check for a typo' : 'Flag this row for review'));
 }
 
 /* Auto-calculated discount (Sale Price vs Promo Price), and the two
@@ -1203,6 +1234,17 @@ function applyAutoDiscount(row) {
   const pct = computeAutoDiscountPct(row);
   if (pct !== null) row.discount = pct;
 }
+// The reverse direction: typing a Discount % directly computes Promo Price
+// back from Sale Price, so either field can drive the other — whichever
+// one was just edited wins.
+function applyReverseDiscount(row) {
+  const sale = Number(row.salePrice);
+  if (row.discount === null || row.discount === undefined || row.discount === '') return;
+  if (row.salePrice === null || row.salePrice === undefined || row.salePrice === '' || isNaN(sale) || sale <= 0) return;
+  const pct = Number(row.discount);
+  if (isNaN(pct)) return;
+  row.promoPrice = Math.round(sale * (1 - pct / 100) * 100) / 100;
+}
 function isBigDiscount(row) {
   const frac = discountFraction(row);
   return frac !== null && frac > BIG_DISCOUNT_RATIO;
@@ -1210,6 +1252,16 @@ function isBigDiscount(row) {
 function isCodeMissingFromCatalog(row) {
   const code = (row.code || '').trim();
   return !!code && !catalogMap.has(code);
+}
+// A row can have real content (a description, a price) but no code at all
+// — usually because the source sheet just didn't have one for that line
+// (a "25% off everything" note row, a bundled offer, etc). Left unflagged,
+// it's easy to scroll right past without noticing anything is missing.
+function isCodeBlankWithData(row) {
+  const code = (row.code || '').trim();
+  if (code) return false;
+  const hasNum = (v) => v !== null && v !== undefined && v !== '';
+  return !!(row.description && row.description.trim()) || hasNum(row.promoPrice) || hasNum(row.beforePrice) || hasNum(row.salePrice) || hasNum(row.discount) || hasNum(row.balance);
 }
 function isPromoPriceMissing(row) {
   const hasCode = !!(row.code && row.code.trim());
@@ -1240,10 +1292,19 @@ function refreshDiscountUi(tr, row) {
   const dot = tr.querySelector('[data-role="big-discount-dot"]');
   if (dot) dot.style.display = isBigDiscount(row) ? 'inline-block' : 'none';
 }
+function codeIssueTitle(row) {
+  if (isCodeMissingFromCatalog(row)) return 'This code was not found in this promotion’s catalog';
+  if (isCodeBlankWithData(row)) return 'This row has no code — nothing was entered for it in the source file';
+  return '';
+}
 function refreshRowValidationUi(tr, row) {
-  const codeInput = tr.querySelector('[data-field="code"]');
   const promoPriceInput = tr.querySelector('[data-field="promoPrice"]');
-  if (codeInput) codeInput.classList.toggle('cell-missing', isCodeMissingFromCatalog(row));
+  const missingIcon = tr.querySelector('[data-role="missing-code-icon"]');
+  if (missingIcon) {
+    const title = codeIssueTitle(row);
+    missingIcon.style.display = title ? 'inline-flex' : 'none';
+    if (title) missingIcon.title = title;
+  }
   if (promoPriceInput) promoPriceInput.classList.toggle('cell-missing', isPromoPriceMissing(row));
 }
 function isRowEmpty(row) {
@@ -1292,7 +1353,7 @@ let editingCnId = null;
 // Promotions
 let catalogItems = [];
 let catalogMap = new Map();
-let catalogMeta = { fileName: null };
+let catalogFileNames = new Map(); // promotionId -> the uploaded catalog file's name, this session
 let lowStockThreshold = 20;
 let promotions = [];
 let currentPromoId = null;
@@ -1545,8 +1606,26 @@ document.getElementById('selloutForm').addEventListener('submit', async (e) => {
   await idbPut('sellouts', record);
   e.target.reset();
   await loadAll();
-  switchTab('sellouts');
+  closeAddSelloutModal();
   showToast(`"${name}" added.`);
+});
+
+function openAddSelloutModal() {
+  document.getElementById('addSelloutOverlay').classList.add('open');
+  setTimeout(() => document.getElementById('soName').focus(), 30);
+}
+function closeAddSelloutModal() {
+  document.getElementById('addSelloutOverlay').classList.remove('open');
+  document.getElementById('selloutForm').reset();
+}
+document.getElementById('openAddSelloutBtn').addEventListener('click', openAddSelloutModal);
+document.getElementById('closeAddSelloutBtn').addEventListener('click', closeAddSelloutModal);
+document.getElementById('cancelAddSelloutBtn').addEventListener('click', closeAddSelloutModal);
+document.getElementById('addSelloutOverlay').addEventListener('click', (e) => {
+  if (e.target.id === 'addSelloutOverlay') closeAddSelloutModal();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && document.getElementById('addSelloutOverlay').classList.contains('open')) closeAddSelloutModal();
 });
 
 function itemColumns(items) {
@@ -1852,7 +1931,6 @@ function renderCreditNotes() {
    ============================================================ */
 const PAGES = {
   sellouts:    { eyebrow: 'Overview', title: 'Sell-outs', sub: 'Every sell-out you\u2019re tracking, with items and activation history.' },
-  add:         { eyebrow: 'New entry', title: 'Add a sell-out', sub: 'Upload the Excel file for a new sell-out \u2014 its item rows are read automatically.' },
   creditnotes: { eyebrow: 'Tracker', title: 'Credit notes', sub: 'Every credit note logged against your suppliers, issued or signed.' },
   promotions:  { eyebrow: 'Builder', title: 'Promotions', sub: 'Look up items by code, build a flyer, and export it when it’s ready.' },
   vendors:     { eyebrow: 'Directory', title: 'Vendors', sub: 'Salesman contacts, delivery schedule, and placing orders.' },
@@ -1939,20 +2017,32 @@ setInterval(runNotificationCheck, 5 * 60 * 1000);
 function renderCatalogInfo() {
   const el = document.getElementById('catalogInfo');
   const inline = document.getElementById('catalogSummaryInline');
+  const uploadInput = document.getElementById('catalogFileInput');
+  const promo = promotions.find(p => p.id === currentPromoId);
+
+  if (!currentPromoId || !promo) {
+    el.className = 'file-info empty';
+    el.textContent = 'Select or create a promotion to manage its catalog.';
+    if (inline) inline.textContent = 'Select or create a promotion first.';
+    if (uploadInput) uploadInput.disabled = true;
+    return;
+  }
+  if (uploadInput) uploadInput.disabled = false;
+
   if (!catalogItems.length) {
     el.className = 'file-info empty';
-    el.textContent = 'No catalog uploaded yet.';
-    if (inline) inline.textContent = 'No catalog uploaded yet.';
+    el.textContent = `No catalog uploaded yet for "${promo.name}".`;
+    if (inline) inline.textContent = `No catalog uploaded yet for "${promo.name}".`;
     return;
   }
   el.className = 'file-info';
   el.innerHTML = `
     <div>
-      <div class="fi-name">${escapeHtml(catalogMeta.fileName || 'Catalog on file')}</div>
+      <div class="fi-name">${escapeHtml(catalogFileNames.get(currentPromoId) || 'Catalog on file')} <span class="muted-note">(for "${escapeHtml(promo.name)}")</span></div>
       <div class="fi-meta">${catalogItems.length} item${catalogItems.length === 1 ? '' : 's'} loaded</div>
     </div>
   `;
-  if (inline) inline.textContent = `${catalogItems.length} item${catalogItems.length === 1 ? '' : 's'} loaded \u2014 threshold ${lowStockThreshold}`;
+  if (inline) inline.textContent = `${catalogItems.length} item${catalogItems.length === 1 ? '' : 's'} loaded for "${promo.name}" \u2014 threshold ${lowStockThreshold}`;
 }
 
 function applyCatalogCollapse() {
@@ -1970,6 +2060,7 @@ document.getElementById('toggleCatalogBtn').addEventListener('click', () => {
 document.getElementById('catalogFileInput').addEventListener('change', async (e) => {
   const file = e.target.files[0];
   if (!file) return;
+  if (!currentPromoId) { showToast('Select or create a promotion first.', true); e.target.value = ''; return; }
   const buf = await file.arrayBuffer();
   let wb;
   try { wb = XLSX.read(buf, { type: 'array' }); }
@@ -2007,7 +2098,7 @@ document.getElementById('catalogFileInput').addEventListener('change', async (e)
 
   if (!parsed.length) { showToast('Could not find an item code column in that file.', true); e.target.value = ''; return; }
 
-  const ok = await replaceCatalog(parsed, file.name);
+  const ok = await replaceCatalog(parsed, file.name, currentPromoId);
   e.target.value = '';
   if (!ok) return;
 
@@ -2037,6 +2128,7 @@ document.getElementById('lowStockInput').addEventListener('change', async (e) =>
 
 function renderPromoTabstrip() {
   const strip = document.getElementById('promoTabstrip');
+  const dropdown = document.getElementById('promoDropdown');
   const emptyEl = document.getElementById('promoEmpty');
   const archivedCount = promotions.filter(p => p.archived).length;
   const toggleBtn = document.getElementById('toggleArchivedBtn');
@@ -2048,6 +2140,7 @@ function renderPromoTabstrip() {
   const visible = promotions.filter(p => !!p.archived === showArchivedPromos);
   if (!visible.length) {
     strip.innerHTML = '';
+    if (dropdown) dropdown.innerHTML = '<option value="">No promotions</option>';
     emptyEl.style.display = 'block';
     const bigP = emptyEl.querySelector('p.big');
     const smallP = emptyEl.querySelector('p:not(.big)');
@@ -2062,24 +2155,42 @@ function renderPromoTabstrip() {
   strip.querySelectorAll('.promo-tab').forEach(btn => {
     btn.addEventListener('click', () => selectPromotion(btn.dataset.promoId));
   });
+
+  if (dropdown) {
+    dropdown.innerHTML = visible.map(p => `<option value="${p.id}" ${p.id === currentPromoId ? 'selected' : ''}>${escapeHtml(p.name || 'Untitled')}</option>`).join('');
+  }
 }
+
+document.getElementById('promoDropdown').addEventListener('change', (e) => {
+  if (e.target.value) selectPromotion(e.target.value);
+});
 
 document.getElementById('toggleArchivedBtn').addEventListener('click', async () => {
   showArchivedPromos = !showArchivedPromos;
   const visible = promotions.filter(p => !!p.archived === showArchivedPromos);
-  currentPromoId = visible.length ? visible[0].id : null;
-  currentRows = currentPromoId ? await loadPromoRows(currentPromoId) : [];
-  selectedRowIds.clear();
-  renderPromoTabstrip();
-  await renderPromoWorkspace();
+  const targetId = visible.length ? visible[0].id : null;
+  if (targetId === currentPromoId) { renderPromoTabstrip(); await renderPromoWorkspace(); return; }
+  await selectPromotion(targetId);
 });
 
+// The single place a promotion switch happens: loads that promotion's own
+// rows AND its own catalog (each promotion has its own uploaded catalog
+// file), then re-renders everything that depends on "which promotion is
+// open" — the tab strip/dropdown, the catalog card, and the workspace.
 async function selectPromotion(id) {
   if (id === currentPromoId) return;
   currentPromoId = id;
-  currentRows = await loadPromoRows(id);
   selectedRowIds.clear();
+  if (id) {
+    currentRows = await loadPromoRows(id);
+    await loadCatalogFor(id);
+  } else {
+    currentRows = [];
+    catalogItems = [];
+    catalogMap = new Map();
+  }
   renderPromoTabstrip();
+  renderCatalogInfo();
   await renderPromoWorkspace();
 }
 
@@ -2092,11 +2203,7 @@ document.getElementById('newPromoBtn').addEventListener('click', async () => {
   };
   promotions.unshift(promo);
   await savePromotion(promo);
-  currentPromoId = promo.id;
-  currentRows = [];
-  selectedRowIds.clear();
-  renderPromoTabstrip();
-  await renderPromoWorkspace();
+  await selectPromotion(promo.id);
   const nameField = document.getElementById('promoName');
   if (nameField) { nameField.focus(); nameField.select(); }
 });
@@ -2118,9 +2225,11 @@ async function renderPromoWorkspace() {
   const rowsHtml = currentRows.map(row => {
     const priceRisk = isPriceRisk(row);
     const needsFlag = rowNeedsFlag(row);
+    const gapUnusual = isPriceGapUnusual(row);
     const flagTitle = row.flagged
       ? 'Flagged for review \u2014 click to unflag'
-      : (priceRisk ? 'Promo price is under 25% of the sale price \u2014 click to mark as reviewed' : 'Flag this row for review');
+      : (priceRisk ? 'Promo price is under 25% of the sale price \u2014 click to mark as reviewed'
+        : (gapUnusual ? 'Promo price is not below the sale price \u2014 check for a typo' : 'Flag this row for review'));
     const supplierOpen = expandedSupplierRowIds.has(row.id);
     const supplierRow = supplierOpen ? `
     <tr class="supplier-detail-row" data-supplier-row-id="${row.id}">
@@ -2135,13 +2244,23 @@ async function renderPromoWorkspace() {
           <button class="icon-btn" data-role="insert-row" tabindex="-1" title="Insert row below" aria-label="Insert row below">
             <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
           </button>
+          <button class="icon-btn" data-role="insert-rows-bulk" tabindex="-1" title="Insert multiple rows below" aria-label="Insert multiple rows below">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M3 12h10"/><path d="M17 15v6M14 18h6"/></svg>
+          </button>
           <button class="icon-btn danger" data-role="remove-row" tabindex="-1" title="Remove row" aria-label="Remove row">
             <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/><path d="M10 11v6M14 11v6"/></svg>
           </button>
         </div>
       </td>
       <td class="chk-col"><input type="checkbox" data-role="select-row" tabindex="-1" ${selectedRowIds.has(row.id) ? 'checked' : ''}></td>
-      <td class="code-cell"><input type="text" class="${[isDuplicateCodeInPromo(row) ? 'cell-duplicate' : '', isCodeMissingFromCatalog(row) ? 'cell-missing' : ''].filter(Boolean).join(' ')}" value="${escapeHtml(row.code)}" data-field="code" placeholder="Code" title="${isCodeMissingFromCatalog(row) ? 'This code was not found in the catalog' : (isDuplicateCodeInPromo(row) ? 'This code appears more than once in this promotion' : '')}"></td>
+      <td class="code-cell">
+        <div class="code-cell-wrap">
+          <input type="text" class="${isDuplicateCodeInPromo(row) ? 'cell-duplicate' : ''}" value="${escapeHtml(row.code)}" data-field="code" placeholder="Code" title="${isDuplicateCodeInPromo(row) ? 'This code appears more than once in this promotion' : ''}">
+          <span class="missing-code-icon" data-role="missing-code-icon" title="${escapeHtml(codeIssueTitle(row))}" style="display:${codeIssueTitle(row) ? 'inline-flex' : 'none'};">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5"/><circle cx="12" cy="16.3" r="0.75" fill="currentColor" stroke="none"/></svg>
+          </span>
+        </div>
+      </td>
       <td class="desc-cell"><input type="text" value="${escapeHtml(row.description)}" data-field="description" placeholder="Description"></td>
       <td class="balance-cell"><input type="text" inputmode="decimal" class="${isPromoPriceMissing(row) ? 'cell-missing' : ''}" value="${numToStr(row.promoPrice)}" data-field="promoPrice" placeholder="0.00" title="${isPromoPriceMissing(row) ? 'Missing the promo price' : ''}"></td>
       <td class="balance-cell">
@@ -2367,11 +2486,11 @@ function wirePromoWorkspaceEvents(promo) {
     const stillVisible = !!promo.archived === showArchivedPromos;
     if (!stillVisible) {
       const visible = promotions.filter(p => !!p.archived === showArchivedPromos && p.id !== promo.id);
-      currentPromoId = visible.length ? visible[0].id : null;
-      currentRows = currentPromoId ? await loadPromoRows(currentPromoId) : [];
+      await selectPromotion(visible.length ? visible[0].id : null);
+    } else {
+      renderPromoTabstrip();
+      await renderPromoWorkspace();
     }
-    renderPromoTabstrip();
-    await renderPromoWorkspace();
   });
 
   document.getElementById('exportPromoBtn').addEventListener('click', () => exportPromotionToExcel(promo));
@@ -2385,18 +2504,17 @@ function wirePromoWorkspaceEvents(promo) {
   });
 
   document.getElementById('deletePromoBtn').addEventListener('click', async () => {
-    const ok = await showConfirm(`Delete "${promo.name}"? This removes all its rows too.`, 'Delete');
+    const ok = await showConfirm(`Delete "${promo.name}"? This removes all its rows and its catalog too.`, 'Delete');
     if (!ok) return;
     await deletePromotionRemote(promo.id);
     promotions = promotions.filter(p => p.id !== promo.id);
     selectedRowIds.clear();
     if (currentPromoId === promo.id) {
       const visible = promotions.filter(p => !!p.archived === showArchivedPromos);
-      currentPromoId = visible.length ? visible[0].id : null;
-      currentRows = currentPromoId ? await loadPromoRows(currentPromoId) : [];
+      await selectPromotion(visible.length ? visible[0].id : null);
+    } else {
+      renderPromoTabstrip();
     }
-    renderPromoTabstrip();
-    await renderPromoWorkspace();
     showToast('Promotion deleted.');
   });
 
@@ -2529,6 +2647,10 @@ function wirePromoWorkspaceEvents(promo) {
         descInput.value = item.description;
         balInput.value = row.balance === null ? '' : row.balance;
         salePriceInput.value = row.salePrice === null ? '' : row.salePrice;
+        if ((row.beforePrice === null || row.beforePrice === undefined || row.beforePrice === '') && row.salePrice !== null) {
+          row.beforePrice = row.salePrice;
+          beforePriceInput.value = row.beforePrice;
+        }
         applyAutoDiscount(row);
         discountInput.value = row.discount === null ? '' : row.discount;
         stockBadgeSlot.innerHTML = rowStockBadgeHtml(row);
@@ -2536,7 +2658,7 @@ function wirePromoWorkspaceEvents(promo) {
         const supplierDetail = document.querySelector(`tr[data-supplier-row-id="${row.id}"] strong`);
         if (supplierDetail) supplierDetail.textContent = row.supplier || 'Not listed in the catalog';
       } else {
-        showToast(`Code "${code}" not found in the catalog \u2014 fill it in manually.`, true);
+        showToast(`Code "${code}" not found in this promotion's catalog \u2014 fill it in manually.`, true);
       }
       refreshRowValidationUi(tr, row);
       refreshDiscountUi(tr, row);
@@ -2551,7 +2673,7 @@ function wirePromoWorkspaceEvents(promo) {
     codeInput.addEventListener('blur', doLookup);
 
     descInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); focusDown('description'); } });
-    descInput.addEventListener('blur', () => { row.description = descInput.value; savePromoRow(row); });
+    descInput.addEventListener('blur', () => { row.description = descInput.value; savePromoRow(row); refreshRowValidationUi(tr, row); });
 
     promoPriceInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); focusDown('promoPrice'); } });
     promoPriceInput.addEventListener('blur', () => {
@@ -2565,19 +2687,32 @@ function wirePromoWorkspaceEvents(promo) {
     });
 
     discountInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); focusDown('discount'); } });
-    discountInput.addEventListener('blur', () => { row.discount = numOrNull(discountInput.value); savePromoRow(row); });
+    discountInput.addEventListener('blur', () => {
+      row.discount = numOrNull(discountInput.value);
+      applyReverseDiscount(row);
+      promoPriceInput.value = row.promoPrice === null ? '' : row.promoPrice;
+      savePromoRow(row);
+      refreshRowFlagUi(tr, row);
+      refreshRowValidationUi(tr, row);
+      refreshDiscountUi(tr, row);
+    });
 
     beforePriceInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); focusDown('beforePrice'); } });
-    beforePriceInput.addEventListener('blur', () => { row.beforePrice = numOrNull(beforePriceInput.value); savePromoRow(row); });
+    beforePriceInput.addEventListener('blur', () => { row.beforePrice = numOrNull(beforePriceInput.value); savePromoRow(row); refreshRowValidationUi(tr, row); });
 
     salePriceInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); focusDown('salePrice'); } });
     salePriceInput.addEventListener('blur', () => {
       row.salePrice = numOrNull(salePriceInput.value);
+      if ((row.beforePrice === null || row.beforePrice === undefined || row.beforePrice === '') && row.salePrice !== null) {
+        row.beforePrice = row.salePrice;
+        beforePriceInput.value = row.beforePrice;
+      }
       applyAutoDiscount(row);
       discountInput.value = row.discount === null ? '' : row.discount;
       savePromoRow(row);
       refreshRowFlagUi(tr, row);
       refreshDiscountUi(tr, row);
+      refreshRowValidationUi(tr, row);
     });
 
     balInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); focusDown('balance'); } });
@@ -2585,6 +2720,7 @@ function wirePromoWorkspaceEvents(promo) {
       row.balance = numOrNull(balInput.value);
       stockBadgeSlot.innerHTML = rowStockBadgeHtml(row);
       savePromoRow(row);
+      refreshRowValidationUi(tr, row);
     });
 
     typeSelect.addEventListener('keydown', (e) => {
@@ -2619,6 +2755,24 @@ function wirePromoWorkspaceEvents(promo) {
       const newTr = bodyEl && bodyEl.querySelector(`tr[data-row-id="${newRow.id}"]`);
       const codeField = newTr && newTr.querySelector('[data-field="code"]');
       if (codeField) codeField.focus();
+    });
+
+    tr.querySelector('[data-role="insert-rows-bulk"]').addEventListener('click', async () => {
+      const val = await showPrompt('How many rows do you want to insert below this row?', { defaultValue: '5', confirmLabel: 'Insert rows', placeholder: 'e.g. 5' });
+      if (val === null) return;
+      const n = parseInt(val, 10);
+      if (!n || n < 1) { showToast('Enter a number of rows greater than 0.', true); return; }
+      const idx = currentRows.findIndex(r => r.id === rowId);
+      const newRows = [];
+      for (let i = 0; i < n; i++) {
+        const newRow = blankPromoRow();
+        currentRows.splice(idx + 1 + i, 0, newRow);
+        newRows.push(newRow);
+      }
+      renumberRows();
+      await renderPromoWorkspace();
+      await persistRowsBulk(newRows);
+      showToast(`${n} row${n === 1 ? '' : 's'} inserted.`);
     });
 
     tr.querySelector('[data-role="remove-row"]').addEventListener('click', async () => {
@@ -2666,39 +2820,68 @@ function wirePromoWorkspaceEvents(promo) {
     const startColIdx = PROMO_FIELDS.indexOf(startField);
     if (startRowIdx === -1 || startColIdx === -1) return;
 
+    // A pasted Code cell sometimes bundles several SKUs that share one price
+    // line in the source sheet (e.g. "78615/90174/230752"). Splitting that
+    // into one row per code, each carrying the same pasted Promo Price /
+    // Before Price / etc., means the price only has to be typed once instead
+    // of once per split row.
+    const codeColOffset = PROMO_FIELDS.indexOf('code') - startColIdx;
     const touchedRows = [];
+    let writeIdx = startRowIdx;
     for (let r = 0; r < grid.length; r++) {
-      const rowIdx = startRowIdx + r;
-      let row2;
-      if (rowIdx < currentRows.length) {
-        row2 = currentRows[rowIdx];
-      } else {
-        row2 = blankPromoRow();
-        currentRows.push(row2);
-      }
       const cols = grid[r];
-      for (let c = 0; c < cols.length; c++) {
-        const fieldIdx = startColIdx + c;
-        if (fieldIdx >= PROMO_FIELDS.length) break;
-        const field = PROMO_FIELDS[fieldIdx];
-        const raw = cols[c];
-        if (field === 'code') {
-          const code = raw.trim();
-          row2.code = code;
-          row2._lastLookupCode = code;
-          const item = catalogMap.get(code);
-          if (item) {
-            row2.description = item.description;
-            row2.balance = item.balance === undefined ? null : item.balance;
-            row2.salePrice = item.salePrice === undefined ? null : item.salePrice;
-            row2.supplier = item.supplier || '';
+      let codeParts = null;
+      if (codeColOffset >= 0 && codeColOffset < cols.length) {
+        const parts = cols[codeColOffset].split('/').map(s => s.trim()).filter(Boolean);
+        if (parts.length > 1) codeParts = parts;
+      }
+      const isSplit = !!codeParts;
+      const expansions = isSplit ? codeParts : [null];
+
+      for (let k = 0; k < expansions.length; k++) {
+        let row2;
+        if (k === 0) {
+          if (writeIdx < currentRows.length) {
+            row2 = currentRows[writeIdx];
+          } else {
+            row2 = blankPromoRow();
+            currentRows.push(row2);
           }
         } else {
-          row2[field] = fieldValueParse(field, raw);
+          // Extra rows created by a multi-code split must be INSERTED, not
+          // overwrite whatever row already followed — otherwise that row's
+          // data would be silently clobbered instead of pushed further down.
+          row2 = blankPromoRow();
+          currentRows.splice(writeIdx, 0, row2);
         }
+        writeIdx++;
+
+        for (let c = 0; c < cols.length; c++) {
+          const fieldIdx = startColIdx + c;
+          if (fieldIdx >= PROMO_FIELDS.length) break;
+          const field = PROMO_FIELDS[fieldIdx];
+          const raw = (isSplit && field === 'code') ? expansions[k] : cols[c];
+          if (field === 'code') {
+            const code = raw.trim();
+            row2.code = code;
+            row2._lastLookupCode = code;
+            const item = catalogMap.get(code);
+            if (item) {
+              row2.description = item.description;
+              row2.balance = item.balance === undefined ? null : item.balance;
+              row2.salePrice = item.salePrice === undefined ? null : item.salePrice;
+              row2.supplier = item.supplier || '';
+            }
+          } else {
+            row2[field] = fieldValueParse(field, raw);
+          }
+        }
+        if ((row2.beforePrice === null || row2.beforePrice === undefined || row2.beforePrice === '') && row2.salePrice !== null && row2.salePrice !== undefined && row2.salePrice !== '') {
+          row2.beforePrice = row2.salePrice;
+        }
+        applyAutoDiscount(row2);
+        touchedRows.push(row2);
       }
-      applyAutoDiscount(row2);
-      touchedRows.push(row2);
     }
 
     // Sync the DOM value of the cell that was actually pasted into. Re-rendering
@@ -2752,20 +2935,19 @@ function exportPromotionToExcel(promo) {
 }
 
 async function initPromotions() {
-  await Promise.all([loadCatalog(), loadSettings(), loadPromotions()]);
+  await Promise.all([loadSettings(), loadPromotions()]);
   await autoArchiveDuePromotions();
   const thresholdInput = document.getElementById('lowStockInput');
   if (thresholdInput) thresholdInput.value = lowStockThreshold;
-  renderCatalogInfo();
   applyCatalogCollapse();
   renderPromoTabstrip();
   const activePromos = promotions.filter(p => !p.archived);
   if (activePromos.length) {
-    currentPromoId = activePromos[0].id;
-    currentRows = await loadPromoRows(currentPromoId);
-    renderPromoTabstrip();
+    await selectPromotion(activePromos[0].id);
+  } else {
+    renderCatalogInfo();
+    await renderPromoWorkspace();
   }
-  await renderPromoWorkspace();
 
   // Re-check every hour in case this tab is left open across the weekend,
   // so a promotion still archives on time without needing a page reload.
@@ -2776,8 +2958,9 @@ async function initPromotions() {
       const cur = promotions.find(p => p.id === currentPromoId);
       if (cur && !!cur.archived !== showArchivedPromos) {
         const visible = promotions.filter(p => !!p.archived === showArchivedPromos);
-        currentPromoId = visible.length ? visible[0].id : null;
-        currentRows = currentPromoId ? await loadPromoRows(currentPromoId) : [];
+        await selectPromotion(visible.length ? visible[0].id : null);
+        renderPromoTabstrip();
+        return;
       }
     }
     renderPromoTabstrip();
