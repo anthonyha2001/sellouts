@@ -326,6 +326,7 @@ table.cn td.num{font-family:var(--font-mono);}
 .promo-tabstrip-wrap{display:flex;align-items:center;gap:10px;margin:22px 0 16px;flex-wrap:wrap;}
 .promo-dropdown{flex:0 0 auto;width:auto;min-width:200px;max-width:260px;}
 .filter-dropdown-wrap{position:relative;flex:0 0 auto;}
+.icon-btn-badge{position:absolute;top:-5px;right:-5px;min-width:16px;height:16px;padding:0 3px;border-radius:8px;background:var(--pine);color:#fff;font-size:10px;line-height:16px;text-align:center;font-family:var(--font-mono);pointer-events:none;}
 .filter-panel{
   position:absolute;right:0;top:calc(100% + 6px);width:220px;max-height:280px;overflow:auto;
   background:var(--paper-raised);border:1px solid var(--line);border-radius:var(--radius-sm);box-shadow:var(--shadow-md);z-index:40;
@@ -337,6 +338,9 @@ table.cn td.num{font-family:var(--font-mono);}
 .filter-panel-section{border-bottom:1px solid var(--line);}
 .filter-panel-section:last-child{border-bottom:none;}
 .filter-panel-label{margin:0;padding:8px 12px 2px;font-family:var(--font-mono);font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-faint);}
+.filter-panel-search-wrap{padding:8px 12px;}
+.filter-panel-search-wrap input{padding:6px 9px;font-size:12.5px;}
+.filter-panel-up{top:auto;bottom:calc(100% + 6px);}
 .link-btn{background:none;border:none;color:var(--pine);font-size:12px;cursor:pointer;font-family:var(--font-body);font-weight:500;padding:0;}
 .view-toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:10px 12px;background:var(--paper);border:1px solid var(--line);border-radius:var(--radius-sm);margin-bottom:12px;}
 .promo-tabstrip{display:flex;gap:6px;flex-wrap:wrap;flex:1 1 auto;}
@@ -1495,6 +1499,8 @@ let selectedAuditSuppliers = new Set(); // Supplier filter, scoped to the Audit 
 let auditSupplierFilterOpen = false;
 let showFlaggedOnly = false; // Flagged-only toggle, scoped to the Table view only
 let tableSearchQuery = ''; // Search box, scoped to the Table view only
+let countryFilterSearchQuery = ''; // Search box inside the Filter panel's Country list
+let auditSupplierFilterSearchQuery = ''; // Search box inside the Audit "Filter by supplier" panel
 let catalogCollapsed = localStorage.getItem('sol-catalog-collapsed') === 'true';
 let showArchivedPromos = false;
 
@@ -2463,15 +2469,21 @@ function refreshPromoTableView() {
   const emptyEl = document.getElementById('tableEmptyState');
   if (emptyEl) emptyEl.innerHTML = tableEmptyStateHtml(tableVisibleRows);
 }
-// The Filter button's "(N)" count includes the Flagged-only checkbox now
-// that it lives in the Filter panel — kept in sync here too, since this is
-// called from the Table view's lightweight refresh path, which doesn't
-// touch the shared header where that button lives.
+// The Filter button is an icon with a small count badge (no text label), so
+// this builds its inner markup from the combined Country + Code-issue +
+// Flagged-only count — shared by the initial render and the lightweight
+// refresh path below so the two never drift out of sync.
+function filterButtonInnerHtml(count) {
+  return `<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16l-6.5 7.5V19l-3 1.5v-8L4 5Z"/></svg>${count ? `<span class="icon-btn-badge">${count}</span>` : ''}`;
+}
+// Kept in sync here too, since this is called from the Table view's
+// lightweight refresh path, which doesn't touch the shared header where
+// that button lives.
 function updateFilterButtonLabel() {
   const btn = document.getElementById('countryFilterBtn');
   if (!btn) return;
   const count = selectedCountries.size + selectedCodeIssues.size + (showFlaggedOnly ? 1 : 0);
-  btn.textContent = `Filter${count ? ` (${count})` : ''}`;
+  btn.innerHTML = filterButtonInnerHtml(count);
 }
 function wireTableFilterStatus() {
   const clearBtn = document.getElementById('clearTableFiltersBtn');
@@ -2630,9 +2642,14 @@ async function renderPromoWorkspace() {
               : 'Tip: copy a block of cells from Excel and paste directly into the table \u2014 it will fill rows and columns starting from where you paste, adding new rows if needed. Enter moves down a column, Tab at the last field adds a new row.')}</p>
         </div>
         <div class="view-toolbar" style="border:none;background:none;padding:0;margin:0;">
-          <div class="filter-dropdown-wrap" id="countryFilterWrap">
-            <button class="btn ghost small" id="countryFilterBtn">Filter${(selectedCountries.size + selectedCodeIssues.size + (showFlaggedOnly ? 1 : 0)) ? ` (${selectedCountries.size + selectedCodeIssues.size + (showFlaggedOnly ? 1 : 0)})` : ''}</button>
-            <div class="filter-panel" id="countryFilterPanel" style="display:${countryFilterOpen ? 'block' : 'none'};">
+          <div class="filter-row" id="promoViewSwitch" style="margin:0;">
+            <button class="${promoViewMode === 'table' ? 'active' : ''}" data-view="table">Table</button>
+            <button class="${promoViewMode === 'supplier' ? 'active' : ''}" data-view="supplier">Group by supplier</button>
+            <button class="${promoViewMode === 'audit' ? 'active' : ''}" data-view="audit">Audit</button>
+          </div>
+          <div class="filter-dropdown-wrap" id="countryFilterWrap" style="margin-left:auto;">
+            <button class="icon-btn" id="countryFilterBtn" title="Filter" aria-label="Filter">${filterButtonInnerHtml(selectedCountries.size + selectedCodeIssues.size + (showFlaggedOnly ? 1 : 0))}</button>
+            <div class="filter-panel filter-panel-up" id="countryFilterPanel" style="display:${countryFilterOpen ? 'block' : 'none'};">
               <div class="filter-panel-head">
                 <span>Filters</span>
                 <button class="link-btn" id="clearAllFiltersBtn">Clear all</button>
@@ -2649,11 +2666,6 @@ async function renderPromoWorkspace() {
                 ${countryFilterSectionHtml(allCountries)}
               </div>
             </div>
-          </div>
-          <div class="filter-row" id="promoViewSwitch" style="margin:0;">
-            <button class="${promoViewMode === 'table' ? 'active' : ''}" data-view="table">Table</button>
-            <button class="${promoViewMode === 'supplier' ? 'active' : ''}" data-view="supplier">Group by supplier</button>
-            <button class="${promoViewMode === 'audit' ? 'active' : ''}" data-view="audit">Audit</button>
           </div>
         </div>
       </div>
@@ -2698,9 +2710,14 @@ async function renderPromoWorkspace() {
                 <span>Supplier</span>
                 <button class="link-btn" id="clearAuditSupplierFilterBtn">Clear</button>
               </div>
+              ${auditSupplierOptions.length > 6 ? `
+              <div class="filter-panel-search-wrap">
+                <input type="text" id="auditSupplierSearchInput" placeholder="Search suppliers…" value="${escapeHtml(auditSupplierFilterSearchQuery)}">
+              </div>` : ''}
               ${auditSupplierOptions.length ? auditSupplierOptions.map(s => `
-                <label class="filter-panel-option"><input type="checkbox" value="${escapeHtml(s)}" data-role="audit-supplier-option" ${selectedAuditSuppliers.has(s) ? 'checked' : ''}> ${escapeHtml(s)}</label>
+                <label class="filter-panel-option" data-supplier-label="${escapeHtml(s.toLowerCase())}"><input type="checkbox" value="${escapeHtml(s)}" data-role="audit-supplier-option" ${selectedAuditSuppliers.has(s) ? 'checked' : ''}> ${escapeHtml(s)}</label>
               `).join('') : '<p class="muted-note" style="padding:8px 10px;">No supplier data yet.</p>'}
+              <p class="muted-note" id="auditSupplierSearchEmpty" style="display:none;padding:2px 12px 10px;">No matching suppliers.</p>
             </div>
           </div>
           <button class="btn secondary small" id="printAuditBtn">Print</button>
@@ -2753,10 +2770,33 @@ async function renderPromoWorkspace() {
           await renderPromoWorkspace();
         });
       });
+      // Purely client-side show/hide of the already-rendered labels, same
+      // approach as the Country search above — no re-render, so typing here
+      // never loses focus.
+      const applyAuditSupplierSearch = () => {
+        const q = auditSupplierFilterSearchQuery.trim().toLowerCase();
+        let anyVisible = false;
+        auditSupplierPanel.querySelectorAll('[data-supplier-label]').forEach(label => {
+          const match = !q || label.dataset.supplierLabel.includes(q);
+          label.style.display = match ? '' : 'none';
+          if (match) anyVisible = true;
+        });
+        const emptyMsg = document.getElementById('auditSupplierSearchEmpty');
+        if (emptyMsg) emptyMsg.style.display = (q && !anyVisible) ? '' : 'none';
+      };
+      const auditSupplierSearchInput = document.getElementById('auditSupplierSearchInput');
+      if (auditSupplierSearchInput) {
+        auditSupplierSearchInput.addEventListener('input', () => {
+          auditSupplierFilterSearchQuery = auditSupplierSearchInput.value;
+          applyAuditSupplierSearch();
+        });
+      }
+      applyAuditSupplierSearch();
       const clearAuditSupplierBtn = document.getElementById('clearAuditSupplierFilterBtn');
       if (clearAuditSupplierBtn) clearAuditSupplierBtn.addEventListener('click', async (e) => {
         e.stopPropagation();
         selectedAuditSuppliers.clear();
+        auditSupplierFilterSearchQuery = '';
         auditSupplierFilterOpen = true;
         await renderPromoWorkspace();
       });
@@ -2768,12 +2808,46 @@ async function renderPromoWorkspace() {
 // rebuilt on its own (see refreshCountryFilterOptions below) without
 // touching the Code issues section that sits above it in the same panel.
 function countryFilterSectionHtml(allCountries) {
+  // All countries are always rendered (never server-filtered) so the search
+  // box below can just show/hide existing labels as the person types,
+  // instead of rebuilding the list and losing focus on every keystroke.
   return `
     <p class="filter-panel-label">Country</p>
+    ${allCountries.length > 6 ? `
+    <div class="filter-panel-search-wrap">
+      <input type="text" data-role="country-search" placeholder="Search countries…" value="${escapeHtml(countryFilterSearchQuery)}">
+    </div>` : ''}
     ${allCountries.length ? allCountries.map(c => `
-      <label class="filter-panel-option"><input type="checkbox" value="${escapeHtml(c)}" data-role="country-option" ${selectedCountries.has(c) ? 'checked' : ''}> ${escapeHtml(c)}</label>
+      <label class="filter-panel-option" data-country-label="${escapeHtml(c.toLowerCase())}"><input type="checkbox" value="${escapeHtml(c)}" data-role="country-option" ${selectedCountries.has(c) ? 'checked' : ''}> ${escapeHtml(c)}</label>
     `).join('') : '<p class="muted-note" style="padding:2px 12px 10px;">No country data in the catalog yet.</p>'}
+    <p class="muted-note" data-role="country-search-empty" style="display:none;padding:2px 12px 10px;">No matching countries.</p>
   `;
+}
+// Filters the already-rendered Country checkbox list by the search box's
+// text, purely by toggling each label's visibility — no re-render, so the
+// input never loses focus while typing.
+function applyCountryFilterSearch() {
+  const section = document.getElementById('countryFilterSection');
+  if (!section) return;
+  const q = countryFilterSearchQuery.trim().toLowerCase();
+  let anyVisible = false;
+  section.querySelectorAll('[data-country-label]').forEach(label => {
+    const match = !q || label.dataset.countryLabel.includes(q);
+    label.style.display = match ? '' : 'none';
+    if (match) anyVisible = true;
+  });
+  const emptyMsg = section.querySelector('[data-role="country-search-empty"]');
+  if (emptyMsg) emptyMsg.style.display = (q && !anyVisible) ? '' : 'none';
+}
+function wireCountryFilterSearch() {
+  const input = document.querySelector('#countryFilterSection [data-role="country-search"]');
+  if (input) {
+    input.addEventListener('input', () => {
+      countryFilterSearchQuery = input.value;
+      applyCountryFilterSearch();
+    });
+  }
+  applyCountryFilterSearch();
 }
 // Editing a single row's code (doLookup) updates that row in place rather than
 // doing a full renderPromoWorkspace(), for speed — but that means the Filter
@@ -2793,6 +2867,7 @@ function refreshCountryFilterOptions() {
       await renderPromoWorkspace();
     });
   });
+  wireCountryFilterSearch();
 }
 
 function buildSupplierGroupedHtml(rows) {
@@ -3269,9 +3344,11 @@ function wirePromoWorkspaceEvents(promo) {
       selectedCountries.clear();
       selectedCodeIssues.clear();
       showFlaggedOnly = false;
+      countryFilterSearchQuery = '';
       countryFilterOpen = true;
       await renderPromoWorkspace();
     });
+    wireCountryFilterSearch();
   }
 
   autoArchiveCb.addEventListener('change', async () => {
