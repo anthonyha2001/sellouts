@@ -1533,6 +1533,7 @@ let currentRows = [];
 let selectedRowIds = new Set();
 let expandedSupplierRowIds = new Set();
 let promoViewMode = 'table'; // 'table' or 'audit'
+let tableSubView = 'rows'; // 'rows' (the editable grid) or 'supplier' (grouped-by-supplier accordion), both inside Table
 let auditSubView = 'cost'; // 'cost' (cost-check table) or 'supplier' (grouped-by-supplier accordion), both inside Audit
 let expandedSupplierGroups = new Set();
 let selectedCountries = new Set(); // Country filter, applied across all promo views
@@ -2680,9 +2681,11 @@ async function renderPromoWorkspace() {
           <p class="muted-note" style="margin:0 0 4px;">${promoStats.total} row${promoStats.total === 1 ? '' : 's'} \u00b7 ${promoStats.flagged} flagged \u00b7 ${promoStats.empty} empty row${promoStats.empty === 1 ? '' : 's'}</p>
           <p class="muted-note" style="margin:0 0 10px;">${promoViewMode === 'audit'
             ? (auditSubView === 'supplier'
-              ? 'Sell Out and C/N items grouped by supplier, with a reorder recommendation for each. Right Price items and rows without a Type are left out.'
+              ? 'Items with a cost on file, grouped by supplier, for setting Type and adding a note without one long list.'
               : 'Code and description next to the cost from the imported price sheet, for a manual check. Items with no cost on file are left out.')
-            : 'Tip: copy a block of cells from Excel and paste directly into the table \u2014 it will fill rows and columns starting from where you paste, adding new rows if needed. Enter moves down a column, Tab at the last field adds a new row.'}</p>
+            : (tableSubView === 'supplier'
+              ? 'Every item grouped by supplier, with stock, Out (YTD) and a reorder recommendation for each.'
+              : 'Tip: copy a block of cells from Excel and paste directly into the table \u2014 it will fill rows and columns starting from where you paste, adding new rows if needed. Enter moves down a column, Tab at the last field adds a new row.')}</p>
         </div>
         <div class="view-toolbar" style="border:none;background:none;padding:0;margin:0;">
           <div class="filter-row" id="promoViewSwitch" style="margin:0;">
@@ -2713,6 +2716,12 @@ async function renderPromoWorkspace() {
       </div>
 
       <div id="promoTableView" style="display:${promoViewMode === 'table' ? '' : 'none'};">
+        <div class="filter-row" id="tableSubViewSwitch" style="margin-bottom:12px;">
+          <button class="${tableSubView === 'rows' ? 'active' : ''}" data-table-sub="rows">All rows</button>
+          <button class="${tableSubView === 'supplier' ? 'active' : ''}" data-table-sub="supplier">By supplier</button>
+        </div>
+
+        <div id="promoTableRowsView" style="display:${tableSubView === 'rows' ? '' : 'none'};">
         <div class="view-toolbar">
           <input type="text" id="tableSearchInput" placeholder="Search code or description…" style="max-width:260px;" value="${escapeHtml(tableSearchQuery)}">
           <span id="tableFilterStatus">${tableFilterStatusHtml(tableVisibleRows, visibleRows)}</span>
@@ -2736,6 +2745,11 @@ async function renderPromoWorkspace() {
             <button class="btn ghost small" id="deleteSelectedBtn" style="display:${selectedRowIds.size ? 'inline-flex' : 'none'};color:var(--brick);">Delete selected (${selectedRowIds.size})</button>
           </div>
           <span class="muted-note">${currentRows.length} item${currentRows.length === 1 ? '' : 's'}</span>
+        </div>
+        </div>
+
+        <div id="promoTableSupplierView" style="display:${tableSubView === 'supplier' ? '' : 'none'};">
+          ${buildSupplierGroupedHtml(visibleRows, 'stock')}
         </div>
       </div>
 
@@ -2770,14 +2784,23 @@ async function renderPromoWorkspace() {
         </div>
 
         <div id="promoAuditSupplierView" style="display:${auditSubView === 'supplier' ? '' : 'none'};">
-          ${buildSupplierGroupedHtml(visibleRows)}
+          ${buildSupplierGroupedHtml(visibleRows, 'audit')}
         </div>
       </div>
     </div>
   `;
 
   wirePromoWorkspaceEvents(promo);
-  if (promoViewMode === 'audit' && auditSubView === 'supplier') wireSupplierGroupEvents();
+  if (promoViewMode === 'table' && tableSubView === 'supplier') wireSupplierGroupEvents('promoTableSupplierView', 'stock');
+  if (promoViewMode === 'audit' && auditSubView === 'supplier') wireSupplierGroupEvents('promoAuditSupplierView', 'audit');
+  if (promoViewMode === 'table') {
+    document.querySelectorAll('#tableSubViewSwitch [data-table-sub]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        tableSubView = btn.dataset.tableSub;
+        await renderPromoWorkspace();
+      });
+    });
+  }
   if (promoViewMode === 'audit') {
     document.querySelectorAll('#auditSubViewSwitch [data-audit-sub]').forEach(btn => {
       btn.addEventListener('click', async () => {
@@ -2926,13 +2949,20 @@ function refreshCountryFilterOptions() {
   wireCountryFilterSearch();
 }
 
-function buildSupplierGroupedHtml(rows) {
-  const relevant = rows.filter(r => r.priceType === 'sellout' || r.priceType === 'cn');
+function buildSupplierGroupedHtml(rows, mode) {
+  mode = mode === 'audit' ? 'audit' : 'stock';
+  const relevant = mode === 'audit'
+    ? auditableRows(rows)
+    : rows.filter(r => (r.code || '').trim() || (r.description || '').trim());
   if (!relevant.length) {
-    return `
+    return mode === 'audit' ? `
+      <div class="empty-state" style="padding:34px 16px;">
+        <p class="big">No cost data yet</p>
+        <p>Cost comes in from "Import price sheet" &mdash; items without a cost in that file are left out here.</p>
+      </div>` : `
       <div class="empty-state" style="padding:34px 16px;">
         <p class="big">Nothing to group yet</p>
-        <p>Mark rows as "Sell Out" or "C/N" in the Type column, then come back here.</p>
+        <p>Add a code or description to a row, then come back here.</p>
       </div>`;
   }
   const bySupplier = new Map();
@@ -2943,7 +2973,7 @@ function buildSupplierGroupedHtml(rows) {
   });
   const supplierNames = Array.from(bySupplier.keys()).sort((a, b) => a.localeCompare(b));
 
-  const subTable = (label, list) => {
+  const stockSubTable = (label, list) => {
     if (!list.length) return '';
     return `
       <h4>${label} (${list.length})</h4>
