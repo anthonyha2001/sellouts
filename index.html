@@ -809,6 +809,9 @@ input.cell-missing{border-color:var(--brick) !important;box-shadow:0 0 0 1px var
               <input type="file" id="ordersFileInput" accept=".xlsx,.xls,.csv" style="display:none;">
             </div>
           </div>
+          <div style="margin-top:14px;">
+            <input type="text" id="ordersSearchInput" placeholder="Search vendor…" style="max-width:280px;">
+          </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;">
             <span class="badge warn" id="ordersDueBadge">0 due</span>
             <span class="badge active" id="ordersAwaitingBadge">0 awaiting</span>
@@ -3879,6 +3882,7 @@ let skipsList = [];
 let rentalsList = [];
 let ordersViewDate = todayStr();
 let orderHistoryFilter = 'all';
+let ordersSearchTerm = ''; // Filters Due/Awaiting/No-order/History by vendor name, across the whole Orders sub-tab
 let editingRentalId = null;
 let expandedRentalIds = new Set();
 
@@ -4223,10 +4227,16 @@ function renderOrdersView() {
   document.getElementById('ordersDueTitle').textContent = 'Due ' + (isToday ? 'today' : 'on this date');
   document.getElementById('ordersSkippedTitle').textContent = 'No order logged — ' + fmtOrdersDate(dateStr);
 
-  const dueVendors = vendorsList.filter(v => isVendorDueOn(v, dateStr));
+  // One search box filters every table on this sub-tab by vendor name, so
+  // switching dates or the History status filter never has to be paired
+  // with re-typing a vendor name to find them again.
+  const searchTerm = ordersSearchTerm.trim().toLowerCase();
+  const matchesVendorSearch = (name) => !searchTerm || (name || '').toLowerCase().includes(searchTerm);
+
+  const dueVendors = vendorsList.filter(v => isVendorDueOn(v, dateStr) && matchesVendorSearch(v.name));
   const dueNeedAction = dueVendors.filter(v => !pendingOrderForVendor(v.id) && !hasSkipOnDate(v.id, dateStr));
-  const skippedForDate = vendorsList.filter(v => !pendingOrderForVendor(v.id) && hasSkipOnDate(v.id, dateStr));
-  const awaiting = vendorsList.filter(v => pendingOrderForVendor(v.id)).sort((a, b) => {
+  const skippedForDate = vendorsList.filter(v => !pendingOrderForVendor(v.id) && hasSkipOnDate(v.id, dateStr) && matchesVendorSearch(v.name));
+  const awaiting = vendorsList.filter(v => pendingOrderForVendor(v.id) && matchesVendorSearch(v.name)).sort((a, b) => {
     const oa = pendingOrderForVendor(a.id), ob = pendingOrderForVendor(b.id);
     return (oa.expectedDelivery || '') < (ob.expectedDelivery || '') ? -1 : 1;
   });
@@ -4354,6 +4364,14 @@ function renderOrderHistory() {
   if (orderHistoryFilter === 'pending') list = list.filter(o => o.status === 'pending' && !isOrderOverdue(o));
   if (orderHistoryFilter === 'overdue') list = list.filter(isOrderOverdue);
   if (orderHistoryFilter === 'delivered') list = list.filter(o => o.status === 'delivered');
+  const historySearchTerm = ordersSearchTerm.trim().toLowerCase();
+  if (historySearchTerm) {
+    list = list.filter(o => {
+      const v = o.vendorId ? vendorsList.find(x => x.id === o.vendorId) : null;
+      const name = v ? v.name : (o.vendorName || '');
+      return name.toLowerCase().includes(historySearchTerm);
+    });
+  }
 
   const body = document.getElementById('orderHistoryBody');
   body.innerHTML = list.map(o => {
@@ -4388,6 +4406,10 @@ document.querySelectorAll('#orderHistoryFilters button').forEach(btn => {
 document.getElementById('ordersDatePrev').addEventListener('click', () => { ordersViewDate = addDaysStr(ordersViewDate, -1); renderOrdersView(); });
 document.getElementById('ordersDateNext').addEventListener('click', () => { ordersViewDate = addDaysStr(ordersViewDate, 1); renderOrdersView(); });
 document.getElementById('ordersDateTodayBtn').addEventListener('click', () => { ordersViewDate = todayStr(); renderOrdersView(); });
+document.getElementById('ordersSearchInput').addEventListener('input', (e) => {
+  ordersSearchTerm = e.target.value;
+  renderOrdersView();
+});
 
 document.getElementById('importOrdersBtn').addEventListener('click', () => document.getElementById('ordersFileInput').click());
 document.getElementById('ordersFileInput').addEventListener('change', async (e) => {
