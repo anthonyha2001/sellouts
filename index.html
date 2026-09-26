@@ -26,6 +26,8 @@
   --gold-tint:#F6EDDC;
   --brick:#A23F2C;
   --brick-tint:#F5DED8;
+  --plum:#6B4C9A;
+  --plum-tint:#EDE7F5;
   --sidebar-bg:#0E2136;
   --sidebar-ink:#DCE4EE;
   --sidebar-ink-dim:#7C93AC;
@@ -56,6 +58,8 @@
     --gold-tint:#2E2517;
     --brick:#E0836A;
     --brick-tint:#33201A;
+    --plum:#B9A0DE;
+    --plum-tint:#241B33;
     --sidebar-bg:#081826;
     --sidebar-ink:#D8E3EE;
     --sidebar-ink-dim:#5C7690;
@@ -68,6 +72,7 @@
   --paper:#14170F; --paper-raised:#1C2117; --ink:#EAEFE6; --ink-soft:#9BAA9C; --ink-faint:#6E7D6F;
   --line:#2C332A; --line-strong:#3B4437; --pine:#6FA8DC; --pine-deep:#0C2740; --pine-bright:#8FC1E8;
   --pine-tint:#182936; --gold:#D8A85C; --gold-tint:#2E2517; --brick:#E0836A; --brick-tint:#33201A;
+  --plum:#B9A0DE; --plum-tint:#241B33;
   --sidebar-bg:#081826; --sidebar-ink:#D8E3EE; --sidebar-ink-dim:#5C7690; --sidebar-active:#12293C;
   --shadow-sm:0 1px 2px rgba(0,0,0,.3); --shadow-md:0 6px 22px -4px rgba(0,0,0,.5);
 }
@@ -446,6 +451,23 @@ input.cell-missing{border-color:var(--brick) !important;box-shadow:0 0 0 1px var
   body.printing-audit > *:not(#auditPrintRoot){display:none !important;}
   body.printing-audit #auditPrintRoot{display:block !important;color:#111;background:#fff;padding:0 10px;}
 }
+
+/* Audit view: each row is tinted by its price type, and type is set with a
+   trio of buttons rather than the dropdown that used to live in the table. */
+.audit-row-sellout > td{background:var(--pine-tint);}
+.audit-row-cn > td{background:var(--gold-tint);}
+.audit-row-rightprice > td{background:var(--plum-tint);}
+.audit-type-btns{display:flex;gap:4px;flex-wrap:wrap;}
+.audit-type-btn{
+  font-family:var(--font-mono);font-size:10.5px;font-weight:600;padding:4px 9px;border-radius:14px;
+  background:var(--paper-raised);border:1px solid var(--line-strong);color:var(--ink-soft);cursor:pointer;white-space:nowrap;
+}
+.audit-type-btn.active{background:var(--ink);color:var(--paper);border-color:var(--ink);}
+.audit-note-input{
+  width:100%;min-width:140px;font-family:var(--font-body);font-size:13px;color:var(--ink);background:var(--paper);
+  border:1px solid var(--line-strong);border-radius:6px;padding:6px 8px;
+}
+.audit-note-input:focus{outline:none;border-color:var(--pine);box-shadow:0 0 0 3px var(--pine-tint);}
 
 .empty-state{text-align:center;padding:60px 20px;color:var(--ink-faint);border:1px dashed var(--line-strong);border-radius:var(--radius);}
 .empty-state .glyph{width:38px;height:38px;margin:0 auto 14px;color:var(--ink-faint);}
@@ -1132,6 +1154,7 @@ async function loadPromoRows(promoId) {
     cost: r.cost === undefined ? null : r.cost,
     country: r.country || '',
     outYtd: r.out_ytd === undefined ? null : r.out_ytd,
+    note: r.note || '',
     sortOrder: r.sort_order || 0, _lastLookupCode: r.code || ''
   }));
 }
@@ -1156,9 +1179,10 @@ function promoRowPayload(row) {
     price_type: row.priceType || null,
     supplier: row.supplier || null,
     flagged: !!row.flagged,
-    cost: numOrNull(row.cost),
+    cost: (row.cost === null || row.cost === undefined || row.cost === '') ? null : String(row.cost),
     country: row.country || null,
     out_ytd: numOrNull(row.outYtd),
+    note: row.note || null,
     sort_order: row.sortOrder
   };
 }
@@ -1210,9 +1234,9 @@ function renumberRows() {
   currentRows.forEach((r, i) => { r.sortOrder = i; });
 }
 function blankPromoRow() {
-  return { id: uid(), promotionId: currentPromoId, code: '', description: '', promoPrice: null, discount: null, beforePrice: null, salePrice: null, balance: null, priceType: '', supplier: '', flagged: false, cost: null, country: '', outYtd: null, sortOrder: currentRows.length, _lastLookupCode: '' };
+  return { id: uid(), promotionId: currentPromoId, code: '', description: '', promoPrice: null, discount: null, beforePrice: null, salePrice: null, balance: null, priceType: '', supplier: '', flagged: false, cost: null, country: '', outYtd: null, note: '', sortOrder: currentRows.length, _lastLookupCode: '' };
 }
-const PROMO_FIELDS = ['code', 'description', 'promoPrice', 'beforePrice', 'discount', 'salePrice', 'balance', 'priceType'];
+const PROMO_FIELDS = ['code', 'description', 'promoPrice', 'beforePrice', 'discount', 'salePrice', 'balance'];
 const PRICE_RISK_RATIO = 0.25;
 function isPriceRisk(row) {
   const promo = Number(row.promoPrice);
@@ -1424,6 +1448,8 @@ let promoViewMode = 'table'; // 'table', 'supplier' or 'audit'
 let expandedSupplierGroups = new Set();
 let selectedCountries = new Set(); // Country filter, applied across all promo views
 let countryFilterOpen = false;
+let selectedAuditSuppliers = new Set(); // Supplier filter, scoped to the Audit view only
+let auditSupplierFilterOpen = false;
 let catalogCollapsed = localStorage.getItem('sol-catalog-collapsed') === 'true';
 let showArchivedPromos = false;
 
@@ -2046,16 +2072,25 @@ document.addEventListener('click', (e) => {
 });
 document.getElementById('clearNotifs').addEventListener('click', () => { notifications = []; renderNotifPanel(); });
 
-// The country-filter panel lives inside the Promotions workspace, which gets
-// fully re-rendered often, so this looks the elements up fresh on every click
+// The filter panels live inside the Promotions workspace, which gets fully
+// re-rendered often, so this looks the elements up fresh on every click
 // rather than holding onto a reference that a re-render could detach.
 document.addEventListener('click', (e) => {
-  if (!countryFilterOpen) return;
-  const wrap = document.getElementById('countryFilterWrap');
-  if (wrap && !wrap.contains(e.target)) {
-    countryFilterOpen = false;
-    const panel = document.getElementById('countryFilterPanel');
-    if (panel) panel.style.display = 'none';
+  if (countryFilterOpen) {
+    const wrap = document.getElementById('countryFilterWrap');
+    if (wrap && !wrap.contains(e.target)) {
+      countryFilterOpen = false;
+      const panel = document.getElementById('countryFilterPanel');
+      if (panel) panel.style.display = 'none';
+    }
+  }
+  if (auditSupplierFilterOpen) {
+    const wrap = document.getElementById('auditSupplierFilterWrap');
+    if (wrap && !wrap.contains(e.target)) {
+      auditSupplierFilterOpen = false;
+      const panel = document.getElementById('auditSupplierFilterPanel');
+      if (panel) panel.style.display = 'none';
+    }
   }
 });
 
@@ -2148,7 +2183,19 @@ document.getElementById('catalogFileInput').addEventListener('change', async (e)
   // Stripped down to letters/digits only, so "Supplier Desc", "Supplier_Desc",
   // "Supplier-Desc." etc. all normalize the same way and still match.
   const norm = (s) => String(s ?? '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-  const findExact = (...wants) => headerKeys.find(k => wants.includes(norm(k)));
+  // Checks aliases in priority order (not header order): a real ERP export
+  // often has both a short code column ("Supplier") and its description
+  // ("Supplier Desc"). Scanning headers left-to-right would lock onto
+  // whichever one happens to come first in the file, even if that's the
+  // wrong one for what we want — so each alias is tried, in the order
+  // given, against every header before moving to the next alias.
+  const findExact = (...wants) => {
+    for (const want of wants) {
+      const hit = headerKeys.find(k => norm(k) === want);
+      if (hit) return hit;
+    }
+    return undefined;
+  };
   const codeKey = findExact('code', 'item', 'itemcode', 'sku') || headerKeys[0];
   const descKey = findExact('description', 'desc', 'itemdescription') || headerKeys[1];
   const balanceKey = findExact('balance', 'stock', 'onhand', 'stockonhand', 'qtyonhand');
@@ -2266,6 +2313,8 @@ async function selectPromotion(id) {
   selectedRowIds.clear();
   selectedCountries.clear();
   countryFilterOpen = false;
+  selectedAuditSuppliers.clear();
+  auditSupplierFilterOpen = false;
   if (id) {
     currentRows = await loadPromoRows(id);
     await loadCatalogFor(id);
@@ -2311,6 +2360,13 @@ async function renderPromoWorkspace() {
   const allCountries = Array.from(new Set(currentRows.map(countryOf))).sort((a, b) => a.localeCompare(b));
   const visibleRows = selectedCountries.size ? currentRows.filter(r => selectedCountries.has(countryOf(r))) : currentRows;
 
+  // The supplier filter lives only in the Audit view, narrowing that view's
+  // own list further — it doesn't touch the Table or Group-by-supplier views.
+  const supplierOf = (row) => (row.supplier || '').trim() || 'No supplier listed';
+  const auditRows = auditableRows(visibleRows);
+  const auditSupplierOptions = Array.from(new Set(auditRows.map(supplierOf))).sort((a, b) => a.localeCompare(b));
+  const auditVisibleRows = selectedAuditSuppliers.size ? auditRows.filter(r => selectedAuditSuppliers.has(supplierOf(r))) : auditRows;
+
   const rowsHtml = visibleRows.map(row => {
     const priceRisk = isPriceRisk(row);
     const needsFlag = rowNeedsFlag(row);
@@ -2322,7 +2378,7 @@ async function renderPromoWorkspace() {
     const supplierOpen = expandedSupplierRowIds.has(row.id);
     const supplierRow = supplierOpen ? `
     <tr class="supplier-detail-row" data-supplier-row-id="${row.id}">
-      <td colspan="11" style="background:var(--paper);font-size:12.5px;color:var(--ink-soft);padding:6px 10px 8px 40px;">
+      <td colspan="10" style="background:var(--paper);font-size:12.5px;color:var(--ink-soft);padding:6px 10px 8px 40px;">
         Supplier: <strong style="color:var(--ink);">${escapeHtml(row.supplier || 'Not listed in the catalog')}</strong>
         &nbsp;&middot;&nbsp; Country: <strong style="color:var(--ink);">${escapeHtml(row.country || 'Not listed in the catalog')}</strong>
       </td>
@@ -2366,14 +2422,6 @@ async function renderPromoWorkspace() {
           <input type="text" inputmode="numeric" class="stock-input" value="${numToStr(row.balance)}" data-field="balance" placeholder="0">
           <span class="stock-badge-slot">${rowStockBadgeHtml(row)}</span>
         </div>
-      </td>
-      <td class="type-cell">
-        <select data-field="priceType">
-          <option value="" ${!row.priceType ? 'selected' : ''}>\u2014</option>
-          <option value="sellout" ${row.priceType === 'sellout' ? 'selected' : ''}>Sell Out</option>
-          <option value="cn" ${row.priceType === 'cn' ? 'selected' : ''}>C/N</option>
-          <option value="rightprice" ${row.priceType === 'rightprice' ? 'selected' : ''}>Right Price</option>
-        </select>
       </td>
       <td class="row-actions">
         <div class="icon-actions">
@@ -2463,7 +2511,7 @@ async function renderPromoWorkspace() {
             <thead><tr>
               <th class="rowact-col"></th>
               <th class="chk-col"><input type="checkbox" id="selectAllRows"></th>
-              <th class="code-cell">Code</th><th class="desc-cell">Description</th><th class="balance-cell">Promo Price</th><th class="balance-cell">Before Price</th><th class="balance-cell">Discount</th><th class="balance-cell">Sale Price</th><th class="stock-cell">Stock</th><th class="type-cell">Type</th><th></th>
+              <th class="code-cell">Code</th><th class="desc-cell">Description</th><th class="balance-cell">Promo Price</th><th class="balance-cell">Before Price</th><th class="balance-cell">Discount</th><th class="balance-cell">Sale Price</th><th class="stock-cell">Stock</th><th></th>
             </tr></thead>
             <tbody id="promoRowsBody">${rowsHtml}</tbody>
           </table>
@@ -2483,10 +2531,22 @@ async function renderPromoWorkspace() {
       </div>
 
       <div id="promoAuditView" style="display:${promoViewMode === 'audit' ? '' : 'none'};">
-        <div style="display:flex;justify-content:flex-end;margin-bottom:12px;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+          <div class="filter-dropdown-wrap" id="auditSupplierFilterWrap">
+            <button class="btn ghost small" id="auditSupplierFilterBtn">Filter by supplier${selectedAuditSuppliers.size ? ` (${selectedAuditSuppliers.size})` : ''}</button>
+            <div class="filter-panel" id="auditSupplierFilterPanel" style="display:${auditSupplierFilterOpen ? 'block' : 'none'};">
+              <div class="filter-panel-head">
+                <span>Supplier</span>
+                <button class="link-btn" id="clearAuditSupplierFilterBtn">Clear</button>
+              </div>
+              ${auditSupplierOptions.length ? auditSupplierOptions.map(s => `
+                <label class="filter-panel-option"><input type="checkbox" value="${escapeHtml(s)}" data-role="audit-supplier-option" ${selectedAuditSuppliers.has(s) ? 'checked' : ''}> ${escapeHtml(s)}</label>
+              `).join('') : '<p class="muted-note" style="padding:8px 10px;">No supplier data yet.</p>'}
+            </div>
+          </div>
           <button class="btn secondary small" id="printAuditBtn">Print</button>
         </div>
-        ${buildAuditHtml(visibleRows)}
+        ${buildAuditHtml(auditVisibleRows)}
       </div>
     </div>
   `;
@@ -2495,7 +2555,53 @@ async function renderPromoWorkspace() {
   if (promoViewMode === 'supplier') wireSupplierGroupEvents();
   if (promoViewMode === 'audit') {
     const printBtn = document.getElementById('printAuditBtn');
-    if (printBtn) printBtn.addEventListener('click', () => printAuditTable(promo, visibleRows));
+    if (printBtn) printBtn.addEventListener('click', () => printAuditTable(promo, auditVisibleRows));
+
+    document.querySelectorAll('#promoAuditView [data-role="audit-type-btn"]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const row = currentRows.find(r => r.id === btn.dataset.rowId);
+        if (!row) return;
+        // Clicking the already-active type clears it back to "no type", so
+        // the buttons can also represent the dropdown's old blank option.
+        row.priceType = row.priceType === btn.dataset.type ? '' : btn.dataset.type;
+        await savePromoRow(row);
+        await renderPromoWorkspace();
+      });
+    });
+
+    document.querySelectorAll('#promoAuditView [data-role="audit-note-input"]').forEach(input => {
+      input.addEventListener('blur', async () => {
+        const row = currentRows.find(r => r.id === input.dataset.rowId);
+        if (!row) return;
+        row.note = input.value;
+        await savePromoRow(row);
+      });
+    });
+
+    const auditSupplierBtn = document.getElementById('auditSupplierFilterBtn');
+    const auditSupplierPanel = document.getElementById('auditSupplierFilterPanel');
+    if (auditSupplierBtn && auditSupplierPanel) {
+      auditSupplierBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        auditSupplierFilterOpen = !auditSupplierFilterOpen;
+        auditSupplierPanel.style.display = auditSupplierFilterOpen ? 'block' : 'none';
+      });
+      auditSupplierPanel.addEventListener('click', (e) => e.stopPropagation());
+      auditSupplierPanel.querySelectorAll('[data-role="audit-supplier-option"]').forEach(cb => {
+        cb.addEventListener('change', async () => {
+          if (cb.checked) selectedAuditSuppliers.add(cb.value); else selectedAuditSuppliers.delete(cb.value);
+          auditSupplierFilterOpen = true;
+          await renderPromoWorkspace();
+        });
+      });
+      const clearAuditSupplierBtn = document.getElementById('clearAuditSupplierFilterBtn');
+      if (clearAuditSupplierBtn) clearAuditSupplierBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        selectedAuditSuppliers.clear();
+        auditSupplierFilterOpen = true;
+        await renderPromoWorkspace();
+      });
+    }
   }
 }
 
@@ -2598,34 +2704,53 @@ function buildSupplierGroupedHtml(rows) {
 // Code + description next to the cost pulled in from "Import price sheet",
 // so someone can print it and check the numbers by hand against invoices.
 // A row with no cost on file (typed manually, or the source sheet had none)
-// is left out rather than shown with a blank.
+// is left out rather than shown with a blank. Cost is kept as free text
+// (not parsed to a number) since real cost cells carry deal notation like
+// "5+1" or plain notes like "sell out", not just a price.
 function auditableRows(rows) {
   return rows.filter(r => r.cost !== null && r.cost !== undefined && r.cost !== '');
 }
-function buildAuditHtml(rows) {
-  const auditRows = auditableRows(rows);
+function auditRowClass(priceType) {
+  if (priceType === 'sellout') return 'audit-row-sellout';
+  if (priceType === 'cn') return 'audit-row-cn';
+  if (priceType === 'rightprice') return 'audit-row-rightprice';
+  return '';
+}
+const AUDIT_TYPE_BUTTONS = [
+  { type: 'rightprice', label: 'Right Price' },
+  { type: 'cn', label: 'C/N' },
+  { type: 'sellout', label: 'Sell Out' }
+];
+function auditTypeButtonsHtml(row) {
+  return `
+    <div class="audit-type-btns">
+      ${AUDIT_TYPE_BUTTONS.map(b => `<button type="button" class="audit-type-btn ${row.priceType === b.type ? 'active' : ''}" data-role="audit-type-btn" data-row-id="${row.id}" data-type="${b.type}">${b.label}</button>`).join('')}
+    </div>`;
+}
+function buildAuditHtml(auditRows) {
   if (!auditRows.length) {
     return `
     <div class="empty-state" style="padding:40px 20px;">
       <p class="big">No cost data yet</p>
-      <p>Cost comes in from "Import price sheet" — items without a cost in that file are left out here.</p>
+      <p>Cost comes in from "Import price sheet" — items without a cost in that file (or filtered out by supplier) are left out here.</p>
     </div>`;
   }
   return `
     <div class="items-scroll">
       <table class="items">
-        <thead><tr><th>Code</th><th>Description</th><th style="text-align:right;">Cost</th></tr></thead>
+        <thead><tr><th>Code</th><th>Description</th><th style="text-align:right;">Cost</th><th>Type</th><th>Note</th></tr></thead>
         <tbody>${auditRows.map(r => `
-        <tr>
+        <tr class="${auditRowClass(r.priceType)}">
           <td>${escapeHtml(r.code)}</td>
           <td>${escapeHtml(r.description)}</td>
-          <td style="text-align:right;">${numToStr(r.cost)}</td>
+          <td style="text-align:right;">${escapeHtml(r.cost || '')}</td>
+          <td>${auditTypeButtonsHtml(r)}</td>
+          <td><input type="text" class="audit-note-input" data-role="audit-note-input" data-row-id="${r.id}" value="${escapeHtml(r.note || '')}" placeholder="Note"></td>
         </tr>`).join('')}</tbody>
       </table>
     </div>`;
 }
-function printAuditTable(promo, rows) {
-  const auditRows = auditableRows(rows);
+function printAuditTable(promo, auditRows) {
   if (!auditRows.length) { showToast('No rows with a cost to print yet.', true); return; }
   let root = document.getElementById('auditPrintRoot');
   if (!root) {
@@ -2641,12 +2766,16 @@ function printAuditTable(promo, rows) {
         <th style="text-align:left;padding:6px 8px;border-bottom:2px solid #333;">Code</th>
         <th style="text-align:left;padding:6px 8px;border-bottom:2px solid #333;">Description</th>
         <th style="text-align:right;padding:6px 8px;border-bottom:2px solid #333;">Cost</th>
+        <th style="text-align:left;padding:6px 8px;border-bottom:2px solid #333;">Type</th>
+        <th style="text-align:left;padding:6px 8px;border-bottom:2px solid #333;">Note</th>
       </tr></thead>
       <tbody>${auditRows.map(r => `
       <tr>
         <td style="padding:6px 8px;border-bottom:1px solid #ccc;">${escapeHtml(r.code)}</td>
         <td style="padding:6px 8px;border-bottom:1px solid #ccc;">${escapeHtml(r.description)}</td>
-        <td style="padding:6px 8px;border-bottom:1px solid #ccc;text-align:right;">${numToStr(r.cost)}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #ccc;text-align:right;">${escapeHtml(r.cost || '')}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #ccc;">${escapeHtml(PRICE_TYPE_LABELS[r.priceType || ''] || '')}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #ccc;">${escapeHtml(r.note || '')}</td>
       </tr>`).join('')}</tbody>
     </table>`;
   document.body.classList.add('printing-audit');
@@ -2913,7 +3042,6 @@ function wirePromoWorkspaceEvents(promo) {
     const beforePriceInput = tr.querySelector('[data-field="beforePrice"]');
     const salePriceInput = tr.querySelector('[data-field="salePrice"]');
     const balInput = tr.querySelector('[data-field="balance"]');
-    const typeSelect = tr.querySelector('[data-field="priceType"]');
     const stockBadgeSlot = tr.querySelector('.stock-badge-slot');
 
     selectCb.addEventListener('change', () => {
@@ -3025,21 +3153,15 @@ function wirePromoWorkspaceEvents(promo) {
       refreshRowValidationUi(tr, row);
     });
 
-    balInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); focusDown('balance'); } });
+    balInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); focusDown('balance'); }
+      else if (e.key === 'Tab' && !e.shiftKey) { e.preventDefault(); goToNextRowOrCreate(); }
+    });
     balInput.addEventListener('blur', () => {
       row.balance = numOrNull(balInput.value);
       stockBadgeSlot.innerHTML = rowStockBadgeHtml(row);
       savePromoRow(row);
       refreshRowValidationUi(tr, row);
-    });
-
-    typeSelect.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') { e.preventDefault(); focusDown('priceType'); }
-      else if (e.key === 'Tab' && !e.shiftKey) { e.preventDefault(); goToNextRowOrCreate(); }
-    });
-    typeSelect.addEventListener('change', () => {
-      row.priceType = typeSelect.value;
-      savePromoRow(row);
     });
 
     tr.querySelector('[data-role="toggle-flag"]').addEventListener('click', async () => {
@@ -3273,7 +3395,16 @@ function parsePriceSheetRows(buf) {
 
   const header = aoa[headerIdx];
   const norm = (s) => String(s ?? '').trim().toLowerCase().replace(/\s+/g, '');
-  const findCol = (...wants) => header.findIndex(h => wants.includes(norm(h)));
+  // Same alias-priority-first matching as the catalog upload: try each
+  // alias, in order, against every header before moving to the next alias,
+  // rather than taking whichever column happens to come first in the file.
+  const findCol = (...wants) => {
+    for (const want of wants) {
+      const idx = header.findIndex(h => norm(h) === want);
+      if (idx > -1) return idx;
+    }
+    return -1;
+  };
   const codeCol = findCol('itemcode', 'code');
   const descCol = findCol('description');
   const promoCol = findCol('promoprice', 'promo');
@@ -3289,22 +3420,14 @@ function parsePriceSheetRows(buf) {
     const n = Number(cleaned);
     return isNaN(n) ? null : n;
   };
-  // Cost cells in real supplier sheets are often messy ("2.15 5+1", "6.66$",
-  // "10.874/7+1", or just "N") — the cost itself is the first number in the
-  // cell, with deal terms tacked on after. Pull out just that leading number,
-  // but skip a number immediately followed by "%" (e.g. "15% sellout") since
-  // that's a discount note, not a cost.
-  const toLooseNum = (v) => {
+  // Cost cells in real supplier sheets are free-form ("2.15 5+1", "6.66$",
+  // "10.874/7+1", "sell out", or just "N") — rather than guess which part is
+  // a real number, this keeps the cell exactly as typed, as text, so nothing
+  // in it gets silently dropped.
+  const toText = (v) => {
     if (v === '' || v === null || v === undefined) return null;
-    if (typeof v === 'number') return v;
-    const re = /-?\d+(?:\.\d+)?%?/g;
-    let m;
-    while ((m = re.exec(String(v)))) {
-      if (m[0].endsWith('%')) continue; // a percentage note, not a cost
-      const n = Number(m[0]);
-      return isNaN(n) ? null : n;
-    }
-    return null;
+    const s = String(v).trim();
+    return s || null;
   };
 
   const newRows = [];
@@ -3315,7 +3438,7 @@ function parsePriceSheetRows(buf) {
     const desc = descCol > -1 ? String(line[descCol] ?? '').trim() : '';
     const promoPrice = promoCol > -1 ? toNum(line[promoCol]) : null;
     const beforePrice = beforeCol > -1 ? toNum(line[beforeCol]) : null;
-    const cost = costCol > -1 ? toLooseNum(line[costCol]) : null;
+    const cost = costCol > -1 ? toText(line[costCol]) : null;
     const isBlankLine = !rawCode && !desc && promoPrice === null && beforePrice === null && cost === null;
     if (isBlankLine) continue;
     sourceLineCount++;
