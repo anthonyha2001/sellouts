@@ -1098,7 +1098,7 @@ async function loadCatalogFor(promoId) {
   const { data, error } = await sb.from('catalog_items').select('*').eq('promotion_id', promoId).order('code', { ascending: true });
   if (error) { console.error(error); showToast('Could not load this promotion\u2019s catalog \u2014 ' + sbErrText(error), true); return; }
   catalogItems = (data || []).map(r => ({ code: r.code, description: r.description || '', balance: r.balance, salePrice: r.sale_price === undefined ? null : r.sale_price, supplier: r.supplier || '', country: r.country || '', outYtd: r.out_ytd === undefined ? null : r.out_ytd }));
-  catalogMap = new Map(catalogItems.map(i => [i.code, i]));
+  catalogMap = new Map(catalogItems.map(i => [normalizeCatalogCode(i.code), i]));
 }
 
 async function replaceCatalog(rows, fileName, promoId) {
@@ -1387,9 +1387,30 @@ function isBigDiscount(row) {
   const frac = discountFraction(row);
   return frac !== null && frac > BIG_DISCOUNT_RATIO;
 }
+// A row with a discount % on it is, in practice, always a Sell Out item —
+// so as soon as one is entered, default the row into that type automatically
+// instead of leaving it to be set by hand in the Audit view later. Only
+// fires when no type is set yet, so it never overrides a row someone has
+// deliberately marked as C/N or Right Price.
+function autoSelloutOnDiscount(row) {
+  const hasDiscount = row.discount !== null && row.discount !== undefined && row.discount !== '';
+  if (hasDiscount && !row.priceType) row.priceType = 'sellout';
+}
+// Once a catalog match brings in a Sale Price, a Promo Price is normally
+// derived from Sale Price + auto-discount — but if the row already carries a
+// discount % that was set before the code was known (e.g. from a bulk
+// discount applied to freshly-inserted blank rows), that pre-set discount
+// should drive the Promo Price instead of being silently overwritten by the
+// forward calculation the moment a Sale Price becomes known.
+function applyDiscountAfterCatalogMatch(row) {
+  const promoBlank = row.promoPrice === null || row.promoPrice === undefined || row.promoPrice === '';
+  const hasDiscount = row.discount !== null && row.discount !== undefined && row.discount !== '';
+  if (promoBlank && hasDiscount) applyReverseDiscount(row);
+  else applyAutoDiscount(row);
+}
 function isCodeMissingFromCatalog(row) {
   const code = (row.code || '').trim();
-  return !!code && !catalogMap.has(code);
+  return !!code && !catalogMap.has(normalizeCatalogCode(code));
 }
 // A row can have real content (a description, a price) but no code at all
 // — usually because the source sheet just didn't have one for that line
@@ -1486,6 +1507,14 @@ let editingCnId = null;
 // Promotions
 let catalogItems = [];
 let catalogMap = new Map();
+// Catalog codes are matched case-insensitively and whitespace-trimmed: the
+// catalog file and the price sheet / pasted codes are often two different
+// exports of the same data, and a code that's "ABC123" in one and "abc123"
+// (or with stray spaces) in the other should still match instead of silently
+// missing its balance/sale price lookup.
+function normalizeCatalogCode(code) {
+  return String(code ?? '').trim().toUpperCase();
+}
 let catalogFileNames = new Map(); // promotionId -> the uploaded catalog file's name, this session
 let lowStockThreshold = 20;
 let promotions = [];
@@ -2896,7 +2925,7 @@ function buildSupplierGroupedHtml(rows) {
       <h4>${label} (${list.length})</h4>
       <div class="items-scroll" style="margin-bottom:14px;">
         <table class="items">
-          <thead><tr><th>Code</th><th>Description</th><th>Promo Price</th><th>Stock</th><th>Out (YTD)</th><th></th></tr></thead>
+          <thead><tr><th>Code</th><th>Description</th><th>Promo Price</th><th>Discount</th><th>Stock</th><th>Out (YTD)</th><th></th></tr></thead>
           <tbody>
             ${list.map(r => {
               const weeks = weeksOfStockLeft(r);
@@ -2904,7 +2933,8 @@ function buildSupplierGroupedHtml(rows) {
               const flagCell = lowVelocity
                 ? `<span class="low-stock-badge" title="At this year's sales pace, stock covers about ${weeks.toFixed(1)} week${weeks < 2 ? '' : 's'} — under the ${VELOCITY_LOW_STOCK_WEEKS}-week mark"><span class="pulse"></span>${weeks.toFixed(1)} wk${weeks < 2 ? '' : 's'} left</span>`
                 : '';
-              return `<tr><td>${escapeHtml(r.code)}</td><td>${escapeHtml(r.description)}</td><td>${numToStr(r.promoPrice)}</td><td>${numToStr(r.balance)}</td><td>${r.outYtd === null || r.outYtd === undefined ? '' : numToStr(r.outYtd)}</td><td>${flagCell}</td></tr>`;
+              const discCell = (r.discount === null || r.discount === undefined || r.discount === '') ? '' : `${numToStr(r.discount)}%`;
+              return `<tr><td>${escapeHtml(r.code)}</td><td>${escapeHtml(r.description)}</td><td>${numToStr(r.promoPrice)}</td><td>${discCell}</td><td>${numToStr(r.balance)}</td><td>${r.outYtd === null || r.outYtd === undefined ? '' : numToStr(r.outYtd)}</td><td>${flagCell}</td></tr>`;
             }).join('')}
           </tbody>
         </table>
@@ -3112,7 +3142,7 @@ function wirePromoRowElement(tr) {
         refreshDuplicateFlagsForCode(code);
         return;
       }
-      const item = catalogMap.get(code);
+      const item = catalogMap.get(normalizeCatalogCode(code));
       if (item) {
         row.description = item.description;
         row.balance = item.balance === undefined ? null : item.balance;
@@ -3127,8 +3157,10 @@ function wirePromoRowElement(tr) {
           row.beforePrice = row.salePrice;
           beforePriceInput.value = row.beforePrice;
         }
-        applyAutoDiscount(row);
+        applyDiscountAfterCatalogMatch(row);
         discountInput.value = row.discount === null ? '' : row.discount;
+        promoPriceInput.value = row.promoPrice === null ? '' : row.promoPrice;
+        autoSelloutOnDiscount(row);
         stockBadgeSlot.innerHTML = rowStockBadgeHtml(row);
         refreshRowFlagUi(tr, row);
         const supplierDetail = document.querySelector(`tr[data-supplier-row-id="${row.id}"]`);
@@ -3162,6 +3194,7 @@ function wirePromoRowElement(tr) {
       row.reviewed = false; // a fresh price edit should be re-evaluated, not stay dismissed
       applyAutoDiscount(row);
       discountInput.value = row.discount === null ? '' : row.discount;
+      autoSelloutOnDiscount(row);
       savePromoRow(row);
       refreshRowFlagUi(tr, row);
       refreshRowValidationUi(tr, row);
@@ -3174,6 +3207,7 @@ function wirePromoRowElement(tr) {
       row.reviewed = false;
       applyReverseDiscount(row);
       promoPriceInput.value = row.promoPrice === null ? '' : row.promoPrice;
+      autoSelloutOnDiscount(row);
       savePromoRow(row);
       refreshRowFlagUi(tr, row);
       refreshRowValidationUi(tr, row);
@@ -3204,6 +3238,7 @@ function wirePromoRowElement(tr) {
         applyAutoDiscount(row);
         discountInput.value = row.discount === null ? '' : row.discount;
       }
+      autoSelloutOnDiscount(row);
       savePromoRow(row);
       refreshRowFlagUi(tr, row);
       refreshDiscountUi(tr, row);
@@ -3262,17 +3297,27 @@ function wirePromoRowElement(tr) {
       if (val === null) return;
       const n = parseInt(val, 10);
       if (!n || n < 1) { showToast('Enter a number of rows greater than 0.', true); return; }
+      // Asked once here rather than one row at a time, or via a separate
+      // select-all-then-apply step afterward — the same discount lands on
+      // every inserted row immediately, and the promo price fills in on its
+      // own once a code (and its sale price) is added to each one.
+      const discVal = await showPrompt(`Apply a discount % to all ${n} new row${n === 1 ? '' : 's'}? Leave blank to skip.`, { defaultValue: '', confirmLabel: 'Insert rows', placeholder: 'e.g. 20' });
+      const pct = (discVal !== null && discVal.trim() !== '' && !isNaN(Number(discVal))) ? round2(Number(discVal)) : null;
       const idx = currentRows.findIndex(r => r.id === rowId);
       const newRows = [];
       for (let i = 0; i < n; i++) {
         const newRow = blankPromoRow();
+        if (pct !== null) {
+          newRow.discount = pct;
+          autoSelloutOnDiscount(newRow);
+        }
         currentRows.splice(idx + 1 + i, 0, newRow);
         newRows.push(newRow);
       }
       renumberRows();
       await renderPromoWorkspace();
       await persistRowsBulk(newRows);
-      showToast(`${n} row${n === 1 ? '' : 's'} inserted.`);
+      showToast(`${n} row${n === 1 ? '' : 's'} inserted${pct !== null ? ` with a ${pct}% discount` : ''}.`);
     });
 
     tr.querySelector('[data-role="remove-row"]').addEventListener('click', async () => {
@@ -3475,16 +3520,26 @@ function wirePromoWorkspaceEvents(promo) {
     if (val === null) return;
     const n = parseInt(val, 10);
     if (!n || n < 1) { showToast('Enter a number of rows greater than 0.', true); return; }
+    // Asking for a discount up front (instead of one row at a time, or a
+    // separate "select all + apply" step afterward) is the point of this
+    // dialog — it lands on every new row immediately, and once a code is
+    // typed in and a sale price is known, the promo price computes from it.
+    const discVal = await showPrompt(`Apply a discount % to all ${n} new row${n === 1 ? '' : 's'}? Leave blank to skip.`, { defaultValue: '', confirmLabel: 'Add rows', placeholder: 'e.g. 20' });
+    const pct = (discVal !== null && discVal.trim() !== '' && !isNaN(Number(discVal))) ? round2(Number(discVal)) : null;
     const newRows = [];
     for (let i = 0; i < n; i++) {
       const row = blankPromoRow();
       row.sortOrder = currentRows.length;
+      if (pct !== null) {
+        row.discount = pct;
+        autoSelloutOnDiscount(row);
+      }
       currentRows.push(row);
       newRows.push(row);
     }
     await renderPromoWorkspace();
     await persistRowsBulk(newRows);
-    showToast(`${n} row${n === 1 ? '' : 's'} added.`);
+    showToast(`${n} row${n === 1 ? '' : 's'} added${pct !== null ? ` with a ${pct}% discount` : ''}.`);
   });
 
   document.getElementById('applyDiscountSelectedBtn').addEventListener('click', async () => {
@@ -3503,6 +3558,7 @@ function wirePromoWorkspaceEvents(promo) {
       // pick up their promo price once one is typed in (see the Sale Price
       // blur handler above).
       if (r.salePrice !== null && r.salePrice !== undefined && r.salePrice !== '') applyReverseDiscount(r);
+      autoSelloutOnDiscount(r);
     });
     await renderPromoWorkspace();
     await persistRowsBulk(rows);
@@ -3628,7 +3684,7 @@ function wirePromoWorkspaceEvents(promo) {
             const code = raw.trim();
             row2.code = code;
             row2._lastLookupCode = code;
-            const item = catalogMap.get(code);
+            const item = catalogMap.get(normalizeCatalogCode(code));
             if (item) {
               row2.description = item.description;
               row2.balance = item.balance === undefined ? null : item.balance;
@@ -3644,7 +3700,8 @@ function wirePromoWorkspaceEvents(promo) {
         if ((row2.beforePrice === null || row2.beforePrice === undefined || row2.beforePrice === '') && row2.salePrice !== null && row2.salePrice !== undefined && row2.salePrice !== '') {
           row2.beforePrice = row2.salePrice;
         }
-        applyAutoDiscount(row2);
+        applyDiscountAfterCatalogMatch(row2);
+        autoSelloutOnDiscount(row2);
         touchedRows.push(row2);
       }
     }
@@ -3812,7 +3869,7 @@ function parsePriceSheetRows(buf) {
       row.cost = cost;
       if (discountFromPercent !== null) row.discount = discountFromPercent;
       if (code) {
-        const item = catalogMap.get(code);
+        const item = catalogMap.get(normalizeCatalogCode(code));
         if (item) {
           row.balance = item.balance === undefined ? null : item.balance;
           row.salePrice = item.salePrice === undefined ? null : item.salePrice;
