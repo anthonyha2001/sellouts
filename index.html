@@ -1324,6 +1324,16 @@ function isVelocityLowStock(row) {
   const weeks = weeksOfStockLeft(row);
   return weeks !== null && weeks < VELOCITY_LOW_STOCK_WEEKS;
 }
+// A plain Reorder/OK call for the "By supplier" accordion: prefers the sales-
+// velocity read (Out ÷ weeks elapsed vs. current stock) when the catalog has
+// an Out figure for the item, and falls back to the plain low-stock
+// threshold when it doesn't — so every item gets a recommendation, not just
+// the ones with velocity data on file.
+function needsReorder(row) {
+  const weeks = weeksOfStockLeft(row);
+  if (weeks !== null) return weeks < VELOCITY_LOW_STOCK_WEEKS;
+  return row.balance !== null && row.balance !== undefined && Number(row.balance) < lowStockThreshold;
+}
 function refreshRowFlagUi(tr, row) {
   const btn = tr.querySelector('[data-role="toggle-flag"]');
   if (!btn) return;
@@ -1522,7 +1532,8 @@ let currentPromoId = null;
 let currentRows = [];
 let selectedRowIds = new Set();
 let expandedSupplierRowIds = new Set();
-let promoViewMode = 'table'; // 'table', 'supplier' or 'audit'
+let promoViewMode = 'table'; // 'table' or 'audit'
+let auditSubView = 'cost'; // 'cost' (cost-check table) or 'supplier' (grouped-by-supplier accordion), both inside Audit
 let expandedSupplierGroups = new Set();
 let selectedCountries = new Set(); // Country filter, applied across all promo views
 let selectedCodeIssues = new Set(); // 'missing' and/or 'mismatch', in the same Filter panel as Country
@@ -2667,16 +2678,15 @@ async function renderPromoWorkspace() {
       <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;">
         <div>
           <p class="muted-note" style="margin:0 0 4px;">${promoStats.total} row${promoStats.total === 1 ? '' : 's'} \u00b7 ${promoStats.flagged} flagged \u00b7 ${promoStats.empty} empty row${promoStats.empty === 1 ? '' : 's'}</p>
-          <p class="muted-note" style="margin:0 0 10px;">${promoViewMode === 'supplier'
-            ? 'Sell Out and C/N items grouped by supplier. Right Price items and rows without a Type are left out.'
-            : (promoViewMode === 'audit'
-              ? 'Code and description next to the cost from the imported price sheet, for a manual check. Items with no cost on file are left out.'
-              : 'Tip: copy a block of cells from Excel and paste directly into the table \u2014 it will fill rows and columns starting from where you paste, adding new rows if needed. Enter moves down a column, Tab at the last field adds a new row.')}</p>
+          <p class="muted-note" style="margin:0 0 10px;">${promoViewMode === 'audit'
+            ? (auditSubView === 'supplier'
+              ? 'Sell Out and C/N items grouped by supplier, with a reorder recommendation for each. Right Price items and rows without a Type are left out.'
+              : 'Code and description next to the cost from the imported price sheet, for a manual check. Items with no cost on file are left out.')
+            : 'Tip: copy a block of cells from Excel and paste directly into the table \u2014 it will fill rows and columns starting from where you paste, adding new rows if needed. Enter moves down a column, Tab at the last field adds a new row.'}</p>
         </div>
         <div class="view-toolbar" style="border:none;background:none;padding:0;margin:0;">
           <div class="filter-row" id="promoViewSwitch" style="margin:0;">
             <button class="${promoViewMode === 'table' ? 'active' : ''}" data-view="table">Table</button>
-            <button class="${promoViewMode === 'supplier' ? 'active' : ''}" data-view="supplier">Group by supplier</button>
             <button class="${promoViewMode === 'audit' ? 'active' : ''}" data-view="audit">Audit</button>
           </div>
           <div class="filter-dropdown-wrap" id="countryFilterWrap" style="margin-left:auto;">
@@ -2729,39 +2739,53 @@ async function renderPromoWorkspace() {
         </div>
       </div>
 
-      <div id="promoSupplierView" style="display:${promoViewMode === 'supplier' ? '' : 'none'};">
-        ${buildSupplierGroupedHtml(visibleRows)}
-      </div>
-
       <div id="promoAuditView" style="display:${promoViewMode === 'audit' ? '' : 'none'};">
-        <div class="view-toolbar" style="justify-content:space-between;">
-          <div class="filter-dropdown-wrap" id="auditSupplierFilterWrap">
-            <button class="btn ghost small" id="auditSupplierFilterBtn">Filter by supplier${selectedAuditSuppliers.size ? ` (${selectedAuditSuppliers.size})` : ''}</button>
-            <div class="filter-panel" id="auditSupplierFilterPanel" style="display:${auditSupplierFilterOpen ? 'block' : 'none'};">
-              <div class="filter-panel-head">
-                <span>Supplier</span>
-                <button class="link-btn" id="clearAuditSupplierFilterBtn">Clear</button>
-              </div>
-              ${auditSupplierOptions.length > 6 ? `
-              <div class="filter-panel-search-wrap">
-                <input type="text" id="auditSupplierSearchInput" placeholder="Search suppliers…" value="${escapeHtml(auditSupplierFilterSearchQuery)}">
-              </div>` : ''}
-              ${auditSupplierOptions.length ? auditSupplierOptions.map(s => `
-                <label class="filter-panel-option" data-supplier-label="${escapeHtml(s.toLowerCase())}"><input type="checkbox" value="${escapeHtml(s)}" data-role="audit-supplier-option" ${selectedAuditSuppliers.has(s) ? 'checked' : ''}> ${escapeHtml(s)}</label>
-              `).join('') : '<p class="muted-note" style="padding:8px 10px;">No supplier data yet.</p>'}
-              <p class="muted-note" id="auditSupplierSearchEmpty" style="display:none;padding:2px 12px 10px;">No matching suppliers.</p>
-            </div>
-          </div>
-          <button class="btn secondary small" id="printAuditBtn">Print</button>
+        <div class="filter-row" id="auditSubViewSwitch" style="margin-bottom:12px;">
+          <button class="${auditSubView === 'cost' ? 'active' : ''}" data-audit-sub="cost">Cost check</button>
+          <button class="${auditSubView === 'supplier' ? 'active' : ''}" data-audit-sub="supplier">By supplier</button>
         </div>
-        ${buildAuditHtml(auditVisibleRows)}
+
+        <div id="promoAuditCostView" style="display:${auditSubView === 'cost' ? '' : 'none'};">
+          <div class="view-toolbar" style="justify-content:space-between;">
+            <div class="filter-dropdown-wrap" id="auditSupplierFilterWrap">
+              <button class="btn ghost small" id="auditSupplierFilterBtn">Filter by supplier${selectedAuditSuppliers.size ? ` (${selectedAuditSuppliers.size})` : ''}</button>
+              <div class="filter-panel" id="auditSupplierFilterPanel" style="display:${auditSupplierFilterOpen ? 'block' : 'none'};">
+                <div class="filter-panel-head">
+                  <span>Supplier</span>
+                  <button class="link-btn" id="clearAuditSupplierFilterBtn">Clear</button>
+                </div>
+                ${auditSupplierOptions.length > 6 ? `
+                <div class="filter-panel-search-wrap">
+                  <input type="text" id="auditSupplierSearchInput" placeholder="Search suppliers…" value="${escapeHtml(auditSupplierFilterSearchQuery)}">
+                </div>` : ''}
+                ${auditSupplierOptions.length ? auditSupplierOptions.map(s => `
+                  <label class="filter-panel-option" data-supplier-label="${escapeHtml(s.toLowerCase())}"><input type="checkbox" value="${escapeHtml(s)}" data-role="audit-supplier-option" ${selectedAuditSuppliers.has(s) ? 'checked' : ''}> ${escapeHtml(s)}</label>
+                `).join('') : '<p class="muted-note" style="padding:8px 10px;">No supplier data yet.</p>'}
+                <p class="muted-note" id="auditSupplierSearchEmpty" style="display:none;padding:2px 12px 10px;">No matching suppliers.</p>
+              </div>
+            </div>
+            <button class="btn secondary small" id="printAuditBtn">Print</button>
+          </div>
+          ${buildAuditHtml(auditVisibleRows)}
+        </div>
+
+        <div id="promoAuditSupplierView" style="display:${auditSubView === 'supplier' ? '' : 'none'};">
+          ${buildSupplierGroupedHtml(visibleRows)}
+        </div>
       </div>
     </div>
   `;
 
   wirePromoWorkspaceEvents(promo);
-  if (promoViewMode === 'supplier') wireSupplierGroupEvents();
+  if (promoViewMode === 'audit' && auditSubView === 'supplier') wireSupplierGroupEvents();
   if (promoViewMode === 'audit') {
+    document.querySelectorAll('#auditSubViewSwitch [data-audit-sub]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        auditSubView = btn.dataset.auditSub;
+        await renderPromoWorkspace();
+      });
+    });
+
     const printBtn = document.getElementById('printAuditBtn');
     if (printBtn) printBtn.addEventListener('click', () => printAuditTable(promo, auditVisibleRows));
 
@@ -2925,16 +2949,19 @@ function buildSupplierGroupedHtml(rows) {
       <h4>${label} (${list.length})</h4>
       <div class="items-scroll" style="margin-bottom:14px;">
         <table class="items">
-          <thead><tr><th>Code</th><th>Description</th><th>Promo Price</th><th>Discount</th><th>Stock</th><th>Out (YTD)</th><th></th></tr></thead>
+          <thead><tr><th>Code</th><th>Description</th><th>Promo Price</th><th>Discount</th><th>Stock</th><th>Out (YTD)</th><th>Recommendation</th></tr></thead>
           <tbody>
             ${list.map(r => {
               const weeks = weeksOfStockLeft(r);
-              const lowVelocity = isVelocityLowStock(r);
-              const flagCell = lowVelocity
-                ? `<span class="low-stock-badge" title="At this year's sales pace, stock covers about ${weeks.toFixed(1)} week${weeks < 2 ? '' : 's'} — under the ${VELOCITY_LOW_STOCK_WEEKS}-week mark"><span class="pulse"></span>${weeks.toFixed(1)} wk${weeks < 2 ? '' : 's'} left</span>`
-                : '';
+              const reorder = needsReorder(r);
+              const recTitle = weeks !== null
+                ? `At this year's sales pace, stock covers about ${weeks.toFixed(1)} week${weeks < 2 ? '' : 's'}`
+                : (reorder ? 'Stock is below the low-stock threshold' : 'No Out (YTD) figure on file — based on stock level only');
+              const recCell = reorder
+                ? `<span class="low-stock-badge" title="${recTitle}"><span class="pulse"></span>Reorder</span>`
+                : `<span class="badge active" title="${recTitle}">OK</span>`;
               const discCell = (r.discount === null || r.discount === undefined || r.discount === '') ? '' : `${numToStr(r.discount)}%`;
-              return `<tr><td>${escapeHtml(r.code)}</td><td>${escapeHtml(r.description)}</td><td>${numToStr(r.promoPrice)}</td><td>${discCell}</td><td>${numToStr(r.balance)}</td><td>${r.outYtd === null || r.outYtd === undefined ? '' : numToStr(r.outYtd)}</td><td>${flagCell}</td></tr>`;
+              return `<tr><td>${escapeHtml(r.code)}</td><td>${escapeHtml(r.description)}</td><td>${numToStr(r.promoPrice)}</td><td>${discCell}</td><td>${numToStr(r.balance)}</td><td>${r.outYtd === null || r.outYtd === undefined ? '' : numToStr(r.outYtd)}</td><td>${recCell}</td></tr>`;
             }).join('')}
           </tbody>
         </table>
@@ -3047,7 +3074,7 @@ function printAuditTable(promo, auditRows) {
 window.addEventListener('afterprint', () => document.body.classList.remove('printing-audit'));
 
 function wireSupplierGroupEvents() {
-  document.querySelectorAll('#promoSupplierView .sellout[data-supplier-group]').forEach(el => {
+  document.querySelectorAll('#promoAuditSupplierView .sellout[data-supplier-group]').forEach(el => {
     const name = el.dataset.supplierGroup;
     const head = el.querySelector('.sellout-head');
     head.addEventListener('click', (e) => {
@@ -3057,7 +3084,7 @@ function wireSupplierGroupEvents() {
       else expandedSupplierGroups.delete(name);
     });
   });
-  document.querySelectorAll('#promoSupplierView [data-role="copy-supplier-codes"]').forEach(btn => {
+  document.querySelectorAll('#promoAuditSupplierView [data-role="copy-supplier-codes"]').forEach(btn => {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
       const name = btn.dataset.supplier;
