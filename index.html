@@ -2463,6 +2463,16 @@ function refreshPromoTableView() {
   const emptyEl = document.getElementById('tableEmptyState');
   if (emptyEl) emptyEl.innerHTML = tableEmptyStateHtml(tableVisibleRows);
 }
+// The Filter button's "(N)" count includes the Flagged-only checkbox now
+// that it lives in the Filter panel — kept in sync here too, since this is
+// called from the Table view's lightweight refresh path, which doesn't
+// touch the shared header where that button lives.
+function updateFilterButtonLabel() {
+  const btn = document.getElementById('countryFilterBtn');
+  if (!btn) return;
+  const count = selectedCountries.size + selectedCodeIssues.size + (showFlaggedOnly ? 1 : 0);
+  btn.textContent = `Filter${count ? ` (${count})` : ''}`;
+}
 function wireTableFilterStatus() {
   const clearBtn = document.getElementById('clearTableFiltersBtn');
   if (clearBtn) {
@@ -2471,8 +2481,9 @@ function wireTableFilterStatus() {
       showFlaggedOnly = false;
       const searchInput = document.getElementById('tableSearchInput');
       if (searchInput) searchInput.value = '';
-      const flaggedOnlyBtn = document.getElementById('flaggedOnlyBtn');
-      if (flaggedOnlyBtn) { flaggedOnlyBtn.classList.remove('active'); flaggedOnlyBtn.textContent = 'Flagged only'; }
+      const flaggedCb = document.querySelector('#countryFilterPanel [data-role="flagged-only-option"]');
+      if (flaggedCb) flaggedCb.checked = false;
+      updateFilterButtonLabel();
       refreshPromoTableView();
     });
   }
@@ -2620,11 +2631,14 @@ async function renderPromoWorkspace() {
         </div>
         <div class="view-toolbar" style="border:none;background:none;padding:0;margin:0;">
           <div class="filter-dropdown-wrap" id="countryFilterWrap">
-            <button class="btn ghost small" id="countryFilterBtn">Filter${(selectedCountries.size + selectedCodeIssues.size) ? ` (${selectedCountries.size + selectedCodeIssues.size})` : ''}</button>
+            <button class="btn ghost small" id="countryFilterBtn">Filter${(selectedCountries.size + selectedCodeIssues.size + (showFlaggedOnly ? 1 : 0)) ? ` (${selectedCountries.size + selectedCodeIssues.size + (showFlaggedOnly ? 1 : 0)})` : ''}</button>
             <div class="filter-panel" id="countryFilterPanel" style="display:${countryFilterOpen ? 'block' : 'none'};">
               <div class="filter-panel-head">
                 <span>Filters</span>
                 <button class="link-btn" id="clearAllFiltersBtn">Clear all</button>
+              </div>
+              <div class="filter-panel-section">
+                <label class="filter-panel-option"><input type="checkbox" data-role="flagged-only-option" ${showFlaggedOnly ? 'checked' : ''}> Flagged only</label>
               </div>
               <div class="filter-panel-section">
                 <p class="filter-panel-label">Code issues</p>
@@ -2647,7 +2661,6 @@ async function renderPromoWorkspace() {
       <div id="promoTableView" style="display:${promoViewMode === 'table' ? '' : 'none'};">
         <div class="view-toolbar">
           <input type="text" id="tableSearchInput" placeholder="Search code or description…" style="max-width:260px;" value="${escapeHtml(tableSearchQuery)}">
-          <button class="btn ghost small toggle-flagged ${showFlaggedOnly ? 'active' : ''}" id="flaggedOnlyBtn">${showFlaggedOnly ? 'Showing flagged only' : 'Flagged only'}</button>
           <span id="tableFilterStatus">${tableFilterStatusHtml(tableVisibleRows, visibleRows)}</span>
         </div>
         <div class="items-scroll">
@@ -2665,6 +2678,7 @@ async function renderPromoWorkspace() {
           <div class="promo-foot-actions">
             <button class="btn secondary small" id="addRowBtn">+ Add row</button>
             <button class="btn secondary small" id="addRowsBulkBtn">+ Add rows\u2026</button>
+            <button class="btn ghost small" id="applyDiscountSelectedBtn" style="display:${selectedRowIds.size ? 'inline-flex' : 'none'};">Apply discount to selected (${selectedRowIds.size})</button>
             <button class="btn ghost small" id="deleteSelectedBtn" style="display:${selectedRowIds.size ? 'inline-flex' : 'none'};color:var(--brick);">Delete selected (${selectedRowIds.size})</button>
           </div>
           <span class="muted-note">${currentRows.length} item${currentRows.length === 1 ? '' : 's'}</span>
@@ -2997,6 +3011,11 @@ function wirePromoRowElement(tr) {
         delBtn.style.display = selectedRowIds.size ? 'inline-flex' : 'none';
         delBtn.textContent = `Delete selected (${selectedRowIds.size})`;
       }
+      const discBtn = document.getElementById('applyDiscountSelectedBtn');
+      if (discBtn) {
+        discBtn.style.display = selectedRowIds.size ? 'inline-flex' : 'none';
+        discBtn.textContent = `Apply discount to selected (${selectedRowIds.size})`;
+      }
       const selectAllCb2 = document.getElementById('selectAllRows');
       if (selectAllCb2) selectAllCb2.checked = currentRows.length > 0 && currentRows.every(r => selectedRowIds.has(r.id));
     });
@@ -3094,8 +3113,19 @@ function wirePromoRowElement(tr) {
         row.beforePrice = row.salePrice;
         beforePriceInput.value = row.beforePrice;
       }
-      applyAutoDiscount(row);
-      discountInput.value = row.discount === null ? '' : row.discount;
+      const promoBlank = row.promoPrice === null || row.promoPrice === undefined || row.promoPrice === '';
+      const hasDiscount = row.discount !== null && row.discount !== undefined && row.discount !== '';
+      if (promoBlank && hasDiscount) {
+        // A discount already sitting on this row (e.g. imported from a
+        // percentage cell) had no sale price to work from yet — now that one
+        // was just typed in, compute the promo price from it instead of
+        // trying to derive a discount from a promo price that doesn't exist.
+        applyReverseDiscount(row);
+        promoPriceInput.value = row.promoPrice === null ? '' : row.promoPrice;
+      } else {
+        applyAutoDiscount(row);
+        discountInput.value = row.discount === null ? '' : row.discount;
+      }
       savePromoRow(row);
       refreshRowFlagUi(tr, row);
       refreshDiscountUi(tr, row);
@@ -3225,11 +3255,20 @@ function wirePromoWorkspaceEvents(promo) {
         await renderPromoWorkspace();
       });
     });
+    const flaggedOnlyOption = countryFilterPanel.querySelector('[data-role="flagged-only-option"]');
+    if (flaggedOnlyOption) {
+      flaggedOnlyOption.addEventListener('change', async () => {
+        showFlaggedOnly = flaggedOnlyOption.checked;
+        countryFilterOpen = true;
+        await renderPromoWorkspace();
+      });
+    }
     const clearAllBtn = document.getElementById('clearAllFiltersBtn');
     if (clearAllBtn) clearAllBtn.addEventListener('click', async (e) => {
       e.stopPropagation();
       selectedCountries.clear();
       selectedCodeIssues.clear();
+      showFlaggedOnly = false;
       countryFilterOpen = true;
       await renderPromoWorkspace();
     });
@@ -3313,6 +3352,7 @@ function wirePromoWorkspaceEvents(promo) {
     const parts = [`Imported ${result.rows.length} row${result.rows.length === 1 ? '' : 's'} from ${result.sourceLineCount} line${result.sourceLineCount === 1 ? '' : 's'}, replacing the previous table`];
     if (result.splitCount) parts.push(`${result.splitCount} multi-code line${result.splitCount === 1 ? '' : 's'} split`);
     if (result.blankCodeCount) parts.push(`${result.blankCodeCount} line${result.blankCodeCount === 1 ? '' : 's'} had no code — kept blank so you can spot ${result.blankCodeCount === 1 ? 'it' : 'them'}`);
+    if (result.percentAsDiscountCount) parts.push(`${result.percentAsDiscountCount} line${result.percentAsDiscountCount === 1 ? '' : 's'} had a percentage in the price column — read as Discount instead`);
     showToast(parts.join(', ') + '.', !!result.blankCodeCount);
   });
 
@@ -3367,6 +3407,28 @@ function wirePromoWorkspaceEvents(promo) {
     showToast(`${n} row${n === 1 ? '' : 's'} added.`);
   });
 
+  document.getElementById('applyDiscountSelectedBtn').addEventListener('click', async () => {
+    const ids = Array.from(selectedRowIds);
+    if (!ids.length) return;
+    const val = await showPrompt(`Apply what discount % to ${ids.length} selected row${ids.length === 1 ? '' : 's'}?`, { defaultValue: '', confirmLabel: 'Apply', placeholder: 'e.g. 20' });
+    if (val === null) return;
+    const pct = Number(val);
+    if (val.trim() === '' || isNaN(pct)) { showToast('Enter a valid discount percentage.', true); return; }
+    const rows = currentRows.filter(r => selectedRowIds.has(r.id));
+    rows.forEach(r => {
+      r.discount = round2(pct);
+      r.reviewed = false;
+      // Recompute the promo price from this discount wherever a sale price
+      // is already known; rows with no sale price yet keep the discount and
+      // pick up their promo price once one is typed in (see the Sale Price
+      // blur handler above).
+      if (r.salePrice !== null && r.salePrice !== undefined && r.salePrice !== '') applyReverseDiscount(r);
+    });
+    await renderPromoWorkspace();
+    await persistRowsBulk(rows);
+    showToast(`${pct}% discount applied to ${rows.length} row${rows.length === 1 ? '' : 's'}.`);
+  });
+
   document.getElementById('deleteSelectedBtn').addEventListener('click', async () => {
     const ids = Array.from(selectedRowIds);
     if (!ids.length) return;
@@ -3391,22 +3453,13 @@ function wirePromoWorkspaceEvents(promo) {
     });
   }
 
-  // Search box and Flagged-only toggle: both only touch the table body (and
-  // the small status line above it), never the whole workspace, so typing in
-  // the search box never loses focus on every keystroke.
+  // The search box only touches the table body (and the small status line
+  // above it), never the whole workspace, so typing in it never loses focus
+  // on every keystroke. Flagged-only now lives in the Filter panel above.
   const searchInput = document.getElementById('tableSearchInput');
   if (searchInput) {
     searchInput.addEventListener('input', () => {
       tableSearchQuery = searchInput.value;
-      refreshPromoTableView();
-    });
-  }
-  const flaggedOnlyBtn = document.getElementById('flaggedOnlyBtn');
-  if (flaggedOnlyBtn) {
-    flaggedOnlyBtn.addEventListener('click', () => {
-      showFlaggedOnly = !showFlaggedOnly;
-      flaggedOnlyBtn.classList.toggle('active', showFlaggedOnly);
-      flaggedOnlyBtn.textContent = showFlaggedOnly ? 'Showing flagged only' : 'Flagged only';
       refreshPromoTableView();
     });
   }
@@ -3627,17 +3680,40 @@ function parsePriceSheetRows(buf) {
     const s = String(v).trim();
     return s || null;
   };
+  // Some supplier sheets reuse the Promo Price (or Old Price) column to carry
+  // a discount rate instead of an actual price for a given line — the cell
+  // shows as a plain fraction like 0.2 because it's formatted as a percentage
+  // ("0%") in Excel, not because it's a 20-cent price. Reading the cell's own
+  // number format (not just its value) is the only way to tell those apart.
+  const isPercentCell = (r, c) => {
+    if (c < 0) return false;
+    const cell = ws[XLSX.utils.encode_cell({ r, c })];
+    // .w is the cell's formatted display text ("20%"), which SheetJS always
+    // fills in; .z (the raw number-format string) isn't populated unless the
+    // workbook is read with cellNF turned on, so .w is the reliable signal.
+    return !!(cell && typeof cell.w === 'string' && cell.w.includes('%'));
+  };
 
   const newRows = [];
-  let splitCount = 0, blankCodeCount = 0, sourceLineCount = 0;
+  let splitCount = 0, blankCodeCount = 0, sourceLineCount = 0, percentAsDiscountCount = 0;
   for (let i = headerIdx + 1; i < aoa.length; i++) {
     const line = aoa[i] || [];
     const rawCode = String(line[codeCol] ?? '').trim();
     const desc = descCol > -1 ? String(line[descCol] ?? '').trim() : '';
-    const promoPrice = promoCol > -1 ? toNum(line[promoCol]) : null;
-    const beforePrice = beforeCol > -1 ? toNum(line[beforeCol]) : null;
+    let promoPrice = promoCol > -1 ? toNum(line[promoCol]) : null;
+    let beforePrice = beforeCol > -1 ? toNum(line[beforeCol]) : null;
     const cost = costCol > -1 ? toText(line[costCol]) : null;
-    const isBlankLine = !rawCode && !desc && promoPrice === null && beforePrice === null && cost === null;
+    let discountFromPercent = null;
+    if (promoPrice !== null && isPercentCell(i, promoCol)) {
+      discountFromPercent = round2(promoPrice * 100);
+      promoPrice = null; // that cell held a discount rate, not a price
+      percentAsDiscountCount++;
+    } else if (beforePrice !== null && isPercentCell(i, beforeCol)) {
+      discountFromPercent = round2(beforePrice * 100);
+      beforePrice = null;
+      percentAsDiscountCount++;
+    }
+    const isBlankLine = !rawCode && !desc && promoPrice === null && beforePrice === null && cost === null && discountFromPercent === null;
     if (isBlankLine) continue;
     sourceLineCount++;
 
@@ -3654,6 +3730,7 @@ function parsePriceSheetRows(buf) {
       row.promoPrice = promoPrice;
       row.beforePrice = beforePrice;
       row.cost = cost;
+      if (discountFromPercent !== null) row.discount = discountFromPercent;
       if (code) {
         const item = catalogMap.get(code);
         if (item) {
@@ -3664,11 +3741,17 @@ function parsePriceSheetRows(buf) {
           row.outYtd = item.outYtd === undefined ? null : item.outYtd;
         }
       }
-      applyAutoDiscount(row);
+      // A discount pulled from a percentage-formatted cell already has its
+      // real value — recompute the promo price from it (now that a catalog
+      // match may have filled in the sale price) rather than letting the
+      // normal forward calculation try to derive a discount from a promo
+      // price that was never actually a price.
+      if (discountFromPercent !== null) applyReverseDiscount(row);
+      else applyAutoDiscount(row);
       newRows.push(row);
     });
   }
-  return { rows: newRows, splitCount, blankCodeCount, sourceLineCount };
+  return { rows: newRows, splitCount, blankCodeCount, sourceLineCount, percentAsDiscountCount };
 }
 
 async function initPromotions() {
