@@ -219,6 +219,7 @@ button:focus-visible{outline:2px solid var(--pine);outline-offset:2px;}
 .icon-btn:hover{border-color:var(--pine);color:var(--pine);}
 .icon-btn.danger:hover{border-color:var(--brick);color:var(--brick);background:var(--brick-tint);}
 .icon-btn.flag-on{border-color:var(--brick);color:var(--brick);background:var(--brick-tint);}
+.btn.toggle-flagged.active{background:var(--brick);border-color:var(--brick);color:#fff;}
 .cn-status-row{display:flex;align-items:center;gap:10px;margin-bottom:18px;}
 .cn-status-label{font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-faint);}
 
@@ -370,11 +371,17 @@ table.promo select:focus{outline:none;border-color:var(--pine);box-shadow:0 0 0 
 table.promo .code-cell{font-family:var(--font-mono);}
 .code-cell-wrap{display:flex;align-items:center;gap:5px;}
 .code-cell-wrap input{flex:1 1 auto;min-width:0;}
-.missing-code-icon{
+/* Two distinct code-issue icons, so a glance at the shape (not just a
+   tooltip) tells you which problem a row has: a code that doesn't match
+   anything in the catalog (mismatch, gold triangle) vs. a row with real
+   content but no code at all (empty-code, brick circle). */
+.code-issue-icon{
   display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;flex:0 0 auto;
-  color:var(--brick);cursor:help;
+  cursor:help;
 }
-.missing-code-icon svg{width:100%;height:100%;stroke:currentColor;}
+.code-issue-icon svg{width:100%;height:100%;stroke:currentColor;}
+.mismatch-icon{color:var(--gold);}
+.empty-code-icon{color:var(--brick);}
 table.promo .balance-cell input{text-align:right;}
 table.promo th.rowact-col,table.promo td.rowact-col{width:1%;white-space:nowrap;padding-right:2px;}
 table.promo th.chk-col,table.promo td.chk-col{width:1%;white-space:nowrap;text-align:center;padding-right:2px;}
@@ -457,12 +464,18 @@ input.cell-missing{border-color:var(--brick) !important;box-shadow:0 0 0 1px var
 .audit-row-sellout > td{background:var(--pine-tint);}
 .audit-row-cn > td{background:var(--gold-tint);}
 .audit-row-rightprice > td{background:var(--plum-tint);}
-.audit-type-btns{display:flex;gap:4px;flex-wrap:wrap;}
+.audit-type-btns{display:flex;gap:6px;}
 .audit-type-btn{
-  font-family:var(--font-mono);font-size:10.5px;font-weight:600;padding:4px 9px;border-radius:14px;
-  background:var(--paper-raised);border:1px solid var(--line-strong);color:var(--ink-soft);cursor:pointer;white-space:nowrap;
+  width:32px;height:32px;flex:0 0 auto;border-radius:8px;padding:0;
+  display:flex;align-items:center;justify-content:center;
+  background:var(--paper-raised);border:1px solid var(--line-strong);color:var(--ink-soft);cursor:pointer;
+  transition:border-color .12s,color .12s,background .12s;
 }
-.audit-type-btn.active{background:var(--ink);color:var(--paper);border-color:var(--ink);}
+.audit-type-btn svg{width:16px;height:16px;stroke:currentColor;}
+.audit-type-btn:hover{border-color:var(--ink-soft);color:var(--ink);}
+.audit-type-btn[data-type="rightprice"].active{background:var(--plum-tint);border-color:var(--plum);color:var(--plum);}
+.audit-type-btn[data-type="cn"].active{background:var(--gold-tint);border-color:var(--gold);color:var(--gold);}
+.audit-type-btn[data-type="sellout"].active{background:var(--pine-tint);border-color:var(--pine);color:var(--pine);}
 .audit-note-input{
   width:100%;min-width:140px;font-family:var(--font-body);font-size:13px;color:var(--ink);background:var(--paper);
   border:1px solid var(--line-strong);border-radius:6px;padding:6px 8px;
@@ -1161,7 +1174,11 @@ async function loadPromoRows(promoId) {
 function numOrNull(v) {
   if (v === '' || v === null || v === undefined) return null;
   const n = Number(v);
-  return isNaN(n) ? null : n;
+  if (isNaN(n)) return null;
+  // Round to 2 decimals here too, so a value copied in from a catalog lookup
+  // (which can carry long ERP decimal tails, e.g. 45.9690001) comes out
+  // clean the moment the row is saved, not just when it's displayed.
+  return Math.round((n + Number.EPSILON) * 100) / 100;
 }
 function promoRowPayload(row) {
   return {
@@ -1229,6 +1246,16 @@ async function deleteRowsBulk(ids) {
   if (!ids.length) return;
   const { error } = await sb.from('promotion_rows').delete().in('id', ids);
   if (error) { console.error(error); showToast('Could not delete the selected rows — ' + sbErrText(error), true); }
+}
+// Used by "Import price sheet": the imported rows become the promotion's
+// whole table rather than being tacked onto whatever was already there, so
+// importing the same (or an overlapping) file twice doesn't leave the table
+// full of duplicate codes.
+async function replaceAllPromoRows(promoId, rows) {
+  const { error } = await sb.from('promotion_rows').delete().eq('promotion_id', promoId);
+  if (error) { console.error(error); showToast('Could not clear the old rows — ' + sbErrText(error), true); return false; }
+  await persistRowsBulk(rows);
+  return true;
 }
 function renumberRows() {
   currentRows.forEach((r, i) => { r.sortOrder = i; });
@@ -1302,6 +1329,15 @@ function mround(value, multiple) {
   if (!multiple) return value;
   return Math.round(value / multiple) * multiple;
 }
+// Every number in the promo table (prices, stock, discount %) is rounded to
+// 2 decimal places wherever it's shown or saved, so numbers coming in from a
+// catalog lookup with long decimal tails (e.g. 45.9690001) always read clean.
+function round2(v) {
+  if (v === null || v === undefined || v === '') return v;
+  const n = Number(v);
+  if (isNaN(n)) return v;
+  return Math.round((n + Number.EPSILON) * 100) / 100;
+}
 function discountFraction(row) {
   if (row.salePrice === null || row.salePrice === undefined || row.salePrice === '') return null;
   if (row.promoPrice === null || row.promoPrice === undefined || row.promoPrice === '') return null;
@@ -1320,14 +1356,17 @@ function applyAutoDiscount(row) {
 }
 // The reverse direction: typing a Discount % directly computes Promo Price
 // back from Sale Price, so either field can drive the other — whichever
-// one was just edited wins.
+// one was just edited wins. The result is rounded to the nearest 0.05 (a
+// typical shelf-price step, like Excel's MROUND(x, 0.05)) rather than just
+// the nearest cent, so promo prices land on realistic price points.
+const PROMO_PRICE_STEP = 0.05;
 function applyReverseDiscount(row) {
   const sale = Number(row.salePrice);
   if (row.discount === null || row.discount === undefined || row.discount === '') return;
   if (row.salePrice === null || row.salePrice === undefined || row.salePrice === '' || isNaN(sale) || sale <= 0) return;
   const pct = Number(row.discount);
   if (isNaN(pct)) return;
-  row.promoPrice = Math.round(sale * (1 - pct / 100) * 100) / 100;
+  row.promoPrice = round2(mround(sale * (1 - pct / 100), PROMO_PRICE_STEP));
 }
 function isBigDiscount(row) {
   const frac = discountFraction(row);
@@ -1376,19 +1415,14 @@ function refreshDiscountUi(tr, row) {
   const dot = tr.querySelector('[data-role="big-discount-dot"]');
   if (dot) dot.style.display = isBigDiscount(row) ? 'inline-block' : 'none';
 }
-function codeIssueTitle(row) {
-  if (isCodeMissingFromCatalog(row)) return 'This code was not found in this promotion’s catalog';
-  if (isCodeBlankWithData(row)) return 'This row has no code — nothing was entered for it in the source file';
-  return '';
-}
+const MISMATCH_TITLE = 'This code was not found in this promotion’s catalog';
+const EMPTY_CODE_TITLE = 'This row has no code — nothing was entered for it in the source file';
 function refreshRowValidationUi(tr, row) {
   const promoPriceInput = tr.querySelector('[data-field="promoPrice"]');
-  const missingIcon = tr.querySelector('[data-role="missing-code-icon"]');
-  if (missingIcon) {
-    const title = codeIssueTitle(row);
-    missingIcon.style.display = title ? 'inline-flex' : 'none';
-    if (title) missingIcon.title = title;
-  }
+  const mismatchIcon = tr.querySelector('[data-role="mismatch-icon"]');
+  if (mismatchIcon) mismatchIcon.style.display = isCodeMissingFromCatalog(row) ? 'inline-flex' : 'none';
+  const emptyCodeIcon = tr.querySelector('[data-role="empty-code-icon"]');
+  if (emptyCodeIcon) emptyCodeIcon.style.display = isCodeBlankWithData(row) ? 'inline-flex' : 'none';
   if (promoPriceInput) promoPriceInput.classList.toggle('cell-missing', isPromoPriceMissing(row));
 }
 function isRowEmpty(row) {
@@ -1450,6 +1484,8 @@ let selectedCountries = new Set(); // Country filter, applied across all promo v
 let countryFilterOpen = false;
 let selectedAuditSuppliers = new Set(); // Supplier filter, scoped to the Audit view only
 let auditSupplierFilterOpen = false;
+let showFlaggedOnly = false; // Flagged-only toggle, scoped to the Table view only
+let tableSearchQuery = ''; // Search box, scoped to the Table view only
 let catalogCollapsed = localStorage.getItem('sol-catalog-collapsed') === 'true';
 let showArchivedPromos = false;
 
@@ -2315,6 +2351,8 @@ async function selectPromotion(id) {
   countryFilterOpen = false;
   selectedAuditSuppliers.clear();
   auditSupplierFilterOpen = false;
+  showFlaggedOnly = false;
+  tableSearchQuery = '';
   if (id) {
     currentRows = await loadPromoRows(id);
     await loadCatalogFor(id);
@@ -2348,7 +2386,143 @@ function rowStockBadgeHtml(row) {
     ? '<span class="low-stock-badge"><span class="pulse"></span>Low stock</span>'
     : '<span class="ok-stock-note">\u2014</span>';
 }
-function numToStr(v) { return (v === null || v === undefined) ? '' : v; }
+function numToStr(v) {
+  if (v === null || v === undefined || v === '') return '';
+  const rounded = round2(v);
+  return rounded === null || rounded === undefined ? v : rounded;
+}
+
+// The Flagged-only toggle and search box in the Table view's own toolbar
+// narrow the visible rows further (on top of the Country filter that
+// applies to every view) — Group-by-supplier and Audit are unaffected.
+function computeTableVisibleRows(visibleRows) {
+  const q = tableSearchQuery.trim().toLowerCase();
+  return visibleRows.filter(r => {
+    if (showFlaggedOnly && !rowNeedsFlag(r)) return false;
+    if (q) {
+      const hay = `${r.code || ''} ${r.description || ''}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+}
+function tableFilterStatusHtml(tableVisibleRows, visibleRows) {
+  if (!tableSearchQuery && !showFlaggedOnly) return '';
+  return `<button class="link-btn" id="clearTableFiltersBtn">Clear</button> <span class="muted-note">${tableVisibleRows.length} of ${visibleRows.length} shown</span>`;
+}
+function tableEmptyStateHtml(tableVisibleRows) {
+  if (tableVisibleRows.length || !currentRows.length) return '';
+  const reason = showFlaggedOnly && tableSearchQuery ? 'that search and the Flagged filter' : (showFlaggedOnly ? 'the Flagged filter' : 'that search');
+  return `<div class="empty-state" style="padding:26px 16px;"><p>No rows match ${reason}.</p></div>`;
+}
+// Re-renders only the table body, the small "Clear / X of Y shown" status
+// line, and the empty-state message — never the search box itself — so
+// typing in the search box (or toggling Flagged only) never steals focus
+// away from what you're typing.
+function refreshPromoTableView() {
+  const countryOf = (row) => (row.country || '').trim() || 'No country listed';
+  const visibleRows = selectedCountries.size ? currentRows.filter(r => selectedCountries.has(countryOf(r))) : currentRows;
+  const tableVisibleRows = computeTableVisibleRows(visibleRows);
+
+  const body = document.getElementById('promoRowsBody');
+  if (body) {
+    body.innerHTML = tableVisibleRows.map(buildPromoRowHtml).join('');
+    body.querySelectorAll('tr').forEach(tr => wirePromoRowElement(tr));
+  }
+  const statusEl = document.getElementById('tableFilterStatus');
+  if (statusEl) {
+    statusEl.innerHTML = tableFilterStatusHtml(tableVisibleRows, visibleRows);
+    wireTableFilterStatus();
+  }
+  const emptyEl = document.getElementById('tableEmptyState');
+  if (emptyEl) emptyEl.innerHTML = tableEmptyStateHtml(tableVisibleRows);
+}
+function wireTableFilterStatus() {
+  const clearBtn = document.getElementById('clearTableFiltersBtn');
+  if (clearBtn) {
+    clearBtn.addEventListener('click', () => {
+      tableSearchQuery = '';
+      showFlaggedOnly = false;
+      const searchInput = document.getElementById('tableSearchInput');
+      if (searchInput) searchInput.value = '';
+      const flaggedOnlyBtn = document.getElementById('flaggedOnlyBtn');
+      if (flaggedOnlyBtn) { flaggedOnlyBtn.classList.remove('active'); flaggedOnlyBtn.textContent = 'Flagged only'; }
+      refreshPromoTableView();
+    });
+  }
+}
+
+function buildPromoRowHtml(row) {
+  const priceRisk = isPriceRisk(row);
+  const needsFlag = rowNeedsFlag(row);
+  const gapUnusual = isPriceGapUnusual(row);
+  const flagTitle = row.flagged
+    ? 'Flagged for review — click to unflag'
+    : (priceRisk ? 'Promo price is under 25% of the sale price — click to mark as reviewed'
+      : (gapUnusual ? 'Promo price is not below the sale price — check for a typo' : 'Flag this row for review'));
+  const supplierOpen = expandedSupplierRowIds.has(row.id);
+  const supplierRow = supplierOpen ? `
+  <tr class="supplier-detail-row" data-supplier-row-id="${row.id}">
+    <td colspan="10" style="background:var(--paper);font-size:12.5px;color:var(--ink-soft);padding:6px 10px 8px 40px;">
+      Supplier: <strong style="color:var(--ink);">${escapeHtml(row.supplier || 'Not listed in the catalog')}</strong>
+      &nbsp;&middot;&nbsp; Country: <strong style="color:var(--ink);">${escapeHtml(row.country || 'Not listed in the catalog')}</strong>
+    </td>
+  </tr>` : '';
+  return `
+  <tr data-row-id="${row.id}">
+    <td class="rowact-col">
+      <div class="icon-actions">
+        <button class="icon-btn" data-role="insert-row" tabindex="-1" title="Insert row below" aria-label="Insert row below">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+        <button class="icon-btn" data-role="insert-rows-bulk" tabindex="-1" title="Insert multiple rows below" aria-label="Insert multiple rows below">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M3 12h10"/><path d="M17 15v6M14 18h6"/></svg>
+        </button>
+        <button class="icon-btn danger" data-role="remove-row" tabindex="-1" title="Remove row" aria-label="Remove row">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/><path d="M10 11v6M14 11v6"/></svg>
+        </button>
+      </div>
+    </td>
+    <td class="chk-col"><input type="checkbox" data-role="select-row" tabindex="-1" ${selectedRowIds.has(row.id) ? 'checked' : ''}></td>
+    <td class="code-cell">
+      <div class="code-cell-wrap">
+        <input type="text" class="${isDuplicateCodeInPromo(row) ? 'cell-duplicate' : ''}" value="${escapeHtml(row.code)}" data-field="code" placeholder="Code" title="${isDuplicateCodeInPromo(row) ? 'This code appears more than once in this promotion' : ''}">
+        <span class="code-issue-icon mismatch-icon" data-role="mismatch-icon" title="${MISMATCH_TITLE}" style="display:${isCodeMissingFromCatalog(row) ? 'inline-flex' : 'none'};">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+        </span>
+        <span class="code-issue-icon empty-code-icon" data-role="empty-code-icon" title="${EMPTY_CODE_TITLE}" style="display:${isCodeBlankWithData(row) ? 'inline-flex' : 'none'};">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5"/><circle cx="12" cy="16.3" r="0.75" fill="currentColor" stroke="none"/></svg>
+        </span>
+      </div>
+    </td>
+    <td class="desc-cell"><input type="text" value="${escapeHtml(row.description)}" data-field="description" placeholder="Description"></td>
+    <td class="balance-cell"><input type="text" inputmode="decimal" class="${isPromoPriceMissing(row) ? 'cell-missing' : ''}" value="${numToStr(row.promoPrice)}" data-field="promoPrice" placeholder="0.00" title="${isPromoPriceMissing(row) ? 'Missing the promo price' : ''}"></td>
+    <td class="balance-cell"><input type="text" inputmode="decimal" value="${numToStr(row.beforePrice)}" data-field="beforePrice" placeholder="0.00"></td>
+    <td class="balance-cell">
+      <div class="discount-cell-wrap">
+        <input type="text" inputmode="decimal" value="${numToStr(row.discount)}" data-field="discount" placeholder="0%">
+        <span class="big-discount-dot" data-role="big-discount-dot" title="Promo price is more than 25% below the sale price" style="display:${isBigDiscount(row) ? 'inline-block' : 'none'};"></span>
+      </div>
+    </td>
+    <td class="balance-cell"><input type="text" inputmode="decimal" value="${numToStr(row.salePrice)}" data-field="salePrice" placeholder="0.00"></td>
+    <td class="stock-cell">
+      <div class="stock-cell-wrap">
+        <input type="text" inputmode="numeric" class="stock-input" value="${numToStr(row.balance)}" data-field="balance" placeholder="0">
+        <span class="stock-badge-slot">${rowStockBadgeHtml(row)}</span>
+      </div>
+    </td>
+    <td class="row-actions">
+      <div class="icon-actions">
+        <button class="icon-btn ${supplierOpen ? 'flag-on' : ''}" data-role="toggle-supplier" tabindex="-1" title="${supplierOpen ? 'Hide supplier' : 'Show supplier'}" aria-label="Show supplier">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 20V6a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v14"/><path d="M6 20h12"/><path d="M9 9h1M14 9h1M9 13h1M14 13h1"/><path d="M10 20v-4h4v4"/></svg>
+        </button>
+        <button class="icon-btn ${needsFlag ? 'flag-on' : ''}" data-role="toggle-flag" tabindex="-1" title="${flagTitle}" aria-label="Flag row">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21V4a1 1 0 0 1 1-1h11.2a.6.6 0 0 1 .45 1l-3.15 4 3.15 4a.6.6 0 0 1-.45 1H6"/></svg>
+        </button>
+      </div>
+    </td>
+  </tr>${supplierRow}`;
+}
 
 async function renderPromoWorkspace() {
   const workspace = document.getElementById('promoWorkspace');
@@ -2367,74 +2541,8 @@ async function renderPromoWorkspace() {
   const auditSupplierOptions = Array.from(new Set(auditRows.map(supplierOf))).sort((a, b) => a.localeCompare(b));
   const auditVisibleRows = selectedAuditSuppliers.size ? auditRows.filter(r => selectedAuditSuppliers.has(supplierOf(r))) : auditRows;
 
-  const rowsHtml = visibleRows.map(row => {
-    const priceRisk = isPriceRisk(row);
-    const needsFlag = rowNeedsFlag(row);
-    const gapUnusual = isPriceGapUnusual(row);
-    const flagTitle = row.flagged
-      ? 'Flagged for review \u2014 click to unflag'
-      : (priceRisk ? 'Promo price is under 25% of the sale price \u2014 click to mark as reviewed'
-        : (gapUnusual ? 'Promo price is not below the sale price \u2014 check for a typo' : 'Flag this row for review'));
-    const supplierOpen = expandedSupplierRowIds.has(row.id);
-    const supplierRow = supplierOpen ? `
-    <tr class="supplier-detail-row" data-supplier-row-id="${row.id}">
-      <td colspan="10" style="background:var(--paper);font-size:12.5px;color:var(--ink-soft);padding:6px 10px 8px 40px;">
-        Supplier: <strong style="color:var(--ink);">${escapeHtml(row.supplier || 'Not listed in the catalog')}</strong>
-        &nbsp;&middot;&nbsp; Country: <strong style="color:var(--ink);">${escapeHtml(row.country || 'Not listed in the catalog')}</strong>
-      </td>
-    </tr>` : '';
-    return `
-    <tr data-row-id="${row.id}">
-      <td class="rowact-col">
-        <div class="icon-actions">
-          <button class="icon-btn" data-role="insert-row" tabindex="-1" title="Insert row below" aria-label="Insert row below">
-            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
-          </button>
-          <button class="icon-btn" data-role="insert-rows-bulk" tabindex="-1" title="Insert multiple rows below" aria-label="Insert multiple rows below">
-            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M3 12h10"/><path d="M17 15v6M14 18h6"/></svg>
-          </button>
-          <button class="icon-btn danger" data-role="remove-row" tabindex="-1" title="Remove row" aria-label="Remove row">
-            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/><path d="M10 11v6M14 11v6"/></svg>
-          </button>
-        </div>
-      </td>
-      <td class="chk-col"><input type="checkbox" data-role="select-row" tabindex="-1" ${selectedRowIds.has(row.id) ? 'checked' : ''}></td>
-      <td class="code-cell">
-        <div class="code-cell-wrap">
-          <input type="text" class="${isDuplicateCodeInPromo(row) ? 'cell-duplicate' : ''}" value="${escapeHtml(row.code)}" data-field="code" placeholder="Code" title="${isDuplicateCodeInPromo(row) ? 'This code appears more than once in this promotion' : ''}">
-          <span class="missing-code-icon" data-role="missing-code-icon" title="${escapeHtml(codeIssueTitle(row))}" style="display:${codeIssueTitle(row) ? 'inline-flex' : 'none'};">
-            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5"/><circle cx="12" cy="16.3" r="0.75" fill="currentColor" stroke="none"/></svg>
-          </span>
-        </div>
-      </td>
-      <td class="desc-cell"><input type="text" value="${escapeHtml(row.description)}" data-field="description" placeholder="Description"></td>
-      <td class="balance-cell"><input type="text" inputmode="decimal" class="${isPromoPriceMissing(row) ? 'cell-missing' : ''}" value="${numToStr(row.promoPrice)}" data-field="promoPrice" placeholder="0.00" title="${isPromoPriceMissing(row) ? 'Missing the promo price' : ''}"></td>
-      <td class="balance-cell"><input type="text" inputmode="decimal" value="${numToStr(row.beforePrice)}" data-field="beforePrice" placeholder="0.00"></td>
-      <td class="balance-cell">
-        <div class="discount-cell-wrap">
-          <input type="text" inputmode="decimal" value="${numToStr(row.discount)}" data-field="discount" placeholder="0%">
-          <span class="big-discount-dot" data-role="big-discount-dot" title="Promo price is more than 25% below the sale price" style="display:${isBigDiscount(row) ? 'inline-block' : 'none'};"></span>
-        </div>
-      </td>
-      <td class="balance-cell"><input type="text" inputmode="decimal" value="${numToStr(row.salePrice)}" data-field="salePrice" placeholder="0.00"></td>
-      <td class="stock-cell">
-        <div class="stock-cell-wrap">
-          <input type="text" inputmode="numeric" class="stock-input" value="${numToStr(row.balance)}" data-field="balance" placeholder="0">
-          <span class="stock-badge-slot">${rowStockBadgeHtml(row)}</span>
-        </div>
-      </td>
-      <td class="row-actions">
-        <div class="icon-actions">
-          <button class="icon-btn ${supplierOpen ? 'flag-on' : ''}" data-role="toggle-supplier" tabindex="-1" title="${supplierOpen ? 'Hide supplier' : 'Show supplier'}" aria-label="Show supplier">
-            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 20V6a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v14"/><path d="M6 20h12"/><path d="M9 9h1M14 9h1M9 13h1M14 13h1"/><path d="M10 20v-4h4v4"/></svg>
-          </button>
-          <button class="icon-btn ${needsFlag ? 'flag-on' : ''}" data-role="toggle-flag" tabindex="-1" title="${flagTitle}" aria-label="Flag row">
-            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21V4a1 1 0 0 1 1-1h11.2a.6.6 0 0 1 .45 1l-3.15 4 3.15 4a.6.6 0 0 1-.45 1H6"/></svg>
-          </button>
-        </div>
-      </td>
-    </tr>${supplierRow}`;
-  }).join('');
+  const tableVisibleRows = computeTableVisibleRows(visibleRows);
+  const rowsHtml = tableVisibleRows.map(buildPromoRowHtml).join('');
   const promoStats = computePromoStats(visibleRows);
 
   workspace.innerHTML = `
@@ -2506,6 +2614,11 @@ async function renderPromoWorkspace() {
       </div>
 
       <div id="promoTableView" style="display:${promoViewMode === 'table' ? '' : 'none'};">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
+          <input type="text" id="tableSearchInput" placeholder="Search code or description…" style="max-width:260px;" value="${escapeHtml(tableSearchQuery)}">
+          <button class="btn ghost small toggle-flagged ${showFlaggedOnly ? 'active' : ''}" id="flaggedOnlyBtn">${showFlaggedOnly ? 'Showing flagged only' : 'Flagged only'}</button>
+          <span id="tableFilterStatus">${tableFilterStatusHtml(tableVisibleRows, visibleRows)}</span>
+        </div>
         <div class="items-scroll">
           <table class="promo">
             <thead><tr>
@@ -2515,6 +2628,7 @@ async function renderPromoWorkspace() {
             </tr></thead>
             <tbody id="promoRowsBody">${rowsHtml}</tbody>
           </table>
+          <div id="tableEmptyState">${tableEmptyStateHtml(tableVisibleRows)}</div>
         </div>
         <div class="promo-table-foot">
           <div class="promo-foot-actions">
@@ -2717,14 +2831,14 @@ function auditRowClass(priceType) {
   return '';
 }
 const AUDIT_TYPE_BUTTONS = [
-  { type: 'rightprice', label: 'Right Price' },
-  { type: 'cn', label: 'C/N' },
-  { type: 'sellout', label: 'Sell Out' }
+  { type: 'rightprice', label: 'Right Price', icon: '<circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.5 2.5L16 9"/>' },
+  { type: 'cn', label: 'C/N', icon: '<path d="M5 3h11l3 3v15H5z"/><path d="M9 8h6M9 12h6M9 16h3"/>' },
+  { type: 'sellout', label: 'Sell Out', icon: '<line x1="19" y1="5" x2="5" y2="19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/>' }
 ];
 function auditTypeButtonsHtml(row) {
   return `
     <div class="audit-type-btns">
-      ${AUDIT_TYPE_BUTTONS.map(b => `<button type="button" class="audit-type-btn ${row.priceType === b.type ? 'active' : ''}" data-role="audit-type-btn" data-row-id="${row.id}" data-type="${b.type}">${b.label}</button>`).join('')}
+      ${AUDIT_TYPE_BUTTONS.map(b => `<button type="button" class="audit-type-btn ${row.priceType === b.type ? 'active' : ''}" data-role="audit-type-btn" data-row-id="${row.id}" data-type="${b.type}" title="${b.label}" aria-label="${b.label}"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${b.icon}</svg></button>`).join('')}
     </div>`;
 }
 function buildAuditHtml(auditRows) {
@@ -2809,203 +2923,8 @@ function wireSupplierGroupEvents() {
   });
 }
 
-function wirePromoWorkspaceEvents(promo) {
-  const nameInput = document.getElementById('promoName');
-  const fromInput = document.getElementById('promoFrom');
-  const toInput = document.getElementById('promoTo');
-  const autoArchiveCb = document.getElementById('promoAutoArchive');
-
-  const saveHeader = async () => {
-    promo.name = nameInput.value.trim() || 'Untitled promotion';
-    promo.from = fromInput.value || null;
-    promo.to = toInput.value || null;
-    await savePromotion(promo);
-    renderPromoTabstrip();
-  };
-  nameInput.addEventListener('blur', saveHeader);
-  fromInput.addEventListener('change', saveHeader);
-  toInput.addEventListener('change', saveHeader);
-
-  document.querySelectorAll('#promoViewSwitch [data-view]').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      promoViewMode = btn.dataset.view;
-      await renderPromoWorkspace();
-    });
-  });
-
-  const countryFilterBtn = document.getElementById('countryFilterBtn');
-  const countryFilterPanel = document.getElementById('countryFilterPanel');
-  if (countryFilterBtn && countryFilterPanel) {
-    countryFilterBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      countryFilterOpen = !countryFilterOpen;
-      countryFilterPanel.style.display = countryFilterOpen ? 'block' : 'none';
-    });
-    countryFilterPanel.addEventListener('click', (e) => e.stopPropagation());
-    countryFilterPanel.querySelectorAll('[data-role="country-option"]').forEach(cb => {
-      cb.addEventListener('change', async () => {
-        if (cb.checked) selectedCountries.add(cb.value); else selectedCountries.delete(cb.value);
-        countryFilterOpen = true; // keep the panel open across the re-render while picking several
-        await renderPromoWorkspace();
-      });
-    });
-    const clearBtn = document.getElementById('clearCountryFilterBtn');
-    if (clearBtn) clearBtn.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      selectedCountries.clear();
-      countryFilterOpen = true;
-      await renderPromoWorkspace();
-    });
-  }
-
-  autoArchiveCb.addEventListener('change', async () => {
-    promo.autoArchive = autoArchiveCb.checked;
-    await savePromotion(promo);
-    showToast(promo.autoArchive ? 'Will auto-archive once the "To" date passes.' : 'Auto-archive turned off for this promotion.');
-  });
-
-  document.getElementById('toggleArchivePromoBtn').addEventListener('click', async () => {
-    promo.archived = !promo.archived;
-    await savePromotion(promo);
-    showToast(promo.archived ? 'Promotion archived.' : 'Promotion unarchived.');
-    const stillVisible = !!promo.archived === showArchivedPromos;
-    if (!stillVisible) {
-      const visible = promotions.filter(p => !!p.archived === showArchivedPromos && p.id !== promo.id);
-      await selectPromotion(visible.length ? visible[0].id : null);
-    } else {
-      renderPromoTabstrip();
-      await renderPromoWorkspace();
-    }
-  });
-
-  document.getElementById('exportPromoBtn').addEventListener('click', () => exportPromotionToExcel(promo));
-
-  document.getElementById('importPriceSheetBtn').addEventListener('click', () => {
-    document.getElementById('priceSheetInput').click();
-  });
-
-  const downloadSourceBtn = document.getElementById('downloadSourceFileBtn');
-  if (downloadSourceBtn) {
-    downloadSourceBtn.addEventListener('click', () => {
-      if (!promo.sourceFileBase64) { showToast('That file isn’t available anymore.', true); return; }
-      const blob = base64ToBlob(promo.sourceFileBase64, guessMime(promo.sourceFileName));
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = promo.sourceFileName || 'price-sheet.xlsx';
-      document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 2000);
-    });
-  }
-
-  document.getElementById('priceSheetInput').addEventListener('change', async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    let buf;
-    try { buf = await file.arrayBuffer(); }
-    catch (err) { showToast('Could not read that file — check the format.', true); e.target.value = ''; return; }
-
-    let result;
-    try { result = parsePriceSheetRows(buf); }
-    catch (err) { console.error(err); showToast('Could not read that file — check the format.', true); e.target.value = ''; return; }
-    e.target.value = '';
-
-    if (result.error) { showToast(result.error, true); return; }
-    if (!result.rows.length) { showToast('No item lines found in that file.', true); return; }
-
-    currentRows.push(...result.rows);
-    renumberRows();
-    await renderPromoWorkspace();
-    await Promise.all([
-      persistRowsBulk(result.rows),
-      savePromotionSourceFile(promo.id, file)
-    ]);
-    await renderPromoWorkspace();
-
-    const parts = [`Imported ${result.rows.length} row${result.rows.length === 1 ? '' : 's'} from ${result.sourceLineCount} line${result.sourceLineCount === 1 ? '' : 's'}`];
-    if (result.splitCount) parts.push(`${result.splitCount} multi-code line${result.splitCount === 1 ? '' : 's'} split`);
-    if (result.blankCodeCount) parts.push(`${result.blankCodeCount} line${result.blankCodeCount === 1 ? '' : 's'} had no code — kept blank so you can spot ${result.blankCodeCount === 1 ? 'it' : 'them'}`);
-    showToast(parts.join(', ') + '.', !!result.blankCodeCount);
-  });
-
-  document.getElementById('copyCodesBtn').addEventListener('click', async () => {
-    const codes = currentRows.map(r => (r.code || '').trim()).filter(Boolean);
-    if (!codes.length) { showToast('No codes to copy yet.', true); return; }
-    const ok = await copyTextToClipboard(codes.join(','));
-    if (ok) showToast(`Copied ${codes.length} code${codes.length === 1 ? '' : 's'}.`);
-    else showToast('Could not copy \u2014 your browser blocked clipboard access.', true);
-  });
-
-  document.getElementById('deletePromoBtn').addEventListener('click', async () => {
-    const ok = await showConfirm(`Delete "${promo.name}"? This removes all its rows and its catalog too.`, 'Delete');
-    if (!ok) return;
-    await deletePromotionRemote(promo.id);
-    promotions = promotions.filter(p => p.id !== promo.id);
-    selectedRowIds.clear();
-    if (currentPromoId === promo.id) {
-      const visible = promotions.filter(p => !!p.archived === showArchivedPromos);
-      await selectPromotion(visible.length ? visible[0].id : null);
-    } else {
-      renderPromoTabstrip();
-    }
-    showToast('Promotion deleted.');
-  });
-
-  document.getElementById('addRowBtn').addEventListener('click', async () => {
-    const row = blankPromoRow();
-    currentRows.push(row);
-    await renderPromoWorkspace();
-    await savePromoRow(row);
-    const bodyEl = document.getElementById('promoRowsBody');
-    const lastRow = bodyEl && bodyEl.lastElementChild;
-    const codeField = lastRow && lastRow.querySelector('[data-field="code"]');
-    if (codeField) codeField.focus();
-  });
-
-  document.getElementById('addRowsBulkBtn').addEventListener('click', async () => {
-    const val = await showPrompt('How many rows do you want to add?', { defaultValue: '5', confirmLabel: 'Add rows', placeholder: 'e.g. 5' });
-    if (val === null) return;
-    const n = parseInt(val, 10);
-    if (!n || n < 1) { showToast('Enter a number of rows greater than 0.', true); return; }
-    const newRows = [];
-    for (let i = 0; i < n; i++) {
-      const row = blankPromoRow();
-      row.sortOrder = currentRows.length;
-      currentRows.push(row);
-      newRows.push(row);
-    }
-    await renderPromoWorkspace();
-    await persistRowsBulk(newRows);
-    showToast(`${n} row${n === 1 ? '' : 's'} added.`);
-  });
-
-  document.getElementById('deleteSelectedBtn').addEventListener('click', async () => {
-    const ids = Array.from(selectedRowIds);
-    if (!ids.length) return;
-    const ok = await showConfirm(`Delete ${ids.length} selected row${ids.length === 1 ? '' : 's'}?`, 'Delete');
-    if (!ok) return;
-    currentRows = currentRows.filter(r => !selectedRowIds.has(r.id));
-    selectedRowIds.clear();
-    renumberRows();
-    await deleteRowsBulk(ids);
-    await persistRowsBulk(currentRows);
-    await renderPromoWorkspace();
-    showToast('Selected rows deleted.');
-  });
-
-  const selectAllCb = document.getElementById('selectAllRows');
-  if (selectAllCb) {
-    selectAllCb.checked = currentRows.length > 0 && currentRows.every(r => selectedRowIds.has(r.id));
-    selectAllCb.addEventListener('change', async () => {
-      if (selectAllCb.checked) currentRows.forEach(r => selectedRowIds.add(r.id));
-      else selectedRowIds.clear();
-      await renderPromoWorkspace();
-    });
-  }
-
-  const body = document.getElementById('promoRowsBody');
-  if (!body) return;
-
-  body.querySelectorAll('tr').forEach(tr => {
+function wirePromoRowElement(tr) {
+  const body = tr.parentElement;
     const rowId = tr.dataset.rowId;
     const row = currentRows.find(r => r.id === rowId);
     if (!row) return;
@@ -3216,7 +3135,237 @@ function wirePromoWorkspaceEvents(promo) {
       await deletePromoRow(rowId);
       await renderPromoWorkspace();
     });
+}
+
+function wirePromoWorkspaceEvents(promo) {
+  const nameInput = document.getElementById('promoName');
+  const fromInput = document.getElementById('promoFrom');
+  const toInput = document.getElementById('promoTo');
+  const autoArchiveCb = document.getElementById('promoAutoArchive');
+
+  const saveHeader = async () => {
+    promo.name = nameInput.value.trim() || 'Untitled promotion';
+    promo.from = fromInput.value || null;
+    promo.to = toInput.value || null;
+    await savePromotion(promo);
+    renderPromoTabstrip();
+  };
+  nameInput.addEventListener('blur', saveHeader);
+  fromInput.addEventListener('change', saveHeader);
+  toInput.addEventListener('change', saveHeader);
+
+  document.querySelectorAll('#promoViewSwitch [data-view]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      promoViewMode = btn.dataset.view;
+      await renderPromoWorkspace();
+    });
   });
+
+  const countryFilterBtn = document.getElementById('countryFilterBtn');
+  const countryFilterPanel = document.getElementById('countryFilterPanel');
+  if (countryFilterBtn && countryFilterPanel) {
+    countryFilterBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      countryFilterOpen = !countryFilterOpen;
+      countryFilterPanel.style.display = countryFilterOpen ? 'block' : 'none';
+    });
+    countryFilterPanel.addEventListener('click', (e) => e.stopPropagation());
+    countryFilterPanel.querySelectorAll('[data-role="country-option"]').forEach(cb => {
+      cb.addEventListener('change', async () => {
+        if (cb.checked) selectedCountries.add(cb.value); else selectedCountries.delete(cb.value);
+        countryFilterOpen = true; // keep the panel open across the re-render while picking several
+        await renderPromoWorkspace();
+      });
+    });
+    const clearBtn = document.getElementById('clearCountryFilterBtn');
+    if (clearBtn) clearBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      selectedCountries.clear();
+      countryFilterOpen = true;
+      await renderPromoWorkspace();
+    });
+  }
+
+  autoArchiveCb.addEventListener('change', async () => {
+    promo.autoArchive = autoArchiveCb.checked;
+    await savePromotion(promo);
+    showToast(promo.autoArchive ? 'Will auto-archive once the "To" date passes.' : 'Auto-archive turned off for this promotion.');
+  });
+
+  document.getElementById('toggleArchivePromoBtn').addEventListener('click', async () => {
+    promo.archived = !promo.archived;
+    await savePromotion(promo);
+    showToast(promo.archived ? 'Promotion archived.' : 'Promotion unarchived.');
+    const stillVisible = !!promo.archived === showArchivedPromos;
+    if (!stillVisible) {
+      const visible = promotions.filter(p => !!p.archived === showArchivedPromos && p.id !== promo.id);
+      await selectPromotion(visible.length ? visible[0].id : null);
+    } else {
+      renderPromoTabstrip();
+      await renderPromoWorkspace();
+    }
+  });
+
+  document.getElementById('exportPromoBtn').addEventListener('click', () => exportPromotionToExcel(promo));
+
+  document.getElementById('importPriceSheetBtn').addEventListener('click', () => {
+    document.getElementById('priceSheetInput').click();
+  });
+
+  const downloadSourceBtn = document.getElementById('downloadSourceFileBtn');
+  if (downloadSourceBtn) {
+    downloadSourceBtn.addEventListener('click', () => {
+      if (!promo.sourceFileBase64) { showToast('That file isn’t available anymore.', true); return; }
+      const blob = base64ToBlob(promo.sourceFileBase64, guessMime(promo.sourceFileName));
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = promo.sourceFileName || 'price-sheet.xlsx';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+    });
+  }
+
+  document.getElementById('priceSheetInput').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    let buf;
+    try { buf = await file.arrayBuffer(); }
+    catch (err) { showToast('Could not read that file — check the format.', true); e.target.value = ''; return; }
+
+    let result;
+    try { result = parsePriceSheetRows(buf); }
+    catch (err) { console.error(err); showToast('Could not read that file — check the format.', true); e.target.value = ''; return; }
+    e.target.value = '';
+
+    if (result.error) { showToast(result.error, true); return; }
+    if (!result.rows.length) { showToast('No item lines found in that file.', true); return; }
+
+    // Importing REPLACES the table rather than adding to it — a re-import of
+    // the same (or an overlapping) file used to double every code instead of
+    // updating them, so this confirms before throwing away what's there now.
+    if (currentRows.length) {
+      const ok = await showConfirm(
+        `Import ${result.rows.length} row${result.rows.length === 1 ? '' : 's'} from this file? This replaces the ${currentRows.length} row${currentRows.length === 1 ? '' : 's'} currently in this promotion's table.`,
+        'Replace table'
+      );
+      if (!ok) return;
+    }
+
+    currentRows = result.rows;
+    selectedRowIds.clear();
+    renumberRows();
+    await renderPromoWorkspace();
+    await Promise.all([
+      replaceAllPromoRows(promo.id, currentRows),
+      savePromotionSourceFile(promo.id, file)
+    ]);
+    await renderPromoWorkspace();
+
+    const parts = [`Imported ${result.rows.length} row${result.rows.length === 1 ? '' : 's'} from ${result.sourceLineCount} line${result.sourceLineCount === 1 ? '' : 's'}, replacing the previous table`];
+    if (result.splitCount) parts.push(`${result.splitCount} multi-code line${result.splitCount === 1 ? '' : 's'} split`);
+    if (result.blankCodeCount) parts.push(`${result.blankCodeCount} line${result.blankCodeCount === 1 ? '' : 's'} had no code — kept blank so you can spot ${result.blankCodeCount === 1 ? 'it' : 'them'}`);
+    showToast(parts.join(', ') + '.', !!result.blankCodeCount);
+  });
+
+  document.getElementById('copyCodesBtn').addEventListener('click', async () => {
+    const codes = currentRows.map(r => (r.code || '').trim()).filter(Boolean);
+    if (!codes.length) { showToast('No codes to copy yet.', true); return; }
+    const ok = await copyTextToClipboard(codes.join(','));
+    if (ok) showToast(`Copied ${codes.length} code${codes.length === 1 ? '' : 's'}.`);
+    else showToast('Could not copy \u2014 your browser blocked clipboard access.', true);
+  });
+
+  document.getElementById('deletePromoBtn').addEventListener('click', async () => {
+    const ok = await showConfirm(`Delete "${promo.name}"? This removes all its rows and its catalog too.`, 'Delete');
+    if (!ok) return;
+    await deletePromotionRemote(promo.id);
+    promotions = promotions.filter(p => p.id !== promo.id);
+    selectedRowIds.clear();
+    if (currentPromoId === promo.id) {
+      const visible = promotions.filter(p => !!p.archived === showArchivedPromos);
+      await selectPromotion(visible.length ? visible[0].id : null);
+    } else {
+      renderPromoTabstrip();
+    }
+    showToast('Promotion deleted.');
+  });
+
+  document.getElementById('addRowBtn').addEventListener('click', async () => {
+    const row = blankPromoRow();
+    currentRows.push(row);
+    await renderPromoWorkspace();
+    await savePromoRow(row);
+    const bodyEl = document.getElementById('promoRowsBody');
+    const lastRow = bodyEl && bodyEl.lastElementChild;
+    const codeField = lastRow && lastRow.querySelector('[data-field="code"]');
+    if (codeField) codeField.focus();
+  });
+
+  document.getElementById('addRowsBulkBtn').addEventListener('click', async () => {
+    const val = await showPrompt('How many rows do you want to add?', { defaultValue: '5', confirmLabel: 'Add rows', placeholder: 'e.g. 5' });
+    if (val === null) return;
+    const n = parseInt(val, 10);
+    if (!n || n < 1) { showToast('Enter a number of rows greater than 0.', true); return; }
+    const newRows = [];
+    for (let i = 0; i < n; i++) {
+      const row = blankPromoRow();
+      row.sortOrder = currentRows.length;
+      currentRows.push(row);
+      newRows.push(row);
+    }
+    await renderPromoWorkspace();
+    await persistRowsBulk(newRows);
+    showToast(`${n} row${n === 1 ? '' : 's'} added.`);
+  });
+
+  document.getElementById('deleteSelectedBtn').addEventListener('click', async () => {
+    const ids = Array.from(selectedRowIds);
+    if (!ids.length) return;
+    const ok = await showConfirm(`Delete ${ids.length} selected row${ids.length === 1 ? '' : 's'}?`, 'Delete');
+    if (!ok) return;
+    currentRows = currentRows.filter(r => !selectedRowIds.has(r.id));
+    selectedRowIds.clear();
+    renumberRows();
+    await deleteRowsBulk(ids);
+    await persistRowsBulk(currentRows);
+    await renderPromoWorkspace();
+    showToast('Selected rows deleted.');
+  });
+
+  const selectAllCb = document.getElementById('selectAllRows');
+  if (selectAllCb) {
+    selectAllCb.checked = currentRows.length > 0 && currentRows.every(r => selectedRowIds.has(r.id));
+    selectAllCb.addEventListener('change', async () => {
+      if (selectAllCb.checked) currentRows.forEach(r => selectedRowIds.add(r.id));
+      else selectedRowIds.clear();
+      await renderPromoWorkspace();
+    });
+  }
+
+  // Search box and Flagged-only toggle: both only touch the table body (and
+  // the small status line above it), never the whole workspace, so typing in
+  // the search box never loses focus on every keystroke.
+  const searchInput = document.getElementById('tableSearchInput');
+  if (searchInput) {
+    searchInput.addEventListener('input', () => {
+      tableSearchQuery = searchInput.value;
+      refreshPromoTableView();
+    });
+  }
+  const flaggedOnlyBtn = document.getElementById('flaggedOnlyBtn');
+  if (flaggedOnlyBtn) {
+    flaggedOnlyBtn.addEventListener('click', () => {
+      showFlaggedOnly = !showFlaggedOnly;
+      flaggedOnlyBtn.classList.toggle('active', showFlaggedOnly);
+      flaggedOnlyBtn.textContent = showFlaggedOnly ? 'Showing flagged only' : 'Flagged only';
+      refreshPromoTableView();
+    });
+  }
+  wireTableFilterStatus();
+
+  const body = document.getElementById('promoRowsBody');
+  if (!body) return;
+  body.querySelectorAll('tr').forEach(tr => wirePromoRowElement(tr));
 
   body.addEventListener('paste', async (e) => {
     const target = e.target;
@@ -3350,11 +3499,11 @@ function exportPromotionToExcel(promo) {
     const isLow = r.balance !== null && r.balance !== undefined && Number(r.balance) < lowStockThreshold;
     aoa.push([
       r.code, r.description,
-      (r.promoPrice === null || r.promoPrice === undefined) ? '' : r.promoPrice,
-      (r.beforePrice === null || r.beforePrice === undefined) ? '' : r.beforePrice,
-      (r.discount === null || r.discount === undefined) ? '' : r.discount,
-      (r.salePrice === null || r.salePrice === undefined) ? '' : r.salePrice,
-      (r.balance === null || r.balance === undefined) ? '' : r.balance,
+      numToStr(r.promoPrice),
+      numToStr(r.beforePrice),
+      numToStr(r.discount),
+      numToStr(r.salePrice),
+      numToStr(r.balance),
       isLow ? 'Yes' : 'No',
       PRICE_TYPE_LABELS[r.priceType || ''] || ''
     ]);
