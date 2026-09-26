@@ -334,7 +334,11 @@ table.cn td.num{font-family:var(--font-mono);}
 .filter-panel-option{display:flex;align-items:center;gap:8px;padding:8px 12px;font-size:13px;cursor:pointer;}
 .filter-panel-option:hover{background:var(--paper);}
 .filter-panel-option input{width:auto;}
+.filter-panel-section{border-bottom:1px solid var(--line);}
+.filter-panel-section:last-child{border-bottom:none;}
+.filter-panel-label{margin:0;padding:8px 12px 2px;font-family:var(--font-mono);font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-faint);}
 .link-btn{background:none;border:none;color:var(--pine);font-size:12px;cursor:pointer;font-family:var(--font-body);font-weight:500;padding:0;}
+.view-toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:10px 12px;background:var(--paper);border:1px solid var(--line);border-radius:var(--radius-sm);margin-bottom:12px;}
 .promo-tabstrip{display:flex;gap:6px;flex-wrap:wrap;flex:1 1 auto;}
 .promo-tab{
   font-family:var(--font-body);font-size:13px;font-weight:500;padding:8px 14px;border-radius:20px;
@@ -1164,6 +1168,7 @@ async function loadPromoRows(promoId) {
     priceType: r.price_type || '',
     supplier: r.supplier || '',
     flagged: !!r.flagged,
+    reviewed: !!r.reviewed,
     cost: r.cost === undefined ? null : r.cost,
     country: r.country || '',
     outYtd: r.out_ytd === undefined ? null : r.out_ytd,
@@ -1196,6 +1201,7 @@ function promoRowPayload(row) {
     price_type: row.priceType || null,
     supplier: row.supplier || null,
     flagged: !!row.flagged,
+    reviewed: !!row.reviewed,
     cost: (row.cost === null || row.cost === undefined || row.cost === '') ? null : String(row.cost),
     country: row.country || null,
     out_ytd: numOrNull(row.outYtd),
@@ -1261,7 +1267,7 @@ function renumberRows() {
   currentRows.forEach((r, i) => { r.sortOrder = i; });
 }
 function blankPromoRow() {
-  return { id: uid(), promotionId: currentPromoId, code: '', description: '', promoPrice: null, discount: null, beforePrice: null, salePrice: null, balance: null, priceType: '', supplier: '', flagged: false, cost: null, country: '', outYtd: null, note: '', sortOrder: currentRows.length, _lastLookupCode: '' };
+  return { id: uid(), promotionId: currentPromoId, code: '', description: '', promoPrice: null, discount: null, beforePrice: null, salePrice: null, balance: null, priceType: '', supplier: '', flagged: false, reviewed: false, cost: null, country: '', outYtd: null, note: '', sortOrder: currentRows.length, _lastLookupCode: '' };
 }
 const PROMO_FIELDS = ['code', 'description', 'promoPrice', 'beforePrice', 'discount', 'salePrice', 'balance'];
 const PRICE_RISK_RATIO = 0.25;
@@ -1282,7 +1288,9 @@ function isPriceGapUnusual(row) {
   return frac !== null && frac <= 0;
 }
 function rowNeedsFlag(row) {
-  return !!row.flagged || isPriceRisk(row) || isPriceGapUnusual(row);
+  if (row.flagged) return true;
+  if (row.reviewed) return false; // an auto-flag the person already dismissed, until the price changes again
+  return isPriceRisk(row) || isPriceGapUnusual(row);
 }
 // Sales velocity from the catalog's "Out" (units sold year-to-date) column,
 // turned into how many weeks the current stock will last at that pace —
@@ -1317,8 +1325,8 @@ function refreshRowFlagUi(tr, row) {
   btn.classList.toggle('flag-on', rowNeedsFlag(row));
   btn.title = row.flagged
     ? 'Flagged for review \u2014 click to unflag'
-    : (priceRisk ? 'Promo price is under 25% of the sale price \u2014 click to mark as reviewed'
-      : (gapUnusual ? 'Promo price is not below the sale price \u2014 check for a typo' : 'Flag this row for review'));
+    : (priceRisk ? 'Promo price is under 25% of the sale price \u2014 click to dismiss'
+      : (gapUnusual ? 'Promo price is not below the sale price \u2014 click to dismiss' : 'Flag this row for review'));
 }
 
 /* Auto-calculated discount (Sale Price vs Promo Price), and the two
@@ -1481,6 +1489,7 @@ let expandedSupplierRowIds = new Set();
 let promoViewMode = 'table'; // 'table', 'supplier' or 'audit'
 let expandedSupplierGroups = new Set();
 let selectedCountries = new Set(); // Country filter, applied across all promo views
+let selectedCodeIssues = new Set(); // 'missing' and/or 'mismatch', in the same Filter panel as Country
 let countryFilterOpen = false;
 let selectedAuditSuppliers = new Set(); // Supplier filter, scoped to the Audit view only
 let auditSupplierFilterOpen = false;
@@ -2348,6 +2357,7 @@ async function selectPromotion(id) {
   currentPromoId = id;
   selectedRowIds.clear();
   selectedCountries.clear();
+  selectedCodeIssues.clear();
   countryFilterOpen = false;
   selectedAuditSuppliers.clear();
   auditSupplierFilterOpen = false;
@@ -2392,9 +2402,26 @@ function numToStr(v) {
   return rounded === null || rounded === undefined ? v : rounded;
 }
 
+// Which code issue (if any) a row has, for the Filter panel's "Code issues"
+// checkboxes — the same two conditions the two code-issue icons use.
+function codeIssueOf(row) {
+  if (isCodeBlankWithData(row)) return 'missing';
+  if (isCodeMissingFromCatalog(row)) return 'mismatch';
+  return null;
+}
+// The one shared Filter (Country + Code issues) applies across every promo
+// view — Table, Group-by-supplier and Audit all start from this same list.
+function computeVisibleRows() {
+  const countryOf = (row) => (row.country || '').trim() || 'No country listed';
+  let rows = selectedCountries.size ? currentRows.filter(r => selectedCountries.has(countryOf(r))) : currentRows;
+  if (selectedCodeIssues.size) {
+    rows = rows.filter(r => { const issue = codeIssueOf(r); return issue && selectedCodeIssues.has(issue); });
+  }
+  return rows;
+}
 // The Flagged-only toggle and search box in the Table view's own toolbar
-// narrow the visible rows further (on top of the Country filter that
-// applies to every view) — Group-by-supplier and Audit are unaffected.
+// narrow the visible rows further (on top of the Filter that applies to
+// every view) — Group-by-supplier and Audit are unaffected.
 function computeTableVisibleRows(visibleRows) {
   const q = tableSearchQuery.trim().toLowerCase();
   return visibleRows.filter(r => {
@@ -2420,8 +2447,7 @@ function tableEmptyStateHtml(tableVisibleRows) {
 // typing in the search box (or toggling Flagged only) never steals focus
 // away from what you're typing.
 function refreshPromoTableView() {
-  const countryOf = (row) => (row.country || '').trim() || 'No country listed';
-  const visibleRows = selectedCountries.size ? currentRows.filter(r => selectedCountries.has(countryOf(r))) : currentRows;
+  const visibleRows = computeVisibleRows();
   const tableVisibleRows = computeTableVisibleRows(visibleRows);
 
   const body = document.getElementById('promoRowsBody');
@@ -2458,8 +2484,8 @@ function buildPromoRowHtml(row) {
   const gapUnusual = isPriceGapUnusual(row);
   const flagTitle = row.flagged
     ? 'Flagged for review — click to unflag'
-    : (priceRisk ? 'Promo price is under 25% of the sale price — click to mark as reviewed'
-      : (gapUnusual ? 'Promo price is not below the sale price — check for a typo' : 'Flag this row for review'));
+    : (priceRisk ? 'Promo price is under 25% of the sale price — click to dismiss'
+      : (gapUnusual ? 'Promo price is not below the sale price — click to dismiss' : 'Flag this row for review'));
   const supplierOpen = expandedSupplierRowIds.has(row.id);
   const supplierRow = supplierOpen ? `
   <tr class="supplier-detail-row" data-supplier-row-id="${row.id}">
@@ -2532,7 +2558,7 @@ async function renderPromoWorkspace() {
 
   const countryOf = (row) => (row.country || '').trim() || 'No country listed';
   const allCountries = Array.from(new Set(currentRows.map(countryOf))).sort((a, b) => a.localeCompare(b));
-  const visibleRows = selectedCountries.size ? currentRows.filter(r => selectedCountries.has(countryOf(r))) : currentRows;
+  const visibleRows = computeVisibleRows();
 
   // The supplier filter lives only in the Audit view, narrowing that view's
   // own list further — it doesn't touch the Table or Group-by-supplier views.
@@ -2592,17 +2618,22 @@ async function renderPromoWorkspace() {
               ? 'Code and description next to the cost from the imported price sheet, for a manual check. Items with no cost on file are left out.'
               : 'Tip: copy a block of cells from Excel and paste directly into the table \u2014 it will fill rows and columns starting from where you paste, adding new rows if needed. Enter moves down a column, Tab at the last field adds a new row.')}</p>
         </div>
-        <div style="display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap;">
+        <div class="view-toolbar" style="border:none;background:none;padding:0;margin:0;">
           <div class="filter-dropdown-wrap" id="countryFilterWrap">
-            <button class="btn ghost small" id="countryFilterBtn">Filter${selectedCountries.size ? ` (${selectedCountries.size})` : ''}</button>
+            <button class="btn ghost small" id="countryFilterBtn">Filter${(selectedCountries.size + selectedCodeIssues.size) ? ` (${selectedCountries.size + selectedCodeIssues.size})` : ''}</button>
             <div class="filter-panel" id="countryFilterPanel" style="display:${countryFilterOpen ? 'block' : 'none'};">
               <div class="filter-panel-head">
-                <span>Country</span>
-                <button class="link-btn" id="clearCountryFilterBtn">Clear</button>
+                <span>Filters</span>
+                <button class="link-btn" id="clearAllFiltersBtn">Clear all</button>
               </div>
-              ${allCountries.length ? allCountries.map(c => `
-                <label class="filter-panel-option"><input type="checkbox" value="${escapeHtml(c)}" data-role="country-option" ${selectedCountries.has(c) ? 'checked' : ''}> ${escapeHtml(c)}</label>
-              `).join('') : '<p class="muted-note" style="padding:8px 10px;">No country data in the catalog yet.</p>'}
+              <div class="filter-panel-section">
+                <p class="filter-panel-label">Code issues</p>
+                <label class="filter-panel-option"><input type="checkbox" value="missing" data-role="code-issue-option" ${selectedCodeIssues.has('missing') ? 'checked' : ''}> Missing code</label>
+                <label class="filter-panel-option"><input type="checkbox" value="mismatch" data-role="code-issue-option" ${selectedCodeIssues.has('mismatch') ? 'checked' : ''}> Not in catalog</label>
+              </div>
+              <div class="filter-panel-section" id="countryFilterSection">
+                ${countryFilterSectionHtml(allCountries)}
+              </div>
             </div>
           </div>
           <div class="filter-row" id="promoViewSwitch" style="margin:0;">
@@ -2614,7 +2645,7 @@ async function renderPromoWorkspace() {
       </div>
 
       <div id="promoTableView" style="display:${promoViewMode === 'table' ? '' : 'none'};">
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
+        <div class="view-toolbar">
           <input type="text" id="tableSearchInput" placeholder="Search code or description…" style="max-width:260px;" value="${escapeHtml(tableSearchQuery)}">
           <button class="btn ghost small toggle-flagged ${showFlaggedOnly ? 'active' : ''}" id="flaggedOnlyBtn">${showFlaggedOnly ? 'Showing flagged only' : 'Flagged only'}</button>
           <span id="tableFilterStatus">${tableFilterStatusHtml(tableVisibleRows, visibleRows)}</span>
@@ -2645,7 +2676,7 @@ async function renderPromoWorkspace() {
       </div>
 
       <div id="promoAuditView" style="display:${promoViewMode === 'audit' ? '' : 'none'};">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+        <div class="view-toolbar" style="justify-content:space-between;">
           <div class="filter-dropdown-wrap" id="auditSupplierFilterWrap">
             <button class="btn ghost small" id="auditSupplierFilterBtn">Filter by supplier${selectedAuditSuppliers.size ? ` (${selectedAuditSuppliers.size})` : ''}</button>
             <div class="filter-panel" id="auditSupplierFilterPanel" style="display:${auditSupplierFilterOpen ? 'block' : 'none'};">
@@ -2719,38 +2750,34 @@ async function renderPromoWorkspace() {
   }
 }
 
+// The Country half of the shared Filter panel, factored out so it can be
+// rebuilt on its own (see refreshCountryFilterOptions below) without
+// touching the Code issues section that sits above it in the same panel.
+function countryFilterSectionHtml(allCountries) {
+  return `
+    <p class="filter-panel-label">Country</p>
+    ${allCountries.length ? allCountries.map(c => `
+      <label class="filter-panel-option"><input type="checkbox" value="${escapeHtml(c)}" data-role="country-option" ${selectedCountries.has(c) ? 'checked' : ''}> ${escapeHtml(c)}</label>
+    `).join('') : '<p class="muted-note" style="padding:2px 12px 10px;">No country data in the catalog yet.</p>'}
+  `;
+}
 // Editing a single row's code (doLookup) updates that row in place rather than
 // doing a full renderPromoWorkspace(), for speed — but that means the Filter
 // panel's country list (built once, at the last full render) can miss a
-// country that only just became known. Rebuilding just the panel keeps the
-// list current without paying for a full re-render on every keystroke.
+// country that only just became known. Rebuilding just this section keeps
+// the list current without paying for a full re-render on every keystroke.
 function refreshCountryFilterOptions() {
-  const panel = document.getElementById('countryFilterPanel');
-  if (!panel) return;
+  const section = document.getElementById('countryFilterSection');
+  if (!section) return;
   const countryOf = (row) => (row.country || '').trim() || 'No country listed';
   const allCountries = Array.from(new Set(currentRows.map(countryOf))).sort((a, b) => a.localeCompare(b));
-  panel.innerHTML = `
-    <div class="filter-panel-head">
-      <span>Country</span>
-      <button class="link-btn" id="clearCountryFilterBtn">Clear</button>
-    </div>
-    ${allCountries.length ? allCountries.map(c => `
-      <label class="filter-panel-option"><input type="checkbox" value="${escapeHtml(c)}" data-role="country-option" ${selectedCountries.has(c) ? 'checked' : ''}> ${escapeHtml(c)}</label>
-    `).join('') : '<p class="muted-note" style="padding:8px 10px;">No country data in the catalog yet.</p>'}
-  `;
-  panel.querySelectorAll('[data-role="country-option"]').forEach(cb => {
+  section.innerHTML = countryFilterSectionHtml(allCountries);
+  section.querySelectorAll('[data-role="country-option"]').forEach(cb => {
     cb.addEventListener('change', async () => {
       if (cb.checked) selectedCountries.add(cb.value); else selectedCountries.delete(cb.value);
       countryFilterOpen = true;
       await renderPromoWorkspace();
     });
-  });
-  const clearBtn = document.getElementById('clearCountryFilterBtn');
-  if (clearBtn) clearBtn.addEventListener('click', async (e) => {
-    e.stopPropagation();
-    selectedCountries.clear();
-    countryFilterOpen = true;
-    await renderPromoWorkspace();
   });
 }
 
@@ -3035,6 +3062,7 @@ function wirePromoRowElement(tr) {
     promoPriceInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); focusDown('promoPrice'); } });
     promoPriceInput.addEventListener('blur', () => {
       row.promoPrice = numOrNull(promoPriceInput.value);
+      row.reviewed = false; // a fresh price edit should be re-evaluated, not stay dismissed
       applyAutoDiscount(row);
       discountInput.value = row.discount === null ? '' : row.discount;
       savePromoRow(row);
@@ -3046,6 +3074,7 @@ function wirePromoRowElement(tr) {
     discountInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); focusDown('discount'); } });
     discountInput.addEventListener('blur', () => {
       row.discount = numOrNull(discountInput.value);
+      row.reviewed = false;
       applyReverseDiscount(row);
       promoPriceInput.value = row.promoPrice === null ? '' : row.promoPrice;
       savePromoRow(row);
@@ -3060,6 +3089,7 @@ function wirePromoRowElement(tr) {
     salePriceInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); focusDown('salePrice'); } });
     salePriceInput.addEventListener('blur', () => {
       row.salePrice = numOrNull(salePriceInput.value);
+      row.reviewed = false;
       if ((row.beforePrice === null || row.beforePrice === undefined || row.beforePrice === '') && row.salePrice !== null) {
         row.beforePrice = row.salePrice;
         beforePriceInput.value = row.beforePrice;
@@ -3084,7 +3114,18 @@ function wirePromoRowElement(tr) {
     });
 
     tr.querySelector('[data-role="toggle-flag"]').addEventListener('click', async () => {
-      row.flagged = !row.flagged;
+      // A manually-flagged row toggles off normally. An auto-flagged row
+      // (price risk or an unusual price gap, never manually flagged) can't
+      // be unflagged that way — rowNeedsFlag() would just recompute the same
+      // auto-condition and flip it right back on — so this marks it
+      // "reviewed" instead, which dismisses it until the price changes again.
+      if (row.flagged) {
+        row.flagged = false;
+      } else if (isPriceRisk(row) || isPriceGapUnusual(row)) {
+        row.reviewed = true;
+      } else {
+        row.flagged = true;
+      }
       await savePromoRow(row);
       await renderPromoWorkspace();
     });
@@ -3177,10 +3218,18 @@ function wirePromoWorkspaceEvents(promo) {
         await renderPromoWorkspace();
       });
     });
-    const clearBtn = document.getElementById('clearCountryFilterBtn');
-    if (clearBtn) clearBtn.addEventListener('click', async (e) => {
+    countryFilterPanel.querySelectorAll('[data-role="code-issue-option"]').forEach(cb => {
+      cb.addEventListener('change', async () => {
+        if (cb.checked) selectedCodeIssues.add(cb.value); else selectedCodeIssues.delete(cb.value);
+        countryFilterOpen = true;
+        await renderPromoWorkspace();
+      });
+    });
+    const clearAllBtn = document.getElementById('clearAllFiltersBtn');
+    if (clearAllBtn) clearAllBtn.addEventListener('click', async (e) => {
       e.stopPropagation();
       selectedCountries.clear();
+      selectedCodeIssues.clear();
       countryFilterOpen = true;
       await renderPromoWorkspace();
     });
