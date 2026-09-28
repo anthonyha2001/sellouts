@@ -1,0 +1,1462 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Delivery Tracker</title>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<style>
+  :root{
+    --bg:#f4f6f8; --card:#fff; --ink:#1d2433; --muted:#6b7385; --line:#e3e7ee;
+    --brand:#0f766e; --brand-2:#e6f4f2; --red:#c2410c; --red-bg:#fff1e8; --green:#15803d; --green-bg:#e9f8ee;
+    --blue:#1d4ed8; --blue-bg:#e8efff; --wa:#128c4a; --wa-bg:#e5f7ec;
+  }
+  *{box-sizing:border-box}
+  .ic{display:inline-block;width:16px;height:16px;vertical-align:-3px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+  .brand .ic{width:20px;height:20px;vertical-align:-4px;margin-right:6px;color:#2dd4bf}
+  body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;background:var(--bg);color:var(--ink);font-size:14px}
+  header{background:var(--ink);color:#fff;display:flex;align-items:center;gap:16px;padding:0 16px;flex-wrap:wrap;position:sticky;top:0;z-index:5}
+  .brand{font-weight:700;font-size:16px;padding:14px 0}
+  nav{display:flex;gap:2px;overflow-x:auto}
+  nav button{background:none;border:0;color:#c9cfdb;padding:16px 12px;font:inherit;cursor:pointer;border-bottom:3px solid transparent;white-space:nowrap}
+  nav button.active{color:#fff;border-bottom-color:#2dd4bf}
+  nav button:hover{color:#fff}
+  main{max-width:1500px;margin:0 auto;padding:16px}
+  h2{margin:0;font-size:20px}
+  h3{margin:0 0 12px;font-size:16px}
+  .toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+  .spacer{flex:1}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:14px}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--line);background:#fff;color:var(--ink);padding:8px 12px;border-radius:8px;font:inherit;cursor:pointer}
+  .btn:hover{background:#f0f2f5}
+  .btn.primary{background:var(--brand);border-color:var(--brand);color:#fff}
+  .btn.primary:hover{filter:brightness(1.08)}
+  .btn.danger{color:var(--red);border-color:#f3c9b3}
+  .btn.sm{padding:4px 8px;font-size:13px}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  input,select{font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--ink);min-width:0}
+  input:focus,select:focus{outline:2px solid #99d8cf;border-color:var(--brand)}
+  label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted);font-weight:600}
+  label.chk{flex-direction:row;align-items:center;gap:8px;font-size:14px;color:var(--ink);font-weight:500}
+  .filters{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
+  .filters .grow{flex:1;min-width:180px}
+  .quick{display:flex;gap:4px}
+  .table-wrap{padding:0;overflow-x:auto}
+  table.tbl{width:100%;border-collapse:collapse}
+  .tbl th{text-align:left;font-size:12px;color:var(--muted);font-weight:600;padding:10px;border-bottom:1px solid var(--line);background:#fafbfc;white-space:nowrap}
+  .tbl td{padding:10px;border-bottom:1px solid var(--line);vertical-align:middle}
+  .tbl tr:last-child td{border-bottom:0}
+  .tbl .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .tbl tr.row{cursor:pointer}
+  .tbl tr.row:hover td{background:#fafcfc}
+  .tbl tr.row.open td{background:#f3faf9}
+  .exp{width:28px;color:var(--muted)}
+  .exp .ic{width:14px;height:14px;transition:transform .15s}
+  tr.open .exp .ic{transform:rotate(90deg)}
+  tr.detail td{background:#f3faf9;padding:4px 10px 14px}
+  .detail-grid{display:flex;gap:24px;flex-wrap:wrap}
+  .detail-grid div span{display:block;font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase}
+  .detail-grid a{color:var(--brand);font-weight:600;text-decoration:none}
+  .tag{display:inline-block;padding:2px 8px;border-radius:99px;font-size:12px;font-weight:600;white-space:nowrap}
+  .tag.app{background:var(--blue-bg);color:var(--blue)}
+  .tag.wa{background:var(--wa-bg);color:var(--wa)}
+  .tag.area{background:#f1f3f7;color:#3b4252;margin:2px}
+  .status{border:0;border-radius:99px;padding:3px 10px;font:inherit;font-size:12px;font-weight:700;cursor:pointer}
+  .status.paid{background:var(--green-bg);color:var(--green)}
+  .status.unpaid{background:var(--red-bg);color:var(--red)}
+  .actions{white-space:nowrap;text-align:right}
+  .actions button{background:none;border:0;cursor:pointer;padding:6px;border-radius:6px;color:var(--muted);line-height:0}
+  .actions button:hover{background:#eef1f5;color:var(--ink)}
+  .actions button[data-act=del]:hover{background:var(--red-bg);color:var(--red)}
+  .summary{display:flex;gap:18px;flex-wrap:wrap;margin:0 2px 10px;color:var(--muted)}
+  .summary b{color:var(--ink)}
+  .empty{padding:30px;text-align:center;color:var(--muted)}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:14px}
+  .kpi{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px}
+  .kpi span{font-size:12px;color:var(--muted);font-weight:600}
+  .kpi b{display:block;font-size:22px;margin-top:4px;font-variant-numeric:tabular-nums}
+  .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media (max-width:800px){.grid-2{grid-template-columns:1fr}}
+  .driver-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px;margin-bottom:14px}
+  .dcard{background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px;cursor:pointer;text-align:left;font:inherit;color:inherit}
+  .dcard:hover{border-color:#99d8cf}
+  .dcard.sel{border-color:var(--brand);box-shadow:0 0 0 2px #99d8cf}
+  .dcard b{display:block;font-size:15px;margin-bottom:6px}
+  .dcard .due{color:var(--red);font-weight:700;font-size:18px}
+  .dcard.zero .due{color:var(--green)}
+  .settle-foot{position:sticky;bottom:0;background:#fff;border-top:1px solid var(--line);display:flex;align-items:center;gap:12px;padding:12px 14px;flex-wrap:wrap}
+  .settle-foot .total{font-size:18px;font-weight:700}
+  dialog{border:0;border-radius:12px;padding:0;width:min(560px,94vw);box-shadow:0 20px 60px rgba(0,0,0,.25)}
+  dialog::backdrop{background:rgba(20,25,35,.45)}
+  dialog form,dialog .dlg{padding:18px}
+  .fgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .span2{grid-column:span 2}
+  @media (max-width:520px){.fgrid{grid-template-columns:1fr}.span2{grid-column:auto}}
+  .inline{display:flex;gap:6px}.inline input{flex:1}
+  .hint .ic{width:13px;height:13px;vertical-align:-2px;margin-right:3px}
+  .hint{font-size:12px;color:var(--brand);font-weight:500;min-height:16px}
+  .dlg-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
+  .chips{display:flex;flex-wrap:wrap;gap:6px}
+  .chip{display:inline-flex;align-items:center;gap:6px;background:#f1f3f7;border-radius:99px;padding:4px 6px 4px 12px}
+  .chip button{border:0;background:#dde2ea;border-radius:99px;width:20px;height:20px;cursor:pointer;line-height:1}
+  .map-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:12px 0}
+  @media (max-width:520px){.map-grid{grid-template-columns:1fr 1fr}}
+  .muted{color:var(--muted)}
+  #toast .ic{margin-right:6px;color:#2dd4bf}
+  #toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(80px);background:var(--ink);color:#fff;padding:10px 18px;border-radius:8px;transition:transform .25s;z-index:50}
+  #toast.show{transform:translateX(-50%) translateY(0)}
+  .report-title{margin:0 0 12px;color:var(--muted)}
+  /* quick entry row */
+  .quick-row td{background:#eef9f7;border-bottom:2px solid var(--brand);padding:6px}
+  .quick-row input,.quick-row select{width:100%;padding:6px 8px}
+  .quick-row .qplus{color:var(--brand);font-weight:800;font-size:18px;text-align:center}
+  .daynav{display:flex;gap:4px;align-items:center}
+  #fDay{min-width:250px}
+  .qcust{min-width:230px}
+  #qDriver{min-width:120px}
+  #qAmount{width:90px;text-align:right;font-weight:700}
+  .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#fff}
+  .seg:focus{outline:2px solid #2dd4bf;outline-offset:1px}
+  #qPaid{white-space:nowrap}
+  .qmem{display:block;font-size:11px;color:var(--brand);font-weight:600;white-space:nowrap;margin-top:2px}
+  .qmem.new{color:var(--muted);font-weight:500}
+  .seg.auto{animation:autoPulse 1.2s ease-out}
+  @keyframes autoPulse{0%{box-shadow:0 0 0 3px #2dd4bf}100%{box-shadow:0 0 0 3px transparent}}
+  .seg button{border:0;border-right:1px solid var(--line);background:none;padding:6px 7px;font:inherit;font-size:12px;cursor:pointer;white-space:nowrap;color:var(--ink)}
+  .seg button:last-child{border-right:0}
+  .seg button.on{background:var(--brand);color:#fff}
+  .seg button.on kbd{background:rgba(255,255,255,.2);border-color:rgba(255,255,255,.35);color:#fff}
+  .err{outline:2px solid var(--red)!important;outline-offset:1px}
+  kbd{font:600 11px ui-monospace,Menlo,Consolas,monospace;background:#eef1f5;border:1px solid #d6dbe3;border-bottom-width:2px;border-radius:4px;padding:0 4px;color:var(--ink)}
+  nav kbd{background:transparent;border-color:#4a5263;color:#8b94a7;margin-left:4px}
+  .keys-hint{font-size:12px;color:var(--muted);margin:-4px 2px 10px;line-height:1.9}
+  .tbl tr.sel td{background:#fff8e1!important}
+  .tbl tr.sel td:first-child{box-shadow:inset 3px 0 0 var(--brand)}
+  .tbl tr.flash td{animation:flash 1.4s ease-out}
+  @keyframes flash{from{background:#b9ece2}}
+  .ac{position:fixed;z-index:1000;background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:0 10px 30px rgba(0,0,0,.15);max-height:330px;overflow:auto}
+  .ac div{padding:8px 10px;cursor:pointer;display:flex;gap:10px;justify-content:space-between;align-items:center}
+  .ac div.on{background:var(--brand-2)}
+  .ac .new{color:var(--brand);font-weight:600;border-top:1px solid var(--line)}
+  .help-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 24px}
+  @media (max-width:640px){.help-grid{grid-template-columns:1fr}}
+  .help-grid h4{margin:10px 0 4px;font-size:13px}
+  .help-grid table{width:100%;border-collapse:collapse}
+  .help-grid td{padding:3px 0;vertical-align:top}
+  .help-grid td:first-child{white-space:nowrap;padding-right:12px;width:1%}
+  .kbtn{display:inline-flex;align-items:center;gap:6px;background:none;border:1px solid #4a5263;color:#c9cfdb;border-radius:6px;padding:4px 10px;font:inherit;cursor:pointer}
+  .kbtn:hover{color:#fff;border-color:#6b7385}
+  .hdr-right{margin-left:auto;display:flex;align-items:center;gap:12px;padding:8px 0}
+  .sync{display:inline-flex;align-items:center;gap:6px;color:#c9cfdb;font-size:12px;white-space:nowrap}
+  .sync i{width:8px;height:8px;border-radius:50%;background:#2dd4bf}
+  .sync.saving i,.sync.loading i{background:#fbbf24}
+  .sync.error i{background:#f87171}
+  .sync.error{color:#fecaca}
+  .user{color:#8b94a7;font-size:12px}
+  #login{display:none;position:fixed;inset:0;background:var(--bg);z-index:200;align-items:center;justify-content:center;padding:16px}
+  body.locked #login{display:flex}
+  body.locked header, body.locked main{display:none}
+  .login-card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:28px;width:min(380px,100%);display:flex;flex-direction:column;gap:14px;box-shadow:0 10px 40px rgba(0,0,0,.06)}
+  .login-brand{font-weight:700;font-size:18px;display:flex;align-items:center;gap:8px;margin-bottom:4px}
+  .login-brand .ic{width:22px;height:22px;color:var(--brand)}
+  .login-err{color:var(--red);font-size:13px;margin:0;min-height:18px;white-space:pre-line}
+  .linkbtn{background:none;border:0;color:var(--muted);text-decoration:underline;cursor:pointer;font:inherit;font-size:13px}
+  /* custom dialogs */
+  .ui-dlg{width:min(420px,94vw)}
+  .ui-dlg form{padding:22px}
+  .ui-head{display:flex;gap:14px;align-items:flex-start}
+  .ui-icon{flex:none;width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:var(--brand-2);color:var(--brand)}
+  .ui-icon .ic{width:20px;height:20px}
+  .ui-icon.danger{background:var(--red-bg);color:var(--red)}
+  .ui-icon.ok{background:var(--green-bg);color:var(--green)}
+  .ui-title{margin:0 0 6px;font-size:16px}
+  .ui-msg{margin:0;color:#3b4252;white-space:pre-line;line-height:1.5}
+  .ui-fields{display:flex;flex-direction:column;gap:10px;margin-top:14px}
+  .btn.danger-fill{background:var(--red);border-color:var(--red);color:#fff}
+  .btn.danger-fill:hover{filter:brightness(1.08)}
+  @media print{
+    header,.no-print{display:none!important}
+    body{background:#fff}
+    main{max-width:none;padding:0}
+    .card,.kpi{break-inside:avoid;border-color:#ccc}
+  }
+</style>
+</head>
+<body class="locked">
+<div id="login">
+  <div class="login-card">
+    <div class="login-brand"><i data-ic="cart"></i>Delivery Tracker</div>
+    <p id="bootMsg" class="muted" style="margin:0">Connecting to the database…</p>
+    <p id="loginErr" class="login-err"></p>
+    <button type="button" class="btn primary" id="retryBtn" hidden>Try again</button>
+  </div>
+</div>
+<header>
+  <div class="brand"><i data-ic="cart"></i>Delivery Tracker</div>
+  <nav id="nav">
+    <button data-page="orders">Orders<kbd>1</kbd></button>
+    <button data-page="settle">Driver payments<kbd>2</kbd></button>
+    <button data-page="reports">Reports<kbd>3</kbd></button>
+    <button data-page="customers">Customers<kbd>4</kbd></button>
+    <button data-page="drivers">Drivers<kbd>5</kbd></button>
+    <button data-page="settings">Settings<kbd>6</kbd></button>
+  </nav>
+  <div class="hdr-right">
+  <span class="sync loading" id="syncStatus"><i></i><span>Loading…</span></span>
+  <button class="kbtn" id="helpBtn"><i data-ic="keyboard"></i> Shortcuts <kbd style="background:transparent;border-color:#4a5263;color:#8b94a7">?</kbd></button>
+  </div>
+</header>
+
+<main>
+  <!-- ORDERS -->
+  <section class="page" id="page-orders" hidden>
+    <div class="toolbar">
+      <h2>Orders</h2><div class="spacer"></div>
+      <button class="btn" id="exportOrders"><i data-ic="download"></i> Export Excel</button>
+      <button class="btn primary" id="newOrderBtn"><i data-ic="plus"></i> New order <kbd>F2</kbd></button>
+    </div>
+    <div class="card filters">
+      <label>Day
+        <div class="daynav">
+          <button type="button" class="btn sm" id="dayPrev" title="Previous day (←)"><i data-ic="left"></i></button>
+          <select id="fDay"></select>
+          <button type="button" class="btn sm" id="dayNext" title="Next day (→)"><i data-ic="right"></i></button>
+          <button type="button" class="btn sm" id="dayToday" title="Back to today (T)">Today</button>
+        </div>
+      </label>
+      <label>Driver<select id="fDriver"></select></label>
+      <label>Status<select id="fStatus"><option value="">All</option><option value="unpaid">Unpaid</option><option value="paid">Paid</option></select></label>
+      <label>Payment<select id="fPay"></select></label>
+      <label>Platform<select id="fPlat"></select></label>
+      <label class="grow">Search<input id="fSearch" placeholder="Name, phone, area…"></label>
+    </div>
+    <div class="summary" id="ordersSummary"></div>
+    <div class="keys-hint">Customer → <kbd>Enter</kbd> → driver → <kbd>Enter</kbd> → amount → <kbd>Enter</kbd> saves the order. Payment and platform are filled from the customer's last order.
+      &nbsp;·&nbsp; <kbd>Esc</kbd> then <kbd>↑</kbd><kbd>↓</kbd> move in the list, <kbd>←</kbd><kbd>→</kbd> change day &nbsp;·&nbsp; <kbd>?</kbd> all shortcuts</div>
+    <div class="card table-wrap">
+      <table class="tbl">
+        <thead><tr><th></th><th>Customer</th><th>Driver</th><th>Area</th><th class="num">Amount</th><th>Platform</th><th>Payment</th><th>Status</th><th></th></tr>
+        <tr class="quick-row" id="quickRow">
+          <td class="qplus"><i data-ic="plus"></i></td>
+          <td class="qcust"><input id="qCust" placeholder="Customer name or phone…" autocomplete="off"></td>
+          <td><select id="qDriver" title="Keys 1–9 pick a driver"></select></td>
+          <td id="qArea" class="muted"></td>
+          <td><input id="qAmount" inputmode="decimal" placeholder="Amount" autocomplete="off"></td>
+          <td><div class="seg" id="qPlat"></div></td>
+          <td><div class="seg" id="qPay"></div></td>
+          <td><button type="button" class="status unpaid" id="qPaid" tabindex="-1"></button></td>
+          <td><button type="button" class="btn primary sm" id="qAdd" tabindex="-1">Add <i data-ic="enter"></i></button></td>
+        </tr></thead>
+        <tbody id="ordersBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- DRIVER PAYMENTS -->
+  <section class="page" id="page-settle" hidden>
+    <div class="toolbar"><h2>Driver payments</h2></div>
+    <p class="muted" style="margin-top:0">Pick a driver to see his unpaid orders. Tick the ones he is paying now and mark them as paid.</p>
+    <div class="driver-cards" id="settleCards"></div>
+    <div id="settlePanel"></div>
+  </section>
+
+  <!-- REPORTS -->
+  <section class="page" id="page-reports" hidden>
+    <div class="toolbar no-print">
+      <h2>Reports</h2><div class="spacer"></div>
+      <select id="rPeriod">
+        <option value="today">Today</option>
+        <option value="yesterday">Yesterday</option>
+        <option value="thismonth">This month</option>
+        <option value="lastmonth">Last month</option>
+        <option value="month">End of month (pick month)</option>
+        <option value="custom">Custom range</option>
+      </select>
+      <input type="month" id="rMonth" hidden>
+      <input type="date" id="rFrom" hidden>
+      <input type="date" id="rTo" hidden>
+      <select id="rDriver"></select>
+      <button class="btn" onclick="window.print()"><i data-ic="print"></i> Print</button>
+    </div>
+    <div id="reportBody"></div>
+  </section>
+
+  <!-- CUSTOMERS -->
+  <section class="page" id="page-customers" hidden>
+    <div class="toolbar">
+      <h2>Customers</h2><div class="spacer"></div>
+      <input id="cSearch" placeholder="Search name, phone, area…" style="min-width:220px">
+      <button class="btn" id="importBtn"><i data-ic="upload"></i> Import Excel</button>
+      <button class="btn" id="exportCust"><i data-ic="download"></i> Export</button>
+      <button class="btn primary" id="newCustBtn"><i data-ic="plus"></i> Add customer</button>
+    </div>
+    <div class="summary" id="custSummary"></div>
+    <div class="card table-wrap">
+      <table class="tbl">
+        <thead><tr><th>Name</th><th>Phone</th><th>Area</th><th>Address</th><th class="num">Orders</th><th class="num">Total spent</th><th></th></tr></thead>
+        <tbody id="custBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- DRIVERS -->
+  <section class="page" id="page-drivers" hidden>
+    <div class="toolbar"><h2>Drivers</h2></div>
+    <form class="card filters" id="driverForm">
+      <label class="grow">Driver name<input name="name" required placeholder="e.g. Elie"></label>
+      <label>Phone (optional)<input name="phone"></label>
+      <button class="btn primary"><i data-ic="plus"></i> Add driver</button>
+    </form>
+    <div class="card table-wrap">
+      <table class="tbl">
+        <thead><tr><th>Driver</th><th>Phone</th><th class="num">Orders (all)</th><th class="num">Orders this month</th><th class="num">Unpaid orders</th><th class="num">Unpaid amount</th><th></th></tr></thead>
+        <tbody id="driversBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- SETTINGS -->
+  <section class="page" id="page-settings" hidden>
+    <div class="toolbar"><h2>Settings</h2></div>
+    <div class="card">
+      <h3>Areas</h3>
+      <p class="muted" style="margin-top:0">These appear as suggestions when adding customers and are used in the driver / area reports.</p>
+      <div class="chips" id="areaChips"></div>
+      <form id="areaForm" class="inline" style="margin-top:12px;max-width:380px">
+        <input name="area" placeholder="New area, e.g. Kfardebian" required>
+        <button class="btn primary">Add</button>
+      </form>
+    </div>
+    <div class="card">
+      <h3>Currency symbol</h3>
+      <form id="curForm" class="inline" style="max-width:260px"><input name="cur" maxlength="5"><button class="btn primary">Save</button></form>
+    </div>
+    <div class="card">
+      <h3>Backup</h3>
+      <p class="muted" style="margin-top:0">Data is saved in your Supabase database and shared by everyone who signs in. A downloaded backup is an extra copy for safety.</p>
+      <div class="toolbar">
+        <button class="btn" id="backupBtn"><i data-ic="download"></i> Download backup</button>
+        <button class="btn" id="restoreBtn"><i data-ic="upload"></i> Restore backup</button>
+        <input type="file" id="restoreFile" accept=".json" hidden>
+        <div class="spacer"></div>
+        <button class="btn danger" id="wipeBtn"><i data-ic="trash"></i> Delete all data</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<datalist id="custList"></datalist>
+<datalist id="areaList"></datalist>
+
+<!-- ORDER DIALOG -->
+<dialog id="orderDlg">
+  <form id="orderForm">
+    <h3 id="orderTitle">New order</h3>
+    <div class="fgrid">
+      <label class="span2">Driver<select name="driverId" required></select></label>
+      <label class="span2">Customer
+        <div class="inline">
+          <input name="customer" required placeholder="Type name or phone…" autocomplete="off">
+          <button type="button" class="btn" id="quickCust"><i data-ic="plus"></i> New</button>
+        </div>
+        <span class="hint" id="custHint"></span>
+      </label>
+      <label>Amount<input type="number" step="0.01" min="0" name="amount" required></label>
+      <label>Platform<select name="platform"></select></label>
+      <label>Payment<select name="payment"></select></label>
+      <label class="chk" style="align-self:end;padding-bottom:8px"><input type="checkbox" name="paid"> Paid</label>
+      <label class="span2">Note (optional)<input name="note"></label>
+    </div>
+    <div class="dlg-actions">
+      <button type="button" class="btn" data-close>Cancel</button>
+      <button class="btn primary">Save order</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- CUSTOMER DIALOG -->
+<dialog id="custDlg">
+  <form id="custForm">
+    <h3 id="custTitle">New customer</h3>
+    <div class="fgrid">
+      <label class="span2">Name<input name="name" required></label>
+      <label>Phone<input name="phone" inputmode="tel"></label>
+      <label>Area<input name="area" list="areaList" placeholder="Ajaltoun, Faraya…"></label>
+      <label class="span2">Address details<input name="address" placeholder="Building, street, floor…"></label>
+    </div>
+    <div class="dlg-actions">
+      <button type="button" class="btn" data-close>Cancel</button>
+      <button class="btn primary">Save customer</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- IMPORT DIALOG -->
+<dialog id="importDlg" style="width:min(760px,96vw)">
+  <div class="dlg">
+    <h3>Import customers from Excel</h3>
+    <input type="file" id="impFile" accept=".xlsx,.xls,.csv">
+    <div id="impBody"></div>
+    <div class="dlg-actions">
+      <button type="button" class="btn" data-close>Cancel</button>
+      <button type="button" class="btn primary" id="impGo" disabled>Import</button>
+    </div>
+  </div>
+</dialog>
+
+<!-- HELP DIALOG -->
+<dialog id="helpDlg" style="width:min(720px,96vw)">
+  <div class="dlg">
+    <h3>Keyboard shortcuts</h3>
+    <div class="help-grid">
+      <div>
+        <h4>Anywhere</h4>
+        <table>
+          <tr><td><kbd>F2</kbd> or <kbd>N</kbd></td><td>New order (jumps to the quick row)</td></tr>
+          <tr><td><kbd>1</kbd> … <kbd>6</kbd></td><td>Switch page</td></tr>
+          <tr><td><kbd>/</kbd></td><td>Search on this page</td></tr>
+          <tr><td><kbd>Esc</kbd></td><td>Clear / leave a field</td></tr>
+          <tr><td><kbd>?</kbd></td><td>This help</td></tr>
+        </table>
+        <h4>Quick order row</h4>
+        <table>
+          <tr><td><kbd>↑</kbd><kbd>↓</kbd> <kbd>Enter</kbd></td><td>Pick customer from the list</td></tr>
+          <tr><td><kbd>Enter</kbd></td><td>On the last choice “+ New customer” to create one</td></tr>
+          <tr><td><kbd>Enter</kbd></td><td>Customer → driver → amount → save</td></tr>
+          <tr><td><kbd>1</kbd>–<kbd>9</kbd></td><td>On the driver field: pick driver by number</td></tr>
+        </table>
+      </div>
+      <div>
+        <h4>Orders list (after <kbd>Esc</kbd>)</h4>
+        <table>
+          <tr><td><kbd>↑</kbd><kbd>↓</kbd></td><td>Move between orders</td></tr>
+          <tr><td><kbd>Space</kbd> / <kbd>Enter</kbd></td><td>Show phone &amp; address</td></tr>
+          <tr><td><kbd>E</kbd></td><td>Edit order</td></tr>
+          <tr><td><kbd>Del</kbd></td><td>Delete order</td></tr>
+          <tr><td><kbd>←</kbd><kbd>→</kbd></td><td>Previous / next day (archive)</td></tr>
+          <tr><td><kbd>T</kbd></td><td>Back to today</td></tr>
+        </table>
+        <h4>Driver payments</h4>
+        <table>
+          <tr><td><kbd>←</kbd><kbd>→</kbd></td><td>Previous / next driver</td></tr>
+          <tr><td><kbd>↑</kbd><kbd>↓</kbd></td><td>Move between orders</td></tr>
+          <tr><td><kbd>Space</kbd></td><td>Tick / untick order</td></tr>
+          <tr><td><kbd>A</kbd></td><td>Select all</td></tr>
+          <tr><td><kbd>Enter</kbd></td><td>Mark selected as paid</td></tr>
+        </table>
+      </div>
+    </div>
+    <div class="dlg-actions"><button type="button" class="btn" data-close>Close</button></div>
+  </div>
+</dialog>
+
+<!-- CUSTOM MESSAGE / CONFIRM / INPUT DIALOG -->
+<dialog id="uiDlg" class="ui-dlg">
+  <form id="uiForm">
+    <div class="ui-head">
+      <div class="ui-icon" id="uiIcon"></div>
+      <div style="flex:1;min-width:0">
+        <h3 class="ui-title" id="uiTitle"></h3>
+        <p class="ui-msg" id="uiMsg"></p>
+        <div class="ui-fields" id="uiFields"></div>
+      </div>
+    </div>
+    <div class="dlg-actions">
+      <button type="button" class="btn" id="uiCancel">Cancel</button>
+      <button class="btn primary" id="uiOk">OK</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="toast"></div>
+
+<script>
+/* ---------- constants & storage ---------- */
+const PAYMENTS = ['Cash','Online','Credit Card','On Account'];
+const PLATFORMS = ['Application','WhatsApp'];
+const DEFAULT_AREAS = ['Achkout','Ain Rihane','Ajaltoun','Ballouneh','Batha','Bzommar','Daraya','Faraya','Feytroun','Ghosta','Hrajel','Jeita','Kfardebian','Kleiat','Mayrouba','Mrah El Mir','Reyfoun','Shaileh'];
+// other spellings found in the customer list -> one clean name (keys: lowercase letters only)
+const AREA_ALIASES = {ajaltoune:'Ajaltoun', ajatoun:'Ajaltoun', ajaltun:'Ajaltoun', shaile:'Shaileh', shaeily:'Shaileh', shaily:'Shaileh', shaileh:'Shaileh',
+  raifoun:'Reyfoun', rayfoun:'Reyfoun', faitroun:'Feytroun', faytroun:'Feytroun', feitroun:'Feytroun', balloune:'Ballouneh', kleiaat:'Kleiat', klayat:'Kleiat'};
+/* ================= DATABASE (Supabase) ================= */
+// Publishable key only. It is safe inside the page: access is controlled by the
+// row-level-security rules in setup.sql (they open only the dt_ tables). NEVER put the secret key here.
+const SUPABASE_URL = 'https://sezjqcbkiydckhirycjb.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_LRI-MmDPYE_IjrHG-LZ7Xg_mQovg24F';
+const OLD_LOCAL_KEY = 'supermarket_delivery_tracker_v1';
+const sb = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {auth:{persistSession:false}}) : null;
+
+let db = {customers:[], drivers:[], orders:[], areas:[...DEFAULT_AREAS], currency:'$'};
+function loadLast(){ try{ return JSON.parse(localStorage.getItem('dt_last')) || {}; }catch(e){ return {}; } }
+db.last = Object.assign({platform:'WhatsApp', payment:'Cash', driverId:''}, loadLast());
+
+const TBL = {
+  drivers: { table:'dt_drivers',
+    to: d => ({id:d.id, name:d.name, phone:d.phone || ''}),
+    from: r => ({id:r.id, name:r.name, phone:r.phone || ''}) },
+  customers: { table:'dt_customers',
+    to: c => ({id:c.id, name:c.name, phone:c.phone || '', area:c.area || '', address:c.address || ''}),
+    from: r => ({id:r.id, name:r.name, phone:r.phone || '', area:r.area || '', address:r.address || ''}) },
+  orders: { table:'dt_orders',
+    to: o => ({id:o.id, created:o.created || 0, order_date:o.date, customer_id:o.customerId || null,
+      c_name:o.cName || '', c_phone:o.cPhone || '', c_area:o.cArea || '', c_address:o.cAddress || '',
+      driver_id:o.driverId || null, amount:+o.amount || 0, platform:o.platform, payment:o.payment,
+      paid:!!o.paid, paid_at:o.paidAt || null, note:o.note || ''}),
+    from: r => ({id:r.id, created:+r.created || 0, date:r.order_date, customerId:r.customer_id,
+      cName:r.c_name || '', cPhone:r.c_phone || '', cArea:r.c_area || '', cAddress:r.c_address || '',
+      driverId:r.driver_id, amount:+r.amount, platform:r.platform, payment:r.payment,
+      paid:!!r.paid, paidAt:r.paid_at || '', note:r.note || ''}) },
+};
+// snapshot of what the database has, so save() only sends what changed
+const snap = {drivers:new Map(), customers:new Map(), orders:new Map()};
+let snapSettings = '', syncTimer = null, syncing = false, syncAgain = false, syncState = 'loading', appStarted = false;
+const settingsJSON = () => JSON.stringify({areas:db.areas, currency:db.currency});
+
+function save(){
+  try{ localStorage.setItem('dt_last', JSON.stringify(db.last)); }catch(e){}
+  if(!appStarted) return;
+  clearTimeout(syncTimer); syncTimer = setTimeout(sync, 100);
+}
+function setSync(state, msg){
+  syncState = state;
+  const el = document.getElementById('syncStatus'); if(!el) return;
+  el.className = 'sync ' + state;
+  el.querySelector('span').textContent = {saved:'Saved', saving:'Saving…', loading:'Loading…', error:'Not saved — retrying'}[state];
+  el.title = msg || '';
+}
+async function sync(){
+  if(!sb || !appStarted) return;
+  if(syncing){ syncAgain = true; return; }
+  syncing = true;
+  try{
+    for(const k of ['drivers','customers','orders']){
+      const {table, to} = TBL[k];
+      const cur = new Map(db[k].map(x => [x.id, JSON.stringify(to(x))]));
+      const ups = []; for(const [id, j] of cur) if(snap[k].get(id) !== j) ups.push(j);
+      const dels = [...snap[k].keys()].filter(id => !cur.has(id));
+      if(ups.length || dels.length) setSync('saving');
+      for(let i = 0; i < ups.length; i += 500){
+        const chunk = ups.slice(i, i+500);
+        const {error} = await sb.from(table).upsert(chunk.map(j => JSON.parse(j)));
+        if(error) throw error;
+        chunk.forEach(j => snap[k].set(JSON.parse(j).id, j));
+      }
+      for(let i = 0; i < dels.length; i += 200){
+        const chunk = dels.slice(i, i+200);
+        const {error} = await sb.from(table).delete().in('id', chunk);
+        if(error) throw error;
+        chunk.forEach(id => snap[k].delete(id));
+      }
+    }
+    const sv = settingsJSON();
+    if(sv !== snapSettings){
+      setSync('saving');
+      const {error} = await sb.from('dt_settings').upsert({key:'app', value:JSON.parse(sv), updated_at:new Date().toISOString()});
+      if(error) throw error;
+      snapSettings = sv;
+    }
+    setSync('saved');
+  }catch(err){
+    console.error(err); setSync('error', err.message || String(err));
+    clearTimeout(syncTimer); syncTimer = setTimeout(sync, 5000);   // keep retrying, nothing is lost
+  }finally{
+    syncing = false;
+    if(syncAgain){ syncAgain = false; sync(); }
+  }
+}
+async function fetchAll(table){
+  let out = [];
+  for(let from = 0; ; from += 1000){
+    const {data, error} = await sb.from(table).select('*').order('id').range(from, from + 999);
+    if(error) throw error;
+    out = out.concat(data);
+    if(data.length < 1000) break;
+  }
+  return out;
+}
+async function loadAll(){
+  const [d, c, o, st] = await Promise.all([fetchAll('dt_drivers'), fetchAll('dt_customers'), fetchAll('dt_orders'),
+    sb.from('dt_settings').select('*').eq('key', 'app').maybeSingle()]);
+  if(st.error) throw st.error;
+  const put = (k, rows) => { db[k] = rows.map(TBL[k].from); snap[k] = new Map(db[k].map(x => [x.id, JSON.stringify(TBL[k].to(x))])); };
+  put('drivers', d); put('customers', c); put('orders', o);
+  const v = st.data?.value || {};
+  db.areas = v.areas || [...DEFAULT_AREAS]; db.currency = v.currency || '$';
+  snapSettings = st.data ? settingsJSON() : '';
+}
+// live changes from other computers
+let renderTimer = null;
+function scheduleRender(){
+  clearTimeout(renderTimer);
+  renderTimer = setTimeout(() => {
+    if(document.querySelector('dialog[open]')) return scheduleRender();
+    refreshLists(); renderers[currentPage]();
+  }, 250);
+}
+function applyRemote(k, p){
+  const {to, from} = TBL[k];
+  if(p.eventType === 'DELETE'){
+    const id = p.old && p.old.id; if(!id || !snap[k].has(id)) return;
+    snap[k].delete(id); db[k] = db[k].filter(x => x.id !== id);
+  }else{
+    const x = from(p.new), j = JSON.stringify(to(x));
+    if(snap[k].get(x.id) === j) return;                 // our own change coming back
+    snap[k].set(x.id, j);
+    const cur = db[k].find(y => y.id === x.id);
+    if(cur) Object.assign(cur, x); else db[k].push(x);
+  }
+  scheduleRender();
+}
+function subscribeRealtime(){
+  const ch = sb.channel('delivery-tracker');
+  for(const k of ['drivers','customers','orders'])
+    ch.on('postgres_changes', {event:'*', schema:'public', table:TBL[k].table}, p => applyRemote(k, p));
+  ch.on('postgres_changes', {event:'*', schema:'public', table:'dt_settings'}, p => {
+    const v = p.new && p.new.value; if(!v) return;
+    db.areas = v.areas || db.areas; db.currency = v.currency || db.currency; snapSettings = settingsJSON(); scheduleRender();
+  });
+  ch.subscribe();
+}
+window.addEventListener('beforeunload', e => { if(appStarted && syncState !== 'saved'){ e.preventDefault(); e.returnValue = ''; } });
+
+/* ---------- start-up (no sign-in) ---------- */
+function showBootError(msg){
+  document.body.classList.add('locked');
+  document.getElementById('bootMsg').textContent = 'Could not connect to the database.';
+  document.getElementById('loginErr').textContent = msg;
+  document.getElementById('retryBtn').hidden = false;
+}
+document.getElementById('retryBtn').onclick = () => location.reload();
+async function boot(){
+  if(!sb) return showBootError('The database library did not load. Check the internet connection.');
+  setSync('loading');
+  try{ await loadAll(); }
+  catch(err){ return showBootError((err.message || String(err)) + '\nCheck that setup.sql was run in Supabase.'); }
+  document.body.classList.remove('locked');
+  appStarted = true;
+  subscribeRealtime();
+  setSync('saved');
+  refreshLists(); go(location.hash.slice(1) || 'orders');
+  if(currentPage === 'orders') qCust.focus();
+  offerLocalUpload();
+}
+// data typed before the database was connected (saved only in this browser)
+async function offerLocalUpload(){
+  let local = null; try{ local = JSON.parse(localStorage.getItem(OLD_LOCAL_KEY)); }catch(e){}
+  if(!local || !((local.orders||[]).length || (local.customers||[]).length || (local.drivers||[]).length)) return;
+  if(db.orders.length || db.customers.length || db.drivers.length) return;
+  const ok = await uiConfirm(`This computer has data saved before the database was connected:\n${(local.customers||[]).length} customers, ${(local.drivers||[]).length} drivers, ${(local.orders||[]).length} orders.\n\nUpload it to the database?`, {title:'Upload saved data', ok:'Upload'});
+  if(!ok) return;
+  db.customers = local.customers || []; db.drivers = local.drivers || []; db.orders = local.orders || [];
+  if(local.areas) db.areas = local.areas; if(local.currency) db.currency = local.currency;
+  clearTimeout(syncTimer); await sync();
+  if(syncState === 'saved'){ localStorage.setItem(OLD_LOCAL_KEY + '_uploaded', localStorage.getItem(OLD_LOCAL_KEY)); localStorage.removeItem(OLD_LOCAL_KEY); toast('Data uploaded', 'check'); }
+  renderers[currentPage]();
+}
+
+/* ---------- icons (inline SVG, work offline) ---------- */
+const ICONS = {
+  cart:'<circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/>',
+  keyboard:'<rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h.01M12 12h.01M16 12h.01M7 16h10"/>',
+  download:'<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/>',
+  upload:'<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5"/><path d="M12 3v12"/>',
+  left:'<path d="m15 18-6-6 6-6"/>',
+  right:'<path d="m9 18 6-6-6-6"/>',
+  plus:'<path d="M5 12h14M12 5v14"/>',
+  enter:'<path d="M20 4v7a4 4 0 0 1-4 4H4"/><path d="m9 10-5 5 5 5"/>',
+  print:'<path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>',
+  search:'<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+  edit:'<path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/>',
+  trash:'<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6M14 11v6"/>',
+  pin:'<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/>',
+  phone:'<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92Z"/>',
+  check:'<path d="M20 6 9 17l-5-5"/>',
+  checkc:'<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
+  truck:'<path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.62L18.3 9.38a1 1 0 0 0-.78-.38H14"/><circle cx="17" cy="18" r="2"/><circle cx="7" cy="18" r="2"/>',
+  info:'<circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/>',
+  help:'<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>',
+  alert:'<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4M12 17h.01"/>',
+  logout:'<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/>',
+  cash:'<rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/>',
+};
+const ic = n => `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true">${ICONS[n] || ''}</svg>`;
+document.querySelectorAll('i[data-ic]').forEach(el => el.outerHTML = ic(el.dataset.ic));
+
+/* ---------- helpers ---------- */
+const $ = s => document.querySelector(s);
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const money = n => db.currency + (+n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+const toISO = d => d.toLocaleDateString('en-CA');
+const today = () => toISO(new Date());
+const addDays = (s,n) => { const d = new Date(s+'T00:00:00'); d.setDate(d.getDate()+n); return toISO(d); };
+const monthStart = s => s.slice(0,7)+'-01';
+const monthEnd = ym => { const [y,m] = ym.split('-').map(Number); return `${ym}-${String(new Date(y,m,0).getDate()).padStart(2,'0')}`; };
+const fmtDate = s => s ? s.split('-').reverse().join('/') : '';
+const normPhone = p => String(p ?? '').replace(/\D/g,'');
+const custLabel = c => c.phone ? `${c.name} — ${c.phone}` : c.name;
+const driverName = id => (db.drivers.find(d => d.id === id) || {}).name || '(no driver)';
+const platClass = p => p === 'WhatsApp' ? 'wa' : 'app';
+
+/* ---------- custom dialogs (replace browser alert / confirm / prompt) ---------- */
+function uiDialog({title = '', message = '', ok = 'OK', cancel = 'Cancel', danger = false, icon = 'info', fields = null}){
+  return new Promise(resolve => {
+    const d = $('#uiDlg'), f = $('#uiForm');
+    $('#uiTitle').textContent = title; $('#uiTitle').hidden = !title;
+    $('#uiMsg').textContent = message; $('#uiMsg').hidden = !message;
+    $('#uiIcon').innerHTML = ic(icon); $('#uiIcon').className = 'ui-icon ' + (danger ? 'danger' : icon === 'checkc' ? 'ok' : '');
+    $('#uiOk').textContent = ok; $('#uiOk').className = 'btn ' + (danger ? 'danger-fill' : 'primary');
+    $('#uiCancel').hidden = cancel === null; $('#uiCancel').textContent = cancel || '';
+    $('#uiFields').innerHTML = (fields || []).map((x,i) => `<label>${esc(x.label || '')}<input data-i="${i}" value="${esc(x.value || '')}" placeholder="${esc(x.placeholder || '')}" autocomplete="off"></label>`).join('');
+    $('#uiFields').hidden = !fields;
+    const done = v => { f.onsubmit = null; d.oncancel = null; d.close(); resolve(v); };
+    f.onsubmit = e => {
+      e.preventDefault();
+      if(!fields) return done(true);
+      const vals = [...$('#uiFields').querySelectorAll('input')].map(i => i.value);
+      if(fields.some((x,i) => x.required && !vals[i].trim())){ const i = fields.findIndex((x,i) => x.required && !vals[i].trim()); $('#uiFields').querySelectorAll('input')[i].focus(); return; }
+      done(vals);
+    };
+    $('#uiCancel').onclick = () => done(fields ? null : false);
+    d.oncancel = e => { e.preventDefault(); done(fields ? null : false); };
+    d.showModal();
+    const first = $('#uiFields').querySelector('input');
+    if(first){ first.focus(); first.select(); } else $('#uiOk').focus();
+  });
+}
+const uiConfirm = (message, o = {}) => uiDialog({title:o.title || 'Are you sure?', message, ok:o.ok || 'Confirm', danger:!!o.danger, icon:o.icon || (o.danger ? 'alert' : 'help')});
+const uiAlert = (message, o = {}) => uiDialog({title:o.title || '', message, ok:'OK', cancel:null, icon:o.icon || 'info', danger:!!o.danger});
+const uiForm = (title, fields, o = {}) => uiDialog({title, message:o.message || '', ok:o.ok || 'Save', icon:o.icon || 'edit', danger:!!o.danger, fields});
+
+function toast(msg, icon){ const t = $('#toast'); t.innerHTML = (icon ? ic(icon) : '') + esc(msg); t.classList.add('show'); clearTimeout(t._h); t._h = setTimeout(()=>t.classList.remove('show'), 2200); }
+function options(list, sel, first){ return (first ? `<option value="">${first}</option>` : '') + list.map(v => { const [val,txt] = Array.isArray(v) ? v : [v,v]; return `<option value="${esc(val)}" ${val===sel?'selected':''}>${esc(txt)}</option>`; }).join(''); }
+
+function allAreas(){
+  const map = new Map();
+  [...db.areas, ...db.customers.map(c => c.area)].forEach(a => { if(a && !map.has(a.toLowerCase())) map.set(a.toLowerCase(), a); });
+  return [...map.values()].sort((a,b) => a.localeCompare(b));
+}
+const areaKey = a => String(a||'').toLowerCase().replace(/[^a-z\u0600-\u06ff]/g, '');
+const titleCase = a => a.toLowerCase().replace(/(^|[\s-])\S/g, m => m.toUpperCase());
+function canonArea(a){
+  a = String(a||'').trim().replace(/[.\s]+$/, ''); if(!a) return '';
+  let k = areaKey(a);
+  if(AREA_ALIASES[k]) k = areaKey(AREA_ALIASES[k]);
+  const hit = allAreas().find(x => areaKey(x) === k) || DEFAULT_AREAS.find(x => areaKey(x) === k);
+  if(hit) return hit;
+  return a === a.toUpperCase() ? titleCase(a) : a;      // "MRAH EL MIR" -> "Mrah El Mir"
+}
+// Lebanese numbers -> "76-482453"; unknown formats are kept as written
+function fmtPhone(p){
+  const raw = String(p ?? '').trim(); let d = raw.replace(/\D/g, '');
+  if(!d) return '';
+  if(d.startsWith('00961')) d = d.slice(5); else if(d.startsWith('961')) d = d.slice(3);
+  if(d.length === 7 && d[0] === '3') d = '0' + d;
+  return d.length === 8 ? d.slice(0,2) + '-' + d.slice(2) : raw;
+}
+function refreshLists(){
+  $('#custList').innerHTML = db.customers.map(c => `<option value="${esc(custLabel(c))}">`).join('');
+  $('#areaList').innerHTML = allAreas().map(a => `<option value="${esc(a)}">`).join('');
+}
+
+/* ---------- navigation ---------- */
+const renderers = {orders:renderOrders, settle:renderSettle, reports:renderReports, customers:renderCustomers, drivers:renderDrivers, settings:renderSettings};
+const PAGES = ['orders','settle','reports','customers','drivers','settings'];
+let currentPage = 'orders';
+function go(p){
+  if(!renderers[p]) p = 'orders';
+  currentPage = p;
+  document.querySelectorAll('#nav button').forEach(b => b.classList.toggle('active', b.dataset.page === p));
+  document.querySelectorAll('.page').forEach(s => s.hidden = s.id !== 'page-'+p);
+  if(location.hash !== '#'+p) history.replaceState(null,'','#'+p);
+  renderers[p]();
+}
+$('#nav').addEventListener('click', e => { const b = e.target.closest('button'); if(b) go(b.dataset.page); });
+document.querySelectorAll('[data-close]').forEach(b => b.onclick = () => b.closest('dialog').close());
+
+/* ================= ORDERS ================= */
+const OF = {day:today(), driver:'', status:'', pay:'', plat:'', q:''};
+const fIds = {day:'#fDay', driver:'#fDriver', status:'#fStatus', pay:'#fPay', plat:'#fPlat', q:'#fSearch'};
+Object.entries(fIds).forEach(([k,sel]) => $(sel).addEventListener('input', e => { OF[k] = e.target.value; renderOrders(); }));
+let orderIds = [], selId = null, flashId = null;
+const openIds = new Set();
+function dayList(){ const s = new Set(db.orders.map(o => o.date)); s.add(today()); return [...s].sort().reverse(); }
+function dayLabel(d){
+  if(d === today()) return 'Today';
+  if(d === addDays(today(), -1)) return 'Yesterday';
+  return new Date(d+'T00:00:00').toLocaleDateString('en-GB', {weekday:'short', day:'2-digit', month:'2-digit', year:'numeric'});
+}
+function goDay(d){ OF.day = d; OF.q = ''; renderOrders(); }
+function shiftDay(step){ // step +1 = newer, -1 = older (only days that have orders)
+  const L = dayList(); let i = L.indexOf(OF.day); if(i < 0) i = 0;
+  goDay(L[Math.max(0, Math.min(L.length-1, i - step))]);
+}
+$('#dayPrev').onclick = () => shiftDay(-1);
+$('#dayNext').onclick = () => shiftDay(1);
+$('#dayToday').onclick = () => goDay(today());
+
+function filteredOrders(){
+  const q = OF.q.trim().toLowerCase(), qd = normPhone(q);
+  return db.orders.filter(o =>
+    (OF.q.trim() ? true : o.date === OF.day) &&
+    (!OF.driver || o.driverId === OF.driver) &&
+    (!OF.status || (OF.status === 'paid') === !!o.paid) &&
+    (!OF.pay || o.payment === OF.pay) && (!OF.plat || o.platform === OF.plat) &&
+    (!q || [o.cName,o.cArea,o.cAddress,o.note,driverName(o.driverId)].join(' ').toLowerCase().includes(q) || (qd.length >= 3 && normPhone(o.cPhone).includes(qd)))
+  ).sort((a,b) => b.date.localeCompare(a.date) || b.created - a.created);
+}
+
+function renderOrders(){
+  $('#fSearch').value = OF.q; $('#fStatus').value = OF.status;
+  const counts = {};
+  db.orders.forEach(o => { const c = counts[o.date] || (counts[o.date] = {n:0, t:0}); c.n++; c.t += +o.amount||0; });
+  $('#fDay').innerHTML = options(dayList().map(d => [d, `${dayLabel(d)} — ${counts[d]?.n || 0} orders · ${money(counts[d]?.t || 0)}`]), OF.day);
+  $('#fDay').disabled = !!OF.q.trim();
+  $('#fDriver').innerHTML = options(db.drivers.map(d => [d.id,d.name]), OF.driver, 'All drivers');
+  $('#fPay').innerHTML = options(PAYMENTS, OF.pay, 'All');
+  $('#fPlat').innerHTML = options(PLATFORMS, OF.plat, 'All');
+  const qd = $('#qDriver'), keepDrv = qd.value || db.last.driverId;
+  qd.innerHTML = options(db.drivers.map((d,i) => [d.id, `${i+1} · ${d.name}`]), keepDrv, 'Driver…');
+  const list = filteredOrders();
+  const total = list.reduce((s,o) => s + (+o.amount||0), 0);
+  const unpaid = list.filter(o => !o.paid);
+  $('#ordersSummary').innerHTML = `${OF.q.trim() ? `<span>${ic('search')} <b>Searching all days</b></span>` : `<span><b>${esc(dayLabel(OF.day))}</b></span>`}<span><b>${list.length}</b> orders</span><span>Total <b>${money(total)}</b></span><span>AOV <b>${money(list.length ? total/list.length : 0)}</b></span><span>Unpaid <b style="color:var(--red)">${unpaid.length} · ${money(unpaid.reduce((s,o)=>s+(+o.amount||0),0))}</b></span>`;
+  $('#ordersBody').innerHTML = list.length ? list.map(o => `
+    <tr class="row ${o.id===selId?'sel':''} ${openIds.has(o.id)?'open':''} ${o.id===flashId?'flash':''}" data-id="${o.id}">
+      <td class="exp">${ic('right')}</td>
+      <td><b>${esc(o.cName)}</b>${OF.q.trim() ? `<div class="muted" style="font-size:12px">${fmtDate(o.date)}</div>` : ''}</td>
+      <td>${esc(driverName(o.driverId))}</td>
+      <td>${esc(o.cArea)}</td>
+      <td class="num">${money(o.amount)}</td>
+      <td><span class="tag ${platClass(o.platform)}">${esc(o.platform)}</span></td>
+      <td>${esc(o.payment)}</td>
+      <td><button class="status ${o.paid?'paid':'unpaid'}" data-act="toggle" title="Click to change">${o.paid?'Paid':'Unpaid'}</button></td>
+      <td class="actions"><button data-act="edit" title="Edit">${ic('edit')}</button><button data-act="del" title="Delete">${ic('trash')}</button></td>
+    </tr>
+    <tr class="detail" data-for="${o.id}" ${openIds.has(o.id)?'':'hidden'}><td></td><td colspan="8"><div class="detail-grid">
+      <div><span>Phone</span>${o.cPhone ? `<a href="tel:${esc(normPhone(o.cPhone))}">${esc(o.cPhone)}</a>` : '—'}</div>
+      <div><span>Area</span>${esc(o.cArea) || '—'}</div>
+      <div><span>Address</span>${esc(o.cAddress) || '—'}</div>
+      ${o.note ? `<div><span>Note</span>${esc(o.note)}</div>` : ''}
+      ${o.paid && o.paidAt ? `<div><span>Paid on</span>${fmtDate(o.paidAt)}</div>` : ''}
+    </div></td></tr>`).join('')
+    : `<tr><td colspan="9" class="empty">${OF.q.trim() ? 'No orders match your search.' : 'No orders on this day yet.'}${db.drivers.length ? '' : ' Start by adding a driver in the Drivers tab.'}</td></tr>`;
+  orderIds = list.map(o => o.id);
+  if(selId && !orderIds.includes(selId)) selId = null;
+  flashId = null;
+}
+
+function togglePaid(o){ o.paid = !o.paid; o.paidAt = o.paid ? today() : ''; save(); renderOrders(); toast(`${o.cName}: ${o.paid ? 'Paid' : 'Unpaid'}`); }
+async function deleteOrder(o){
+  if(!(await uiConfirm(`Delete the order for ${o.cName} (${money(o.amount)})?`, {title:'Delete order', ok:'Delete', danger:true}))) return;
+  const i = orderIds.indexOf(o.id);
+  db.orders = db.orders.filter(x => x !== o); save();
+  selId = orderIds[i+1] || orderIds[i-1] || null; renderOrders();
+}
+function toggleDetail(id){
+  openIds.has(id) ? openIds.delete(id) : openIds.add(id);
+  const tr = document.querySelector(`#ordersBody tr.row[data-id="${id}"]`); if(!tr) return;
+  const open = openIds.has(id); tr.classList.toggle('open', open); tr.nextElementSibling.hidden = !open;
+}
+function markSel(){
+  document.querySelectorAll('#ordersBody tr.row').forEach(tr => { const on = tr.dataset.id === selId; tr.classList.toggle('sel', on); if(on) tr.scrollIntoView({block:'nearest'}); });
+}
+$('#ordersBody').addEventListener('click', e => {
+  const tr = e.target.closest('tr.row'); if(!tr) return;
+  const o = db.orders.find(x => x.id === tr.dataset.id);
+  selId = o.id; markSel();
+  const act = e.target.closest('[data-act]')?.dataset.act;
+  if(act === 'toggle') return togglePaid(o);
+  if(act === 'edit') return openOrder(o);
+  if(act === 'del') return deleteOrder(o);
+  toggleDetail(o.id);
+});
+
+/* order dialog */
+let editingOrder = null;
+const oForm = $('#orderForm');
+function openOrder(o){
+  if(!db.drivers.length){ uiAlert('Add at least one driver first in the Drivers page.', {title:'No drivers yet'}); go('drivers'); return; }
+  editingOrder = o || null;
+  refreshLists();
+  $('#orderTitle').textContent = o ? 'Edit order' : 'New order';
+  oForm.driverId.innerHTML = options(db.drivers.map(d => [d.id,d.name]), o?.driverId, 'Choose driver…');
+  oForm.platform.innerHTML = options(PLATFORMS, o?.platform || 'WhatsApp');
+  oForm.payment.innerHTML = options(PAYMENTS, o?.payment || 'Cash');
+  const c = o && db.customers.find(x => x.id === o.customerId);
+  oForm.customer.value = o ? (c ? custLabel(c) : o.cName) : '';
+  oForm.customer._cust = c || null;
+  oForm.amount.value = o?.amount ?? '';
+  oForm.paid.checked = !!o?.paid;
+  oForm.note.value = o?.note || '';
+  updateCustHint();
+  $('#orderDlg').showModal();
+  (o ? oForm.amount : oForm.customer).focus();
+}
+function findCustomer(str){
+  str = String(str||'').trim(); if(!str) return null;
+  let c = db.customers.find(x => custLabel(x) === str); if(c) return c;
+  const d = normPhone(str);
+  if(d.length >= 6){ c = db.customers.filter(x => normPhone(x.phone).endsWith(d) || d.endsWith(normPhone(x.phone)) && normPhone(x.phone).length >= 6); if(c.length === 1) return c[0]; }
+  c = db.customers.filter(x => x.name.toLowerCase() === str.toLowerCase()); return c.length === 1 ? c[0] : null;
+}
+const resolveCust = inp => (inp._cust && inp.value === custLabel(inp._cust)) ? inp._cust : findCustomer(inp.value);
+const prefillFrom = t => /^[\d\s+\-()\/]+$/.test(t) ? {phone:t} : {name:t};
+function updateCustHint(){
+  const c = resolveCust(oForm.customer);
+  $('#custHint').innerHTML = c ? `${ic('pin')}${esc([c.area, c.address].filter(Boolean).join(' – ') || 'no address')} &nbsp; ${ic('phone')}${esc(c.phone || '—')}` : (oForm.customer.value ? 'Not found — pick from the list or click “New”' : '');
+  $('#custHint').style.color = c || !oForm.customer.value ? '' : 'var(--red)';
+}
+oForm.customer.addEventListener('input', updateCustHint);
+$('#newOrderBtn').onclick = () => focusQuick();
+function dlgMemory(c){
+  if(editingOrder || !c) return;
+  const last = lastOrderOf(c); if(!last) return;
+  if(PLATFORMS.includes(last.platform)) oForm.platform.value = last.platform;
+  if(PAYMENTS.includes(last.payment)) oForm.payment.value = last.payment;
+}
+const dlgPicked = c => { oForm.customer._cust = c; oForm.customer.value = custLabel(c); updateCustHint(); dlgMemory(c); oForm.amount.focus(); };
+$('#quickCust').onclick = () => openCustomer(null, dlgPicked, prefillFrom(oForm.customer.value.trim()));
+
+oForm.addEventListener('submit', e => {
+  e.preventDefault();
+  const c = resolveCust(oForm.customer);
+  const keepOld = editingOrder && !c && oForm.customer.value === editingOrder.cName;
+  if(!c && !keepOld){ uiAlert('Choose a customer from the list, or add a new one with the New button.', {title:'Customer not found', icon:'alert'}); return; }
+  const o = editingOrder || {id:uid(), created:Date.now()};
+  const wasPaid = !!o.paid;
+  Object.assign(o, {
+    date: editingOrder ? editingOrder.date : today(), driverId: oForm.driverId.value, amount: Math.round(parseFloat(oForm.amount.value)*100)/100,
+    platform: oForm.platform.value, payment: oForm.payment.value, paid: oForm.paid.checked, note: oForm.note.value.trim()
+  });
+  if(c) Object.assign(o, {customerId:c.id, cName:c.name, cPhone:c.phone, cArea:c.area, cAddress:c.address});
+  if(o.paid && !wasPaid) o.paidAt = today();
+  if(!o.paid) o.paidAt = '';
+  if(!editingOrder) db.orders.push(o);
+  save(); $('#orderDlg').close(); toast(editingOrder ? 'Order updated' : 'Order added');
+  if(!editingOrder) OF.day = o.date;
+  renderOrders();
+});
+
+$('#exportOrders').onclick = () => {
+  if(!window.XLSX) return uiAlert('The Excel tool could not load. Check the internet connection and reload the page.', {title:'Excel not available', icon:'alert'});
+  const rows = filteredOrders().map(o => ({Date:fmtDate(o.date), Customer:o.cName, Phone:o.cPhone, Area:o.cArea, Address:o.cAddress, Driver:driverName(o.driverId), Amount:+o.amount, Platform:o.platform, Payment:o.payment, Status:o.paid?'Paid':'Unpaid', 'Paid on':fmtDate(o.paidAt), Note:o.note}));
+  const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Orders');
+  XLSX.writeFile(wb, `orders_${OF.q.trim() ? 'search' : OF.day}.xlsx`);
+};
+
+/* ================= DRIVER PAYMENTS ================= */
+let settleDriver = '', settlePay = '', settleCursor = null, settleIds = [];
+const settleSel = new Set();
+function renderSettle(){
+  const cards = db.drivers.map(d => {
+    const un = db.orders.filter(o => o.driverId === d.id && !o.paid);
+    const amt = un.reduce((s,o) => s + (+o.amount||0), 0);
+    return `<button class="dcard ${d.id===settleDriver?'sel':''} ${un.length?'':'zero'}" data-id="${d.id}"><b>${esc(d.name)}</b><div class="due">${money(amt)}</div><div class="muted">${un.length} unpaid order${un.length===1?'':'s'}</div></button>`;
+  });
+  $('#settleCards').innerHTML = cards.join('') || '<div class="empty">No drivers yet — add them in the Drivers tab.</div>';
+  const panel = $('#settlePanel');
+  if(!settleDriver){ panel.innerHTML = db.drivers.length ? '<p class="keys-hint">Click a driver, or press <kbd>→</kbd> to start.</p>' : ''; return; }
+  const list = db.orders.filter(o => o.driverId === settleDriver && !o.paid && (!settlePay || o.payment === settlePay)).sort((a,b) => a.date.localeCompare(b.date));
+  settleIds = list.map(o => o.id);
+  [...settleSel].forEach(id => { if(!settleIds.includes(id)) settleSel.delete(id); });
+  if(!settleIds.includes(settleCursor)) settleCursor = settleIds[0] || null;
+  const selTotal = list.filter(o => settleSel.has(o.id)).reduce((s,o) => s + (+o.amount||0), 0);
+  panel.innerHTML = `<div class="keys-hint"><kbd>↑</kbd><kbd>↓</kbd> move · <kbd>Space</kbd> tick · <kbd>A</kbd> select all · <kbd>Enter</kbd> mark as paid · <kbd>←</kbd><kbd>→</kbd> change driver</div>
+  <div class="card table-wrap">
+    <div class="toolbar" style="padding:14px 14px 0"><h3 style="margin:0">${esc(driverName(settleDriver))} — unpaid orders</h3><div class="spacer"></div>
+      <label>Payment type<select id="settlePay">${options(PAYMENTS, settlePay, 'All')}</select></label></div>
+    <table class="tbl"><thead><tr><th><input type="checkbox" id="selAll" ${list.length && settleSel.size===list.length?'checked':''}></th><th>Date</th><th>Customer</th><th>Area</th><th>Platform</th><th>Payment</th><th class="num">Amount</th></tr></thead>
+    <tbody id="settleBody">${list.map(o => `<tr data-id="${o.id}" class="${o.id===settleCursor?'sel':''}" style="cursor:pointer"><td><input type="checkbox" tabindex="-1" ${settleSel.has(o.id)?'checked':''}></td><td>${fmtDate(o.date)}</td><td><b>${esc(o.cName)}</b><div class="muted">${esc(o.cPhone)}</div></td><td>${esc(o.cArea)}</td><td><span class="tag ${platClass(o.platform)}">${esc(o.platform)}</span></td><td>${esc(o.payment)}</td><td class="num">${money(o.amount)}</td></tr>`).join('') || `<tr><td colspan="7" class="empty">${ic('checkc')} Nothing to pay — all settled</td></tr>`}</tbody></table>
+    ${list.length ? `<div class="settle-foot"><span>Selected: <b>${settleSel.size}</b> of ${list.length}</span><span class="total">${money(selTotal)}</span><div class="spacer"></div><button class="btn primary" id="markPaid" ${settleSel.size?'':'disabled'}>${ic('check')} Mark selected as paid <kbd>Enter</kbd></button></div>` : ''}
+  </div>`;
+  $('#settlePay').onchange = e => { settlePay = e.target.value; renderSettle(); };
+  $('#selAll') && ($('#selAll').onchange = () => settleSelectAll());
+  $('#settleBody').onclick = e => { const tr = e.target.closest('tr[data-id]'); if(!tr) return; const id = tr.dataset.id; settleCursor = id; settleSel.has(id) ? settleSel.delete(id) : settleSel.add(id); renderSettle(); };
+  const mp = $('#markPaid'); if(mp) mp.onclick = settleMarkPaid;
+  panel.querySelector('tr.sel')?.scrollIntoView({block:'nearest'});
+}
+function settleSelectAll(){
+  const all = settleIds.length && settleIds.every(id => settleSel.has(id));
+  settleIds.forEach(id => all ? settleSel.delete(id) : settleSel.add(id)); renderSettle();
+}
+async function settleMarkPaid(){
+  if(!settleSel.size) return;
+  const total = db.orders.filter(o => settleSel.has(o.id)).reduce((s,o) => s + (+o.amount||0), 0);
+  if(!(await uiConfirm(`Mark ${settleSel.size} order${settleSel.size>1?'s':''} as paid for ${money(total)}?`, {title:`${driverName(settleDriver)} is paying`, ok:'Mark as paid', icon:'cash'}))) return;
+  const t = today();
+  db.orders.forEach(o => { if(settleSel.has(o.id)){ o.paid = true; o.paidAt = t; } });
+  save(); settleSel.clear(); toast('Orders marked as paid'); renderSettle();
+}
+$('#settleCards').addEventListener('click', e => { const b = e.target.closest('.dcard'); if(!b) return; settleDriver = b.dataset.id; settleSel.clear(); settleCursor = null; renderSettle(); });
+
+/* ================= REPORTS ================= */
+['#rPeriod','#rMonth','#rFrom','#rTo','#rDriver'].forEach(s => $(s).addEventListener('input', renderReports));
+$('#rMonth').value = today().slice(0,7);
+$('#rFrom').value = monthStart(today()); $('#rTo').value = today();
+function reportRange(){
+  const v = $('#rPeriod').value, t = today();
+  $('#rMonth').hidden = v !== 'month'; $('#rFrom').hidden = $('#rTo').hidden = v !== 'custom';
+  if(v === 'today') return [t, t, 'Today — ' + fmtDate(t)];
+  if(v === 'yesterday'){ const y = addDays(t,-1); return [y, y, 'Yesterday — ' + fmtDate(y)]; }
+  if(v === 'thismonth') return [monthStart(t), t, `This month — ${fmtDate(monthStart(t))} to ${fmtDate(t)}`];
+  if(v === 'lastmonth'){ const lm = addDays(monthStart(t), -1).slice(0,7); return [lm+'-01', monthEnd(lm), 'End of month report — ' + monthName(lm)]; }
+  if(v === 'month'){ const m = $('#rMonth').value || t.slice(0,7); return [m+'-01', monthEnd(m), 'End of month report — ' + monthName(m)]; }
+  return [$('#rFrom').value, $('#rTo').value, `${fmtDate($('#rFrom').value)} to ${fmtDate($('#rTo').value)}`];
+}
+const monthName = ym => new Date(ym+'-01T00:00:00').toLocaleDateString('en-US',{month:'long',year:'numeric'});
+
+function stats(list){
+  const s = {count:list.length, total:0, paid:0, unpaid:0, pay:{}, plat:{}, drv:{}, area:{}, days:{}};
+  PAYMENTS.forEach(p => s.pay[p] = {count:0, total:0, cust:new Set()});
+  PLATFORMS.forEach(p => s.plat[p] = {count:0, total:0, cust:new Set()});
+  for(const o of list){
+    const a = +o.amount || 0, cust = o.customerId || o.cName, ar = o.cArea || '(no area)';
+    s.total += a; o.paid ? s.paid += a : s.unpaid += a;
+    for(const [bucket,key] of [[s.pay,o.payment],[s.plat,o.platform]]){ const b = bucket[key] || (bucket[key] = {count:0,total:0,cust:new Set()}); b.count++; b.total += a; b.cust.add(cust); }
+    const d = s.drv[o.driverId] || (s.drv[o.driverId] = {count:0,total:0,unpaid:0,areas:{}}); d.count++; d.total += a; if(!o.paid) d.unpaid += a; d.areas[ar] = (d.areas[ar]||0) + 1;
+    const A = s.area[ar] || (s.area[ar] = {count:0,total:0}); A.count++; A.total += a;
+    const D = s.days[o.date] || (s.days[o.date] = {count:0,total:0}); D.count++; D.total += a;
+  }
+  s.aov = s.count ? s.total/s.count : 0;
+  s.customers = new Set(list.map(o => o.customerId || o.cName)).size;
+  return s;
+}
+const pct = (a,b) => b ? (a/b*100).toFixed(1)+'%' : '0%';
+
+function renderReports(){
+  $('#rDriver').innerHTML = options(db.drivers.map(d => [d.id,d.name]), $('#rDriver').value, 'All drivers');
+  const [from,to,title] = reportRange(), drv = $('#rDriver').value;
+  const list = db.orders.filter(o => (!from || o.date >= from) && (!to || o.date <= to) && (!drv || o.driverId === drv));
+  const s = stats(list);
+  const table = (head, rows) => `<table class="tbl"><thead><tr>${head.map((h,i) => `<th class="${i?'num':''}">${h}</th>`).join('')}</tr></thead><tbody>${rows.join('') || `<tr><td colspan="${head.length}" class="empty">No data</td></tr>`}</tbody></table>`;
+  const byTotal = obj => Object.entries(obj).sort((a,b) => b[1].total - a[1].total);
+
+  const payRows = byTotal(s.pay).map(([k,v]) => `<tr><td>${esc(k)}</td><td class="num">${v.count}</td><td class="num">${v.cust.size}</td><td class="num">${money(v.total)}</td><td class="num">${pct(v.total,s.total)}</td></tr>`);
+  const platRows = byTotal(s.plat).map(([k,v]) => `<tr><td><span class="tag ${platClass(k)}">${esc(k)}</span></td><td class="num">${v.count}</td><td class="num">${v.cust.size}</td><td class="num">${money(v.total)}</td><td class="num">${money(v.count ? v.total/v.count : 0)}</td></tr>`);
+  const drvRows = byTotal(s.drv).map(([id,v]) => `<tr><td><b>${esc(driverName(id))}</b><div style="margin-top:4px">${Object.entries(v.areas).sort((a,b)=>b[1]-a[1]).map(([a,n]) => `<span class="tag area">${esc(a)} × ${n}</span>`).join('')}</div></td><td class="num">${v.count}</td><td class="num">${money(v.total)}</td><td class="num">${money(v.total/v.count)}</td><td class="num" style="color:${v.unpaid?'var(--red)':'inherit'}">${money(v.unpaid)}</td></tr>`);
+  const areaRows = byTotal(s.area).map(([k,v]) => `<tr><td>${esc(k)}</td><td class="num">${v.count}</td><td class="num">${money(v.total)}</td><td class="num">${money(v.total/v.count)}</td></tr>`);
+  const dayRows = Object.entries(s.days).sort().map(([d,v]) => `<tr><td>${fmtDate(d)}</td><td class="num">${v.count}</td><td class="num">${money(v.total)}</td><td class="num">${money(v.total/v.count)}</td></tr>`);
+
+  $('#reportBody').innerHTML = `
+    <h3 class="report-title">${esc(title)}${drv ? ' · Driver: ' + esc(driverName(drv)) : ''}</h3>
+    <div class="kpis">
+      <div class="kpi"><span>Orders</span><b>${s.count}</b></div>
+      <div class="kpi"><span>Total sales</span><b>${money(s.total)}</b></div>
+      <div class="kpi"><span>Average order value (AOV)</span><b>${money(s.aov)}</b></div>
+      <div class="kpi"><span>Customers served</span><b>${s.customers}</b></div>
+      <div class="kpi"><span>Collected (paid)</span><b style="color:var(--green)">${money(s.paid)}</b></div>
+      <div class="kpi"><span>Outstanding (unpaid)</span><b style="color:var(--red)">${money(s.unpaid)}</b></div>
+    </div>
+    <div class="grid-2">
+      <div class="card table-wrap"><h3 style="padding:14px 14px 0">By payment method</h3>${table(['Method','Orders','Customers','Total','% of sales'], payRows)}</div>
+      <div class="card table-wrap"><h3 style="padding:14px 14px 0">By platform</h3>${table(['Platform','Orders','Customers','Total','AOV'], platRows)}</div>
+    </div>
+    <div class="card table-wrap"><h3 style="padding:14px 14px 0">By driver — orders delivered and areas</h3>${table(['Driver / areas','Orders','Total','AOV','Unpaid'], drvRows)}</div>
+    <div class="grid-2">
+      <div class="card table-wrap"><h3 style="padding:14px 14px 0">By area</h3>${table(['Area','Orders','Total','AOV'], areaRows)}</div>
+      ${dayRows.length > 1 ? `<div class="card table-wrap"><h3 style="padding:14px 14px 0">Day by day</h3>${table(['Date','Orders','Total','AOV'], dayRows)}</div>` : ''}
+    </div>`;
+}
+
+/* ================= CUSTOMERS ================= */
+$('#cSearch').addEventListener('input', renderCustomers);
+function renderCustomers(){
+  refreshLists();
+  const q = $('#cSearch').value.trim().toLowerCase(), qd = normPhone(q);
+  const agg = {};
+  db.orders.forEach(o => { const a = agg[o.customerId] || (agg[o.customerId] = {n:0,t:0}); a.n++; a.t += +o.amount||0; });
+  const list = db.customers.filter(c => !q || [c.name,c.area,c.address].join(' ').toLowerCase().includes(q) || (qd.length >= 3 && normPhone(c.phone).includes(qd)))
+    .sort((a,b) => a.name.localeCompare(b.name));
+  $('#custSummary').innerHTML = `<span><b>${db.customers.length}</b> customers${q ? ` · <b>${list.length}</b> match` : ''}</span>`;
+  const shown = list.slice(0, 500);
+  $('#custBody').innerHTML = shown.map(c => `<tr data-id="${c.id}"><td><b>${esc(c.name)}</b></td><td>${c.phone ? `<a href="tel:${esc(normPhone(c.phone))}" style="color:var(--brand)">${esc(c.phone)}</a>` : '—'}</td><td>${esc(c.area)}</td><td>${esc(c.address)}</td><td class="num">${agg[c.id]?.n || 0}</td><td class="num">${money(agg[c.id]?.t || 0)}</td>
+    <td class="actions"><button data-act="order" title="New order">${ic('truck')}</button><button data-act="edit" title="Edit">${ic('edit')}</button><button data-act="del" title="Delete">${ic('trash')}</button></td></tr>`).join('')
+    + (list.length > 500 ? `<tr><td colspan="7" class="empty">Showing first 500 — use search to narrow down.</td></tr>` : '')
+    || `<tr><td colspan="7" class="empty">No customers yet. Use “Import Excel” to load your list.</td></tr>`;
+}
+$('#custBody').addEventListener('click', async e => {
+  const act = e.target.closest('[data-act]')?.dataset.act; if(!act) return;
+  const c = db.customers.find(x => x.id === e.target.closest('tr').dataset.id);
+  if(act === 'edit') openCustomer(c);
+  if(act === 'order'){ focusQuick(); pickQuick(c); }
+  if(act === 'del' && await uiConfirm(`Delete ${c.name}? Their past orders stay in the history.`, {title:'Delete customer', ok:'Delete', danger:true})){ db.customers = db.customers.filter(x => x !== c); save(); renderCustomers(); }
+});
+
+let editingCust = null, custCallback = null;
+const cForm = $('#custForm');
+function openCustomer(c, cb, prefill){
+  editingCust = c || null; custCallback = cb || null;
+  refreshLists();
+  $('#custTitle').textContent = c ? 'Edit customer' : 'New customer';
+  ['name','phone','area','address'].forEach(k => cForm[k].value = c?.[k] || prefill?.[k] || '');
+  $('#custDlg').showModal();
+  (prefill?.name ? cForm.phone : cForm.name).focus();
+}
+cForm.addEventListener('submit', async e => {
+  e.preventDefault();
+  const data = {name:cForm.name.value.trim(), phone:fmtPhone(cForm.phone.value), area:canonArea(cForm.area.value), address:cForm.address.value.trim()};
+  const p = normPhone(data.phone);
+  const dup = p && db.customers.find(x => x !== editingCust && normPhone(x.phone) === p);
+  if(dup && !(await uiConfirm(`${dup.name} already has this phone number. Save anyway?`, {title:'Duplicate phone', ok:'Save anyway', icon:'alert'}))) return;
+  const c = editingCust || {id:uid()};
+  Object.assign(c, data);
+  if(!editingCust) db.customers.push(c);
+  else db.orders.forEach(o => { if(o.customerId === c.id) Object.assign(o, {cName:c.name, cPhone:c.phone, cArea:c.area, cAddress:c.address}); });
+  save(); $('#custDlg').close(); toast('Customer saved'); refreshLists();
+  if(custCallback) custCallback(c); else renderCustomers();
+});
+$('#newCustBtn').onclick = () => openCustomer();
+
+$('#exportCust').onclick = () => {
+  if(!window.XLSX) return uiAlert('The Excel tool could not load. Check the internet connection and reload the page.', {title:'Excel not available', icon:'alert'});
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(db.customers.map(c => ({Name:c.name, Phone:c.phone, Area:c.area, Address:c.address}))), 'Customers');
+  XLSX.writeFile(wb, 'customers.xlsx');
+};
+
+/* Excel import */
+const FIELDS = [
+  ['name','Name',   ['name','customer','client','اسم','الاسم','nom']],
+  ['phone','Phone', ['phone','contact','mobile','tel','number','cell','whatsapp','هاتف','رقم','جوال','خليوي']],
+  ['area','Area',   ['area','region','village','town','city','zone','منطقة','المنطقة','بلدة']],
+  ['address','Address',['address','location','street','building','عنوان','العنوان','adresse']],
+];
+let impRows = [], impMap = {}, impHeader = true;
+$('#importBtn').onclick = () => {
+  if(!window.XLSX) return uiAlert('The Excel tool could not load. Check the internet connection and reload the page.', {title:'Excel not available', icon:'alert'});
+  $('#impFile').value = ''; $('#impBody').innerHTML = '<p class="muted">Choose your Excel file (.xlsx, .xls or .csv). The first sheet is used. Columns are detected automatically — you can adjust them before importing.</p>';
+  $('#impGo').disabled = true; $('#importDlg').showModal();
+};
+$('#impFile').onchange = async e => {
+  const f = e.target.files[0]; if(!f) return;
+  const wb = XLSX.read(await f.arrayBuffer(), {type:'array'});
+  impRows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {header:1, defval:'', raw:false})
+    .filter(r => r.some(v => String(v).trim() !== ''));
+  if(!impRows.length){ $('#impBody').innerHTML = '<p>The sheet is empty.</p>'; return; }
+  const head = impRows[0].map(h => String(h).toLowerCase().trim());
+  impMap = {}; const used = new Set();
+  FIELDS.forEach(([k,,keys]) => { const i = head.findIndex((h,i) => !used.has(i) && keys.some(w => h.includes(w))); if(i >= 0){ impMap[k] = i; used.add(i); } });
+  impHeader = Object.keys(impMap).length > 0;
+  if(!impHeader){ impMap = {name:0, phone:1, area:2, address:3}; }
+  drawImport();
+};
+function drawImport(){
+  const ncol = Math.max(...impRows.map(r => r.length));
+  const colName = i => impHeader ? (String(impRows[0][i]).trim() || `Column ${XLSX.utils.encode_col(i)}`) : `Column ${XLSX.utils.encode_col(i)}`;
+  const cols = [...Array(ncol).keys()].map(i => [String(i), colName(i)]);
+  const data = impHeader ? impRows.slice(1) : impRows;
+  const mapped = data.map(r => mapRow(r)).filter(x => x.name);
+  $('#impBody').innerHTML = `
+    <label class="chk" style="margin-top:12px"><input type="checkbox" id="impHead" ${impHeader?'checked':''}> First row contains column titles</label>
+    <div class="map-grid">${FIELDS.map(([k,l]) => `<label>${l} column<select data-f="${k}">${options(cols, impMap[k] !== undefined ? String(impMap[k]) : '', '— none —')}</select></label>`).join('')}</div>
+    <p class="muted" style="margin:6px 0">If there is no Area column, the area is taken from the address when it contains a known area name (Ajaltoun, Faraya…).</p>
+    <div class="card table-wrap" style="max-height:240px;overflow:auto;margin:0"><table class="tbl"><thead><tr><th>Name</th><th>Phone</th><th>Area</th><th>Address</th></tr></thead>
+      <tbody>${mapped.slice(0,8).map(c => `<tr><td>${esc(c.name)}</td><td>${esc(c.phone)}</td><td>${esc(c.area)}</td><td>${esc(c.address)}</td></tr>`).join('') || '<tr><td colspan="4" class="empty">No names found — check the Name column.</td></tr>'}</tbody></table></div>
+    <p><b>${mapped.length}</b> customers found in the file.</p>
+    <label class="chk"><input type="checkbox" id="impSkip" checked> Skip exact duplicates (same name and phone already saved)</label>
+    <p class="muted" style="margin:6px 0 0">Area spellings are cleaned up (AJALTOUNE → Ajaltoun) and phones formatted as 76-482453.</p>`;
+  $('#impHead').onchange = e => { impHeader = e.target.checked; drawImport(); };
+  document.querySelectorAll('#impBody [data-f]').forEach(s => s.onchange = () => { s.value === '' ? delete impMap[s.dataset.f] : impMap[s.dataset.f] = +s.value; drawImport(); });
+  $('#impGo').disabled = !mapped.length;
+}
+function mapRow(r){
+  const g = k => impMap[k] !== undefined ? String(r[impMap[k]] ?? '').trim() : '';
+  const c = {name:g('name').replace(/\s+/g, ' '), phone:fmtPhone(g('phone')), area:g('area'), address:g('address')};
+  if(!c.area && c.address){
+    const known = canonArea(c.address);
+    if(allAreas().includes(known) || DEFAULT_AREAS.includes(known)){ c.area = known; c.address = ''; }   // the "address" is just the area
+    else {
+      const hit = allAreas().find(a => c.address.toLowerCase().includes(a.toLowerCase()));
+      c.area = hit || (c.address.length <= 25 ? c.address : '');
+      if(c.address.length <= 25 && !hit) c.address = '';
+    }
+  }
+  c.area = canonArea(c.area);
+  return c;
+}
+$('#impGo').onclick = () => {
+  const data = (impHeader ? impRows.slice(1) : impRows).map(mapRow).filter(c => c.name);
+  const skip = $('#impSkip').checked;
+  const dupKey = c => c.name.trim().toLowerCase() + '|' + normPhone(c.phone);
+  const seen = new Set(db.customers.map(dupKey));
+  let added = 0, skipped = 0;
+  data.forEach(c => {
+    const k = dupKey(c);
+    if(skip && seen.has(k)){ skipped++; return; }
+    db.customers.push({id:uid(), ...c}); seen.add(k); added++;
+  });
+  save(); $('#importDlg').close();
+  uiAlert(`${added} customers imported.` + (skipped ? `\n${skipped} skipped because the same name and phone were already saved.` : ''), {title:'Import finished', icon:'checkc'});
+  renderCustomers();
+};
+
+/* ================= DRIVERS ================= */
+$('#driverForm').addEventListener('submit', e => {
+  e.preventDefault(); const f = e.target, name = f.name.value.trim(); if(!name) return;
+  if(db.drivers.some(d => d.name.toLowerCase() === name.toLowerCase())) return uiAlert(`${name} already exists.`, {title:'Duplicate driver', icon:'alert'});
+  db.drivers.push({id:uid(), name, phone:f.phone.value.trim()}); save(); f.reset(); renderDrivers(); toast('Driver added');
+});
+function renderDrivers(){
+  const m = today().slice(0,7);
+  $('#driversBody').innerHTML = db.drivers.map(d => {
+    const mine = db.orders.filter(o => o.driverId === d.id), un = mine.filter(o => !o.paid);
+    return `<tr data-id="${d.id}"><td><b>${esc(d.name)}</b></td><td>${esc(d.phone)||'—'}</td><td class="num">${mine.length}</td><td class="num">${mine.filter(o => o.date.startsWith(m)).length}</td><td class="num">${un.length}</td><td class="num" style="color:${un.length?'var(--red)':'inherit'}">${money(un.reduce((s,o)=>s+(+o.amount||0),0))}</td>
+      <td class="actions"><button data-act="pay" title="Payments">${ic('cash')}</button><button data-act="edit" title="Rename">${ic('edit')}</button><button data-act="del" title="Delete">${ic('trash')}</button></td></tr>`;
+  }).join('') || '<tr><td colspan="7" class="empty">No drivers yet.</td></tr>';
+}
+$('#driversBody').addEventListener('click', async e => {
+  const act = e.target.closest('[data-act]')?.dataset.act; if(!act) return;
+  const d = db.drivers.find(x => x.id === e.target.closest('tr').dataset.id);
+  if(act === 'pay'){ settleDriver = d.id; go('settle'); }
+  if(act === 'edit'){
+    const v = await uiForm('Edit driver', [{label:'Name', value:d.name, required:true}, {label:'Phone (optional)', value:d.phone || ''}]);
+    if(v){ d.name = v[0].trim(); d.phone = v[1].trim(); save(); renderDrivers(); toast('Driver saved', 'check'); }
+  }
+  if(act === 'del'){
+    if(db.orders.some(o => o.driverId === d.id)) return uiAlert(`${d.name} has orders in the history, so he can't be deleted. You can rename him instead.`, {title:'Driver has orders', icon:'alert'});
+    if(await uiConfirm(`Delete driver ${d.name}?`, {title:'Delete driver', ok:'Delete', danger:true})){ db.drivers = db.drivers.filter(x => x !== d); save(); renderDrivers(); }
+  }
+});
+
+/* ================= SETTINGS ================= */
+function renderSettings(){
+  $('#areaChips').innerHTML = db.areas.slice().sort((a,b)=>a.localeCompare(b)).map(a => `<span class="chip">${esc(a)}<button data-a="${esc(a)}" title="Remove">×</button></span>`).join('');
+  $('#curForm').cur.value = db.currency;
+}
+$('#areaChips').addEventListener('click', e => { const a = e.target.dataset.a; if(a){ db.areas = db.areas.filter(x => x !== a); save(); renderSettings(); } });
+$('#areaForm').addEventListener('submit', e => { e.preventDefault(); const a = e.target.area.value.trim(); if(a && !db.areas.some(x => x.toLowerCase() === a.toLowerCase())){ db.areas.push(a); save(); } e.target.reset(); renderSettings(); });
+$('#curForm').addEventListener('submit', e => { e.preventDefault(); db.currency = e.target.cur.value.trim() || '$'; save(); toast('Currency saved'); });
+$('#backupBtn').onclick = () => {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(db,null,1)], {type:'application/json'}));
+  a.download = `delivery-backup-${today()}.json`; a.click();
+};
+$('#restoreBtn').onclick = () => $('#restoreFile').click();
+$('#restoreFile').onchange = async e => {
+  const f = e.target.files[0]; if(!f) return;
+  try{
+    const d = JSON.parse(await f.text());
+    if(!d.orders || !d.customers) throw 0;
+    if(!(await uiConfirm(`This replaces ALL data in the database, for everyone, with the backup:\n${d.customers.length} customers, ${(d.drivers||[]).length} drivers, ${d.orders.length} orders.`, {title:'Restore backup', ok:'Replace data', danger:true}))) return;
+    db.customers = d.customers; db.drivers = d.drivers || []; db.orders = d.orders; db.areas = d.areas || [...DEFAULT_AREAS]; db.currency = d.currency || '$';
+    save(); toast('Backup restored', 'check'); go('orders');
+  }catch(err){ uiAlert('This is not a valid backup file.', {title:'Cannot restore', icon:'alert'}); }
+  e.target.value = '';
+};
+$('#wipeBtn').onclick = async () => {
+  const v = await uiForm('Delete all data', [{label:'Type DELETE to confirm', placeholder:'DELETE'}], {message:'This deletes ALL customers, drivers and orders from the database, for everyone. It cannot be undone.', ok:'Delete everything', danger:true, icon:'alert'});
+  if(v && v[0].trim() === 'DELETE'){ db.customers = []; db.drivers = []; db.orders = []; save(); go('orders'); toast('All data deleted'); }
+};
+
+/* ================= CUSTOMER SEARCH DROPDOWN ================= */
+function searchCustomers(q){
+  q = q.trim().toLowerCase(); if(!q) return [];
+  const toks = q.split(/\s+/), d = normPhone(q), res = [];
+  for(const c of db.customers){
+    const hay = `${c.name} ${c.area||''} ${c.address||''}`.toLowerCase(), ph = normPhone(c.phone);
+    if(!toks.every(t => hay.includes(t) || (/^[\d+]+$/.test(t) && ph.includes(normPhone(t))))) continue;
+    const n = c.name.toLowerCase();
+    const s = n.startsWith(q) ? 0 : (d && ph.startsWith(d)) ? 1 : n.split(/\s+/).some(w => w.startsWith(toks[0])) ? 2 : 3;
+    res.push([s, c]);
+  }
+  return res.sort((a,b) => a[0]-b[0] || a[1].name.localeCompare(b[1].name)).slice(0, 8).map(x => x[1]);
+}
+function attachAC(input, onPick, onCreate){
+  const box = document.createElement('div'); box.className = 'ac'; box.hidden = true;
+  (input.closest('dialog') || document.body).appendChild(box);
+  let items = [], idx = 0;
+  const hide = () => { box.hidden = true; };
+  function draw(){
+    const q = input.value.trim(); if(!q){ hide(); return; }
+    const r = input.getBoundingClientRect();
+    Object.assign(box.style, {left: r.left+'px', top: (r.bottom+2)+'px', width: Math.max(r.width, 360)+'px'});
+    box.innerHTML = items.map((c,i) => `<div data-i="${i}" class="${i===idx?'on':''}"><span><b>${esc(c.name)}</b> <span class="muted">${esc(c.phone)}</span></span><span class="muted">${esc(c.area)}</span></div>`).join('')
+      + `<div data-i="${items.length}" class="new ${idx===items.length?'on':''}">+ New customer “${esc(q)}”</div>`;
+    box.hidden = false;
+    box.querySelector('.on')?.scrollIntoView({block:'nearest'});
+  }
+  function pick(i){
+    hide();
+    if(i >= items.length){ onCreate(input.value.trim()); return; }
+    const c = items[i]; input._cust = c; input.value = custLabel(c); onPick(c);
+  }
+  input.addEventListener('input', () => { input._cust = null; items = searchCustomers(input.value); idx = 0; draw(); });
+  input.addEventListener('keydown', e => {
+    if(box.hidden) return;
+    const n = items.length + 1;
+    if(e.key === 'ArrowDown'){ idx = (idx+1) % n; draw(); e.preventDefault(); }
+    else if(e.key === 'ArrowUp'){ idx = (idx-1+n) % n; draw(); e.preventDefault(); }
+    else if(e.key === 'Enter' || (e.key === 'Tab' && !e.shiftKey && idx < items.length)){ e.preventDefault(); e.stopPropagation(); pick(idx); }
+    else if(e.key === 'Escape'){ hide(); e.preventDefault(); e.stopPropagation(); }
+  });
+  box.addEventListener('mousedown', e => e.preventDefault());
+  box.addEventListener('click', e => { const el = e.target.closest('[data-i]'); if(el) pick(+el.dataset.i); });
+  input.addEventListener('blur', () => setTimeout(hide, 120));
+  window.addEventListener('scroll', e => { if(e.target !== box) hide(); }, true);
+  window.addEventListener('resize', hide);
+}
+attachAC(oForm.customer, c => { updateCustHint(); dlgMemory(c); oForm.amount.focus(); },
+  t => openCustomer(null, dlgPicked, prefillFrom(t)));
+
+/* ================= QUICK ORDER ROW ================= */
+const qCust = $('#qCust'), qDriver = $('#qDriver'), qAmount = $('#qAmount'), qPaid = $('#qPaid');
+let qIsPaid = false;
+function focusQuick(){ if(currentPage !== 'orders') go('orders'); qCust.focus(); qCust.select(); }
+// ---- customer memory: their most recent order ----
+function lastOrderOf(c){
+  let best = null;
+  for(const o of db.orders){
+    if(o.customerId !== c.id) continue;
+    if(!best || o.date > best.date || (o.date === best.date && (o.created||0) > (best.created||0))) best = o;
+  }
+  return best;
+}
+function daysAgo(d){
+  const n = Math.round((new Date(today()+'T00:00:00') - new Date(d+'T00:00:00')) / 864e5);
+  return n <= 0 ? 'today' : n === 1 ? 'yesterday' : n + ' days ago';
+}
+// most used payment / platform in the shop (for customers with no history)
+function shopDefaults(){
+  const cnt = (f, dflt) => { const m = {}; db.orders.forEach(o => m[o[f]] = (m[o[f]]||0) + 1); return Object.entries(m).sort((x,y) => y[1]-x[1])[0]?.[0] || dflt; };
+  return {payment:cnt('payment', 'Cash'), platform:cnt('platform', 'WhatsApp')};
+}
+const shortPay = p => ({'Credit Card':'Card', 'On Account':'Account'}[p] || p);
+const shortPlat = p => p === 'Application' ? 'App' : p;
+function applyMemory(c){
+  const last = lastOrderOf(c), area = $('#qArea');
+  const pick = last || shopDefaults();
+  if(PLATFORMS.includes(pick.platform)) db.last.platform = pick.platform;
+  if(PAYMENTS.includes(pick.payment))  db.last.payment  = pick.payment;
+  save(); drawPlat(); drawPay();
+  if(!last){
+    area.innerHTML = `${esc(c.area || '')}<span class="qmem new">New customer</span>`;
+    return;
+  }
+  ['#qPlat','#qPay'].forEach(sel => { const el = $(sel); el.classList.remove('auto'); void el.offsetWidth; el.classList.add('auto'); });
+  area.innerHTML = `${esc(c.area || '')}<span class="qmem" title="Last order: ${esc(fmtDate(last.date))} · ${esc(money(last.amount))} · ${esc(last.payment)} · ${esc(last.platform)}">Last: ${esc(shortPay(last.payment))} · ${esc(shortPlat(last.platform))} · ${daysAgo(last.date)}</span>`;
+}
+function pickQuick(c){
+  qCust._cust = c; qCust.value = custLabel(c);
+  applyMemory(c);
+  qDriver.focus();
+}
+function drawPaid(){ qPaid.className = 'status ' + (qIsPaid ? 'paid' : 'unpaid'); qPaid.textContent = qIsPaid ? 'Paid' : 'Unpaid'; }
+function refocusQuick(){ (!resolveCust(qCust) ? qCust : !qDriver.value ? qDriver : qAmount).focus(); }
+qPaid.addEventListener('mousedown', e => e.preventDefault());
+qPaid.onclick = () => { qIsPaid = !qIsPaid; drawPaid(); refocusQuick(); };
+drawPaid();
+
+function seg(el, vals, labels, field){
+  const draw = () => el.innerHTML = vals.map((v,i) => `<button type="button" tabindex="-1" data-v="${esc(v)}" class="${db.last[field]===v?'on':''}">${labels[i]}</button>`).join('');
+  el.addEventListener('mousedown', e => e.preventDefault());
+  el.addEventListener('click', e => { const b = e.target.closest('button'); if(b){ db.last[field] = b.dataset.v; save(); draw(); refocusQuick(); } });
+  draw();
+  return draw;
+}
+const drawPlat = seg($('#qPlat'), PLATFORMS, ['App','WhatsApp'], 'platform');
+const drawPay  = seg($('#qPay'), PAYMENTS, ['Cash','Online','Card','Account'], 'payment');
+
+qDriver.addEventListener('keydown', e => {
+  if(/^[1-9]$/.test(e.key)){ const d = db.drivers[+e.key-1]; if(d){ qDriver.value = d.id; db.last.driverId = d.id; save(); } e.preventDefault(); }
+});
+qDriver.addEventListener('change', () => { db.last.driverId = qDriver.value; save(); });
+qCust.addEventListener('input', () => { $('#qArea').textContent = ''; });
+attachAC(qCust, pickQuick, t => openCustomer(null, c => pickQuick(c), prefillFrom(t)));
+
+function bad(el, msg){ el.classList.add('err'); setTimeout(() => el.classList.remove('err'), 1300); toast(msg); el.focus(); }
+function clearQuick(){ qCust.value = ''; qCust._cust = null; qAmount.value = ''; $('#qArea').textContent = ''; qIsPaid = false; drawPaid(); }
+function quickSave(){
+  if(!db.drivers.length){ uiAlert('Add at least one driver first in the Drivers page.', {title:'No drivers yet'}); go('drivers'); return; }
+  const c = resolveCust(qCust);
+  const amt = parseFloat(String(qAmount.value).replace(',', '.'));
+  if(!c) return bad(qCust, qCust.value ? 'Customer not found — pick from the list' : 'Type a customer');
+  if(!qDriver.value) return bad(qDriver, 'Choose a driver (keys 1–9)');
+  if(!(amt > 0)) return bad(qAmount, 'Enter the amount');
+  const o = {id:uid(), created:Date.now(), date:today(), driverId:qDriver.value, amount:Math.round(amt*100)/100,
+    platform:db.last.platform, payment:db.last.payment, paid:qIsPaid, paidAt:qIsPaid ? today() : '', note:'',
+    customerId:c.id, cName:c.name, cPhone:c.phone, cArea:c.area, cAddress:c.address};
+  db.orders.push(o); db.last.driverId = o.driverId; save();
+  OF.day = o.date; OF.q = ''; flashId = o.id;
+  clearQuick(); renderOrders();
+  toast(`${o.cName} — ${money(o.amount)} · ${driverName(o.driverId)}`, 'check');
+  qCust.focus();
+}
+$('#qAdd').onclick = quickSave;
+$('#quickRow').addEventListener('keydown', e => {
+  if(e.key === 'Enter'){
+    e.preventDefault();
+    if(e.target === qCust && resolveCust(qCust)){ qDriver.focus(); return; }
+    if(e.target === qDriver && qDriver.value){ qAmount.focus(); qAmount.select(); return; }
+    quickSave(); return;
+  }
+  if(e.key === 'Escape'){
+    e.preventDefault();
+    if(qCust.value || qAmount.value){ clearQuick(); qCust.focus(); } else document.activeElement.blur();
+    return;
+  }
+});
+
+/* ================= GLOBAL SHORTCUTS ================= */
+$('#helpBtn').onclick = () => $('#helpDlg').showModal();
+
+const isField = el => el && el.matches && el.matches('input, select, textarea, [contenteditable="true"]');
+document.addEventListener('keydown', e => {
+  if(document.body.classList.contains('locked')) return;
+  if(e.key === 'F2'){ e.preventDefault(); if(!document.querySelector('dialog[open]')) focusQuick(); return; }
+  if(document.querySelector('dialog[open]')) return;
+  if(e.ctrlKey || e.metaKey || e.altKey) return;
+  const t = e.target;
+  if(t.closest && t.closest('.quick-row')) return;          // handled by the quick row
+  if(isField(t)){ if(e.key === 'Escape') t.blur(); return; } // typing in a field
+  const k = e.key;
+  if(/^[1-6]$/.test(k)){ e.preventDefault(); go(PAGES[+k-1]); return; }
+  if(k === '?'){ e.preventDefault(); $('#helpDlg').showModal(); return; }
+  if(k === 'n' || k === 'N'){ e.preventDefault(); focusQuick(); return; }
+  if(k === '/'){ const s = {orders:'#fSearch', customers:'#cSearch'}[currentPage]; if(s){ e.preventDefault(); $(s).focus(); } return; }
+  if(t.tagName === 'BUTTON' && (k === 'Enter' || k === ' ')) return; // let the focused button work
+  if(currentPage === 'orders') ordersKeys(e);
+  else if(currentPage === 'settle') settleKeys(e);
+});
+function ordersKeys(e){
+  const k = e.key;
+  if(k === 'ArrowLeft'){ e.preventDefault(); shiftDay(-1); return; }
+  if(k === 'ArrowRight'){ e.preventDefault(); shiftDay(1); return; }
+  if(k === 't' || k === 'T'){ goDay(today()); return; }
+  if(k === 'ArrowDown' || k === 'ArrowUp' || k === 'j' || k === 'k'){
+    e.preventDefault(); if(!orderIds.length) return;
+    let i = orderIds.indexOf(selId);
+    i = i < 0 ? 0 : Math.max(0, Math.min(orderIds.length-1, i + (k === 'ArrowDown' || k === 'j' ? 1 : -1)));
+    selId = orderIds[i]; markSel(); return;
+  }
+  const o = db.orders.find(x => x.id === selId); if(!o) return;
+  if(k === 'Enter' || k === ' '){ e.preventDefault(); toggleDetail(o.id); }
+  else if(k === 'e' || k === 'E'){ e.preventDefault(); openOrder(o); }
+  else if(k === 'Delete' || k === 'Backspace'){ e.preventDefault(); deleteOrder(o); }
+}
+function settleKeys(e){
+  const k = e.key;
+  if(k === 'ArrowRight' || k === 'ArrowLeft'){
+    e.preventDefault(); const n = db.drivers.length; if(!n) return;
+    const i = db.drivers.findIndex(d => d.id === settleDriver);
+    settleDriver = db.drivers[i < 0 ? 0 : (i + (k === 'ArrowRight' ? 1 : -1) + n) % n].id;
+    settleSel.clear(); settleCursor = null; renderSettle(); return;
+  }
+  if(!settleDriver) return;
+  if(k === 'ArrowDown' || k === 'ArrowUp'){
+    e.preventDefault(); if(!settleIds.length) return;
+    let i = settleIds.indexOf(settleCursor);
+    i = i < 0 ? 0 : Math.max(0, Math.min(settleIds.length-1, i + (k === 'ArrowDown' ? 1 : -1)));
+    settleCursor = settleIds[i]; renderSettle(); return;
+  }
+  if(k === ' ' && settleCursor){ e.preventDefault(); settleSel.has(settleCursor) ? settleSel.delete(settleCursor) : settleSel.add(settleCursor); renderSettle(); return; }
+  if(k === 'a' || k === 'A'){ e.preventDefault(); settleSelectAll(); return; }
+  if(k === 'Enter'){ e.preventDefault(); settleMarkPaid(); }
+}
+
+/* ---------- start ---------- */
+boot();
+</script>
+</body>
+</html>

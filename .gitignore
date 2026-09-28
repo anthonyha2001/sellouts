@@ -1,0 +1,5 @@
+# Data backups contain customer/business data - keep them out of git
+backups/
+node_modules/
+.env
+*.local
