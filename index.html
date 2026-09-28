@@ -137,6 +137,7 @@ button{font:inherit;}
 .sidebar.collapsed .sidenav button{justify-content:center;padding:10px;gap:0;}
 .sidebar.collapsed .sidenav .label,.sidebar.collapsed .sidenav .pill{display:none;}
 .sidebar-foot{margin-top:auto;padding:14px 10px 0;border-top:1px solid rgba(255,255,255,.08);}
+.sidebar-foot:empty{display:none;}
 .sidebar-foot p{margin:0;font-size:11px;color:var(--sidebar-ink-dim);line-height:1.5;}
 .sidebar.collapsed .sidebar-foot{display:none;}
 
@@ -607,7 +608,7 @@ th.checkbox-cell,td.checkbox-cell{width:1%;padding-right:4px !important;}
     </button>
   </ul>
 
-  <div class="sidebar-foot"><p>Stored locally in this browser only &mdash; nothing is uploaded anywhere.</p></div>
+  <div class="sidebar-foot"></div>
 </aside>
 
 <div class="main">

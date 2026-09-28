@@ -1,0 +1,45 @@
+# Backups
+
+Take a full backup **before every phase that changes the database schema** (PLAN.md §2 rule 1).
+
+## Data backup (every table → JSON + CSV)
+
+Requires Node 18+ (no packages to install).
+
+```sh
+node scripts/backup.mjs
+```
+
+Writes `backups/<YYYY-MM-DD-HH-MM Beirut time>/` with one `<table>.json` (lossless, used for restores) and one
+`<table>.csv` (opens in Excel) per table, plus `_summary.json`. The script pages through large tables
+and compares its row count with the server's count; it exits with an error if anything is missing.
+
+`backups/` is in `.gitignore` because it holds customer data. Copy important backups somewhere safe
+(OneDrive already syncs this folder, and Drive or a USB stick are good extra copies).
+
+### Which key
+
+| When | How to run |
+|---|---|
+| Before Phase 1 (no login yet) | `node scripts/backup.mjs` (the publishable key can still read everything) |
+| After Phase 1 (RLS on) | `SUPABASE_KEY=<secret key> node scripts/backup.mjs` (Supabase dashboard → Project Settings → API Keys → secret key). Type it in the terminal only and **never commit it or paste it into a page.** |
+
+New tables added in later phases: add them to `TABLES` in `backup.mjs`, or pass
+`EXTRA_TABLES=cashiers,cash_differences node scripts/backup.mjs`.
+
+## Schema backup
+
+The data backup does not include table definitions, policies, triggers or functions.
+- Supabase dashboard → Database → Backups: daily backups on paid plans (check your plan).
+- Or run `docs/inspect-schema.sql` in the SQL Editor and save the output next to the data backup.
+
+## Restoring
+
+Restores are done table by table with an upsert of the JSON rows, **only after checking with the owner**.
+Never wipe a table to restore it; upsert by `id` so that newer rows are kept.
+
+## Backup log
+
+| Date (Beirut) | Folder | Notes |
+|---|---|---|
+| 2026-09-29 00:52 | `backups/2026-09-29-00-52` | Phase 0 baseline. All 14 tables complete (dt_customers 1847, promotion_rows 472, catalog_items 420, vendors 170, vendor_orders 145, vendor_rentals 46, dt_orders 41, vendor_skips 19, credit_notes 15, sellouts 8, promotions 3, dt_drivers 2, dt_settings 1, app_settings 0) |
