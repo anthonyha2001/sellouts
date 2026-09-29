@@ -215,14 +215,14 @@ Create, edit, delete, activate, deactivate, apply pricing (with mode and value),
 
 ### 7.2 UI
 
-- [ ] Top tabs: **Yearly rentals · Other rentals**.
-- [ ] **Yearly rentals:** equipment is Gondola or Side gondola; fields: supplier, equipment type, description, contract start, contract end, **one annual amount** (billed once), billed status plus date, note.
+- [x] Top tabs: **Yearly rentals · Other rentals**.
+- [x] **Yearly rentals:** equipment is Gondola or Side gondola; fields: supplier, equipment type, description, contract start, contract end, **one annual amount** (billed once), billed status plus date, note.
   - Comparison with the previous yearly contract for the same supplier and equipment type, with the renew/review signal (reuse `rentalSignal`).
   - **Renewal reminder:** 30 days before the contract end, bell notification (dedupe per rental per day) and an "Ending soon" badge.
   - Totals: this year's contracts, billed vs. not billed.
-- [ ] **Other rentals:** sub-tabs **Gondola · Basket side · Screens**. Screens show a Wall/Island badge and a Wall/Island filter. Keep the existing monthly grid (previous year and current year) and year totals per tab.
-- [ ] Add/edit form adapts to the term: yearly shows the annual amount and billed status; other shows the monthly grids.
-- [ ] Excel import: add optional `Term` and `Type` columns; anything missing defaults to other and gondola.
+- [x] **Other rentals:** sub-tabs **Gondola · Basket side · Screens**. Screens show a Wall/Island badge and a Wall/Island filter. Keep the existing monthly grid (previous year and current year) and year totals per tab.
+- [x] Add/edit form adapts to the term: yearly shows the annual amount and billed status; other shows the monthly grids.
+- [x] Excel import: add optional `Term` and `Type` columns; anything missing defaults to other and gondola.
 
 ---
 

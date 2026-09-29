@@ -655,3 +655,19 @@ table.items input.so-new-price:focus{outline:none;border-color:var(--pine);box-s
   .sellout-head .switch{margin-left:auto;}
   .sellout-body{padding:14px;}
 }
+
+/* ================= Rentals: terms, billing, screens ================= */
+.rental-totals{padding:14px 18px;}
+.rental-screen-filter select{width:auto;padding:5px 10px;font-size:12.5px;border-radius:20px;}
+.rental-billed-label{font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.03em;color:var(--brick);white-space:nowrap;}
+.rental-billed-label.is-billed{color:var(--pine);}
+.rental-details td:first-child{width:180px;color:var(--ink-soft);}
+.rental-details td{text-align:left !important;}
+.rental-note{margin:10px 0 0;font-size:13px;color:var(--ink-soft);white-space:pre-line;}
+.rental-billed-field .switch{flex:0 0 auto;}
+@media (max-width:860px){
+  #panel-rentals .sellout-head{flex-wrap:wrap;gap:10px;padding:14px;}
+  #panel-rentals .sellout-head .who{flex:1 1 calc(100% - 40px);}
+  #panel-rentals .rental-summary{flex:1 1 100%;}
+  #panel-rentals .rental-year-table{display:block;overflow-x:auto;}
+}

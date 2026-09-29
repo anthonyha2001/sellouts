@@ -459,50 +459,91 @@
 
     </section>
 
-    <!-- RENTALS -->
+    <!-- RENTALS (js/modules/rentals.js) -->
     <section class="panel" id="panel-rentals">
 
-      <div class="card">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">
-          <div>
-            <h3 style="margin-bottom:2px;">Gondola &amp; shelf rentals</h3>
-            <span class="muted-note" id="rentalCountNote">No rentals yet.</span>
-          </div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;">
-            <button class="btn secondary small" id="importRentalsBtn">Import from Excel</button>
-            <input type="file" id="rentalFileInput" accept=".xlsx,.xls,.csv" style="display:none;">
-            <button class="btn small" id="addRentalBtn">+ Add rental</button>
-          </div>
+      <div class="filter-row" style="justify-content:space-between;flex-wrap:wrap;">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;" id="rentalTermTabs">
+          <button class="active" data-term="yearly">Yearly rentals</button>
+          <button data-term="other">Other rentals</button>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn secondary small" id="importRentalsBtn">Import from Excel</button>
+          <input type="file" id="rentalFileInput" accept=".xlsx,.xls,.csv" style="display:none;">
+          <button class="btn small" id="addRentalBtn">+ Add rental</button>
         </div>
       </div>
+
+      <div class="filter-row" id="rentalTypeTabs" style="flex-wrap:wrap;" hidden>
+        <button class="active" data-type="gondola">Gondola</button>
+        <button data-type="basket_side">Basket side</button>
+        <button data-type="screens">Screens</button>
+        <span class="rental-screen-filter" id="rentalScreenFilter" hidden>
+          <select id="rentalScreenSelect" aria-label="Screen type">
+            <option value="">Wall and island</option>
+            <option value="screen_wall">Wall only</option>
+            <option value="screen_island">Island only</option>
+          </select>
+        </span>
+      </div>
+
+      <div class="card rental-totals" id="rentalTotals"></div>
 
       <div class="card" id="rentalFormCard" style="display:none;">
         <h3 id="rentalFormTitle">Add rental</h3>
         <div class="form-grid">
           <div>
+            <label for="rentalTerm">Rental type</label>
+            <select id="rentalTerm">
+              <option value="yearly">Yearly contract (billed once)</option>
+              <option value="other">Other (monthly amounts)</option>
+            </select>
+          </div>
+          <div>
+            <label for="rentalEquipment">Equipment</label>
+            <select id="rentalEquipment"></select>
+          </div>
+          <div>
             <label for="rentalSupplier">Supplier</label>
             <input type="text" id="rentalSupplier" placeholder="e.g. Halwani">
           </div>
           <div>
-            <label for="rentalGondola">Gondola / description</label>
-            <input type="text" id="rentalGondola" placeholder="e.g. Gondola + Freezer cap">
+            <label for="rentalGondola">Description</label>
+            <input type="text" id="rentalGondola" placeholder="e.g. 1 gondola + 2 sides">
           </div>
           <div>
-            <label for="rentalDateFrom">Date from</label>
+            <label for="rentalDateFrom" id="rentalDateFromLabel">Date from</label>
             <input type="date" id="rentalDateFrom">
           </div>
           <div>
-            <label for="rentalDateTo">Date to</label>
+            <label for="rentalDateTo" id="rentalDateToLabel">Date to</label>
             <input type="date" id="rentalDateTo">
           </div>
+          <div data-term-only="yearly">
+            <label for="rentalAnnual">Annual amount</label>
+            <input type="text" inputmode="decimal" id="rentalAnnual" placeholder="e.g. 1200">
+          </div>
+          <div data-term-only="yearly" class="rental-billed-field">
+            <label for="rentalBilledAt">Billed</label>
+            <div style="display:flex;gap:10px;align-items:center;">
+              <label class="switch" title="Billed"><input type="checkbox" id="rentalBilled"><span class="track"></span></label>
+              <input type="date" id="rentalBilledAt" aria-label="Billed on">
+            </div>
+          </div>
+          <div class="full">
+            <label for="rentalNote">Note <span style="opacity:.6;">(optional)</span></label>
+            <textarea id="rentalNote"></textarea>
+          </div>
         </div>
-        <div style="margin-top:16px;">
-          <label id="rentalPrevYearLabel">Monthly amount</label>
-          <div class="rental-month-grid" id="rentalPrevYearGrid"></div>
-        </div>
-        <div style="margin-top:16px;">
-          <label id="rentalCurYearLabel">Monthly amount</label>
-          <div class="rental-month-grid" id="rentalCurYearGrid"></div>
+        <div data-term-only="other">
+          <div style="margin-top:16px;">
+            <label id="rentalPrevYearLabel">Monthly amount</label>
+            <div class="rental-month-grid" id="rentalPrevYearGrid"></div>
+          </div>
+          <div style="margin-top:16px;">
+            <label id="rentalCurYearLabel">Monthly amount</label>
+            <div class="rental-month-grid" id="rentalCurYearGrid"></div>
+          </div>
         </div>
         <div class="actions-row">
           <button class="btn ghost small" id="cancelRentalFormBtn">Cancel</button>
@@ -513,7 +554,7 @@
       <div id="rentalList"></div>
 
       <div class="empty-state" id="rentalEmpty" style="display:none;">
-        <p class="big">No rentals yet</p>
+        <p class="big" id="rentalEmptyTitle">No rentals yet</p>
         <p>Add one, or import them from an Excel file.</p>
       </div>
 
@@ -920,6 +961,7 @@
 <script src="js/core/helpers.js"></script>
 <script src="js/app.js"></script>
 <script src="js/modules/sellouts.js"></script>
+<script src="js/modules/rentals.js"></script>
 <script src="js/modules/delivery.js"></script>
 <script src="js/modules/users.js"></script>
 <script src="js/core/auth.js"></script>
