@@ -7,6 +7,11 @@
 
 delete from public.rental_contracts where legacy_rental_id is not null;
 
+-- 1b. Empty the map too (owner, 2026-09-29): the supplier names the traced plan wrote on the spots
+--     ("occupant", shown as "Occupied, no contract") are cleared, so every spot starts free.
+--     The layout itself (gondolas, sections, spots) is kept; earlier layout versions still hold the names.
+update public.store_map_objects set occupant = null where coalesce(trim(occupant), '') <> '';
+
 create table if not exists public.rental_supplier_sales (
   supplier_key   text primary key,               -- lower(trim(supplier)), how contracts are grouped
   supplier       text not null,                  -- the name as shown

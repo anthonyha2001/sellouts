@@ -67,7 +67,10 @@ const Rentals = (function () {
     await loadVendorNames();
     try {
       // Only someone who may edit the layout fills an empty map from the traced plan.
-      if (can('rentals.layout')) await adapter().seedIfEmpty(window.STORE_MAP_SEED, [{ id: 'mezzanine', name: 'Mezzanine', width: 3000, height: 2000, sort: 2 }]);
+      // The traced plan's supplier names are left out: the map starts with every spot free (owner, 2026-09-29).
+      const seed = Object.fromEntries(Object.entries(window.STORE_MAP_SEED || {}).map(([k, s]) =>
+        [k, { floor: s.floor, objects: s.objects.map(o => ({ ...o, occupant: '' })) }]));
+      if (can('rentals.layout')) await adapter().seedIfEmpty(seed, [{ id: 'mezzanine', name: 'Mezzanine', width: 3000, height: 2000, sort: 2 }]);
     } catch (e) {
       console.error(e);
       box.innerHTML = `<div class="empty-state"><p class="big">The store map is not set up yet</p><p>${esc(friendlyError(e))}</p></div>`;
