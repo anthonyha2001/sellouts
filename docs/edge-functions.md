@@ -32,13 +32,29 @@ after `cashier_verify_pin()` accepts the PIN; 5 wrong PINs lock that cashier for
 
 Check: open `cashier.html`, pick a cashier who has a PIN (set under Cash → Cashiers & settings), type it.
 
+## Deployment status
+
+| Function | Deployed | How |
+|---|---|---|
+| `admin-users` | 2026-09-29 | CLI, `--no-verify-jwt` |
+| `cashier-view` | 2026-09-29 | CLI, `--no-verify-jwt` |
+
 ## Deploying with the CLI (alternative)
 
 ```sh
-npx supabase login
+npx supabase login            # or: $env:SUPABASE_ACCESS_TOKEN = "sbp_..." (PowerShell)
 npx supabase functions deploy admin-users --project-ref sezjqcbkiydckhirycjb --no-verify-jwt
 npx supabase functions deploy cashier-view --project-ref sezjqcbkiydckhirycjb --no-verify-jwt
 ```
+
+Pitfalls seen:
+- **"Access token not provided"**: run `npx supabase login` first, or set `SUPABASE_ACCESS_TOKEN`
+  (supabase.com/dashboard/account/tokens).
+- **"Missing required permission(s): edge_functions_write"**: the token was created without the
+  Edge Functions write permission; make a new one with it. Delete deploy tokens after use.
+- **Dashboard editor "Entrypoint path does not exist … index.ts"**: the editor must have exactly one
+  top-level file named `index.ts`.
+- "Docker is not running" is only a warning; deploying does not need Docker.
 
 ## Rules the function enforces
 

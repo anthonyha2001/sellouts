@@ -8,7 +8,7 @@ moment it runs. The new app (with login) must be online first.
 | 1 | Migration 001 (profiles, roles, activity log, order rule) | owner ran it | ✅ 2026-09-29 |
 | 2 | First admin `anthony.hasrouny` (sign in with the lavaleur.net email) | owner ran it | ✅ 2026-09-29 |
 | 3 | Put the new files online, replacing the old ones: `index.html`, `delivery.html`, `css/`, `js/` | owner | |
-| 4 | Deploy the `admin-users` function (see `docs/edge-functions.md`) | owner | |
+| 4 | Deploy the `admin-users` function (see `docs/edge-functions.md`) | Claude, with owner's token | ✅ 2026-09-29 (and `cashier-view`) |
 | 5 | Sign in as admin and check: every section opens; Delivery → Orders, Driver payments work; Users page shows no "read-only" notice | owner | |
 | 6 | Create the staff accounts on the Users page | owner | |
 | 7 | Backup: `node --env-file=.env scripts/backup.mjs` | Claude | |
