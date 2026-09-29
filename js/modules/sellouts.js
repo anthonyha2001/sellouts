@@ -11,12 +11,18 @@ const PRICE_MODES = {
   amount:  { label: 'Fixed amount off', short: 'Amount off', placeholder: 'e.g. 0.50' },
   fixed:   { label: 'Fixed final price', short: 'Fixed', placeholder: 'e.g. 2.95' },
   manual:  { label: 'Set by hand', short: 'Manual' },
+  file:    { label: 'From the file', short: 'From file' },
 };
 const BIG_SELLOUT_DISCOUNT = 25;   // % — warn above this, like Promotions
 
 // Header aliases, compared after lower-casing and removing everything but letters.
 const PRICE_ALIASES = ['oldprice', 'saleprice', 'unitprice', 'retailprice', 'sellingprice', 'price', 'retail', 'prix', 'pu'];
 const DESC_ALIASES = ['description', 'desc', 'itemdescription', 'itemname', 'productname', 'designation', 'libelle', 'article', 'product', 'name', 'item'];
+// Many supplier files already carry the new price ("Promoted price", "Promo price"...). Plain
+// "Promotion" is NOT one of them: in some files it is a percentage (e.g. 50).
+const NEW_PRICE_ALIASES = ['promotedprice', 'promoprice', 'promotionprice', 'newprice', 'offerprice', 'specialprice', 'selloutprice', 'discountedprice', 'netprice'];
+// Shelf prices are in USD (owner, 2026-09-29): an "old price" this big is almost certainly LBP.
+const LBP_LOOKING_PRICE = 1000;
 const normHeader = h => String(h ?? '').toLowerCase().replace(/[^a-z]/g, '');
 
 function itemColumns(items) {
@@ -26,7 +32,8 @@ function itemColumns(items) {
   return Array.from(cols);
 }
 
-// Code = first column (as before). Description and price by header name.
+// Code = first column (as before). Description, old price and (optional) new price by header name.
+// The new-price column is found first so "Promoted price" is never taken as the old price.
 function detectColumns(items) {
   const cols = itemColumns(items);
   const find = (aliases, exclude) => {
@@ -36,21 +43,27 @@ function detectColumns(items) {
   };
   const code = cols[0] || null;
   const description = find(DESC_ALIASES, [code]);
-  const price = find(PRICE_ALIASES, [code, description]);
-  return { code, description, price };
+  const newPrice = find(NEW_PRICE_ALIASES, [code, description]);
+  const price = find(PRICE_ALIASES, [code, description, newPrice]);
+  return { code, description, price, newPrice };
 }
 
 function buildPricedItems(items, map) {
-  return items.map((r, i) => ({
-    row: i,
-    code: String(r[map.code] ?? '').trim(),
-    description: map.description ? String(r[map.description] ?? '').trim() : '',
-    oldPrice: map.price ? parseNum(r[map.price]) : null,
-    mode: null, value: null, newPrice: null,
-  }));
+  return items.map((r, i) => {
+    const fromFile = map.newPrice ? parseNum(r[map.newPrice]) : null;
+    return {
+      row: i,
+      code: String(r[map.code] ?? '').trim(),
+      description: map.description ? String(r[map.description] ?? '').trim() : '',
+      oldPrice: map.price ? parseNum(r[map.price]) : null,
+      mode: fromFile !== null ? 'file' : null, value: null,
+      newPrice: fromFile !== null ? round2(fromFile) : null,
+    };
+  });
 }
 
-// Priced rows of a sell-out; older sell-outs (before pricing existed) get them from their file on the fly.
+// Priced rows of a sell-out; older sell-outs (before pricing existed) get them from their file on the fly,
+// including the new price when the file has a "Promoted price"-type column.
 function pricedRowsOf(so) {
   if (so.pricedItems && so.pricedItems.length === so.items.length) return so.pricedItems;
   const map = detectColumns(so.items);
@@ -74,6 +87,7 @@ function discountPct(p) {
 function priceWarnings(p) {
   const w = [];
   if (p.oldPrice === null) w.push('Missing old price');
+  else if (p.oldPrice >= LBP_LOOKING_PRICE) w.push('Old price looks like LBP: choose the USD price column');
   if (p.newPrice !== null) {
     if (p.newPrice <= 0) w.push('New price is zero or below');
     else if (p.oldPrice !== null && p.newPrice >= p.oldPrice) w.push('New price is not lower than the old price');
@@ -154,20 +168,24 @@ function renderMappingStep() {
   const cols = itemColumns(items);
   const opts = sel => ['<option value="">— none —</option>'].concat(cols.map(c => `<option value="${escapeHtml(c)}" ${c === sel ? 'selected' : ''}>${escapeHtml(c)}</option>`)).join('');
   const preview = buildPricedItems(items.slice(0, 5), map);
-  const missingPrices = map.price ? buildPricedItems(items, map).filter(p => p.oldPrice === null).length : items.length;
+  const all = buildPricedItems(items, map);
+  const missingPrices = map.price ? all.filter(p => p.oldPrice === null).length : items.length;
+  const lbpLooking = all.filter(p => p.oldPrice !== null && p.oldPrice >= LBP_LOOKING_PRICE).length;
   box.innerHTML = `
     <div class="so-mapping">
       <h4>Check the columns <span class="muted-note">(${items.length} item rows found)</span></h4>
       <div class="form-grid so-map-grid">
         <div><label for="soMapCode">Code</label><select id="soMapCode" data-map="code">${opts(map.code)}</select></div>
         <div><label for="soMapDesc">Description</label><select id="soMapDesc" data-map="description">${opts(map.description)}</select></div>
-        <div><label for="soMapPrice">Old price</label><select id="soMapPrice" data-map="price">${opts(map.price)}</select></div>
+        <div><label for="soMapPrice">Old price (USD)</label><select id="soMapPrice" data-map="price">${opts(map.price)}</select></div>
+        <div><label for="soMapNew">New price <span style="opacity:.6;">(if the file has it)</span></label><select id="soMapNew" data-map="newPrice">${opts(map.newPrice)}</select></div>
       </div>
       <div class="items-scroll" style="margin:12px 0 0;">
-        <table class="items"><thead><tr><th>Code</th><th>Description</th><th>Old price</th></tr></thead>
-        <tbody>${preview.map(p => `<tr><td style="font-family:var(--font-mono);">${escapeHtml(p.code)}</td><td>${escapeHtml(p.description)}</td><td>${p.oldPrice === null ? '<span class="empty-note">—</span>' : p.oldPrice}</td></tr>`).join('')}</tbody></table>
+        <table class="items"><thead><tr><th>Code</th><th>Description</th><th>Old price</th><th>New price</th></tr></thead>
+        <tbody>${preview.map(p => `<tr><td style="font-family:var(--font-mono);">${escapeHtml(p.code)}</td><td>${escapeHtml(p.description)}</td><td>${p.oldPrice === null ? '<span class="empty-note">—</span>' : p.oldPrice}</td><td>${p.newPrice === null ? '<span class="empty-note">—</span>' : p.newPrice.toFixed(2)}</td></tr>`).join('')}</tbody></table>
       </div>
       ${missingPrices ? `<p class="muted-note" style="margin:8px 0 0;color:var(--gold);">${missingPrices} row${missingPrices === 1 ? ' has' : 's have'} no old price in this column.</p>` : ''}
+      ${lbpLooking ? `<p class="muted-note" style="margin:8px 0 0;color:var(--brick);">${lbpLooking} old price${lbpLooking === 1 ? ' looks' : 's look'} like LBP. Shelf prices are in USD: pick the USD price column.</p>` : ''}
     </div>`;
   box.querySelectorAll('[data-map]').forEach(sel => sel.addEventListener('change', () => {
     pendingImport.map[sel.dataset.map] = sel.value || null;
@@ -395,7 +413,7 @@ function wirePricingPanel(el, so) {
     const rows = pricedRowsOf(so);
     rows.forEach(p => {
       p.oldPrice = col ? parseNum(so.items[p.row]?.[col]) : null;
-      if (p.mode && p.mode !== 'manual' && p.mode !== 'fixed') p.newPrice = computeNewPrice(p.oldPrice, p.mode, p.value);
+      if (p.mode === 'percent' || p.mode === 'amount') p.newPrice = computeNewPrice(p.oldPrice, p.mode, p.value);
     });
     const before = so.priceColumn;
     so.priceColumn = col;

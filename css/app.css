@@ -620,7 +620,7 @@ body.booting .login-fields{display:none;}
 .icon-btn:disabled:hover{border-color:var(--line-strong);color:var(--ink-soft);}
 .so-mapping{margin-top:18px;padding:14px 16px;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--paper);}
 .so-mapping h4{font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-faint);margin:0 0 12px;}
-.so-map-grid{grid-template-columns:repeat(3,1fr);}
+.so-map-grid{grid-template-columns:repeat(4,1fr);}
 .so-body-head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px;}
 .so-price-controls{display:grid;grid-template-columns:200px 120px auto 1fr;gap:12px;align-items:end;margin-bottom:12px;}
 .so-price-controls label{margin-bottom:6px;}
@@ -776,3 +776,21 @@ table.items tr.fc-resolved > td{opacity:.55;}
 .fc-price s{display:block;}
 #panel-floorcheck .badge-row{flex-wrap:wrap;}
 @media (max-width:860px){ #panel-floorcheck .badge-row{margin-left:26px;} }
+/* Floor check: supplier / sell-out / promotion groups */
+.fc-view{display:flex;flex-direction:column;gap:6px;margin:-6px 0 12px;}
+.fc-view-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+.fc-view-row .filter-row{margin:0;flex-wrap:wrap;}
+.fc-view-row .filter-row button{padding:4px 11px;font-size:11px;}
+.fc-view-label{font-size:12px;color:var(--ink-faint);min-width:64px;}
+.fc-group{border:1px solid var(--line);border-radius:var(--radius);background:var(--paper-raised);overflow:hidden;}
+.fc-group-head{width:100%;display:grid;grid-template-columns:auto 1fr auto;grid-template-rows:auto auto;gap:6px 10px;align-items:center;
+  padding:12px 14px;background:none;border:0;cursor:pointer;text-align:left;color:var(--ink);font:inherit;}
+.fc-group-head .chev{width:14px;height:14px;color:var(--ink-faint);transition:transform .15s;}
+.fc-group-head .chev svg{width:100%;height:100%;stroke:currentColor;}
+.fc-group.open .fc-group-head .chev{transform:rotate(90deg);}
+.fc-group-name{font-weight:600;font-size:15px;min-width:0;}
+.fc-group-count{font-family:var(--font-mono);font-size:12.5px;color:var(--ink-soft);white-space:nowrap;}
+.fc-group-bar{grid-column:2 / 4;height:4px;background:var(--line);border-radius:3px;overflow:hidden;}
+.fc-group-bar span{display:block;height:100%;background:var(--pine);}
+.fc-group-body{display:flex;flex-direction:column;gap:10px;padding:0 10px 12px;}
+.fc-group-body .fc-item{border-right:1px solid var(--line);}

@@ -15,7 +15,8 @@
   };
   const PROBLEMS = ['wrong_price', 'missing_tag', 'out_of_stock'];
   const PHOTO_BUCKET = 'floor-photos';
-  const S = { tab: 'today', check: null, items: [], filter: 'todo', started: false, openNote: null, checks: [], results: new Map(), photoUrls: new Map() };
+  const S = { tab: 'today', check: null, items: [], filter: 'todo', started: false, openNote: null, checks: [], results: new Map(), photoUrls: new Map(),
+    groupBy: 'supplier', show: 'all', openGroups: null };
   const el = id => document.getElementById(id);
   const esc = escapeHtml;
   // Some sell-out files are in LBP (e.g. 429,600), others in USD (4.72): show as written, with separators.
@@ -39,7 +40,7 @@
       .map(s => ({ id: s.id, name: s.name, from: s.from, to: s.to, items: s.items || [], pricedItems: Array.isArray(s.priced_items) ? s.priced_items : null, priceColumn: s.price_column }));
     const promotions = pr.data.map(p => ({ id: p.id, name: p.name || 'Promotion', from: p.from_date, to: p.to_date, rows: [] }));
     if (promotions.length) {
-      const { data: rows, error } = await sb.from('promotion_rows').select('id, promotion_id, code, description, promo_price, before_price, sale_price, sort_order')
+      const { data: rows, error } = await sb.from('promotion_rows').select('id, promotion_id, code, description, supplier, promo_price, before_price, sale_price, sort_order')
         .in('promotion_id', promotions.map(p => p.id)).order('sort_order');
       if (error) { fail('Could not load the promotion items', error); return { sellouts, promotions: [] }; }
       promotions.forEach(p => { p.rows = rows.filter(r => r.promotion_id === p.id); });
@@ -54,22 +55,50 @@
     sellouts.forEach(so => {
       pricedRowsOf(so).forEach(p => {
         if (!p.code && !p.description) return;
-        out.push({ source: 'sellout', sellout_id: so.id, source_name: so.name, item_key: `so:${so.id}:${p.row}`, item_row: p.row,
+        // Sell-out files have no supplier column; each sell-out is one supplier's offer, so its name groups it.
+        out.push({ source: 'sellout', sellout_id: so.id, source_name: so.name, supplier: so.name, item_key: `so:${so.id}:${p.row}`, item_row: p.row,
           code: p.code, description: p.description, expected_price: p.newPrice ?? null, old_price: p.oldPrice ?? null, priority: priorityOf(so) });
       });
     });
     promotions.forEach(pm => {
       pm.rows.forEach((r, i) => {
         if (!String(r.code || '').trim() && !String(r.description || '').trim()) return;
-        out.push({ source: 'promotion', promotion_id: pm.id, source_name: pm.name, item_key: `pr:${r.id}`, item_row: i,
-          code: String(r.code || '').trim(), description: r.description || '',
+        out.push({ source: 'promotion', promotion_id: pm.id, source_name: pm.name, supplier: String(r.supplier || '').trim() || 'No supplier',
+          item_key: `pr:${r.id}`, item_row: i, code: String(r.code || '').trim(), description: r.description || '',
           expected_price: numOrNull(r.promo_price), old_price: numOrNull(r.before_price) ?? numOrNull(r.sale_price), priority: priorityOf(pm) });
       });
     });
-    out.sort((a, b) => a.priority - b.priority || a.source.localeCompare(b.source) || a.source_name.localeCompare(b.source_name) || a.item_row - b.item_row);
+    // Supplier by supplier: suppliers with something starting/ending today first, then A-Z.
+    const groupPriority = new Map();
+    out.forEach(x => groupPriority.set(x.supplier, Math.min(groupPriority.get(x.supplier) ?? 1, x.priority)));
+    out.sort((a, b) => groupPriority.get(a.supplier) - groupPriority.get(b.supplier) || a.supplier.localeCompare(b.supplier)
+      || a.priority - b.priority || a.source_name.localeCompare(b.source_name) || a.item_row - b.item_row);
     out.forEach((x, i) => { x.sort_order = i; });
     return out;
   }
+  const supplierOf = x => x.supplier || x.source_name || 'No supplier';
+
+  // Groups for the list: by supplier, or by each sell-out / promotion. Kept in item order
+  // (groups with something starting or ending today already come first).
+  function groupItems(items) {
+    const map = new Map();
+    items.slice().sort((a, b) => a.sort_order - b.sort_order).forEach(x => {
+      const bySource = S.groupBy === 'source';
+      const key = bySource ? `${x.source}|${x.source_name}` : `s|${supplierOf(x)}`;
+      if (!map.has(key)) map.set(key, {
+        key, items: [],
+        label: bySource ? (x.source_name || '') : supplierOf(x),
+        badge: bySource ? `<span class="badge ${x.source === 'promotion' ? 'active' : 'inactive'}">${x.source === 'promotion' ? 'Promo' : 'Sell-out'}</span> ` : '',
+        priority: 1,
+      });
+      const g = map.get(key);
+      g.items.push(x);
+      g.priority = Math.min(g.priority, x.priority);
+    });
+    return [...map.values()].sort((a, b) => a.priority - b.priority || (S.groupBy === 'source' ? a.label.localeCompare(b.label) : 0));
+  }
+  function saveView() { try { localStorage.setItem('lv:floorView', JSON.stringify({ groupBy: S.groupBy, show: S.show })); } catch (e) { /* ignore */ } }
+  try { Object.assign(S, JSON.parse(localStorage.getItem('lv:floorView')) || {}); } catch (e) { /* storage blocked */ }
 
   /* ---------------- data ---------------- */
   async function loadToday() {
@@ -98,12 +127,6 @@
     await loadToday();
     render();
   }
-  // Sell-outs / promotion rows added or switched on after the check started: offer to add them.
-  async function missingItems() {
-    if (!S.check || S.check.completed_at) return [];
-    const have = new Set(S.items.map(x => x.item_key));
-    return itemsFor(await todaysSources()).filter(x => !have.has(x.item_key));
-  }
 
   /* ---------------- today's check (mobile-first) ---------------- */
   function counts(items) {
@@ -129,7 +152,27 @@
     const finished = !!S.check.completed_at;
     const locked = finished && !isAdmin();
     const pct = c.total ? Math.round((c.done / c.total) * 100) : 0;
-    const list = S.items.filter(x => S.filter === 'all' || (S.filter === 'todo' ? x.status === 'pending' : PROBLEMS.includes(x.status)));
+    const inShow = x => S.show === 'all' || x.source === S.show;
+    const matches = x => inShow(x) && (S.filter === 'all' || (S.filter === 'todo' ? x.status === 'pending' : PROBLEMS.includes(x.status)));
+    const groups = groupItems(S.items.filter(inShow));
+    // First visit: open the first group that still has something to check.
+    if (!S.openGroups) S.openGroups = new Set([(groups.find(g => g.items.some(x => x.status === 'pending')) || groups[0])?.key].filter(Boolean));
+    const groupsHtml = groups.map(g => {
+      const shown = g.items.filter(matches);
+      if (!shown.length) return '';
+      const gc = counts(g.items);
+      const open = S.openGroups.has(g.key);
+      return `<section class="fc-group ${open ? 'open' : ''}">
+        <button type="button" class="fc-group-head" data-group="${esc(g.key)}" aria-expanded="${open}">
+          <span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></span>
+          <span class="fc-group-name">${g.badge}${esc(g.label)}</span>
+          <span class="fc-group-count">${gc.done}/${gc.total}${gc.problems ? ` · <span class="fc-bad-text">${gc.problems} problem${gc.problems === 1 ? '' : 's'}</span>` : ''}</span>
+          <span class="fc-group-bar"><span style="width:${gc.total ? Math.round(gc.done / gc.total * 100) : 0}%"></span></span>
+        </button>
+        ${open ? `<div class="fc-group-body">${shown.map(itemCard).join('')}</div>` : ''}
+      </section>`;
+    }).join('');
+    const pill = (attr, val, cur, label) => `<button data-${attr}="${val}" class="${cur === val ? 'active' : ''}">${label}</button>`;
     body.innerHTML = `
       <div class="card fc-progress-card">
         <div class="fc-progress-top">
@@ -144,22 +187,60 @@
         <button data-f="problems" class="${S.filter === 'problems' ? 'active' : ''}">Problems (${c.problems})</button>
         <button data-f="all" class="${S.filter === 'all' ? 'active' : ''}">All (${c.total})</button>
       </div>
-      <div class="fc-list">${list.map(itemCard).join('') || `<div class="empty-state" style="padding:30px 16px;"><p class="big">${S.filter === 'todo' ? 'Everything is checked' : 'Nothing here'}</p>${S.filter === 'todo' && !finished ? '<p>Tap “Finish check” when you are done.</p>' : ''}</div>`}</div>
+      <div class="fc-view">
+        <div class="fc-view-row"><span class="fc-view-label">Group by</span><div class="filter-row">
+          ${pill('group', 'supplier', S.groupBy, 'Supplier')}${pill('group', 'source', S.groupBy, 'Sell-out / promotion')}</div></div>
+        <div class="fc-view-row"><span class="fc-view-label">Show</span><div class="filter-row">
+          ${pill('show', 'all', S.show, 'All')}${pill('show', 'sellout', S.show, 'Sell-outs')}${pill('show', 'promotion', S.show, 'Promotions')}</div></div>
+      </div>
+      <div class="fc-list">${groupsHtml || `<div class="empty-state" style="padding:30px 16px;"><p class="big">${S.filter === 'todo' ? 'Everything is checked' : 'Nothing here'}</p>${S.filter === 'todo' && !finished ? '<p>Tap “Finish check” when you are done.</p>' : ''}</div>`}</div>
       ${finished ? '' : `<div class="fc-finish"><button class="btn" id="fcFinish">Finish check</button></div>`}`;
     body.querySelectorAll('[data-f]').forEach(b => b.onclick = () => { S.filter = b.dataset.f; renderToday(); });
+    body.querySelectorAll('[data-group]').forEach(b => b.onclick = () => {
+      if (b.classList.contains('fc-group-head')) {
+        S.openGroups.has(b.dataset.group) ? S.openGroups.delete(b.dataset.group) : S.openGroups.add(b.dataset.group);
+      } else {
+        S.groupBy = b.dataset.group; S.openGroups = null; saveView();
+      }
+      renderToday();
+    });
+    body.querySelectorAll('[data-show]').forEach(b => b.onclick = () => { S.show = b.dataset.show; S.openGroups = null; saveView(); renderToday(); });
     body.querySelectorAll('.fc-item').forEach(card => wireItem(card, locked));
     el('fcFinish')?.addEventListener('click', finishCheck);
     loadPhotoThumbs(body);
-    if (!finished) missingItems().then(extra => {
-      const box = el('fcMissing'); if (!box || !extra.length) return;
-      box.innerHTML = `<div class="fc-missing"><span>${extra.length} new item${extra.length === 1 ? '' : 's'} from sell-outs switched on since you started.</span><button class="btn secondary small" id="fcAddMissing">Add them</button></div>`;
+    const extra = !finished ? (S.extra || []) : [];
+    if (extra.length) {
+      el('fcMissing').innerHTML = `<div class="fc-missing"><span>${extra.length} new item${extra.length === 1 ? '' : 's'} from sell-outs or promotions started since you began.</span><button class="btn secondary small" id="fcAddMissing">Add them</button></div>`;
       el('fcAddMissing').onclick = async () => {
-        const base = S.items.length;
+        const base = Math.max(0, ...S.items.map(x => x.sort_order)) + 1;
         const { error } = await sb.from('floor_check_items').insert(extra.map((x, i) => ({ ...x, check_id: S.check.id, sort_order: base + i })));
         if (error) return fail('Could not add the items', error);
-        await loadToday(); renderToday();
+        await loadToday(); await syncOpenCheck(); renderToday();
       };
-    });
+    }
+  }
+
+  // An open check follows price changes made after it started (e.g. a sell-out priced later):
+  // items not yet checked get the current price; checked items keep the price they were checked against.
+  // Also finds items from sell-outs / promotions that started since.
+  async function syncOpenCheck() {
+    S.extra = [];
+    if (!S.check || S.check.completed_at) return;
+    const current = itemsFor(await todaysSources());
+    const byKey = new Map(current.map(x => [x.item_key, x]));
+    const same = (a, b) => String(a ?? '') === String(b ?? '');
+    const stale = S.items.filter(i => i.status === 'pending' && byKey.has(i.item_key))
+      .filter(i => { const c = byKey.get(i.item_key); return !same(i.expected_price, c.expected_price) || !same(i.old_price, c.old_price); });
+    for (let k = 0; k < stale.length; k += 20) {
+      await Promise.all(stale.slice(k, k + 20).map(async i => {
+        const c = byKey.get(i.item_key);
+        const { error } = await sb.from('floor_check_items').update({ expected_price: c.expected_price, old_price: c.old_price }).eq('id', i.id);
+        if (!error) { i.expected_price = c.expected_price; i.old_price = c.old_price; }
+      }));
+    }
+    if (stale.length) showToast(`Prices updated on ${stale.length} item${stale.length === 1 ? '' : 's'} not checked yet.`);
+    const have = new Set(S.items.map(x => x.item_key));
+    S.extra = current.filter(x => !have.has(x.item_key));
   }
 
   function itemCard(x) {
@@ -300,7 +381,7 @@
       card.querySelector('[data-toggle]').onclick = async () => {
         const id = card.dataset.check;
         if (S.results.has(id)) { S.results.delete(id); renderResults(); return; }
-        const { data, error } = await sb.from('floor_check_items').select('*').eq('check_id', id).in('status', PROBLEMS).order('sort_order');
+        const { data, error } = await sb.from('floor_check_items').select('*').eq('check_id', id).in('status', PROBLEMS).order('supplier').order('sort_order');
         if (error) return fail('Could not load the problems', error);
         S.results.set(id, data); renderResults();
       };
@@ -311,9 +392,10 @@
   function problemsHtml(items) {
     if (!items.length) return '<p class="empty-note">No problems in this check.</p>';
     return `<div class="items-scroll" style="margin-bottom:0;"><table class="items">
-      <thead><tr><th>Problem</th><th>Code</th><th>Description</th><th>From</th><th class="num">Expected</th><th>Note / photo</th><th></th></tr></thead>
+      <thead><tr><th>Problem</th><th>Supplier</th><th>Code</th><th>Description</th><th>From</th><th class="num">Expected</th><th>Note / photo</th><th></th></tr></thead>
       <tbody>${items.map(x => `<tr class="${x.resolved ? 'fc-resolved' : ''}">
         <td><span class="badge ${x.status === 'out_of_stock' ? 'warn' : 'danger'}">${STATUSES[x.status].icon} ${STATUSES[x.status].label}</span></td>
+        <td>${esc(supplierOf(x))}</td>
         <td style="font-family:var(--font-mono);">${esc(x.code)}</td>
         <td style="white-space:normal;">${esc(x.description || '')}</td>
         <td>${x.source === 'promotion' ? 'Promo · ' : ''}${esc(x.source_name || '')}</td>
@@ -390,6 +472,7 @@
     if (S.tab === 'today') await loadToday();
     if (S.tab === 'results') await loadResults();
     render();
+    if (S.tab === 'today' && S.check && !S.check.completed_at) { await syncOpenCheck(); if (S.tab === 'today') renderToday(); }
   }
 
   // Admin: a bell notification when someone else finishes a check.

@@ -46,7 +46,7 @@ export default async function (page, { log }) {
     return reply([]);
   });
   page._uid = await page.evaluate(() => Session.user.id);
-  await page.evaluate(() => { location.hash = '#floorcheck'; });
+  await page.evaluate(() => { location.hash = '#floorcheck'; FloorCheck.show(); });
   await page.waitForTimeout(1500);
   log('before start:', (await page.textContent('#fcBody')).replace(/\s+/g, ' ').trim().slice(0, 80));
   await page.click('#fcStart');
@@ -66,7 +66,7 @@ export default async function (page, { log }) {
   // would briefly run with the real date before the fake one is applied again)
   if (!process.env.FAKE_TODAY) {
     await page.reload(); await page.waitForTimeout(6000);
-    await page.evaluate(() => { location.hash = '#floorcheck'; }); await page.waitForTimeout(1500);
+    await page.evaluate(() => { location.hash = '#floorcheck'; FloorCheck.show(); }); await page.waitForTimeout(1500);
     log('after reload:', (await page.textContent('.fc-progress-top')).replace(/\s+/g, ' ').trim());
   }
   // finish
