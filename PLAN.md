@@ -330,7 +330,7 @@ Goal: suppliers send offers as PDFs, photos, or WhatsApp screenshots, usually id
 
 | # | Question | Default until answered |
 |---|---|---|
-| 1 | Are "side gondola" (yearly) and "basket side" (other) the same equipment? | Treat as different |
+| 1 | Are "side gondola" (yearly) and "basket side" (other) the same equipment? | **Answered 2026-09-29:** different. Gondola, side gondola, basket side and pillar can each be yearly or monthly; screens are monthly only |
 | 2 | Cash differences: LBP only, or USD too? | LBP, with a currency column ready for USD |
 | 3 | Cash colour thresholds | ±500,000 warning, ±1,000,000 danger |
 | 4 | How does the catalog export list multiple barcodes per item? | Support both formats |

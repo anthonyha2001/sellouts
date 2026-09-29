@@ -27,7 +27,7 @@ export default async function (page, { log }) {
     const tabs = await page.$$eval('#rentalTypeTabs button[data-type]', bs => bs.filter(b => !b.hidden).map(b => b.dataset.type));
     for (const t of tabs) {
       await page.click(`#rentalTypeTabs [data-type="${t}"]`);
-      log(`${term}/${t}:`, await page.$$eval('#rentalList [data-rental-id]', x => x.length), 'rows |', await page.$eval('#rentalTotals', e => e.textContent.replace(/s+/g, ' ').trim()));
+      log(`${term}/${t}:`, await page.$$eval('#rentalList [data-rental-id]', x => x.length), 'rows |', await page.$eval('#rentalTotals', e => e.textContent.replace(/\s+/g, ' ').trim()));
     }
   }
   await page.click('#rentalTypeTabs [data-type="all"]');
