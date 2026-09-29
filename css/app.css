@@ -842,3 +842,6 @@ table.items tr.fc-resolved > td{opacity:.55;}
 .fc-scan-btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;min-height:50px;font-size:15px;margin:0 0 12px;}
 .fc-scan-btn svg{width:22px;height:22px;stroke:currentColor;}
 .fc-item.fc-focus{box-shadow:0 0 0 3px var(--pine);animation:lbFlash 1.2s ease-out;}
+.login-cashier-link{display:block;text-align:center;margin-top:18px;padding-top:16px;border-top:1px solid var(--line);font-size:13.5px;color:var(--pine);text-decoration:none;font-weight:500;}
+.login-cashier-link:hover{text-decoration:underline;}
+body.booting .login-cashier-link{display:none;}

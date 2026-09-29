@@ -13,6 +13,7 @@
 <link rel="stylesheet" href="css/delivery.css">
 </head>
 <body class="locked booting">
+<script>if (/^#cashiers?$/i.test(location.hash)) location.replace('cashier.html');</script>
 
 <div class="login-screen" id="loginScreen">
   <form class="login-card" id="loginForm" autocomplete="on" novalidate>
@@ -29,6 +30,7 @@
       <p class="login-err" id="loginErr" role="alert"></p>
       <button type="submit" class="btn" id="loginSubmit">Sign in</button>
     </div>
+    <a class="login-cashier-link" href="cashier.html">Cashier? See your cash differences &rarr;</a>
   </form>
 </div>
 
