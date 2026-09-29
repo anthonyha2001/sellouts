@@ -1049,9 +1049,8 @@ function pushNotification(msg) {
   notifications.unshift({ msg, at: new Date().toISOString() });
   if (notifications.length > 50) notifications.pop();
   playChime();
-  if (window.Notification && Notification.permission === 'granted') {
-    try { new Notification('LV Ajaltoun', { body: msg }); } catch (e) {}
-  }
+  // Also on the phone / computer when the app is in the background (js/core/pwa.js).
+  if (window.AppNotify) AppNotify.show('La Valeur', msg, { url: location.hash || './' });
   renderNotifPanel();
 }
 function renderNotifPanel() {
@@ -1069,7 +1068,7 @@ function renderNotifPanel() {
 }
 document.getElementById('bellBtn').addEventListener('click', () => {
   document.getElementById('notifPanel').classList.toggle('open');
-  if (window.Notification && Notification.permission === 'default') Notification.requestPermission();
+  if (window.AppNotify) AppNotify.renderFoot();   // notifications are turned on from the panel's footer
 });
 document.addEventListener('click', (e) => {
   const panel = document.getElementById('notifPanel');

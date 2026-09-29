@@ -15,7 +15,7 @@ const flag = k => args.includes('--' + k);
 const page0 = args[0] && !args[0].startsWith('--') ? args[0] : 'index.html';
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
 
-const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml' };
+const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.webmanifest': 'application/manifest+json' };
 const server = createServer(async (req, res) => {
   try {
     const p = decodeURIComponent(new URL(req.url, 'http://x').pathname);

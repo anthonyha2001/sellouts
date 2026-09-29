@@ -1,0 +1,17 @@
+{
+  "name": "La Valeur — Ajaltoun",
+  "short_name": "La Valeur",
+  "description": "Sell-outs, promotions, rentals, delivery, cash and floor check for La Valeur Ajaltoun.",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#1943AF",
+  "theme_color": "#1943AF",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

@@ -440,6 +440,22 @@ admin only by default (give it per user in Users → Permissions).
 
 ---
 
+## 10e. Brand, installable app, notifications (added 2026-09-30)
+
+- [x] La Valeur logo as the icon of the whole app (browser tab, home screen / desktop app, login, sidebar):
+  `icons/` built from the logo by `scripts/make-icons.mjs` (192, 512, maskable 512, Apple 180, favicon 32,
+  white badge 96). Colours: the logo blue `#1943AF` replaces the old blue everywhere (sidebar in the logo blue),
+  light and dark mode.
+- [x] Installable (PWA): `manifest.webmanifest` + `sw.js` (network first for the app's own files, offline start;
+  Supabase data never cached). "Install app" in the bell panel (browser prompt; iPhone: Share → Add to Home Screen).
+- [x] Notifications: every bell alert (sell-outs, vendors, rentals, floor check, cash, delivery) also shows on the
+  phone / computer when the app is in the background, through the service worker (needed on phones); turned on
+  per device from the bell panel's footer. iPhone: only once the app is installed (iOS 16.4+).
+- [ ] Later (ask the owner): notifications while the app is fully closed need Web Push — VAPID keys, a
+  `push_subscriptions` table and an edge function that sends the alerts on a schedule. `sw.js` already handles `push`.
+
+---
+
 ## 11. Open questions (ask the owner when you reach the phase)
 
 | # | Question | Default until answered |
