@@ -552,7 +552,7 @@ let editingCnId = null;
 // Promotions
 let catalogItems = [];
 let catalogMap = new Map();
-let catalogBarcodeMap = new Map(); // barcode (digits) -> catalog item, for the offer import and price sheets
+let catalogBarcodeMap = new Map(); // barcode (digits) -> catalog item, for price sheets (and the Phase 7 scanner)
 // Catalog codes are matched case-insensitively and whitespace-trimmed: the
 // catalog file and the price sheet / pasted codes are often two different
 // exports of the same data, and a code that's "ABC123" in one and "abc123"
@@ -1590,7 +1590,6 @@ async function renderPromoWorkspace() {
       </div>
       <div class="promo-header-actions">
         <button class="btn secondary small" id="importPriceSheetBtn" title="Upload the raw supplier price sheet — splits multi-codes into rows and fills in Promo/Before Price automatically">Import price sheet</button>
-        ${isAdmin() ? '<button class="btn secondary small" id="offerImportBtn" title="Read supplier offers from PDFs, photos or WhatsApp screenshots, review the lines, then add them">Import from file or photo</button>' : ''}
         <input type="file" id="priceSheetInput" accept=".xlsx,.xls,.csv" style="display:none;">
         <button class="btn secondary small" id="copyCodesBtn">Copy codes</button>
         <button class="btn secondary small" id="exportPromoBtn">Export to Excel</button>
@@ -2479,7 +2478,6 @@ function wirePromoWorkspaceEvents(promo) {
 
   document.getElementById('exportPromoBtn').addEventListener('click', () => exportPromotionToExcel(promo));
 
-  document.getElementById('offerImportBtn')?.addEventListener('click', () => { if (window.OfferImport) OfferImport.open(promo); });
   document.getElementById('importPriceSheetBtn').addEventListener('click', () => {
     document.getElementById('priceSheetInput').click();
   });
@@ -2858,7 +2856,7 @@ function parsePriceSheetRows(buf) {
   const promoCol = findCol('promoprice', 'promo');
   const beforeCol = findCol('oldprice', 'beforeprice', 'before');
   const costCol = findCol('cost');
-  // Optional (the offer import's export has both): barcodes, and a Discount % used only when a line has no promo price.
+  // Optional columns: Barcode, and a Discount % used only when a line has no promo price.
   const barcodeCol = findCol(...BARCODE_HEADERS, 'barcode');
   const discountCol = findCol('discount', 'discount%', 'disc%', 'disc');
   if (codeCol === -1 || descCol === -1) return { error: 'Could not find an "Itemcode" and "Description" header row in that file.' };

@@ -7,7 +7,7 @@ with the signed-in user's session, and the function checks who is calling.
 |---|---|---|
 | `admin-users` | Users page (admin only): list, create, edit role/name, reset password, disable/enable | 1 |
 | `cashier-view` | `cashier.html` PIN page | 4 |
-| `extract-offer` | Promotions → Import from file or photo | 6 |
+| ~~`extract-offer`~~ | Removed 2026-09-29 (owner does not want the AI offer import); deleted from Supabase | 6 |
 
 ## Deploying `admin-users` (dashboard, no tools needed)
 
@@ -39,25 +39,12 @@ Check: open `cashier.html`, pick a cashier who has a PIN (set under Cash → Cas
 | `admin-users` | 2026-09-29 | CLI, `--no-verify-jwt` |
 | `cashier-view` | 2026-09-29 | CLI, `--no-verify-jwt` |
 
-## Setting up `extract-offer` (Phase 6)
-
-1. Anthropic API key: console.anthropic.com → API Keys → Create key.
-2. Supabase dashboard → Edge Functions → **Secrets** → add `ANTHROPIC_API_KEY` = that key.
-   Optional: `ANTHROPIC_MODEL` (default `claude-opus-5`) to change the model without a code edit.
-3. Deploy: `npx supabase functions deploy extract-offer --project-ref sezjqcbkiydckhirycjb --no-verify-jwt`
-4. Needs migration 008 (barcodes + the private `promotion-offers` bucket).
-
-On the default model the request enables the API's server-side refusal fallback (`fallbacks: "default"`):
-if a request is declined by a safety check it is re-run on another Claude model instead of failing.
-Each run is logged in the activity log (files, lines, model, tokens) by the page.
-
 ## Deploying with the CLI (alternative)
 
 ```sh
 npx supabase login            # or: $env:SUPABASE_ACCESS_TOKEN = "sbp_..." (PowerShell)
 npx supabase functions deploy admin-users --project-ref sezjqcbkiydckhirycjb --no-verify-jwt
 npx supabase functions deploy cashier-view --project-ref sezjqcbkiydckhirycjb --no-verify-jwt
-npx supabase functions deploy extract-offer --project-ref sezjqcbkiydckhirycjb --no-verify-jwt
 ```
 
 Pitfalls seen:

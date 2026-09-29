@@ -298,6 +298,11 @@ Covering active **promotions** as well as sell-outs is an optional extension; as
 
 Goal: suppliers send offers as PDFs, photos, or WhatsApp screenshots, usually identifying items by **barcode**. The admin drops in the files and gets a reviewed table, instead of retyping.
 
+> **Changed 2026-09-29 (owner):** the AI part is **not wanted** and was removed after being built
+> (the `extract-offer` function, the review screen and the offer-file bucket; migration 009).
+> **Kept:** §10.1 catalog barcodes, plus Barcode and Discount columns in "Import price sheet".
+> §10.2 and §10.3 below are history only.
+
 ### 10.1 Catalog barcodes
 
 - [x] Catalog upload detects a barcode column (aliases: `barcode`, `bar code`, `ean`, `upc`, `gtin`).
