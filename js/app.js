@@ -628,6 +628,8 @@ let selectedCodeIssues = new Set(); // 'missing' and/or 'mismatch', in the same 
 let countryFilterOpen = false;
 let selectedAuditSuppliers = new Set(); // Supplier filter, scoped to the Audit view only
 let auditSupplierFilterOpen = false;
+let auditTypeFilter = ''; // Audit type filter: '' (all), 'sellout', 'cn', 'rightprice' or 'none', both Audit sub-views
+let auditFilteredRows = []; // what the Audit view shows after its filters; Copy codes copies exactly these
 let showFlaggedOnly = false; // Flagged-only toggle, scoped to the Table view only
 let tableSearchQuery = ''; // Search box, scoped to the Table view only
 let countryFilterSearchQuery = ''; // Search box inside the Filter panel's Country list
@@ -1366,6 +1368,7 @@ async function selectPromotion(id) {
   countryFilterOpen = false;
   selectedAuditSuppliers.clear();
   auditSupplierFilterOpen = false;
+  auditTypeFilter = '';
   showFlaggedOnly = false;
   tableSearchQuery = '';
   if (id) {
@@ -1596,7 +1599,17 @@ async function renderPromoWorkspace() {
   const supplierOf = (row) => (row.supplier || '').trim() || 'No supplier listed';
   const auditRows = auditableRows(visibleRows);
   const auditSupplierOptions = Array.from(new Set(auditRows.map(supplierOf))).sort((a, b) => a.localeCompare(b));
-  const auditVisibleRows = selectedAuditSuppliers.size ? auditRows.filter(r => selectedAuditSuppliers.has(supplierOf(r))) : auditRows;
+  const auditSupplierRows = selectedAuditSuppliers.size ? auditRows.filter(r => selectedAuditSuppliers.has(supplierOf(r))) : auditRows;
+  // Type filter (Sell Out / C/N / Right Price / No type), counted after the supplier filter.
+  const auditTypeOf = (row) => row.priceType || 'none';
+  const auditTypeCounts = auditSupplierRows.reduce((m, r) => { m[auditTypeOf(r)] = (m[auditTypeOf(r)] || 0) + 1; return m; }, {});
+  const auditVisibleRows = auditTypeFilter ? auditSupplierRows.filter(r => auditTypeOf(r) === auditTypeFilter) : auditSupplierRows;
+  auditFilteredRows = auditVisibleRows;
+  const auditNoMatchHtml = `
+      <div class="empty-state" style="padding:34px 16px;">
+        <p class="big">No items match these filters</p>
+        <p>Change the type or supplier filter to see more.</p>
+      </div>`;
 
   const tableVisibleRows = computeTableVisibleRows(visibleRows);
   const rowsHtml = safeSectionHtml('Table → All rows', () => tableVisibleRows.map(buildPromoRowHtml).join(''));
@@ -1645,8 +1658,8 @@ async function renderPromoWorkspace() {
           <p class="muted-note" style="margin:0 0 4px;">${promoStats.total} row${promoStats.total === 1 ? '' : 's'} \u00b7 ${promoStats.flagged} flagged \u00b7 ${promoStats.empty} empty row${promoStats.empty === 1 ? '' : 's'}</p>
           <p class="muted-note" style="margin:0 0 10px;">${promoViewMode === 'audit'
             ? (auditSubView === 'supplier'
-              ? 'Items with a cost on file, grouped by supplier, for setting Type and adding a note without one long list.'
-              : 'Code and description next to the cost from the imported price sheet, for a manual check. Items with no cost on file are left out.')
+              ? 'Every item grouped by supplier, for setting Type and adding a note without one long list.'
+              : 'Code and description next to the cost from the imported price sheet, for a manual check. Items with no cost yet are shown too.')
             : (tableSubView === 'supplier'
               ? 'Every item grouped by supplier, with stock, Out (YTD) and a reorder recommendation for each.'
               : !canEditPromotions() ? 'View only: only an admin can change promotions. Export to Excel or Download to get the file.'
@@ -1724,8 +1737,12 @@ async function renderPromoWorkspace() {
           <button class="${auditSubView === 'supplier' ? 'active' : ''}" data-audit-sub="supplier">By supplier</button>
         </div>
 
-        <div id="promoAuditCostView" style="display:${auditSubView === 'cost' ? '' : 'none'};">
-          <div class="view-toolbar" style="justify-content:space-between;">
+        <div class="view-toolbar audit-toolbar" style="justify-content:space-between;flex-wrap:wrap;gap:10px;">
+          <div class="filter-row audit-type-filter" id="auditTypeFilter" style="margin:0;">
+            ${[['', 'All', auditSupplierRows.length], ['sellout', 'Sell Out', auditTypeCounts.sellout || 0], ['cn', 'C/N', auditTypeCounts.cn || 0], ['rightprice', 'Right Price', auditTypeCounts.rightprice || 0], ['none', 'No type', auditTypeCounts.none || 0]]
+              .map(([t, label, n]) => `<button type="button" class="${auditTypeFilter === t ? 'active' : ''}" data-audit-type="${t}">${label} <span class="muted-note">${n}</span></button>`).join('')}
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
             <div class="filter-dropdown-wrap" id="auditSupplierFilterWrap">
               <button class="btn ghost small" id="auditSupplierFilterBtn">Filter by supplier${selectedAuditSuppliers.size ? ` (${selectedAuditSuppliers.size})` : ''}</button>
               <div class="filter-panel" id="auditSupplierFilterPanel" style="display:${auditSupplierFilterOpen ? 'block' : 'none'};">
@@ -1743,13 +1760,17 @@ async function renderPromoWorkspace() {
                 <p class="muted-note" id="auditSupplierSearchEmpty" style="display:none;padding:2px 12px 10px;">No matching suppliers.</p>
               </div>
             </div>
+            <button class="btn secondary small" id="copyAuditCodesBtn" title="Copy the codes shown, grouped by supplier">Copy codes (${auditVisibleRows.filter(r => (r.code || '').trim()).length})</button>
             <button class="btn secondary small" id="printAuditBtn">Print</button>
           </div>
-          ${auditSubView === 'cost' ? safeSectionHtml('Audit → Cost check', () => buildAuditHtml(auditVisibleRows)) : ''}
+        </div>
+
+        <div id="promoAuditCostView" style="display:${auditSubView === 'cost' ? '' : 'none'};">
+          ${auditSubView === 'cost' ? (auditRows.length && !auditVisibleRows.length ? auditNoMatchHtml : safeSectionHtml('Audit → Cost check', () => buildAuditHtml(auditVisibleRows))) : ''}
         </div>
 
         <div id="promoAuditSupplierView" style="display:${auditSubView === 'supplier' ? '' : 'none'};">
-          ${auditSubView === 'supplier' ? safeSectionHtml('Audit → By supplier', () => buildSupplierGroupedHtml(visibleRows, 'audit')) : ''}
+          ${auditSubView === 'supplier' ? (auditRows.length && !auditVisibleRows.length ? auditNoMatchHtml : safeSectionHtml('Audit → By supplier', () => buildSupplierGroupedHtml(auditVisibleRows, 'audit'))) : ''}
         </div>
       </div>
     </div>
@@ -1773,6 +1794,15 @@ async function renderPromoWorkspace() {
         await renderPromoWorkspace();
       });
     });
+
+    document.querySelectorAll('#auditTypeFilter [data-audit-type]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        auditTypeFilter = btn.dataset.auditType;
+        await renderPromoWorkspace();
+      });
+    });
+    const copyAuditBtn = document.getElementById('copyAuditCodesBtn');
+    if (copyAuditBtn) copyAuditBtn.addEventListener('click', () => copyCodesBySupplier(auditFilteredRows));
 
     const printBtn = document.getElementById('printAuditBtn');
     if (printBtn) printBtn.addEventListener('click', () => printAuditTable(promo, auditVisibleRows));
@@ -1931,8 +1961,8 @@ function buildSupplierGroupedHtml(rows, mode) {
   if (!relevant.length) {
     return mode === 'audit' ? `
       <div class="empty-state" style="padding:34px 16px;">
-        <p class="big">No cost data yet</p>
-        <p>Cost comes in from "Import price sheet" &mdash; items without a cost in that file are left out here.</p>
+        <p class="big">Nothing to audit yet</p>
+        <p>Add items to this promotion (or use "Import price sheet"), then come back here.</p>
       </div>` : `
       <div class="empty-state" style="padding:34px 16px;">
         <p class="big">Nothing to group yet</p>
@@ -2057,12 +2087,14 @@ function buildSupplierGroupedHtml(rows, mode) {
 
 // Code + description next to the cost pulled in from "Import price sheet",
 // so someone can print it and check the numbers by hand against invoices.
-// A row with no cost on file (typed manually, or the source sheet had none)
-// is left out rather than shown with a blank. Cost is kept as free text
+// A row with no cost on file (typed manually, or a brand whose items come
+// later) is shown with a blank cost. Cost is kept as free text
 // (not parsed to a number) since real cost cells carry deal notation like
 // "5+1" or plain notes like "sell out", not just a price.
+// Owner, 2026-09-29: every item is shown, with or without a cost (an item can be a whole brand whose
+// items are added later); only completely blank rows are left out.
 function auditableRows(rows) {
-  return rows.filter(r => r.cost !== null && r.cost !== undefined && r.cost !== '');
+  return rows.filter(r => (r.code || '').trim() || (r.description || '').trim());
 }
 function auditRowClass(priceType) {
   if (priceType === 'sellout') return 'audit-row-sellout';
@@ -2085,8 +2117,8 @@ function buildAuditHtml(auditRows) {
   if (!auditRows.length) {
     return `
     <div class="empty-state" style="padding:40px 20px;">
-      <p class="big">No cost data yet</p>
-      <p>Cost comes in from "Import price sheet" — items without a cost in that file (or filtered out by supplier) are left out here.</p>
+      <p class="big">Nothing to audit yet</p>
+      <p>Add items to this promotion (or use "Import price sheet"), then come back here.</p>
     </div>`;
   }
   return `
@@ -2105,7 +2137,7 @@ function buildAuditHtml(auditRows) {
     </div>`;
 }
 function printAuditTable(promo, auditRows) {
-  if (!auditRows.length) { showToast('No rows with a cost to print yet.', true); return; }
+  if (!auditRows.length) { showToast('Nothing to print with these filters.', true); return; }
   let root = document.getElementById('auditPrintRoot');
   if (!root) {
     root = document.createElement('div');
@@ -2114,7 +2146,7 @@ function printAuditTable(promo, auditRows) {
   }
   root.innerHTML = `
     <h2 style="font-family:Georgia,serif;margin:0 0 4px;">${escapeHtml(promo.name || 'Untitled promotion')} — Cost audit</h2>
-    <p style="margin:0 0 16px;color:#555;font-size:12.5px;">${auditRows.length} item${auditRows.length === 1 ? '' : 's'} with a cost on file</p>
+    <p style="margin:0 0 16px;color:#555;font-size:12.5px;">${auditRows.length} item${auditRows.length === 1 ? '' : 's'}${auditTypeFilter ? ' · ' + escapeHtml(PRICE_TYPE_LABELS[auditTypeFilter === 'none' ? '' : auditTypeFilter] || 'No type') : ''}</p>
     <table style="width:100%;border-collapse:collapse;font-size:13px;">
       <thead><tr>
         <th style="text-align:left;padding:6px 8px;border-bottom:2px solid #333;">Code</th>
@@ -2141,7 +2173,31 @@ window.addEventListener('afterprint', () => document.body.classList.remove('prin
 // accordion. Called separately for the Table view's version (containerId
 // 'promoTableSupplierView', mode 'stock' \u2014 every non-blank row) and the
 // Audit view's version (containerId 'promoAuditSupplierView', mode 'audit'
-// \u2014 only rows with a cost on file), since the two show different rows.
+// \u2014 the rows left by the Audit filters), since the two show different rows.
+// Copies the codes of the given rows grouped by supplier, one block per supplier, so each supplier's
+// sell-out or credit note can be made from its own block:
+//   SUPPLIER A (3)
+//   111,222,333
+//
+//   SUPPLIER B (1)
+//   444
+async function copyCodesBySupplier(rows) {
+  const groups = new Map();
+  rows.forEach(r => {
+    const code = (r.code || '').trim(); if (!code) return;
+    const name = (r.supplier || '').trim() || 'No supplier listed';
+    if (!groups.has(name)) groups.set(name, []);
+    if (!groups.get(name).includes(code)) groups.get(name).push(code);
+  });
+  if (!groups.size) { showToast('No codes to copy with these filters.', true); return; }
+  const names = [...groups.keys()].sort((a, b) => a.localeCompare(b));
+  const text = names.map(n => `${n} (${groups.get(n).length})\n${groups.get(n).join(',')}`).join('\n\n');
+  const total = names.reduce((t, n) => t + groups.get(n).length, 0);
+  const ok = await copyTextToClipboard(text);
+  if (ok) showToast(`Copied ${total} code${total === 1 ? '' : 's'} from ${names.length} supplier${names.length === 1 ? '' : 's'}.`);
+  else showToast('Could not copy — your browser blocked clipboard access.', true);
+}
+
 function wireSupplierGroupEvents(containerId, mode) {
   document.querySelectorAll(`#${containerId} .sellout[data-supplier-group]`).forEach(el => {
     const name = el.dataset.supplierGroup;
@@ -2157,10 +2213,8 @@ function wireSupplierGroupEvents(containerId, mode) {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
       const name = btn.dataset.supplier;
-      const supplierRows = currentRows.filter(r => ((r.supplier || '').trim() || 'No supplier listed') === name);
-      const scoped = mode === 'audit'
-        ? supplierRows.filter(r => r.cost !== null && r.cost !== undefined && r.cost !== '')
-        : supplierRows.filter(r => (r.code || '').trim() || (r.description || '').trim());
+      const supplierRows = (mode === 'audit' ? auditFilteredRows : currentRows).filter(r => ((r.supplier || '').trim() || 'No supplier listed') === name);
+      const scoped = supplierRows.filter(r => (r.code || '').trim() || (r.description || '').trim());
       const codes = scoped.map(r => (r.code || '').trim()).filter(Boolean);
       if (!codes.length) { showToast('No codes to copy for this supplier.', true); return; }
       const ok = await copyTextToClipboard(codes.join(','));
