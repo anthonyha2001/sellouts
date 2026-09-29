@@ -1,0 +1,24 @@
+/* Public cashier page: phone-first, built on the app's tokens (css/app.css). */
+body.cashier-page{display:block;min-height:100vh;}
+.cp-wrap{max-width:460px;margin:0 auto;padding:28px 16px 40px;}
+.cp-card label{margin-top:0;}
+.cp-card select,.cp-card input{font-size:16px;}           /* 16px avoids iPhone zoom on focus */
+.cp-card #cpPin{letter-spacing:.5em;font-family:var(--font-mono);text-align:center;font-size:22px;}
+.cp-card .btn{width:100%;}
+.cp-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:14px;}
+.cp-head h2{font-family:var(--font-head);font-size:22px;margin:0;}
+.cp-head p{margin:2px 0 0;}
+.cp-total{display:flex;flex-direction:column;gap:2px;padding:16px 18px;}
+.cp-total span{font-size:12.5px;color:var(--ink-soft);}
+.cp-total b{font-family:var(--font-mono);font-size:28px;}
+.cp-total b.neg{color:var(--brick);}
+.cp-total small{font-size:12px;color:var(--ink-faint);}
+.cp-list-card{padding:0;overflow:hidden;}
+.cp-list{width:100%;border-collapse:collapse;font-size:14px;}
+.cp-list td{padding:10px 16px;border-bottom:1px solid var(--line);}
+.cp-list tr:last-child td{border-bottom:0;}
+.cp-list td.num{text-align:right;font-family:var(--font-mono);}
+.cp-list tr.lv-warn td{background:var(--cash-warn);}
+.cp-list tr.lv-danger td{background:var(--cash-danger);}
+.cp-list tr.cp-note td{font-size:12.5px;color:var(--ink-soft);padding-top:0;border-bottom:1px solid var(--line);}
+.cp-foot{text-align:center;margin-top:14px;}

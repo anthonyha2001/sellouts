@@ -958,6 +958,7 @@ function switchTab(name, sub) {
   if (name === 'delivery' && window.Delivery) Delivery.show(sub);   // sets its own #delivery/<page> hash
   else if (location.hash !== '#' + name) history.replaceState(null, '', '#' + name);
   if (name === 'users' && window.UsersPage) UsersPage.show();
+  if (name === 'cash' && window.Cash) Cash.show();
   if (name === 'activity' && window.ActivityPage) ActivityPage.show();
 }
 function routeFromHash() {
@@ -3955,4 +3956,5 @@ function startMainModules() {
   if (canSee('sellouts') || canSee('creditnotes')) loadAll();
   if (canSee('promotions')) initPromotions();
   if (canSee('vendors') || canSee('rentals')) initVendors();
+  if (canSee('cash') && window.Cash) Cash.start();
 }

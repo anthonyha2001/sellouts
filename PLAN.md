@@ -239,33 +239,33 @@ Create, edit, delete, activate, deactivate, apply pricing (with mode and value),
 
 ### 8.2 Accountant grid
 
-- [ ] Month picker. Rows = days of the month, columns = active cashiers (in `sort_order`), same shape as the current Google Sheet.
-- [ ] Cells accept numbers only (negative = short, positive = over); saves on blur; paste a block from Excel; Enter moves down, Tab moves right.
-- [ ] Note icon per cell.
-- [ ] Cell colours from thresholds (tints matching the current sheet's red shades), consistent everywhere.
-- [ ] Row and column totals.
-- [ ] Locked months are read-only with a lock banner. Lock: admin or accountant; unlock: admin only; both logged.
-- [ ] Manage cashiers (add, rename, reorder, deactivate, set or reset PIN).
-- [ ] Reminder: if yesterday has no entries by a set hour, show a notification to the accountant.
+- [x] Month picker. Rows = days of the month, columns = active cashiers (in `sort_order`), same shape as the current Google Sheet.
+- [x] Cells accept numbers only (negative = short, positive = over); saves on blur; paste a block from Excel; Enter moves down, Tab moves right.
+- [x] Note icon per cell.
+- [x] Cell colours from thresholds (tints matching the current sheet's red shades), consistent everywhere.
+- [x] Row and column totals.
+- [x] Locked months are read-only with a lock banner. Lock: admin or accountant; unlock: admin only; both logged.
+- [x] Manage cashiers (add, rename, reorder, deactivate, set or reset PIN).
+- [x] Reminder: if yesterday has no entries by a set hour, show a notification to the accountant.
 
 ### 8.3 Analysis (admin and accountant)
 
-- [ ] Monthly summary per cashier: total over, total short, net, number of short days, biggest single difference.
-- [ ] Pattern alerts, for example: 3+ shortages above the warning threshold in a month; short 3 days in a row; monthly net shortage above the danger threshold.
-- [ ] Trend per cashier across the last 12 months (simple chart).
+- [x] Monthly summary per cashier: total over, total short, net, number of short days, biggest single difference.
+- [x] Pattern alerts, for example: 3+ shortages above the warning threshold in a month; short 3 days in a row; monthly net shortage above the danger threshold.
+- [x] Trend per cashier across the last 12 months (simple chart).
 
 ### 8.4 Import history
 
-- [ ] Import the existing monthly sheets: header row contains "Day of the month" plus cashier names; one sheet per month (tab names like `AUG-2026`, `JUL-2026`; ask for the month when the tab is "Current Month").
-- [ ] Parse numbers stored as text ("249000", "-2500"); treat blanks as no entry; create unknown cashiers after confirmation.
-- [ ] Show a preview with cells that could not be parsed or that sit outside a cashier column (e.g. a stray value between columns) before importing.
+- [x] Import the existing monthly sheets: header row contains "Day of the month" plus cashier names; one sheet per month (tab names like `AUG-2026`, `JUL-2026`; ask for the month when the tab is "Current Month").
+- [x] Parse numbers stored as text ("249000", "-2500"); treat blanks as no entry; create unknown cashiers after confirmation.
+- [x] Show a preview with cells that could not be parsed or that sit outside a cashier column (e.g. a stray value between columns) before importing.
 
 ### 8.5 Cashier public page (`cashier.html`)
 
-- [ ] No login. The cashier picks their name and enters a **4-digit PIN**.
-- [ ] Edge function `cashier-view` checks the PIN against `pin_hash` and returns **only that cashier's** differences and notes for the requested month (current and previous months). **Read-only.**
-- [ ] Lock out after 5 wrong PINs for 15 minutes.
-- [ ] Shows the month grid for that cashier only, plus a monthly total. No other cashier's data is ever sent to the browser.
+- [x] No login. The cashier picks their name and enters a **4-digit PIN**.
+- [x] Edge function `cashier-view` checks the PIN against `pin_hash` and returns **only that cashier's** differences and notes for the requested month (current and previous months). **Read-only.**
+- [x] Lock out after 5 wrong PINs for 15 minutes.
+- [x] Shows the month grid for that cashier only, plus a monthly total. No other cashier's data is ever sent to the browser.
 
 ---
 
@@ -331,8 +331,8 @@ Goal: suppliers send offers as PDFs, photos, or WhatsApp screenshots, usually id
 | # | Question | Default until answered |
 |---|---|---|
 | 1 | Are "side gondola" (yearly) and "basket side" (other) the same equipment? | **Answered 2026-09-29:** different. Gondola, side gondola, basket side and pillar can each be yearly or monthly; screens are monthly only |
-| 2 | Cash differences: LBP only, or USD too? | LBP, with a currency column ready for USD |
-| 3 | Cash colour thresholds | ±500,000 warning, ±1,000,000 danger |
+| 2 | Cash differences: LBP only, or USD too? | **Answered 2026-09-29:** USD only. Old sheets are LBP and are converted on import at a rate entered then (original LBP amount and rate kept) |
+| 3 | Cash colour thresholds | **Answered 2026-09-29:** ±$10 warning, ±$20 danger (editable in Cash settings) |
 | 4 | How does the catalog export list multiple barcodes per item? | Support both formats |
 | 5 | Does the catalog export already include a barcode column? | Ask before Phase 6 |
 | 6 | Should the floor check include active promotions? | Sell-outs only |

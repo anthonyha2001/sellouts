@@ -23,11 +23,21 @@ with the signed-in user's session, and the function checks who is calling.
 
 Check: sign in as admin → Users. The "Read-only for now" notice disappears and **+ Add user** works.
 
+## Deploying `cashier-view` (Phase 4)
+
+Same steps as `admin-users`: name it exactly `cashier-view`, paste `supabase/functions/cashier-view/index.ts`,
+Deploy, then turn **Verify JWT off** (the cashier page has no login). Needs migration 005 first.
+The function only returns the chosen cashier's own days for the current or previous month (Beirut),
+after `cashier_verify_pin()` accepts the PIN; 5 wrong PINs lock that cashier for 15 minutes.
+
+Check: open `cashier.html`, pick a cashier who has a PIN (set under Cash → Cashiers & settings), type it.
+
 ## Deploying with the CLI (alternative)
 
 ```sh
 npx supabase login
 npx supabase functions deploy admin-users --project-ref sezjqcbkiydckhirycjb --no-verify-jwt
+npx supabase functions deploy cashier-view --project-ref sezjqcbkiydckhirycjb --no-verify-jwt
 ```
 
 ## Rules the function enforces
