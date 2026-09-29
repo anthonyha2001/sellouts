@@ -39,7 +39,7 @@ export default async function (page, { log }) {
   const lastCol = await page.$$eval('[data-delcol]', b => b.length - 1); await page.click(`[data-delcol="${lastCol}"]`);
   const after = await page.evaluate(() => { const t = Tools._state.tables[0]; return [t.rows.length, t.rows[0].length]; });
   log('edit buttons: rows x cols', before.join('x'), '->', after.join('x'));
-  log('cellValue:', await page.evaluate(() => JSON.stringify(['1,234.50', '(12.00)', '0012345678905', '96385074', '12 %', '$9.60'].map(v => [v, Tools._cellValue(v)]))));
+  log('cellValue (all text):', await page.evaluate(() => JSON.stringify(['1,234.50', '(12.00)', '0012345678905', '96385074', '545400000000000000', '$9.60'].map(v => [v, Tools._cellValue(v)]))));
   // Debit / Credit: two sparse columns side by side must stay apart
   log('debit/credit kept apart:', await page.evaluate(() => {
     const w = (t, x, y) => ({ t, x0: x, x1: x + t.length * 7, y0: y, y1: y + 12, conf: 100 });

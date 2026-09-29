@@ -428,7 +428,7 @@ admin only by default (give it per user in Users → Permissions).
 - [x] Preview: edit any cell, remove a row / column, join a row to the one above; OCR words the reader was
   unsure of are highlighted; "Rotate & re-read" for sideways photos.
 - [x] Download .xlsx: pages in one sheet (the title / header repeated on each page kept once) or one sheet per
-  page; amounts become numbers ("1,234.50", "(12.00)" → −12, "$9.60"), codes with leading zeros stay text.
+  page; **every cell is text**, formatted as Text in Excel (owner, 2026-09-29: no 5.454E+4, no lost zeros).
   Copy (tab-separated) for pasting into Excel. Converting and downloading are logged.
 
 ---

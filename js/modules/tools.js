@@ -7,7 +7,8 @@
      unsure about are highlighted so they can be checked.
    Rows and columns are rebuilt from where the words sit on the page.
    The result can be edited (cells, delete row / column, merge a row
-   into the one above) and downloaded as .xlsx (SheetJS, already loaded).
+   into the one above) and downloaded as .xlsx (SheetJS, already loaded),
+   every cell as text.
    Libraries come from jsDelivr, only when the page is first used.
    Permission: tools.convert. Public API: window.Tools = { show }.
    ============================================================ */
@@ -347,18 +348,9 @@
     finally { S.busy = false; }
   }
 
-  // "1,234.50" → 1234.5, "(12.00)" → -12, "12 %" stays text; leading zeros (barcodes, codes) stay text.
-  function cellValue(s) {
-    const v = String(s).trim();
-    if (!v) return '';
-    const neg = /^\(.*\)$/.test(v);
-    const core = v.replace(/^\(|\)$/g, '').replace(/^[$€£]|\s*(USD|LBP|\$)$/i, '').trim();
-    if (/^-?(\d{1,3}(,\d{3})+|\d+)(\.\d+)?$/.test(core) && !/^-?0\d/.test(core) && core.replace(/\D/g, '').length <= 15) {
-      const n = Number(core.replace(/,/g, ''));
-      return neg ? -n : n;
-    }
-    return v;
-  }
+  // Owner, 2026-09-29: everything is exported as text, exactly as read — codes and long numbers must
+  // never turn into 5.454E+4 or lose their leading zeros.
+  const cellValue = s => String(s ?? '').trim();
 
   function download() {
     const sheets = sheetsToExport();
@@ -371,6 +363,8 @@
       used.add(name);
       const aoa = sh.rows.map(r => r.map(c => cellValue(c.t)));
       const ws = XLSX.utils.aoa_to_sheet(aoa);
+      // Text cells with the Text format (@), so Excel keeps them as typed even after editing.
+      Object.keys(ws).filter(k => /^[A-Z]+\d+$/.test(k)).forEach(k => { ws[k].t = 's'; ws[k].z = '@'; });
       ws['!cols'] = (aoa[0] || []).map((_, i) => ({ wch: Math.min(60, Math.max(8, ...aoa.map(r => String(r[i] ?? '').length + 2))) }));
       XLSX.utils.book_append_sheet(wb, ws, name);
     });
