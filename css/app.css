@@ -897,8 +897,18 @@ body.ro-promotions #panel-promotions [data-role="toggle-flag"]:disabled { cursor
 .rentals-map-bar{ display:flex; justify-content:flex-end; margin:-44px 0 10px; pointer-events:none; }
 .rentals-map-bar .btn{ pointer-events:auto; display:inline-flex; align-items:center; gap:6px; }
 @media (max-width:760px){ .rentals-map-bar{ margin:0 0 10px; } }
-/* Full screen: the map view covers the page, above the sidebar and header. */
+/* Full screen: only the map drawing, over the whole page (no toolbar, filters, side panel or legend).
+   The zoom buttons stay on the map; the Exit button floats at the top left. */
 body.rentals-map-expanded{ overflow:hidden; }
-body.rentals-map-expanded #rentalMapView{ position:fixed; inset:0; z-index:90; background:var(--paper); padding:12px 14px 14px; display:flex; flex-direction:column; overflow:auto; overscroll-behavior:contain; }
-body.rentals-map-expanded .rentals-map-bar{ margin:0 0 8px; }
-body.rentals-map-expanded .rentals-map{ flex:1 1 auto; height:auto; min-height:0; }
+body.rentals-map-expanded #rentalMapView{ position:fixed; inset:0; z-index:90; background:var(--paper); }
+body.rentals-map-expanded .rentals-map-bar{ position:absolute; top:12px; left:12px; margin:0; z-index:5; }
+body.rentals-map-expanded .rentals-map-bar .btn{ background:var(--paper-raised); box-shadow:0 2px 10px rgba(0,0,0,.18); }
+body.rentals-map-expanded .rentals-map{ height:100%; min-height:0; }
+body.rentals-map-expanded #rentalsMap .sm-top,
+body.rentals-map-expanded #rentalsMap .sm-bar,
+body.rentals-map-expanded #rentalsMap .sm-panel,
+body.rentals-map-expanded #rentalsMap .sm-legend{ display:none !important; }
+body.rentals-map-expanded #rentalsMap .sm,
+body.rentals-map-expanded #rentalsMap .sm-body{ height:100%; min-height:0; gap:0; }
+body.rentals-map-expanded #rentalsMap .sm-body{ display:grid; grid-template-columns:minmax(0,1fr); }
+body.rentals-map-expanded #rentalsMap .sm-canvas{ min-height:0; height:100%; border:0; border-radius:0; }
