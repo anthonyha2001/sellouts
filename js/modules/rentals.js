@@ -70,10 +70,28 @@ const Rentals = (function () {
     await S.map.ready;
   }
 
+  /* ---------------- full screen map ---------------- */
+  // The map view covers the whole page (sidebar and header included); Esc or the button closes it.
+  function setExpanded(on) {
+    document.body.classList.toggle('rentals-map-expanded', on);
+    const btn = el('rentalMapExpand');
+    btn.setAttribute('aria-pressed', String(on));
+    btn.querySelector('span').textContent = on ? 'Exit full screen' : 'Full screen';
+    btn.title = on ? 'Back to the page (Esc)' : 'Show the map on the whole screen (Esc to close)';
+    if (S.map) requestAnimationFrame(() => S.map.fit());
+  }
+  el('rentalMapExpand').addEventListener('click', () => setExpanded(!document.body.classList.contains('rentals-map-expanded')));
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape' || !document.body.classList.contains('rentals-map-expanded')) return;
+    if (document.querySelector('#modalOverlay.open')) return;   // a confirm dialog is open: leave full screen alone
+    setExpanded(false);
+  });
+
   /* ---------------- tabs ---------------- */
   function renderTabs() {
     document.querySelectorAll('#rentalViewTabs [data-view]').forEach(b => b.classList.toggle('active', b.dataset.view === S.view));
     el('rentalMapView').hidden = S.view !== 'map';
+    if (S.view !== 'map' && document.body.classList.contains('rentals-map-expanded')) setExpanded(false);
     el('rentalListView').hidden = S.view !== 'list';
   }
   el('rentalViewTabs').addEventListener('click', e => {
@@ -224,6 +242,7 @@ const Rentals = (function () {
     }
   });
   function goToMap(then) {
+    // (keeps full screen as it is)
     S.view = 'map';
     renderTabs();
     requestAnimationFrame(() => { then(); el('rentalMapView').scrollIntoView({ behavior: 'smooth', block: 'start' }); });

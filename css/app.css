@@ -894,3 +894,11 @@ body.ro-promotions #panel-promotions [data-role="toggle-flag"]:disabled { cursor
 .rentals-map > .sm{ flex:1 1 auto; }
 @media (max-width:760px){ .rentals-map{ height:auto; min-height:0; } }
 .rental-sales-input{ width:100%; min-width:76px; padding:4px 6px; font-size:12.5px; text-align:right; }
+.rentals-map-bar{ display:flex; justify-content:flex-end; margin:-44px 0 10px; pointer-events:none; }
+.rentals-map-bar .btn{ pointer-events:auto; display:inline-flex; align-items:center; gap:6px; }
+@media (max-width:760px){ .rentals-map-bar{ margin:0 0 10px; } }
+/* Full screen: the map view covers the page, above the sidebar and header. */
+body.rentals-map-expanded{ overflow:hidden; }
+body.rentals-map-expanded #rentalMapView{ position:fixed; inset:0; z-index:90; background:var(--paper); padding:12px 14px 14px; display:flex; flex-direction:column; overflow:auto; overscroll-behavior:contain; }
+body.rentals-map-expanded .rentals-map-bar{ margin:0 0 8px; }
+body.rentals-map-expanded .rentals-map{ flex:1 1 auto; height:auto; min-height:0; }

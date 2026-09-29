@@ -84,7 +84,15 @@ export default async function (page, { log }) {
   await page.click(card + ' [data-role="save-sales"]'); await page.waitForTimeout(500);
   log('sales saved 2026-09:', saved.monthly_sales && saved.monthly_sales['2026-09'], '| signal:', (await page.textContent(card + ' .rental-summary')).replace(/\s+/g, ' ').trim());
   log('writes:', [...new Set(writes)].join(', '));
-  if (process.env.END_VIEW === 'map') { await page.click(card + ' [data-role="show"]'); await page.waitForTimeout(1500); }
+  if (process.env.END_VIEW === 'map' || process.env.END_VIEW === 'full') { await page.click(card + ' [data-role="show"]'); await page.waitForTimeout(1500); }
+  if (process.env.END_VIEW === 'full') {
+    await page.click('#rentalMapExpand'); await page.waitForTimeout(800);
+    const box = await page.evaluate(() => { const r = document.getElementById('rentalMapView').getBoundingClientRect(); return [r.width, r.height, innerWidth, innerHeight].map(Math.round).join('x'); });
+    log('full screen view box (w,h,vw,vh):', box, '| button:', await page.textContent('#rentalMapExpand'));
+    await page.keyboard.press('Escape'); await page.waitForTimeout(300);
+    log('after Esc expanded:', await page.evaluate(() => document.body.classList.contains('rentals-map-expanded')));
+    await page.click('#rentalMapExpand'); await page.waitForTimeout(800);
+  }
 }
 // (screenshots) END_VIEW=map ends on the map with the placed gondola selected
 export const after = true;
