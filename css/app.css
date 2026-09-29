@@ -607,3 +607,7 @@ body.booting .login-fields{display:none;}
 @media (max-width:860px){
   .sidenav .mobile-signout{display:flex;border-top:1px solid rgba(255,255,255,.08);margin-top:4px;padding-top:12px;}
 }
+
+/* Dialog messages may contain line breaks (e.g. sign-in details). */
+#modalMsg{white-space:pre-line;}
+.filter-row button:disabled{opacity:.45;cursor:not-allowed;}
