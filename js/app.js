@@ -959,6 +959,7 @@ function switchTab(name, sub) {
   else if (location.hash !== '#' + name) history.replaceState(null, '', '#' + name);
   if (name === 'users' && window.UsersPage) UsersPage.show();
   if (name === 'cash' && window.Cash) Cash.show();
+  if (name === 'floorcheck' && window.FloorCheck) FloorCheck.show();
   if (name === 'activity' && window.ActivityPage) ActivityPage.show();
 }
 function routeFromHash() {
@@ -3957,4 +3958,5 @@ function startMainModules() {
   if (canSee('promotions')) initPromotions();
   if (canSee('vendors') || canSee('rentals')) initVendors();
   if (canSee('cash') && window.Cash) Cash.start();
+  if (canSee('floorcheck') && window.FloorCheck) FloorCheck.start();   // admin: finished-check notifications
 }

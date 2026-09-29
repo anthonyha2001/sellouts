@@ -279,16 +279,16 @@ Create, edit, delete, activate, deactivate, apply pricing (with mode and value),
 
 ### 9.2 Floor manager page (mobile-first)
 
-- [ ] "Today's floor check": every item of every sell-out active today, with its **expected price** (the sell-out's new price from Phase 2).
-- [ ] Items from sell-outs **starting or ending today** come first.
-- [ ] Large tap buttons per item: ✅ Correct · ❌ Wrong price · 🏷️ Tag missing · 📦 Out of stock. Optional note and photo (camera).
-- [ ] Progress bar; resumes where he left off if the page is reopened the same day.
-- [ ] "Finish check" → the admin gets a notification with counts.
+- [x] "Today's floor check": every item of every sell-out active today, with its **expected price** (the sell-out's new price from Phase 2).
+- [x] Items from sell-outs **starting or ending today** come first.
+- [x] Large tap buttons per item: ✅ Correct · ❌ Wrong price · 🏷️ Tag missing · 📦 Out of stock. Optional note and photo (camera).
+- [x] Progress bar; resumes where he left off if the page is reopened the same day.
+- [x] "Finish check" → the admin gets a notification with counts.
 
 ### 9.3 Admin view
 
-- [ ] List of checks; each shows only the problems. Mark a problem as resolved (logged).
-- [ ] History: items that repeatedly come back wrong.
+- [x] List of checks; each shows only the problems. Mark a problem as resolved (logged).
+- [x] History: items that repeatedly come back wrong.
 
 Covering active **promotions** as well as sell-outs is an optional extension; ask before adding it.
 
