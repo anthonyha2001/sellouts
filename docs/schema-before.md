@@ -1,22 +1,24 @@
 # Schema before the rebuild (Phase 0 snapshot, 2026-09-29)
 
-Sources: the live REST API schema (read with the secret key: exact columns, types, defaults, NOT NULL,
-primary and foreign keys), the Auth and Storage admin APIs, the data backup, and the two HTML files.
-**Not visible without direct SQL:** RLS policy text, grants, triggers, indexes and non-exposed functions.
-Phase 1 handles this by saving `pg_policies` into a backup table before replacing the policies
-(see "Plan for Phase 1" below). `docs/inspect-schema.sql` can still be run in the SQL Editor for the full picture.
+Sources: `docs/inspect-schema.sql` run read-only against the live database on 2026-09-29 (raw output:
+`docs/schema-before.json`), plus the data backup and the two HTML files.
 
-## Access today (verified 2026-09-29)
+## Access today (confirmed from the database catalog)
 
-- **Anyone with the publishable key (it is in the page source) can read all 15 tables.** Writes were not tested,
-  to avoid touching live data, but both apps write with that same key, so insert/update/delete are open as well.
-- **Auth: 0 users.** Nobody has ever logged in.
-- **Storage: 0 buckets.** Files live as base64 inside rows.
-- `dt_staff` (empty) + RPC `dt_is_staff()` (returns `false` for anon) are an unused, earlier attempt at a delivery
-  staff lock. The `dt_*` policies clearly do not depend on it today, since anon reads everything. `setup.sql` is not in the folder.
-  Phase 1 supersedes it with `profiles` and leaves both in place (additive rule), unless you approve dropping them.
-- Realtime: the delivery app subscribes to `postgres_changes` on `dt_drivers`, `dt_customers`, `dt_orders`, `dt_settings`.
-  Realtime respects RLS, so the Phase 1 policies also decide who receives live updates.
+- **RLS is enabled on all 15 tables, but every table has a policy that allows everything to everyone:**
+  - `public access` (ALL, role `public`, `using true`, `check true`): app_settings, catalog_items, credit_notes, promotions, promotion_rows, sellouts
+  - `vendors_all` / `vendor_orders_all` / `vendor_skips_all` / `vendor_rentals_all` (ALL, `public`, `true`): the vendor tables
+  - `dt_app_all` (ALL, `anon, authenticated`, `true`): dt_customers, dt_drivers, dt_orders, dt_settings
+  - `dt_staff_read_self` (SELECT, authenticated, `user_id = auth.uid()`): dt_staff, the only restrictive one
+- **Grants:** `anon` and `authenticated` hold every privilege on every table, including TRUNCATE (not reachable through the
+  REST API, but still wrong).
+- **Triggers:** none. **Functions:** only `dt_is_staff()` (security definer, unused by the app).
+- **Indexes (besides PKs):** `dt_customers(phone)`, `dt_orders(order_date)`, `dt_orders(driver_id) where not paid`.
+- **Check / unique constraints:** none besides PKs and FKs.
+- **Realtime publication:** dt_drivers, dt_customers, dt_orders, dt_settings.
+- **Extensions:** plpgsql, pgcrypto (needed for cashier PINs, Phase 4), uuid-ossp, pg_stat_statements, supabase_vault.
+- **Auth users: 0. Storage buckets: 0.** Server timezone: UTC (Postgres 17.6).
+- `dt_staff` + `dt_is_staff()` are an earlier, unused staff-lock attempt, superseded by `profiles`, and left in place.
 
 ## Conventions
 
@@ -78,9 +80,8 @@ Phase 1 handles this by saving `pg_policies` into a backup table before replacin
 
 ## Plan for Phase 1 (from these findings)
 
-1. Migration starts with `create table _policy_backup_20260929 as select … from pg_policies where schemaname='public'`,
-   so the old policies are recorded before they are replaced. Then all existing policies on these tables are dropped
-   in a loop, and the §3 policies are created.
+1. Migration starts by copying `pg_policies` into `_policy_backup_20260929`, then drops the open policies listed above,
+   revokes all `anon` privileges (and TRUNCATE/TRIGGER/REFERENCES from `authenticated`), and creates the §3 policies.
 2. `dt_orders.order_date` defaults to `CURRENT_DATE`, which is the **UTC** date on Supabase. Between 00:00 and 03:00 Beirut
    time that is yesterday. The app always sends `order_date` today, but the default will change to `beirut_today()`.
 3. The delivery `sync()` upserts whole rows, so the "today only" trigger compares old and new values column by column.

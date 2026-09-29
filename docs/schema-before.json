@@ -1,0 +1,1465 @@
+{
+    "grants": [
+        {
+            "privs": "DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE",
+            "table": "app_settings",
+            "grantee": "anon"
+        },
+        {
+            "privs": "DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE",
+            "table": "app_settings",
+            "grantee": "authenticated"
+        },
+        {
+            "privs": "DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE",
+            "table": "catalog_items",
+            "grantee": "anon"
+        },
+        {
+            "privs": "DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE",
+            "table": "catalog_items",
+            "grantee": "authenticated"
+        },
+        {
+            "privs": "DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE",
+            "table": "credit_notes",
+            "grantee": "anon"
+        },
+        {
+            "privs": "DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE",
+            "table": "credit_notes",
+            "grantee": "authenticated"
+        },
+        {
+            "privs": "DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE",
+            "table": "dt_customers",
+            "grantee": "anon"
+        },
+        {
+            "privs": "DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE",
+            "table": "dt_customers",
+            "grantee": "authenticated"
+        },
+        {
+            "privs": "DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE",
+            "table": "dt_drivers",
+            "grantee": "anon"
+        },
+        {
+            "privs": "DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE",
+            "table": "dt_drivers",
+            "grantee": "authenticated"
+        },
+        {
+            "privs": "DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE",
+            "table": "dt_orders",
+            "grantee": "anon"
+        },
+        {
+            "privs": "DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE",
+            "table": "dt_orders",
+            "grantee": "authenticated"
+        },
+        {
+            "privs": "DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE",
+            "table": "dt_settings",
+            "grantee": "anon"
+        },
+        {
+            "privs": "DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE",
+            "table": "dt_settings",
+            "grantee": "authenticated"
+        },
+        {
+            "privs": "DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE",
+            "table": "dt_staff",
+            "grantee": "anon"
+        },
+        {
+            "privs": "DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE",
+            "table": "dt_staff",
+            "grantee": "authenticated"
+        },
+        {
+            "privs": "DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE",
+            "table": "promotion_rows",
+            "grantee": "anon"
+        },
+        {
+            "privs": "DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE",
+            "table": "promotion_rows",
+            "grantee": "authenticated"
+        },
+        {
+            "privs": "DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE",
+            "table": "promotions",
+            "grantee": "anon"
+        },
+        {
+            "privs": "DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE",
+            "table": "promotions",
+            "grantee": "authenticated"
+        },
+        {
+            "privs": "DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE",
+            "table": "sellouts",
+            "grantee": "anon"
+        },
+        {
+            "privs": "DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE",
+            "table": "sellouts",
+            "grantee": "authenticated"
+        },
+        {
+            "privs": "DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE",
+            "table": "vendor_orders",
+            "grantee": "anon"
+        },
+        {
+            "privs": "DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE",
+            "table": "vendor_orders",
+            "grantee": "authenticated"
+        },
+        {
+            "privs": "DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE",
+            "table": "vendor_rentals",
+            "grantee": "anon"
+        },
+        {
+            "privs": "DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE",
+            "table": "vendor_rentals",
+            "grantee": "authenticated"
+        },
+        {
+            "privs": "DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE",
+            "table": "vendor_skips",
+            "grantee": "anon"
+        },
+        {
+            "privs": "DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE",
+            "table": "vendor_skips",
+            "grantee": "authenticated"
+        },
+        {
+            "privs": "DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE",
+            "table": "vendors",
+            "grantee": "anon"
+        },
+        {
+            "privs": "DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE",
+            "table": "vendors",
+            "grantee": "authenticated"
+        }
+    ],
+    "tables": [
+        {
+            "table": "app_settings",
+            "est_rows": -1,
+            "rls_forced": false,
+            "rls_enabled": true
+        },
+        {
+            "table": "catalog_items",
+            "est_rows": 420,
+            "rls_forced": false,
+            "rls_enabled": true
+        },
+        {
+            "table": "credit_notes",
+            "est_rows": -1,
+            "rls_forced": false,
+            "rls_enabled": true
+        },
+        {
+            "table": "dt_customers",
+            "est_rows": 1843,
+            "rls_forced": false,
+            "rls_enabled": true
+        },
+        {
+            "table": "dt_drivers",
+            "est_rows": -1,
+            "rls_forced": false,
+            "rls_enabled": true
+        },
+        {
+            "table": "dt_orders",
+            "est_rows": 17,
+            "rls_forced": false,
+            "rls_enabled": true
+        },
+        {
+            "table": "dt_settings",
+            "est_rows": -1,
+            "rls_forced": false,
+            "rls_enabled": true
+        },
+        {
+            "table": "dt_staff",
+            "est_rows": -1,
+            "rls_forced": false,
+            "rls_enabled": true
+        },
+        {
+            "table": "promotion_rows",
+            "est_rows": 472,
+            "rls_forced": false,
+            "rls_enabled": true
+        },
+        {
+            "table": "promotions",
+            "est_rows": 3,
+            "rls_forced": false,
+            "rls_enabled": true
+        },
+        {
+            "table": "sellouts",
+            "est_rows": 8,
+            "rls_forced": false,
+            "rls_enabled": true
+        },
+        {
+            "table": "vendor_orders",
+            "est_rows": 128,
+            "rls_forced": false,
+            "rls_enabled": true
+        },
+        {
+            "table": "vendor_rentals",
+            "est_rows": -1,
+            "rls_forced": false,
+            "rls_enabled": true
+        },
+        {
+            "table": "vendor_skips",
+            "est_rows": -1,
+            "rls_forced": false,
+            "rls_enabled": true
+        },
+        {
+            "table": "vendors",
+            "est_rows": 170,
+            "rls_forced": false,
+            "rls_enabled": true
+        }
+    ],
+    "columns": [
+        {
+            "type": "text",
+            "table": "app_settings",
+            "column": "id",
+            "default": null,
+            "nullable": "NO"
+        },
+        {
+            "type": "numeric",
+            "table": "app_settings",
+            "column": "low_stock_threshold",
+            "default": "20",
+            "nullable": "YES"
+        },
+        {
+            "type": "text",
+            "table": "catalog_items",
+            "column": "id",
+            "default": null,
+            "nullable": "NO"
+        },
+        {
+            "type": "text",
+            "table": "catalog_items",
+            "column": "description",
+            "default": null,
+            "nullable": "YES"
+        },
+        {
+            "type": "text",
+            "table": "catalog_items",
+            "column": "pack",
+            "default": null,
+            "nullable": "YES"
+        },
+        {
+            "type": "numeric",
+            "table": "catalog_items",
+            "column": "balance",
+            "default": null,
+            "nullable": "YES"
+        },
+        {
+            "type": "numeric",
+            "table": "catalog_items",
+            "column": "sale_price",
+            "default": null,
+            "nullable": "YES"
+        },
+        {
+            "type": "timestamp with time zone",
+            "table": "catalog_items",
+            "column": "updated_at",
+            "default": "now()",
+            "nullable": "YES"
+        },
+        {
+            "type": "text",
+            "table": "catalog_items",
+            "column": "supplier",
+            "default": null,
+            "nullable": "YES"
+        },
+        {
+            "type": "text",
+            "table": "catalog_items",
+            "column": "code",
+            "default": null,
+            "nullable": "YES"
+        },
+        {
+            "type": "text",
+            "table": "catalog_items",
+            "column": "promotion_id",
+            "default": null,
+            "nullable": "YES"
+        },
+        {
+            "type": "text",
+            "table": "catalog_items",
+            "column": "country",
+            "default": null,
+            "nullable": "YES"
+        },
+        {
+            "type": "numeric",
+            "table": "catalog_items",
+            "column": "out_ytd",
+            "default": null,
+            "nullable": "YES"
+        },
+        {
+            "type": "text",
+            "table": "credit_notes",
+            "column": "id",
+            "default": null,
+            "nullable": "NO"
+        },
+        {
+            "type": "text",
+            "table": "credit_notes",
+            "column": "number",
+            "default": null,
+            "nullable": "YES"
+        },
+        {
+            "type": "text",
+            "table": "credit_notes",
+            "column": "supplier",
+            "default": null,
+            "nullable": "YES"
+        },
+        {
+            "type": "text",
+            "table": "credit_notes",
+            "column": "details",
+            "default": null,
+            "nullable": "YES"
+        },
+        {
+            "type": "text",
+            "table": "credit_notes",
+            "column": "status",
+            "default": "'issued'::text",
+            "nullable": "YES"
+        },
+        {
+            "type": "timestamp with time zone",
+            "table": "credit_notes",
+            "column": "created_at",
+            "default": "now()",
+            "nullable": "YES"
+        },
+        {
+            "type": "text",
+            "table": "dt_customers",
+            "column": "id",
+            "default": null,
+            "nullable": "NO"
+        },
+        {
+            "type": "text",
+            "table": "dt_customers",
+            "column": "name",
+            "default": null,
+            "nullable": "NO"
+        },
+        {
+            "type": "text",
+            "table": "dt_customers",
+            "column": "phone",
+            "default": "''::text",
+            "nullable": "YES"
+        },
+        {
+            "type": "text",
+            "table": "dt_customers",
+            "column": "area",
+            "default": "''::text",
+            "nullable": "YES"
+        },
+        {
+            "type": "text",
+            "table": "dt_customers",
+            "column": "address",
+            "default": "''::text",
+            "nullable": "YES"
+        },
+        {
+            "type": "timestamp with time zone",
+            "table": "dt_customers",
+            "column": "created_at",
+            "default": "now()",
+            "nullable": "NO"
+        },
+        {
+            "type": "text",
+            "table": "dt_drivers",
+            "column": "id",
+            "default": null,
+            "nullable": "NO"
+        },
+        {
+            "type": "text",
+            "table": "dt_drivers",
+            "column": "name",
+            "default": null,
+            "nullable": "NO"
+        },
+        {
+            "type": "text",
+            "table": "dt_drivers",
+            "column": "phone",
+            "default": "''::text",
+            "nullable": "YES"
+        },
+        {
+            "type": "timestamp with time zone",
+            "table": "dt_drivers",
+            "column": "created_at",
+            "default": "now()",
+            "nullable": "NO"
+        },
+        {
+            "type": "text",
+            "table": "dt_orders",
+            "column": "id",
+            "default": null,
+            "nullable": "NO"
+        },
+        {
+            "type": "bigint",
+            "table": "dt_orders",
+            "column": "created",
+            "default": "0",
+            "nullable": "NO"
+        },
+        {
+            "type": "date",
+            "table": "dt_orders",
+            "column": "order_date",
+            "default": "CURRENT_DATE",
+            "nullable": "NO"
+        },
+        {
+            "type": "text",
+            "table": "dt_orders",
+            "column": "customer_id",
+            "default": null,
+            "nullable": "YES"
+        },
+        {
+            "type": "text",
+            "table": "dt_orders",
+            "column": "c_name",
+            "default": "''::text",
+            "nullable": "NO"
+        },
+        {
+            "type": "text",
+            "table": "dt_orders",
+            "column": "c_phone",
+            "default": "''::text",
+            "nullable": "YES"
+        },
+        {
+            "type": "text",
+            "table": "dt_orders",
+            "column": "c_area",
+            "default": "''::text",
+            "nullable": "YES"
+        },
+        {
+            "type": "text",
+            "table": "dt_orders",
+            "column": "c_address",
+            "default": "''::text",
+            "nullable": "YES"
+        },
+        {
+            "type": "text",
+            "table": "dt_orders",
+            "column": "driver_id",
+            "default": null,
+            "nullable": "YES"
+        },
+        {
+            "type": "numeric",
+            "table": "dt_orders",
+            "column": "amount",
+            "default": "0",
+            "nullable": "NO"
+        },
+        {
+            "type": "text",
+            "table": "dt_orders",
+            "column": "platform",
+            "default": "'WhatsApp'::text",
+            "nullable": "NO"
+        },
+        {
+            "type": "text",
+            "table": "dt_orders",
+            "column": "payment",
+            "default": "'Cash'::text",
+            "nullable": "NO"
+        },
+        {
+            "type": "boolean",
+            "table": "dt_orders",
+            "column": "paid",
+            "default": "false",
+            "nullable": "NO"
+        },
+        {
+            "type": "date",
+            "table": "dt_orders",
+            "column": "paid_at",
+            "default": null,
+            "nullable": "YES"
+        },
+        {
+            "type": "text",
+            "table": "dt_orders",
+            "column": "note",
+            "default": "''::text",
+            "nullable": "YES"
+        },
+        {
+            "type": "timestamp with time zone",
+            "table": "dt_orders",
+            "column": "created_at",
+            "default": "now()",
+            "nullable": "NO"
+        },
+        {
+            "type": "text",
+            "table": "dt_settings",
+            "column": "key",
+            "default": null,
+            "nullable": "NO"
+        },
+        {
+            "type": "jsonb",
+            "table": "dt_settings",
+            "column": "value",
+            "default": "'{}'::jsonb",
+            "nullable": "NO"
+        },
+        {
+            "type": "timestamp with time zone",
+            "table": "dt_settings",
+            "column": "updated_at",
+            "default": "now()",
+            "nullable": "NO"
+        },
+        {
+            "type": "uuid",
+            "table": "dt_staff",
+            "column": "user_id",
+            "default": null,
+            "nullable": "NO"
+        },
+        {
+            "type": "text",
+            "table": "dt_staff",
+            "column": "email",
+            "default": null,
+            "nullable": "YES"
+        },
+        {
+            "type": "timestamp with time zone",
+            "table": "dt_staff",
+            "column": "created_at",
+            "default": "now()",
+            "nullable": "NO"
+        },
+        {
+            "type": "text",
+            "table": "promotion_rows",
+            "column": "id",
+            "default": null,
+            "nullable": "NO"
+        },
+        {
+            "type": "text",
+            "table": "promotion_rows",
+            "column": "promotion_id",
+            "default": null,
+            "nullable": "YES"
+        },
+        {
+            "type": "text",
+            "table": "promotion_rows",
+            "column": "code",
+            "default": null,
+            "nullable": "YES"
+        },
+        {
+            "type": "text",
+            "table": "promotion_rows",
+            "column": "description",
+            "default": null,
+            "nullable": "YES"
+        },
+        {
+            "type": "text",
+            "table": "promotion_rows",
+            "column": "pack",
+            "default": null,
+            "nullable": "YES"
+        },
+        {
+            "type": "numeric",
+            "table": "promotion_rows",
+            "column": "balance",
+            "default": null,
+            "nullable": "YES"
+        },
+        {
+            "type": "numeric",
+            "table": "promotion_rows",
+            "column": "promo_price",
+            "default": null,
+            "nullable": "YES"
+        },
+        {
+            "type": "numeric",
+            "table": "promotion_rows",
+            "column": "discount",
+            "default": null,
+            "nullable": "YES"
+        },
+        {
+            "type": "text",
+            "table": "promotion_rows",
+            "column": "price_type",
+            "default": null,
+            "nullable": "YES"
+        },
+        {
+            "type": "numeric",
+            "table": "promotion_rows",
+            "column": "before_price",
+            "default": null,
+            "nullable": "YES"
+        },
+        {
+            "type": "numeric",
+            "table": "promotion_rows",
+            "column": "sale_price",
+            "default": null,
+            "nullable": "YES"
+        },
+        {
+            "type": "boolean",
+            "table": "promotion_rows",
+            "column": "flagged",
+            "default": "false",
+            "nullable": "YES"
+        },
+        {
+            "type": "integer",
+            "table": "promotion_rows",
+            "column": "sort_order",
+            "default": "0",
+            "nullable": "YES"
+        },
+        {
+            "type": "timestamp with time zone",
+            "table": "promotion_rows",
+            "column": "created_at",
+            "default": "now()",
+            "nullable": "YES"
+        },
+        {
+            "type": "text",
+            "table": "promotion_rows",
+            "column": "supplier",
+            "default": null,
+            "nullable": "YES"
+        },
+        {
+            "type": "text",
+            "table": "promotion_rows",
+            "column": "cost",
+            "default": null,
+            "nullable": "YES"
+        },
+        {
+            "type": "text",
+            "table": "promotion_rows",
+            "column": "note",
+            "default": null,
+            "nullable": "YES"
+        },
+        {
+            "type": "text",
+            "table": "promotion_rows",
+            "column": "country",
+            "default": null,
+            "nullable": "YES"
+        },
+        {
+            "type": "numeric",
+            "table": "promotion_rows",
+            "column": "out_ytd",
+            "default": null,
+            "nullable": "YES"
+        },
+        {
+            "type": "boolean",
+            "table": "promotion_rows",
+            "column": "reviewed",
+            "default": "false",
+            "nullable": "YES"
+        },
+        {
+            "type": "text",
+            "table": "promotions",
+            "column": "id",
+            "default": null,
+            "nullable": "NO"
+        },
+        {
+            "type": "text",
+            "table": "promotions",
+            "column": "name",
+            "default": null,
+            "nullable": "YES"
+        },
+        {
+            "type": "date",
+            "table": "promotions",
+            "column": "from_date",
+            "default": null,
+            "nullable": "YES"
+        },
+        {
+            "type": "date",
+            "table": "promotions",
+            "column": "to_date",
+            "default": null,
+            "nullable": "YES"
+        },
+        {
+            "type": "timestamp with time zone",
+            "table": "promotions",
+            "column": "created_at",
+            "default": "now()",
+            "nullable": "YES"
+        },
+        {
+            "type": "boolean",
+            "table": "promotions",
+            "column": "archived",
+            "default": "false",
+            "nullable": "NO"
+        },
+        {
+            "type": "boolean",
+            "table": "promotions",
+            "column": "auto_archive",
+            "default": "true",
+            "nullable": "NO"
+        },
+        {
+            "type": "text",
+            "table": "promotions",
+            "column": "source_file_name",
+            "default": null,
+            "nullable": "YES"
+        },
+        {
+            "type": "text",
+            "table": "promotions",
+            "column": "source_file_base64",
+            "default": null,
+            "nullable": "YES"
+        },
+        {
+            "type": "text",
+            "table": "sellouts",
+            "column": "id",
+            "default": null,
+            "nullable": "NO"
+        },
+        {
+            "type": "text",
+            "table": "sellouts",
+            "column": "name",
+            "default": null,
+            "nullable": "YES"
+        },
+        {
+            "type": "date",
+            "table": "sellouts",
+            "column": "from",
+            "default": null,
+            "nullable": "YES"
+        },
+        {
+            "type": "date",
+            "table": "sellouts",
+            "column": "to",
+            "default": null,
+            "nullable": "YES"
+        },
+        {
+            "type": "text",
+            "table": "sellouts",
+            "column": "file_name",
+            "default": null,
+            "nullable": "YES"
+        },
+        {
+            "type": "text",
+            "table": "sellouts",
+            "column": "file_base64",
+            "default": null,
+            "nullable": "YES"
+        },
+        {
+            "type": "jsonb",
+            "table": "sellouts",
+            "column": "items",
+            "default": null,
+            "nullable": "YES"
+        },
+        {
+            "type": "boolean",
+            "table": "sellouts",
+            "column": "active",
+            "default": "false",
+            "nullable": "YES"
+        },
+        {
+            "type": "jsonb",
+            "table": "sellouts",
+            "column": "log",
+            "default": "'[]'::jsonb",
+            "nullable": "YES"
+        },
+        {
+            "type": "jsonb",
+            "table": "sellouts",
+            "column": "notified_flags",
+            "default": "'{}'::jsonb",
+            "nullable": "YES"
+        },
+        {
+            "type": "timestamp with time zone",
+            "table": "sellouts",
+            "column": "created_at",
+            "default": "now()",
+            "nullable": "YES"
+        },
+        {
+            "type": "text",
+            "table": "vendor_orders",
+            "column": "id",
+            "default": null,
+            "nullable": "NO"
+        },
+        {
+            "type": "text",
+            "table": "vendor_orders",
+            "column": "vendor_id",
+            "default": null,
+            "nullable": "YES"
+        },
+        {
+            "type": "text",
+            "table": "vendor_orders",
+            "column": "vendor_name",
+            "default": null,
+            "nullable": "YES"
+        },
+        {
+            "type": "date",
+            "table": "vendor_orders",
+            "column": "order_date",
+            "default": null,
+            "nullable": "YES"
+        },
+        {
+            "type": "integer",
+            "table": "vendor_orders",
+            "column": "lead_time_days",
+            "default": null,
+            "nullable": "YES"
+        },
+        {
+            "type": "date",
+            "table": "vendor_orders",
+            "column": "expected_delivery",
+            "default": null,
+            "nullable": "YES"
+        },
+        {
+            "type": "text",
+            "table": "vendor_orders",
+            "column": "status",
+            "default": "'pending'::text",
+            "nullable": "NO"
+        },
+        {
+            "type": "date",
+            "table": "vendor_orders",
+            "column": "delivered_date",
+            "default": null,
+            "nullable": "YES"
+        },
+        {
+            "type": "timestamp with time zone",
+            "table": "vendor_orders",
+            "column": "created_at",
+            "default": "now()",
+            "nullable": "NO"
+        },
+        {
+            "type": "text",
+            "table": "vendor_rentals",
+            "column": "id",
+            "default": null,
+            "nullable": "NO"
+        },
+        {
+            "type": "text",
+            "table": "vendor_rentals",
+            "column": "supplier",
+            "default": null,
+            "nullable": "NO"
+        },
+        {
+            "type": "text",
+            "table": "vendor_rentals",
+            "column": "gondola",
+            "default": null,
+            "nullable": "YES"
+        },
+        {
+            "type": "date",
+            "table": "vendor_rentals",
+            "column": "date_from",
+            "default": null,
+            "nullable": "YES"
+        },
+        {
+            "type": "date",
+            "table": "vendor_rentals",
+            "column": "date_to",
+            "default": null,
+            "nullable": "YES"
+        },
+        {
+            "type": "jsonb",
+            "table": "vendor_rentals",
+            "column": "monthly",
+            "default": "'{}'::jsonb",
+            "nullable": "NO"
+        },
+        {
+            "type": "timestamp with time zone",
+            "table": "vendor_rentals",
+            "column": "created_at",
+            "default": "now()",
+            "nullable": "NO"
+        },
+        {
+            "type": "text",
+            "table": "vendor_skips",
+            "column": "id",
+            "default": null,
+            "nullable": "NO"
+        },
+        {
+            "type": "text",
+            "table": "vendor_skips",
+            "column": "vendor_id",
+            "default": null,
+            "nullable": "YES"
+        },
+        {
+            "type": "text",
+            "table": "vendor_skips",
+            "column": "vendor_name",
+            "default": null,
+            "nullable": "YES"
+        },
+        {
+            "type": "date",
+            "table": "vendor_skips",
+            "column": "skip_date",
+            "default": null,
+            "nullable": "NO"
+        },
+        {
+            "type": "timestamp with time zone",
+            "table": "vendor_skips",
+            "column": "created_at",
+            "default": "now()",
+            "nullable": "NO"
+        },
+        {
+            "type": "text",
+            "table": "vendors",
+            "column": "id",
+            "default": null,
+            "nullable": "NO"
+        },
+        {
+            "type": "text",
+            "table": "vendors",
+            "column": "name",
+            "default": null,
+            "nullable": "NO"
+        },
+        {
+            "type": "text",
+            "table": "vendors",
+            "column": "salesman_name",
+            "default": null,
+            "nullable": "YES"
+        },
+        {
+            "type": "text",
+            "table": "vendors",
+            "column": "phone",
+            "default": null,
+            "nullable": "YES"
+        },
+        {
+            "type": "integer",
+            "table": "vendors",
+            "column": "day_of_week",
+            "default": null,
+            "nullable": "YES"
+        },
+        {
+            "type": "integer",
+            "table": "vendors",
+            "column": "frequency_weeks",
+            "default": "1",
+            "nullable": "NO"
+        },
+        {
+            "type": "integer",
+            "table": "vendors",
+            "column": "lead_time_days",
+            "default": null,
+            "nullable": "YES"
+        },
+        {
+            "type": "date",
+            "table": "vendors",
+            "column": "anchor_date",
+            "default": null,
+            "nullable": "YES"
+        },
+        {
+            "type": "timestamp with time zone",
+            "table": "vendors",
+            "column": "created_at",
+            "default": "now()",
+            "nullable": "NO"
+        }
+    ],
+    "indexes": [
+        {
+            "def": "CREATE UNIQUE INDEX app_settings_pkey ON public.app_settings USING btree (id)",
+            "table": "app_settings"
+        },
+        {
+            "def": "CREATE UNIQUE INDEX catalog_items_pkey ON public.catalog_items USING btree (id)",
+            "table": "catalog_items"
+        },
+        {
+            "def": "CREATE UNIQUE INDEX credit_notes_pkey ON public.credit_notes USING btree (id)",
+            "table": "credit_notes"
+        },
+        {
+            "def": "CREATE INDEX dt_customers_phone_idx ON public.dt_customers USING btree (phone)",
+            "table": "dt_customers"
+        },
+        {
+            "def": "CREATE UNIQUE INDEX dt_customers_pkey ON public.dt_customers USING btree (id)",
+            "table": "dt_customers"
+        },
+        {
+            "def": "CREATE UNIQUE INDEX dt_drivers_pkey ON public.dt_drivers USING btree (id)",
+            "table": "dt_drivers"
+        },
+        {
+            "def": "CREATE INDEX dt_orders_date_idx ON public.dt_orders USING btree (order_date)",
+            "table": "dt_orders"
+        },
+        {
+            "def": "CREATE INDEX dt_orders_driver_unpaid_idx ON public.dt_orders USING btree (driver_id) WHERE (NOT paid)",
+            "table": "dt_orders"
+        },
+        {
+            "def": "CREATE UNIQUE INDEX dt_orders_pkey ON public.dt_orders USING btree (id)",
+            "table": "dt_orders"
+        },
+        {
+            "def": "CREATE UNIQUE INDEX dt_settings_pkey ON public.dt_settings USING btree (key)",
+            "table": "dt_settings"
+        },
+        {
+            "def": "CREATE UNIQUE INDEX dt_staff_pkey ON public.dt_staff USING btree (user_id)",
+            "table": "dt_staff"
+        },
+        {
+            "def": "CREATE UNIQUE INDEX promotion_rows_pkey ON public.promotion_rows USING btree (id)",
+            "table": "promotion_rows"
+        },
+        {
+            "def": "CREATE UNIQUE INDEX promotions_pkey ON public.promotions USING btree (id)",
+            "table": "promotions"
+        },
+        {
+            "def": "CREATE UNIQUE INDEX sellouts_pkey ON public.sellouts USING btree (id)",
+            "table": "sellouts"
+        },
+        {
+            "def": "CREATE UNIQUE INDEX vendor_orders_pkey ON public.vendor_orders USING btree (id)",
+            "table": "vendor_orders"
+        },
+        {
+            "def": "CREATE UNIQUE INDEX vendor_rentals_pkey ON public.vendor_rentals USING btree (id)",
+            "table": "vendor_rentals"
+        },
+        {
+            "def": "CREATE UNIQUE INDEX vendor_skips_pkey ON public.vendor_skips USING btree (id)",
+            "table": "vendor_skips"
+        },
+        {
+            "def": "CREATE UNIQUE INDEX vendors_pkey ON public.vendors USING btree (id)",
+            "table": "vendors"
+        }
+    ],
+    "policies": [
+        {
+            "cmd": "ALL",
+            "name": "public access",
+            "roles": [
+                "public"
+            ],
+            "table": "app_settings",
+            "using": "true",
+            "permissive": "PERMISSIVE",
+            "with_check": "true"
+        },
+        {
+            "cmd": "ALL",
+            "name": "public access",
+            "roles": [
+                "public"
+            ],
+            "table": "catalog_items",
+            "using": "true",
+            "permissive": "PERMISSIVE",
+            "with_check": "true"
+        },
+        {
+            "cmd": "ALL",
+            "name": "public access",
+            "roles": [
+                "public"
+            ],
+            "table": "credit_notes",
+            "using": "true",
+            "permissive": "PERMISSIVE",
+            "with_check": "true"
+        },
+        {
+            "cmd": "ALL",
+            "name": "dt_app_all",
+            "roles": [
+                "anon",
+                "authenticated"
+            ],
+            "table": "dt_customers",
+            "using": "true",
+            "permissive": "PERMISSIVE",
+            "with_check": "true"
+        },
+        {
+            "cmd": "ALL",
+            "name": "dt_app_all",
+            "roles": [
+                "anon",
+                "authenticated"
+            ],
+            "table": "dt_drivers",
+            "using": "true",
+            "permissive": "PERMISSIVE",
+            "with_check": "true"
+        },
+        {
+            "cmd": "ALL",
+            "name": "dt_app_all",
+            "roles": [
+                "anon",
+                "authenticated"
+            ],
+            "table": "dt_orders",
+            "using": "true",
+            "permissive": "PERMISSIVE",
+            "with_check": "true"
+        },
+        {
+            "cmd": "ALL",
+            "name": "dt_app_all",
+            "roles": [
+                "anon",
+                "authenticated"
+            ],
+            "table": "dt_settings",
+            "using": "true",
+            "permissive": "PERMISSIVE",
+            "with_check": "true"
+        },
+        {
+            "cmd": "SELECT",
+            "name": "dt_staff_read_self",
+            "roles": [
+                "authenticated"
+            ],
+            "table": "dt_staff",
+            "using": "(user_id = auth.uid())",
+            "permissive": "PERMISSIVE",
+            "with_check": null
+        },
+        {
+            "cmd": "ALL",
+            "name": "public access",
+            "roles": [
+                "public"
+            ],
+            "table": "promotion_rows",
+            "using": "true",
+            "permissive": "PERMISSIVE",
+            "with_check": "true"
+        },
+        {
+            "cmd": "ALL",
+            "name": "public access",
+            "roles": [
+                "public"
+            ],
+            "table": "promotions",
+            "using": "true",
+            "permissive": "PERMISSIVE",
+            "with_check": "true"
+        },
+        {
+            "cmd": "ALL",
+            "name": "public access",
+            "roles": [
+                "public"
+            ],
+            "table": "sellouts",
+            "using": "true",
+            "permissive": "PERMISSIVE",
+            "with_check": "true"
+        },
+        {
+            "cmd": "ALL",
+            "name": "vendor_orders_all",
+            "roles": [
+                "public"
+            ],
+            "table": "vendor_orders",
+            "using": "true",
+            "permissive": "PERMISSIVE",
+            "with_check": "true"
+        },
+        {
+            "cmd": "ALL",
+            "name": "vendor_rentals_all",
+            "roles": [
+                "public"
+            ],
+            "table": "vendor_rentals",
+            "using": "true",
+            "permissive": "PERMISSIVE",
+            "with_check": "true"
+        },
+        {
+            "cmd": "ALL",
+            "name": "vendor_skips_all",
+            "roles": [
+                "public"
+            ],
+            "table": "vendor_skips",
+            "using": "true",
+            "permissive": "PERMISSIVE",
+            "with_check": "true"
+        },
+        {
+            "cmd": "ALL",
+            "name": "vendors_all",
+            "roles": [
+                "public"
+            ],
+            "table": "vendors",
+            "using": "true",
+            "permissive": "PERMISSIVE",
+            "with_check": "true"
+        }
+    ],
+    "triggers": null,
+    "functions": [
+        {
+            "args": "",
+            "name": "dt_is_staff",
+            "security_definer": true
+        }
+    ],
+    "extensions": [
+        "plpgsql 1.0",
+        "pg_stat_statements 1.11",
+        "uuid-ossp 1.1",
+        "pgcrypto 1.3",
+        "supabase_vault 0.3.1"
+    ],
+    "constraints": [
+        {
+            "def": "PRIMARY KEY (id)",
+            "name": "app_settings_pkey",
+            "table": "app_settings"
+        },
+        {
+            "def": "PRIMARY KEY (id)",
+            "name": "catalog_items_pkey",
+            "table": "catalog_items"
+        },
+        {
+            "def": "FOREIGN KEY (promotion_id) REFERENCES promotions(id) ON DELETE CASCADE",
+            "name": "catalog_items_promotion_id_fkey",
+            "table": "catalog_items"
+        },
+        {
+            "def": "PRIMARY KEY (id)",
+            "name": "credit_notes_pkey",
+            "table": "credit_notes"
+        },
+        {
+            "def": "PRIMARY KEY (id)",
+            "name": "dt_customers_pkey",
+            "table": "dt_customers"
+        },
+        {
+            "def": "PRIMARY KEY (id)",
+            "name": "dt_drivers_pkey",
+            "table": "dt_drivers"
+        },
+        {
+            "def": "PRIMARY KEY (id)",
+            "name": "dt_orders_pkey",
+            "table": "dt_orders"
+        },
+        {
+            "def": "PRIMARY KEY (key)",
+            "name": "dt_settings_pkey",
+            "table": "dt_settings"
+        },
+        {
+            "def": "PRIMARY KEY (user_id)",
+            "name": "dt_staff_pkey",
+            "table": "dt_staff"
+        },
+        {
+            "def": "FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE",
+            "name": "dt_staff_user_id_fkey",
+            "table": "dt_staff"
+        },
+        {
+            "def": "PRIMARY KEY (id)",
+            "name": "promotion_rows_pkey",
+            "table": "promotion_rows"
+        },
+        {
+            "def": "FOREIGN KEY (promotion_id) REFERENCES promotions(id) ON DELETE CASCADE",
+            "name": "promotion_rows_promotion_id_fkey",
+            "table": "promotion_rows"
+        },
+        {
+            "def": "PRIMARY KEY (id)",
+            "name": "promotions_pkey",
+            "table": "promotions"
+        },
+        {
+            "def": "PRIMARY KEY (id)",
+            "name": "sellouts_pkey",
+            "table": "sellouts"
+        },
+        {
+            "def": "PRIMARY KEY (id)",
+            "name": "vendor_orders_pkey",
+            "table": "vendor_orders"
+        },
+        {
+            "def": "FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE SET NULL",
+            "name": "vendor_orders_vendor_id_fkey",
+            "table": "vendor_orders"
+        },
+        {
+            "def": "PRIMARY KEY (id)",
+            "name": "vendor_rentals_pkey",
+            "table": "vendor_rentals"
+        },
+        {
+            "def": "PRIMARY KEY (id)",
+            "name": "vendor_skips_pkey",
+            "table": "vendor_skips"
+        },
+        {
+            "def": "FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE SET NULL",
+            "name": "vendor_skips_vendor_id_fkey",
+            "table": "vendor_skips"
+        },
+        {
+            "def": "PRIMARY KEY (id)",
+            "name": "vendors_pkey",
+            "table": "vendors"
+        }
+    ],
+    "auth_user_count": 0,
+    "realtime_tables": [
+        "public.dt_drivers",
+        "public.dt_customers",
+        "public.dt_orders",
+        "public.dt_settings"
+    ],
+    "storage_buckets": null
+}
