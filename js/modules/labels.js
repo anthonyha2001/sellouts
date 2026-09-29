@@ -34,24 +34,66 @@
   }
 
   /* ================= My list (scanning) ================= */
+  // The list is also kept on this phone (localStorage), updated on every scan, so a refresh, a closed
+  // page or a lost connection never loses it. Items not yet saved to the database are marked `dirty`,
+  // removals not yet saved are kept in `removed`; both are sent again on the next load.
+  const draftKey = () => `lv:labelDraft:${Session.user.id}`;
+  function readDraft() {
+    try { const d = JSON.parse(localStorage.getItem(draftKey())); return d && Array.isArray(d.items) ? d : { items: [], removed: [] }; }
+    catch (e) { return { items: [], removed: [] }; }
+  }
+  function saveDraft() {
+    try {
+      localStorage.setItem(draftKey(), JSON.stringify({
+        items: S.items.map(x => ({ barcode: x.barcode, qty: x.qty, dirty: !!x.dirty })),
+        removed: S.removed || [],
+      }));
+    } catch (e) { /* storage full or blocked: the database copy still works */ }
+  }
+  function clearDraft() { try { localStorage.removeItem(draftKey()); } catch (e) { /* ignore */ } }
+  const pendingCount = () => S.items.filter(x => x.dirty).length + (S.removed || []).length;
+
   async function loadMine() {
+    const draft = readDraft();
+    S.removed = [...(draft.removed || [])];
+    S.offline = false;
+    let dbItems = [];
     const { data, error } = await sb.from('label_lists').select('*').eq('created_by', Session.user.id).is('submitted_at', null).maybeSingle();
-    if (error) return fail('Could not load your list', error);
+    if (error) {
+      // No connection or the database refused: carry on with the copy on this phone.
+      S.offline = true;
+      S.list = null;
+      S.items = draft.items.map(x => ({ ...x, dirty: true }));
+      console.warn('Labels: using the draft on this phone', error);
+      return;
+    }
     S.list = data;
-    S.items = [];
     if (data) {
       const { data: items, error: e2 } = await sb.from('label_items').select('*').eq('list_id', data.id).order('scanned_at', { ascending: false });
-      if (e2) return fail('Could not load your list', e2);
-      S.items = items;
+      if (e2) { S.offline = true; S.items = draft.items.map(x => ({ ...x, dirty: true })); return; }
+      dbItems = items;
     }
+    // Merge: the database, plus changes made on this phone that were not saved yet.
+    const byCode = new Map(dbItems.map(x => [x.barcode, { ...x, dirty: false }]));
+    draft.items.filter(x => x.dirty).forEach(x => byCode.set(x.barcode, { ...(byCode.get(x.barcode) || { id: null }), barcode: x.barcode, qty: x.qty, dirty: true }));
+    S.removed.forEach(code => byCode.delete(code));
+    const draftOrder = draft.items.map(x => x.barcode);
+    S.items = [...byCode.values()].sort((a, b) => {
+      const ia = draftOrder.indexOf(a.barcode), ib = draftOrder.indexOf(b.barcode);
+      return (ia < 0 ? 1e9 : ia) - (ib < 0 ? 1e9 : ib);
+    });
+    saveDraft();
+    // Send whatever did not reach the database last time.
+    S.items.filter(x => x.dirty).forEach(it => enqueue(() => saveItem(it)));
+    [...S.removed].forEach(code => enqueue(() => deleteItem(code)));
   }
   async function ensureList() {
     if (S.list) return S.list;
     const { data, error } = await sb.from('label_lists').insert({}).select().single();
     if (error) {
       // Another device of the same person may have opened one a moment ago: use that one.
-      await loadMine();
-      if (S.list) return S.list;
+      const { data: open } = await sb.from('label_lists').select('*').eq('created_by', Session.user.id).is('submitted_at', null).maybeSingle();
+      if (open) { S.list = open; return open; }
       throw error;
     }
     S.list = data;
@@ -67,33 +109,68 @@
     let it = S.items.find(x => x.barcode === code);
     if (it) { it.qty = Math.min(9999, it.qty + 1); S.items = [it, ...S.items.filter(x => x !== it)]; }
     else { it = { id: null, barcode: code, qty: 1 }; S.items.unshift(it); }
+    it.dirty = true;
+    S.removed = (S.removed || []).filter(c => c !== code);
+    saveDraft();                                   // on the phone first, instantly
     renderMine(code);
     enqueue(() => saveItem(it));
-    return `<span class="scan-ok">✓</span> <span class="scan-code">${esc(code)}</span> <b>× ${it.qty}</b>${fromScanner ? ` <span class="scan-count">${S.items.length} item${S.items.length === 1 ? '' : 's'}</span>` : ''}`;
+    return `<span class="scan-ok">✓</span><span class="scan-code">${esc(code)}</span><b>× ${it.qty}</b>`
+      + `<span class="scan-sub">${S.items.length} item${S.items.length === 1 ? '' : 's'} in your list</span>`;
   }
+  let offlineWarned = false;
   async function saveItem(it) {
+    if (!S.items.includes(it)) return;             // removed meanwhile
     try {
       const list = await ensureList();
       const { data, error } = await sb.from('label_items')
         .upsert({ list_id: list.id, barcode: it.barcode, qty: it.qty }, { onConflict: 'list_id,barcode' }).select().single();
       if (error) throw error;
       it.id = data.id;
-    } catch (e) { fail(`Could not save ${it.barcode}`, e); }
+      if (Number(data.qty) === it.qty) it.dirty = false;
+      S.offline = false;
+      saveDraft();
+      updatePending();
+    } catch (e) {
+      S.offline = true;
+      updatePending();
+      // One message, not one per scan: the list is safe on the phone and is sent again later.
+      if (!offlineWarned) { offlineWarned = true; console.error(e); showToast('Not sent yet — your list is saved on this phone and will be sent automatically.', true); }
+    }
+  }
+  async function deleteItem(code) {
+    if (!S.list) { S.removed = S.removed.filter(c => c !== code); saveDraft(); return; }
+    const { error } = await sb.from('label_items').delete().eq('list_id', S.list.id).eq('barcode', code);
+    if (error) { S.offline = true; updatePending(); return; }
+    S.removed = S.removed.filter(c => c !== code);
+    saveDraft();
+    updatePending();
   }
   async function setQty(code, qty) {
     const it = S.items.find(x => x.barcode === code); if (!it) return;
     if (qty <= 0) return removeCode(code);
     it.qty = Math.min(9999, qty);
+    it.dirty = true;
+    saveDraft();
     renderMine();
     enqueue(() => saveItem(it));
   }
   async function removeCode(code) {
     const it = S.items.find(x => x.barcode === code); if (!it) return;
     S.items = S.items.filter(x => x !== it);
+    S.removed = [...new Set([...(S.removed || []), code])];
+    saveDraft();
     renderMine();
-    if (S.list) enqueue(async () => {
-      const { error } = await sb.from('label_items').delete().eq('list_id', S.list.id).eq('barcode', code);
-      if (error) fail(`Could not remove ${code}`, error);
+    enqueue(() => deleteItem(code));
+  }
+  // "N not sent yet" line under the list; retry button when offline.
+  function updatePending() {
+    const box = el('lbPending'); if (!box) return;
+    const n = pendingCount();
+    box.hidden = !n;
+    box.innerHTML = n ? `${n} change${n === 1 ? '' : 's'} not sent yet — saved on this phone. <button type="button" class="link-btn" id="lbRetry">Send now</button>` : '';
+    el('lbRetry')?.addEventListener('click', () => {
+      S.items.filter(x => x.dirty).forEach(it => enqueue(() => saveItem(it)));
+      [...(S.removed || [])].forEach(code => enqueue(() => deleteItem(code)));
     });
   }
 
@@ -111,6 +188,7 @@
         </form>
       </div>
       <div class="lb-summary"><b>${S.items.length}</b> item${S.items.length === 1 ? '' : 's'} · <b>${labels}</b> label${labels === 1 ? '' : 's'}</div>
+      <div class="lb-pending" id="lbPending" hidden></div>
       <div class="lb-list">${S.items.map(x => `
         <div class="lb-row ${x.barcode === flash ? 'flash' : ''}" data-code="${esc(x.barcode)}">
           <span class="lb-code">${esc(x.barcode)}</span>
@@ -132,16 +210,25 @@
       row.querySelector('[data-remove]').onclick = () => removeCode(code);
     });
     el('lbDone')?.addEventListener('click', submitList);
+    updatePending();
   }
 
   async function submitList() {
     const labels = S.items.reduce((n, x) => n + x.qty, 0);
     if (!(await showConfirm(`Send ${S.items.length} item${S.items.length === 1 ? '' : 's'} (${labels} label${labels === 1 ? '' : 's'}) to the accountant? You start a new list after this.`, 'Send'))) return;
-    await S.queue;                                  // every scan is saved first
+    // Everything must be in the database first: resend what is still only on this phone.
+    S.items.filter(x => x.dirty).forEach(it => enqueue(() => saveItem(it)));
+    [...(S.removed || [])].forEach(code => enqueue(() => deleteItem(code)));
+    await S.queue;
+    if (pendingCount() || !S.list) {
+      showToast('Some scans are not saved to the server yet (no connection?). Your list is safe on this phone — try Done again in a moment.', true);
+      return;
+    }
     const { error } = await sb.from('label_lists').update({ submitted_at: new Date().toISOString() }).eq('id', S.list.id);
     if (error) return fail('Could not send the list', error);
     logActivity('labels', 'submit', { type: 'label_list', id: S.list.id }, `Sent ${S.items.length} items (${labels} labels) for printing`, { items: S.items.length, labels });
-    S.list = null; S.items = [];
+    S.list = null; S.items = []; S.removed = [];
+    clearDraft();
     renderMine();
     showToast('Sent. The accountant will print the labels.');
   }

@@ -238,7 +238,7 @@
       title: 'Scan an item', continuous: true,
       onCode: code => {
         const x = S.items.find(i => i.barcode && i.barcode === code) || S.items.find(i => i.code && i.code === code);
-        if (!x) return `<span class="scan-code">${esc(code)}</span> is not in today's check`;
+        if (!x) return { ok: false, html: `<span class="scan-code">${esc(code)}</span><span class="scan-sub">Not in today's check</span>` };
         if (S.show !== 'all' && x.source !== S.show) S.show = 'all';
         const matchesFilter = S.filter === 'all' || (S.filter === 'todo' ? x.status === 'pending' : PROBLEMS.includes(x.status));
         if (!matchesFilter) S.filter = 'all';

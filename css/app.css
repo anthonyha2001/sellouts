@@ -812,10 +812,23 @@ table.items tr.fc-resolved > td{opacity:.55;}
 .scan-bottom{position:absolute;left:0;right:0;bottom:0;padding:16px;padding-bottom:max(18px,env(safe-area-inset-bottom));
   background:linear-gradient(transparent,rgba(0,0,0,.75));color:#fff;text-align:center;}
 #scanStatus{font-size:13px;opacity:.85;}
-#scanLast{margin-top:8px;font-size:18px;min-height:26px;}
+/* Last read: a big white card at the bottom, green flash on each good read, red on a bad one. */
+.scan-last{margin:10px auto 0;max-width:460px;background:#fff;color:#111;border-radius:16px;padding:14px 16px;
+  display:flex;flex-wrap:wrap;align-items:baseline;justify-content:center;gap:4px 12px;box-shadow:0 6px 24px rgba(0,0,0,.35);}
+.scan-last .scan-code{font-size:28px;font-weight:700;}
+.scan-last b{font-size:26px;font-family:var(--font-mono);}
+.scan-last .scan-sub{flex-basis:100%;font-size:14px;color:#555;}
+.scan-last.flash-ok{animation:scanOk .7s ease-out;}
+.scan-last.flash-bad{animation:scanBad .9s ease-out;background:#FDECEA;}
+@keyframes scanOk{0%{background:#3BD17F;transform:scale(1.04);}100%{background:#fff;transform:scale(1);}}
+@keyframes scanBad{0%{background:#E5484D;}100%{background:#FDECEA;}}
+.scan-history{list-style:none;margin:8px auto 0;padding:0;max-width:460px;display:flex;flex-direction:column;gap:4px;}
+.scan-history li{display:flex;flex-wrap:wrap;justify-content:center;align-items:baseline;gap:4px 10px;font-size:14px;opacity:.85;}
+.scan-history .scan-sub{flex-basis:auto;color:#ddd;}
 .scan-code{font-family:var(--font-mono);letter-spacing:.03em;}
-.scan-ok{color:#7CE3A1;font-weight:700;}
-.scan-count{font-size:13px;opacity:.8;margin-left:6px;}
+.scan-ok{color:#1A9E55;font-weight:700;font-size:24px;}
+.scan-history .scan-ok{color:#7CE3A1;font-size:14px;}
+.scan-count{font-size:13px;opacity:.8;}
 
 /* ================= Shelf labels ================= */
 .lb-scan-card{display:flex;flex-direction:column;gap:12px;align-items:stretch;}
@@ -845,3 +858,4 @@ table.items tr.fc-resolved > td{opacity:.55;}
 .login-cashier-link{display:block;text-align:center;margin-top:18px;padding-top:16px;border-top:1px solid var(--line);font-size:13.5px;color:var(--pine);text-decoration:none;font-weight:500;}
 .login-cashier-link:hover{text-decoration:underline;}
 body.booting .login-cashier-link{display:none;}
+.lb-pending{font-size:13px;color:var(--gold);background:var(--gold-tint);border:1px solid var(--gold);border-radius:var(--radius-sm);padding:8px 12px;margin:0 0 10px;}
