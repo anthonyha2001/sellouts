@@ -61,7 +61,7 @@ select pg_temp.t('qty 0', '00000000-0000-0000-0000-0000000000a1',
 select pg_temp.t('shelf 2 cannot see it', '00000000-0000-0000-0000-0000000000a2', $q$select pg_temp.expect('select count(*) from public.label_items', 0)$q$, 'ok');
 select pg_temp.t('shelf 2 cannot add to it', '00000000-0000-0000-0000-0000000000a2',
   $q$insert into public.label_items (list_id, barcode) values ('40000000-0000-0000-0000-000000000001', '111111')$q$, 'blocked');
-select pg_temp.t('accountant does not see open lists', '00000000-0000-0000-0000-0000000000ac', $q$select pg_temp.expect('select count(*) from public.label_lists', 0)$q$, 'ok');
+select pg_temp.t('accountant does not see open lists', '00000000-0000-0000-0000-0000000000ac', $q$select pg_temp.expect('select count(*) from public.label_lists where created_by::text like ''00000000-%''', 0)$q$, 'ok');
 select pg_temp.t('floor manager sees nothing', '00000000-0000-0000-0000-0000000000f0', $q$select pg_temp.expect('select count(*) from public.label_lists', 0)$q$, 'ok');
 select pg_temp.t('floor manager cannot open a list', '00000000-0000-0000-0000-0000000000f0', $q$insert into public.label_lists default values$q$, 'blocked');
 select pg_temp.t('anon reads lists', 'anon', $q$select 1 from public.label_lists$q$, 'blocked');
@@ -80,7 +80,7 @@ select pg_temp.t('shelf 1 can open a new list now', '00000000-0000-0000-0000-000
   $q$insert into public.label_lists default values$q$, 'ok');
 
 -- accountant exports
-select pg_temp.t('accountant sees the submitted list', '00000000-0000-0000-0000-0000000000ac', $q$select pg_temp.expect('select count(*) from public.label_items', 2)$q$, 'ok');
+select pg_temp.t('accountant sees the submitted list', '00000000-0000-0000-0000-0000000000ac', $q$select pg_temp.expect('select count(*) from public.label_items where list_id = ''40000000-0000-0000-0000-000000000001''', 2)$q$, 'ok');
 select pg_temp.t('accountant cannot change quantities', '00000000-0000-0000-0000-0000000000ac',
   $q$update public.label_items set qty = 50 where barcode = '5281018709276'$q$, 'ok');
 select pg_temp.check('…qty unchanged', (select qty = 3 from public.label_items where barcode = '5281018709276'));

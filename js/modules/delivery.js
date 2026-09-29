@@ -192,7 +192,7 @@ async function start(){
   refreshLists();
   applyRoleUi();
   if(pendingPage !== null || panel.classList.contains('active')) show(pendingPage);
-  if(isAdmin()) offerLocalUpload();
+  if(window.can('delivery.manage')) offerLocalUpload();
 }
 // Called by the router whenever the Delivery section is opened (sub = page name or undefined).
 function show(sub){
@@ -337,14 +337,16 @@ function go(p){
 }
 $('#dtNav').addEventListener('click', e => { const b = e.target.closest('button'); if(b) go(b.dataset.page); });
 
-/* ---------- role rules (UI only; RLS + the dt_orders_guard trigger enforce them) ---------- */
+/* ---------- permission rules (UI only; RLS + the dt_orders_guard trigger enforce them) ---------- */
+// window.can = the app-wide permission check (js/core/permissions.js); this local \`can\` shadows it here.
+const perm = (...p) => window.can(...p);
 const can = {
-  deleteOrder: () => isAdmin(),
-  // admin: any order; delivery: only orders dated today (Beirut); others: none.
-  editOrder: o => isAdmin() || (Session.role === 'delivery' && o.date === today()),
-  createOrder: () => isAdmin() || Session.role === 'delivery',
-  markPaid: () => ['admin','accountant','delivery'].includes(Session.role),
-  manageCustomers: () => isAdmin() || Session.role === 'delivery',
+  deleteOrder: () => perm('delivery.manage'),
+  // delivery.manage: any order; delivery.orders: only orders dated today (Beirut); others: none.
+  editOrder: o => perm('delivery.manage') || (perm('delivery.orders') && o.date === today()),
+  createOrder: () => perm('delivery.orders', 'delivery.manage'),
+  markPaid: () => perm('delivery.settle'),
+  manageCustomers: () => perm('delivery.customers'),
 };
 function applyRoleUi(){
   PAGES = ALL_PAGES.filter(canSeeDeliveryPage);
@@ -471,7 +473,7 @@ $('#ordersBody').addEventListener('click', e => {
 let editingOrder = null;
 const oForm = $('#orderForm');
 function noDrivers(){
-  if(isAdmin()){ uiAlert('Add at least one driver first in the Drivers page.', {title:'No drivers yet'}); go('drivers'); }
+  if(window.can('delivery.manage')){ uiAlert('Add at least one driver first in the Drivers page.', {title:'No drivers yet'}); go('drivers'); }
   else uiAlert('There are no drivers yet. Ask the admin to add them.', {title:'No drivers yet'});
 }
 function openOrder(o){

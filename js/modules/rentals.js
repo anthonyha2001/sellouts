@@ -45,7 +45,8 @@ const Rentals = (function () {
   async function mountMap() {
     const box = el('rentalsMap');
     try {
-      await adapter().seedIfEmpty(window.STORE_MAP_SEED, [{ id: 'mezzanine', name: 'Mezzanine', width: 3000, height: 2000, sort: 2 }]);
+      // Only someone who may edit the layout fills an empty map from the traced plan.
+      if (can('rentals.layout')) await adapter().seedIfEmpty(window.STORE_MAP_SEED, [{ id: 'mezzanine', name: 'Mezzanine', width: 3000, height: 2000, sort: 2 }]);
     } catch (e) {
       console.error(e);
       box.innerHTML = `<div class="empty-state"><p class="big">The store map is not set up yet</p><p>${esc(friendlyError(e))}</p></div>`;
@@ -53,8 +54,8 @@ const Rentals = (function () {
     }
     S.map = StoreMap.mount(box, {
       adapter: adapter(),
-      canEdit: isAdmin(),
-      canManageRentals: isAdmin(),
+      canEdit: can('rentals.layout'),
+      canManageRentals: can('rentals.contracts'),
       currency: '$',
       today,
       toast: (msg, isError) => showToast(msg, isError),
@@ -204,7 +205,7 @@ const Rentals = (function () {
         </div>
         <div class="icon-actions">
           ${spot ? `<button class="btn ghost small" data-role="show">Show on map</button>`
-            : isAdmin() && c.end >= today() ? `<button class="btn small" data-role="place">Place on map</button>` : ''}
+            : can('rentals.contracts') && c.end >= today() ? `<button class="btn small" data-role="place">Place on map</button>` : ''}
         </div>
       </div>
       <div class="sellout-body">
@@ -215,16 +216,16 @@ const Rentals = (function () {
           <tr><td>Billed / paid</td><td>${c.billed ? 'Billed' + (c.billedAt ? ' ' + fmtDate(c.billedAt) : '') : 'Not billed'} · ${c.paid ? 'Paid' + (c.paidAt ? ' ' + fmtDate(c.paidAt) : '') : 'Not paid'}</td></tr>
           ${c.note ? `<tr><td>Note</td><td>${esc(c.note)}</td></tr>` : ''}
         </tbody></table>
-        <p class="muted-note" style="margin:10px 0 6px;">Supplier sales (for the renew / review decision)${isAdmin() ? ' — type the figures, then Save sales' : ''}. Edit the contract itself on the map.</p>
+        <p class="muted-note" style="margin:10px 0 6px;">Supplier sales (for the renew / review decision)${can('rentals.contracts') ? ' — type the figures, then Save sales' : ''}. Edit the contract itself on the map.</p>
         ${salesYears.map(y => `
           <table class="rental-year-table">
             <thead><tr><th>${y}</th>${MONTHS.map(m => `<th>${m}</th>`).join('')}<th>Total</th></tr></thead>
             <tbody><tr><td>Sales</td>${MONTHS.map((m, i) => {
               const k = `${y}-${String(i + 1).padStart(2, '0')}`, v = (c.sales || {})[k];
-              return `<td>${isAdmin() ? `<input type="text" inputmode="decimal" class="rental-sales-input" data-mkey="${k}" value="${v ? esc(String(v)) : ''}" placeholder="0">` : money2s(v)}</td>`;
+              return `<td>${can('rentals.contracts') ? `<input type="text" inputmode="decimal" class="rental-sales-input" data-mkey="${k}" value="${v ? esc(String(v)) : ''}" placeholder="0">` : money2s(v)}</td>`;
             }).join('')}<td><strong>${money2s(salesTotal(c, y))}</strong></td></tr></tbody>
           </table>`).join('')}
-        ${isAdmin() ? `<div class="actions-row" style="justify-content:flex-start;"><button class="btn small secondary" data-role="save-sales">Save sales</button></div>` : ''}
+        ${can('rentals.contracts') ? `<div class="actions-row" style="justify-content:flex-start;"><button class="btn small secondary" data-role="save-sales">Save sales</button></div>` : ''}
       </div>
     </div>`;
   }

@@ -860,39 +860,59 @@ table.items tr.fc-resolved > td{opacity:.55;}
 body.booting .login-cashier-link{display:none;}
 .lb-pending{font-size:13px;color:var(--gold);background:var(--gold-tint);border:1px solid var(--gold);border-radius:var(--radius-sm);padding:8px 12px;margin:0 0 10px;}
 
-/* View-only sell-outs / promotions (accountant): see canEditSellouts / canEditPromotions in roles.js. */
-body.ro-sellouts #openAddSelloutBtn,
-body.ro-sellouts #panel-sellouts [data-role="edit"],
-body.ro-sellouts #panel-sellouts [data-role="duplicate"],
-body.ro-sellouts #panel-sellouts [data-role="delete"],
-body.ro-sellouts #panel-sellouts .so-price-controls,
-body.ro-sellouts #panel-sellouts .so-price-summary .muted-note,
-body.ro-sellouts #panel-sellouts .so-price-table .checkbox-cell { display: none !important; }
-body.ro-sellouts #panel-sellouts .so-new-price:disabled { background: transparent; border-color: transparent; color: var(--ink); opacity: 1; text-align: right; }
-body.ro-sellouts #panel-sellouts .switch:has(input:disabled) { opacity: .6; cursor: default; }
+/* Per-permission controls (body.no-<perm>, set by applyEditClasses in js/core/roles.js). */
+/* Sell-outs */
+body.no-sellouts-edit #openAddSelloutBtn,
+body.no-sellouts-edit #panel-sellouts [data-role="edit"],
+body.no-sellouts-edit #panel-sellouts [data-role="duplicate"],
+body.no-sellouts-delete #panel-sellouts [data-role="delete"],
+body.no-sellouts-archive #panel-sellouts [data-role="archive"],
+body.no-sellouts-archive #panel-sellouts [data-role="unarchive"],
+body.no-sellouts-price #panel-sellouts .so-price-controls,
+body.no-sellouts-price #panel-sellouts .so-price-summary .muted-note,
+body.no-sellouts-price #panel-sellouts .so-price-table .checkbox-cell { display: none !important; }
+body.no-sellouts-price #panel-sellouts .so-new-price:disabled { background: transparent; border-color: transparent; color: var(--ink); opacity: 1; text-align: right; }
+body.no-sellouts-edit #panel-sellouts .switch:has(input:disabled) { opacity: .6; cursor: default; }
 
-body.ro-promotions #newPromoBtn,
-body.ro-promotions #catalogBody .form-grid,
-body.ro-promotions #importPriceSheetBtn,
-body.ro-promotions #toggleArchivePromoBtn,
-body.ro-promotions #deletePromoBtn,
-body.ro-promotions #addRowBtn,
-body.ro-promotions #addRowsBulkBtn,
-body.ro-promotions #applyDiscountSelectedBtn,
-body.ro-promotions #deleteSelectedBtn,
-body.ro-promotions #panel-promotions [data-role="insert-row"],
-body.ro-promotions #panel-promotions [data-role="insert-rows-bulk"],
-body.ro-promotions #panel-promotions [data-role="remove-row"],
-body.ro-promotions #panel-promotions .chk-col { display: none !important; }
-body.ro-promotions #panel-promotions input[data-field]:read-only,
-body.ro-promotions #panel-promotions .audit-note-input:read-only { background: transparent; border-color: transparent; box-shadow: none; cursor: default; }
-body.ro-promotions #panel-promotions [data-role="audit-type-btn"]:disabled,
-body.ro-promotions #panel-promotions [data-role="toggle-flag"]:disabled { cursor: default; }
+/* Credit notes */
+body.no-creditnotes-edit #panel-creditnotes #cnFormCard,
+body.no-creditnotes-edit #panel-creditnotes [data-role="edit-cn"],
+body.no-creditnotes-edit #panel-creditnotes [data-role="delete-cn"] { display: none !important; }
+body.no-creditnotes-edit #panel-creditnotes [data-role="toggle-status"] { pointer-events: none; }
+
+/* Promotions */
+body.no-promotions-edit #newPromoBtn,
+body.no-promotions-edit #catalogBody .form-grid,
+body.no-promotions-edit #importPriceSheetBtn,
+body.no-promotions-edit #addRowBtn,
+body.no-promotions-edit #addRowsBulkBtn,
+body.no-promotions-edit #applyDiscountSelectedBtn,
+body.no-promotions-edit #deleteSelectedBtn,
+body.no-promotions-edit #panel-promotions [data-role="insert-row"],
+body.no-promotions-edit #panel-promotions [data-role="insert-rows-bulk"],
+body.no-promotions-edit #panel-promotions [data-role="remove-row"],
+body.no-promotions-edit #panel-promotions .chk-col,
+body.no-promotions-archive #toggleArchivePromoBtn,
+body.no-promotions-delete #deletePromoBtn { display: none !important; }
+body.no-promotions-edit #panel-promotions input[data-field]:read-only,
+body.no-promotions-audit #panel-promotions .audit-note-input:read-only { background: transparent; border-color: transparent; box-shadow: none; cursor: default; }
+body.no-promotions-audit #panel-promotions [data-role="audit-type-btn"]:disabled,
+body.no-promotions-edit #panel-promotions [data-role="toggle-flag"]:disabled { cursor: default; }
 
 /* Rentals: the store map fills the page (store-map/store-map.css styles its inside). */
 .rentals-map{ display:flex; flex-direction:column; height:calc(100vh - 230px); min-height:620px; }
 .rentals-map > .sm{ flex:1 1 auto; }
 @media (max-width:760px){ .rentals-map{ height:auto; min-height:0; } }
+/* Users → Permissions */
+.perm-box{ max-width:760px; width:calc(100vw - 32px); max-height:calc(100vh - 40px); overflow:auto; }
+.perm-groups{ display:grid; grid-template-columns:repeat(auto-fill, minmax(300px, 1fr)); gap:12px; }
+.perm-group{ border:1px solid var(--line); border-radius:var(--radius-sm, 8px); padding:8px 12px 10px; margin:0; background:var(--paper-raised); }
+.perm-group legend{ font-family:var(--font-mono); font-size:11px; letter-spacing:.04em; text-transform:uppercase; color:var(--ink-soft); padding:0 4px; }
+.perm-row{ display:flex; align-items:center; gap:8px; padding:5px 0; font-size:13.5px; color:var(--ink); cursor:pointer; margin:0; font-weight:400; }
+.perm-row input{ width:auto; margin:0; }
+.perm-row span:first-of-type{ flex:1; }
+.perm-row.is-custom span:first-of-type{ font-weight:600; }
+.perm-row .badge{ font-size:10px; }
 .rental-sales-input{ width:100%; min-width:76px; padding:4px 6px; font-size:12.5px; text-align:right; }
 .rentals-map-bar{ display:flex; justify-content:flex-end; margin:-44px 0 10px; pointer-events:none; }
 .rentals-map-bar .btn{ pointer-events:auto; display:inline-flex; align-items:center; gap:6px; }

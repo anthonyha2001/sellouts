@@ -390,6 +390,30 @@ Decided with the owner (2026-09-29):
 
 ---
 
+## 10c. Phase 8: Per-user permissions (added 2026-09-29)
+
+Owner decisions (2026-09-29): permissions **per action**; **roles are starting templates** — the admin can
+add or remove single permissions for one user. Admins always have everything; only admins manage users.
+
+- [x] 31 permissions in 11 groups (list in `js/core/permissions.js`, same rows seeded by migration 014; a
+  test checks they match). Vendors is one permission ("see and manage"), the rest are split by action,
+  e.g. Sell-outs: see · add/edit · set prices · archive · delete; Promotions: see · edit · Audit Type/Note ·
+  archive · delete; Cash: see · enter · lock · unlock · cashiers; Delivery: orders · payments · customers ·
+  reports · manage; Floor check: do · manage; Labels: scan · print; Rentals: see · contracts · layout.
+- [x] Role defaults reproduce §3 exactly (accountant, delivery, floor manager, shelf), so nothing changes until
+  the admin edits someone.
+- [x] Database: `permissions`, `role_permissions`, `user_permissions` (overrides only), `has_perm(...)`,
+  `my_permissions()`; every rule of 005, 006, 010/011, 012, the delivery order trigger and the activity log
+  now uses `has_perm`; 002 (lockdown, not applied yet) uses it too, with column guards for sell-outs
+  (per column: archive / price / edit) and promotions (Audit may change only Type and Note).
+- [x] App: sections, delivery pages and every button follow `can(...)`; the writes refuse what the user may
+  not do; before 014 is applied the app falls back to the role defaults.
+- [x] Users page: **Permissions** per user (not for admins): grouped checkboxes starting from the role,
+  "added" / "removed" marks, Reset to role; ticking an action ticks its group's "see" permission; the list
+  shows "+N −N custom". Changes apply the next time that person opens the app. Logged.
+
+---
+
 ## 11. Open questions (ask the owner when you reach the phase)
 
 | # | Question | Default until answered |

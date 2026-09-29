@@ -153,7 +153,7 @@
     }
     const c = counts(S.items);
     const finished = !!S.check.completed_at;
-    const locked = finished && !isAdmin();
+    const locked = finished && !can('floorcheck.manage');
     const pct = c.total ? Math.round((c.done / c.total) * 100) : 0;
     const inShow = x => S.show === 'all' || x.source === S.show;
     const matches = x => inShow(x) && (S.filter === 'all' || (S.filter === 'todo' ? x.status === 'pending' : PROBLEMS.includes(x.status)));
@@ -384,7 +384,7 @@
     const { data, error } = await sb.from('floor_checks').select('*').order('check_date', { ascending: false }).order('started_at', { ascending: false }).limit(60);
     if (error) return fail('Could not load the checks', error);
     S.checks = data;
-    if (isAdmin()) {
+    if (can('floorcheck.manage')) {
       const { data: ps } = await sb.from('profiles').select('id, username, display_name');
       profileNames = new Map((ps || []).map(p => [p.id, p.display_name || p.username]));
     }
@@ -435,7 +435,7 @@
         <td>${x.source === 'promotion' ? 'Promo · ' : ''}${esc(x.source_name || '')}</td>
         <td class="num" style="font-family:var(--font-mono);">${price(x.expected_price)}</td>
         <td style="white-space:normal;">${esc(x.note || '')}${x.photo_path ? ` <img class="fc-thumb" data-photo="${esc(x.photo_path)}" alt="Photo">` : ''}</td>
-        <td>${isAdmin()
+        <td>${can('floorcheck.manage')
           ? `<button class="btn ${x.resolved ? 'ghost' : 'secondary'} small" data-resolve="${esc(x.id)}">${x.resolved ? 'Reopen' : 'Mark resolved'}</button>`
           : (x.resolved ? '<span class="badge active">Resolved</span>' : '')}</td>
       </tr>`).join('')}</tbody></table></div>`;
@@ -491,7 +491,10 @@
 
   /* ---------------- shell ---------------- */
   function shell() {
-    const tabs = [['today', "Today's check"], ['results', isAdmin() ? 'Results' : 'My checks']].concat(isAdmin() ? [['repeats', 'Repeat problems']] : []);
+    // floorcheck.do: today's check + own checks; floorcheck.manage: everyone's results + repeat problems.
+    const tabs = [can('floorcheck.do') && ['today', "Today's check"], ['results', can('floorcheck.manage') ? 'Results' : 'My checks']]
+      .concat(can('floorcheck.manage') ? [['repeats', 'Repeat problems']] : []).filter(Boolean);
+    if (!tabs.some(([k]) => k === S.tab)) S.tab = tabs[0][0];
     panel.innerHTML = `<div class="filter-row" id="fcTabs">${tabs.map(([k, l]) => `<button data-tab="${k}">${l}</button>`).join('')}</div><div id="fcBody"></div>`;
     el('fcTabs').onclick = e => { const b = e.target.closest('button'); if (b) { S.tab = b.dataset.tab; show(); } };
   }
@@ -511,7 +514,7 @@
 
   // Admin: a bell notification when someone else finishes a check.
   async function notifyFinishedChecks() {
-    if (!isAdmin()) return;
+    if (!can('floorcheck.manage')) return;
     const KEY = 'lv:floorSeen';
     let seen = null; try { seen = localStorage.getItem(KEY); } catch (e) { /* storage blocked */ }
     const since = seen || new Date(Date.now() - 24 * 3600 * 1000).toISOString();
@@ -525,7 +528,7 @@
     try { localStorage.setItem(KEY, data[data.length - 1].completed_at); } catch (e) { /* ignore */ }
   }
   function start() {
-    if (!isAdmin()) return;
+    if (!can('floorcheck.manage')) return;
     notifyFinishedChecks();
     setInterval(notifyFinishedChecks, 5 * 60 * 1000);
   }

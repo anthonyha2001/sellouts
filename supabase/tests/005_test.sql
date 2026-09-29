@@ -47,7 +47,7 @@ select pg_temp.t('anon reads cashiers',           'anon', $q$select 1 from publi
 select pg_temp.t('anon reads differences',        'anon', $q$select 1 from public.cash_differences$q$, 'blocked');
 select pg_temp.t('anon verifies a PIN directly',  'anon', $q$select * from public.cashier_verify_pin('10000000-0000-0000-0000-000000000001','1234')$q$, 'blocked');
 select pg_temp.t('delivery sees no cashiers',     '00000000-0000-0000-0000-00000000000d', $q$select pg_temp.expect('select count(*) from public.cashiers', 0)$q$, 'ok');
-select pg_temp.t('delivery adds a difference',    '00000000-0000-0000-0000-00000000000d', $q$insert into public.cash_differences (cashier_id, day, amount) values ('10000000-0000-0000-0000-000000000001', '2026-09-01', -5)$q$, 'blocked');
+select pg_temp.t('delivery adds a difference',    '00000000-0000-0000-0000-00000000000d', $q$insert into public.cash_differences (cashier_id, day, amount) values ('10000000-0000-0000-0000-000000000001', '2030-09-01', -5)$q$, 'blocked');
 select pg_temp.t('delivery sets a PIN',           '00000000-0000-0000-0000-00000000000d', $q$select public.set_cashier_pin('10000000-0000-0000-0000-000000000001','1234')$q$, 'blocked');
 
 -- ---------- accountant ----------
@@ -60,18 +60,18 @@ select pg_temp.t('PIN must be 4 digits',          '00000000-0000-0000-0000-00000
 select pg_temp.t('has_pin shows, hash stored',    '00000000-0000-0000-0000-0000000000ac', $q$select pg_temp.expect('select count(*) from public.cashiers where id = ''10000000-0000-0000-0000-000000000001'' and has_pin', 1)$q$, 'ok');
 select pg_temp.check('hash is bcrypt, not the PIN', (select pin_hash like '$2a$%' and pin_hash <> '4821' from public.cashiers where id = '10000000-0000-0000-0000-000000000001'));
 select pg_temp.t('accountant verifies a PIN',     '00000000-0000-0000-0000-0000000000ac', $q$select * from public.cashier_verify_pin('10000000-0000-0000-0000-000000000001','4821')$q$, 'blocked');
-select pg_temp.t('accountant enters a shortage',  '00000000-0000-0000-0000-0000000000ac', $q$insert into public.cash_differences (cashier_id, day, amount) values ('10000000-0000-0000-0000-000000000001', '2026-08-03', -12.5)$q$, 'ok');
-select pg_temp.check('…stamped with the accountant', (select created_by = '00000000-0000-0000-0000-0000000000ac' and currency = 'USD' from public.cash_differences where day = '2026-08-03'));
-select pg_temp.t('same cashier+day twice',        '00000000-0000-0000-0000-0000000000ac', $q$insert into public.cash_differences (cashier_id, day, amount) values ('10000000-0000-0000-0000-000000000001', '2026-08-03', 1)$q$, 'blocked');
-select pg_temp.t('accountant locks August',       '00000000-0000-0000-0000-0000000000ac', $q$insert into public.cash_months (month, locked) values ('2026-08', true)$q$, 'ok');
-select pg_temp.check('…lock stamped',              (select locked_by = '00000000-0000-0000-0000-0000000000ac' and locked_at is not null from public.cash_months where month = '2026-08'));
-select pg_temp.t('write into locked month',       '00000000-0000-0000-0000-0000000000ac', $q$insert into public.cash_differences (cashier_id, day, amount) values ('10000000-0000-0000-0000-000000000002', '2026-08-04', 3)$q$, 'blocked');
-select pg_temp.t('edit in locked month',          '00000000-0000-0000-0000-0000000000ac', $q$update public.cash_differences set amount = 0 where day = '2026-08-03'$q$, 'blocked');
-select pg_temp.t('move a day into locked month',  '00000000-0000-0000-0000-0000000000ac', $q$insert into public.cash_differences (cashier_id, day, amount) values ('10000000-0000-0000-0000-000000000002', '2026-09-04', 3); update public.cash_differences set day = '2026-08-04' where day = '2026-09-04'$q$, 'blocked');
-select pg_temp.t('delete in locked month',        '00000000-0000-0000-0000-0000000000ac', $q$delete from public.cash_differences where day = '2026-08-03'$q$, 'blocked');
-select pg_temp.t('accountant unlocks August',     '00000000-0000-0000-0000-0000000000ac', $q$update public.cash_months set locked = false where month = '2026-08'$q$, 'blocked');
-select pg_temp.t('admin unlocks August',          '00000000-0000-0000-0000-00000000000a', $q$update public.cash_months set locked = false where month = '2026-08'$q$, 'ok');
-select pg_temp.t('…then the edit works',          '00000000-0000-0000-0000-0000000000ac', $q$update public.cash_differences set amount = -10 where day = '2026-08-03'$q$, 'ok');
+select pg_temp.t('accountant enters a shortage',  '00000000-0000-0000-0000-0000000000ac', $q$insert into public.cash_differences (cashier_id, day, amount) values ('10000000-0000-0000-0000-000000000001', '2030-08-03', -12.5)$q$, 'ok');
+select pg_temp.check('…stamped with the accountant', (select created_by = '00000000-0000-0000-0000-0000000000ac' and currency = 'USD' from public.cash_differences where day = '2030-08-03'));
+select pg_temp.t('same cashier+day twice',        '00000000-0000-0000-0000-0000000000ac', $q$insert into public.cash_differences (cashier_id, day, amount) values ('10000000-0000-0000-0000-000000000001', '2030-08-03', 1)$q$, 'blocked');
+select pg_temp.t('accountant locks August',       '00000000-0000-0000-0000-0000000000ac', $q$insert into public.cash_months (month, locked) values ('2030-08', true)$q$, 'ok');
+select pg_temp.check('…lock stamped',              (select locked_by = '00000000-0000-0000-0000-0000000000ac' and locked_at is not null from public.cash_months where month = '2030-08'));
+select pg_temp.t('write into locked month',       '00000000-0000-0000-0000-0000000000ac', $q$insert into public.cash_differences (cashier_id, day, amount) values ('10000000-0000-0000-0000-000000000002', '2030-08-04', 3)$q$, 'blocked');
+select pg_temp.t('edit in locked month',          '00000000-0000-0000-0000-0000000000ac', $q$update public.cash_differences set amount = 0 where day = '2030-08-03'$q$, 'blocked');
+select pg_temp.t('move a day into locked month',  '00000000-0000-0000-0000-0000000000ac', $q$insert into public.cash_differences (cashier_id, day, amount) values ('10000000-0000-0000-0000-000000000002', '2030-09-04', 3); update public.cash_differences set day = '2030-08-04' where day = '2030-09-04'$q$, 'blocked');
+select pg_temp.t('delete in locked month',        '00000000-0000-0000-0000-0000000000ac', $q$delete from public.cash_differences where day = '2030-08-03'$q$, 'blocked');
+select pg_temp.t('accountant unlocks August',     '00000000-0000-0000-0000-0000000000ac', $q$update public.cash_months set locked = false where month = '2030-08'$q$, 'blocked');
+select pg_temp.t('admin unlocks August',          '00000000-0000-0000-0000-00000000000a', $q$update public.cash_months set locked = false where month = '2030-08'$q$, 'ok');
+select pg_temp.t('…then the edit works',          '00000000-0000-0000-0000-0000000000ac', $q$update public.cash_differences set amount = -10 where day = '2030-08-03'$q$, 'ok');
 select pg_temp.t('red below orange refused',      '00000000-0000-0000-0000-0000000000ac', $q$update public.cash_settings set danger_threshold = 5 where id = 'app'$q$, 'blocked');
 select pg_temp.t('accountant changes thresholds', '00000000-0000-0000-0000-0000000000ac', $q$update public.cash_settings set warning_threshold = 8, danger_threshold = 25 where id = 'app'$q$, 'ok');
 select pg_temp.t('delete a cashier',              '00000000-0000-0000-0000-00000000000a', $q$delete from public.cashiers where id = '10000000-0000-0000-0000-000000000002'$q$, 'blocked');

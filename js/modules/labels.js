@@ -14,8 +14,8 @@
   const el = id => document.getElementById(id);
   const esc = escapeHtml;
   const fail = (what, error) => { console.error(error); showToast(`${what} — ${friendlyError(error)}`, true); };
-  const canScan = () => ['shelf', 'admin'].includes(Session.role);
-  const canPrint = () => ['accountant', 'admin'].includes(Session.role);
+  const canScan = () => can('labels.scan');
+  const canPrint = () => can('labels.print');
   const cleanCode = v => String(v ?? '').trim().replace(/\s+/g, '');
   const validCode = v => /^[0-9A-Za-z.\-]{1,64}$/.test(v);
 

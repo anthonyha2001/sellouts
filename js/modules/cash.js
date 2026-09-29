@@ -86,8 +86,8 @@
       <div class="filter-row cash-tabs" id="cashTabs">
         <button data-tab="grid">Month grid</button>
         <button data-tab="analysis">Analysis</button>
-        <button data-tab="cashiers">Cashiers &amp; settings</button>
-        <button data-tab="import">Import old sheets</button>
+        ${can('cash.cashiers') ? '<button data-tab="cashiers">Cashiers &amp; settings</button>' : ''}
+        ${can('cash.enter') ? '<button data-tab="import">Import old sheets</button>' : ''}
       </div>
       <div class="cash-monthbar" id="cashMonthBar">
         <button class="icon-btn" id="cashPrev" aria-label="Previous month"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
@@ -126,11 +126,11 @@
     const area = el('cashLockArea');
     if (S.locked) {
       area.innerHTML = `<span class="badge warn">Locked${S.lockInfo?.locked_at ? ' · ' + esc(fmtTs(S.lockInfo.locked_at)) : ''}</span>
-        ${isAdmin() ? '<button class="btn secondary small" id="cashUnlock">Unlock month</button>' : ''}`;
+        ${can('cash.unlock') ? '<button class="btn secondary small" id="cashUnlock">Unlock month</button>' : ''}`;
       el('cashUnlock')?.addEventListener('click', () => setLock(false));
     } else {
-      area.innerHTML = '<button class="btn secondary small" id="cashLock">Lock month</button>';
-      el('cashLock').addEventListener('click', () => setLock(true));
+      area.innerHTML = can('cash.lock') ? '<button class="btn secondary small" id="cashLock">Lock month</button>' : '';
+      el('cashLock')?.addEventListener('click', () => setLock(true));
     }
   }
   async function setLock(on) {
@@ -168,7 +168,7 @@
         const title = e?.source_currency ? `Imported: ${Number(e.source_amount).toLocaleString('en-US')} ${e.source_currency} at ${Number(e.source_rate).toLocaleString('en-US')}` : '';
         return `<td class="cash-cell ${lv ? 'lv-' + lv : ''}">
           <input type="text" inputmode="decimal" data-c="${c.id}" data-day="${day}" data-row="${d}" data-col="${ci}"
-            value="${e ? e.amount.toFixed(2) : ''}" ${S.locked ? 'readonly' : ''} aria-label="${esc(c.name)}, ${day}" ${title ? `title="${esc(title)}"` : ''}>
+            value="${e ? e.amount.toFixed(2) : ''}" ${S.locked || !can('cash.enter') ? 'readonly' : ''} aria-label="${esc(c.name)}, ${day}" ${title ? `title="${esc(title)}"` : ''}>
           ${e ? `<button type="button" class="cash-note ${e.note ? 'has-note' : ''}" data-note="${esc(key(c.id, day))}" title="${e.note ? esc(e.note) : 'Add a note'}" tabindex="-1">${e.note ? '●' : '+'}</button>` : ''}
         </td>`;
       }).join('');
@@ -177,7 +177,8 @@
       rowsHtml.push(`<tr class="${isToday ? 'is-today' : ''}"><th class="cash-day">${d} <span>${weekday}</span></th>${cells}<td class="cash-total ${any ? 'lv-' + (level(rowTotal) || 'none') : ''}">${any ? usd(rowTotal) : ''}</td></tr>`);
     }
     body.innerHTML = `
-      ${S.locked ? `<div class="cash-banner"><b>${esc(monthLabel(S.month))} is locked.</b> Differences can't be changed${isAdmin() ? ' until you unlock it' : '; ask the admin if something must be corrected'}.</div>` : ''}
+      ${S.locked ? `<div class="cash-banner"><b>${esc(monthLabel(S.month))} is locked.</b> Differences can't be changed${can('cash.unlock') ? ' until you unlock it' : '; ask the admin if something must be corrected'}.</div>` : ''}
+      ${!S.locked && !can('cash.enter') ? `<div class="cash-banner">View only: you can't enter or change differences.</div>` : ''}
       <div class="cash-legend">
         <span><i class="lv-warn"></i> ${usd(S.settings.warning_threshold)} or more over/short</span>
         <span><i class="lv-danger"></i> ${usd(S.settings.danger_threshold)} or more</span>
@@ -212,7 +213,7 @@
   }
 
   async function saveCell(inp) {
-    if (S.locked) return;
+    if (S.locked || !can('cash.enter')) return;
     const cid = inp.dataset.c, day = inp.dataset.day, k = key(cid, day);
     const before = S.entries.get(k);
     const raw = inp.value.trim();
@@ -247,7 +248,7 @@
     const grid = lines.map(l => l.split('\t'));
     if (grid.length === 1 && grid[0].length === 1) return;        // single value: normal paste
     e.preventDefault();
-    if (S.locked) return;
+    if (S.locked || !can('cash.enter')) return;
     const cols = gridCashiers(), n = daysIn(S.month);
     const r0 = Number(inp.dataset.row), c0 = Number(inp.dataset.col);
     const rows = [], bad = [];
@@ -270,7 +271,7 @@
 
   async function editNote(k) {
     const e = S.entries.get(k); if (!e) return;
-    if (S.locked) { if (e.note) showConfirm(e.note, 'OK'); return; }
+    if (S.locked || !can('cash.enter')) { if (e.note) showConfirm(e.note, 'OK'); return; }
     const v = await showPrompt(`Note for ${cashierName(e.cashier_id)} on ${fmtDate(e.day)} (${usd(e.amount)}):`, { defaultValue: e.note || '', confirmLabel: 'Save note', placeholder: 'e.g. Counted twice, confirmed by manager' });
     if (v === null) return;
     const note = v.trim() || null;

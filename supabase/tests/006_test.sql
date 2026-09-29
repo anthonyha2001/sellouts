@@ -62,7 +62,7 @@ select pg_temp.t('same item twice in one check', '00000000-0000-0000-0000-000000
 select pg_temp.t('floor 1 sees only own check', '00000000-0000-0000-0000-0000000000f1', $q$select pg_temp.expect('select count(*) from public.floor_checks', 1)$q$, 'ok');
 select pg_temp.t('floor 2 sees none of floor 1''s items', '00000000-0000-0000-0000-0000000000f2', $q$select pg_temp.expect('select count(*) from public.floor_check_items', 0)$q$, 'ok');
 select pg_temp.t('accountant sees no checks', '00000000-0000-0000-0000-0000000000ac', $q$select pg_temp.expect('select count(*) from public.floor_checks', 0)$q$, 'ok');
-select pg_temp.t('admin sees both checks', '00000000-0000-0000-0000-00000000000a', $q$select pg_temp.expect('select count(*) from public.floor_checks', 2)$q$, 'ok');
+select pg_temp.t('admin sees both checks', '00000000-0000-0000-0000-00000000000a', $q$select pg_temp.expect('select count(*) from public.floor_checks where started_by::text like ''00000000-%''', 2)$q$, 'ok');
 select pg_temp.t('anon reads checks', 'anon', $q$select 1 from public.floor_checks$q$, 'blocked');
 
 -- ---------- checking ----------

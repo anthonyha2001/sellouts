@@ -60,18 +60,23 @@ async function idbAll(store) {
   return [];
 }
 
-// View-only users (the accountant) never write sell-outs or promotions, whatever the screen offers.
-// The database enforces the same rule once the lockdown (002) is applied.
-const SELLOUT_ARCHIVE_FIELDS = ['archived', 'archived_at', 'archived_by', 'log', 'notified_flags'];
+// Every write checks the permission it needs (js/core/permissions.js), whatever the screen offers.
+// The database enforces the same rules (014, and 002 for these legacy tables).
+// Sell-out columns -> permission; null = bookkeeping any viewer may save (log, notification flags).
+const SELLOUT_FIELD_PERMS = {
+  archived: 'sellouts.archive', archived_at: 'sellouts.archive', archived_by: 'sellouts.archive',
+  priced_items: 'sellouts.price', pricing: 'sellouts.price', price_column: 'sellouts.price',
+  log: null, notified_flags: null,
+};
 let viewOnlyWarned = 0;
 function refuseViewOnly(what) {
-  if (Date.now() - viewOnlyWarned > 3000) { viewOnlyWarned = Date.now(); showToast(`Only an admin can change ${what}. You can view and download them.`, true); }
+  if (Date.now() - viewOnlyWarned > 3000) { viewOnlyWarned = Date.now(); showToast(`You don't have permission to change ${what}. Ask the admin if you need it.`, true); }
   return false;
 }
 
 async function idbPut(store, val) {
   if (store === 'sellouts') {
-    if (!canEditSellouts()) return refuseViewOnly('sell-outs');
+    if (!can('sellouts.edit')) return refuseViewOnly('sell-outs');
     const row = {
       id: val.id, name: val.name, from: val.from, to: val.to,
       file_name: val.fileName,
@@ -89,6 +94,7 @@ async function idbPut(store, val) {
     return;
   }
   if (store === 'creditnotes') {
+    if (!can('creditnotes.edit')) return refuseViewOnly('credit notes');
     const row = { id: val.id, number: val.number, supplier: val.supplier, details: val.details, status: val.status };
     const { error } = await sb.from('credit_notes').upsert(row);
     if (error) { console.error(error); showToast('Could not save that credit note \u2014 ' + sbErrText(error), true); }
@@ -98,14 +104,16 @@ async function idbPut(store, val) {
 
 // Saves only some sell-out columns (pricing, archive, note...) without re-uploading the file.
 async function updateSelloutFields(id, fields) {
-  if (!canEditSellouts() && !(canArchiveSellouts() && Object.keys(fields).every(k => SELLOUT_ARCHIVE_FIELDS.includes(k)))) return refuseViewOnly('sell-outs');
+  const needed = Object.keys(fields).map(k => k in SELLOUT_FIELD_PERMS ? SELLOUT_FIELD_PERMS[k] : 'sellouts.edit').filter(Boolean);
+  if (!needed.every(p => can(p))) return refuseViewOnly('sell-outs');
   const { error } = await sb.from('sellouts').update(fields).eq('id', id);
   if (error) { console.error(error); showToast('Could not save that sell-out — ' + sbErrText(error), true); return false; }
   return true;
 }
 
 async function idbDelete(store, id) {
-  if (store === 'sellouts' && !canEditSellouts()) return refuseViewOnly('sell-outs');
+  if (store === 'sellouts' && !can('sellouts.delete')) return refuseViewOnly('sell-outs');
+  if (store === 'creditnotes' && !can('creditnotes.edit')) return refuseViewOnly('credit notes');
   const table = store === 'sellouts' ? 'sellouts' : 'credit_notes';
   const { error } = await sb.from(table).delete().eq('id', id);
   if (error) { console.error(error); showToast('Could not delete \u2014 ' + sbErrText(error), true); }
@@ -175,8 +183,9 @@ async function loadPromotions() {
     sourceFileBase64: r.source_file_base64 || null
   }));
 }
-async function savePromotion(promo) {
-  if (!canEditPromotions()) return refuseViewOnly('promotions');
+// perm: 'promotions.edit' (name, dates, new promotion) or 'promotions.archive' (archive / auto-archive).
+async function savePromotion(promo, perm = 'promotions.edit') {
+  if (!can(perm)) return refuseViewOnly('promotions');
   const row = {
     id: promo.id, name: promo.name, from_date: promo.from || null, to_date: promo.to || null,
     archived: !!promo.archived,
@@ -196,7 +205,7 @@ async function savePromotionSourceFile(promoId, file) {
   if (promo) { promo.sourceFileName = file.name; promo.sourceFileBase64 = base64; }
 }
 async function deletePromotionRemote(id) {
-  if (!canEditPromotions()) return refuseViewOnly('promotions');
+  if (!can('promotions.delete')) return refuseViewOnly('promotions');
   const { error } = await sb.from('promotions').delete().eq('id', id);
   if (error) { console.error(error); showToast('Could not delete the promotion — ' + sbErrText(error), true); }
 }
@@ -276,10 +285,11 @@ async function ensurePromotionExistsFor(row) {
   await savePromotion(promo);
   return true;
 }
-async function savePromoRow(row) {
-  if (!canEditPromotions()) return refuseViewOnly('promotions');
+// perm: 'promotions.edit', or 'promotions.audit' for the Audit Type / Note.
+async function savePromoRow(row, perm = 'promotions.edit') {
+  if (!can(perm)) return refuseViewOnly('promotions');
   let { error } = await sb.from('promotion_rows').upsert(promoRowPayload(row));
-  if (error && isFkViolation(error) && await ensurePromotionExistsFor(row)) {
+  if (error && isFkViolation(error) && can('promotions.edit') && await ensurePromotionExistsFor(row)) {
     ({ error } = await sb.from('promotion_rows').upsert(promoRowPayload(row)));
   }
   if (error) { console.error(error); showToast('Could not save that row — ' + sbErrText(error), true); }
@@ -670,12 +680,12 @@ function fmtDMY(iso) {
    has turned auto-archive off for that one. Runs on load and periodically
    while the page stays open, and is always reversible from the UI. */
 async function autoArchiveDuePromotions() {
-  if (!canEditPromotions()) return false;          // the admin's session archives them
+  if (!can('promotions.archive')) return false;    // someone who may archive does it
   const today = todayStr();
   const due = promotions.filter(p => !p.archived && p.autoArchive !== false && p.to && p.to < today);
   if (!due.length) return false;
   due.forEach(p => { p.archived = true; });
-  await Promise.all(due.map(p => savePromotion(p)));
+  await Promise.all(due.map(p => savePromotion(p, 'promotions.archive')));
   return true;
 }
 function daysBetween(a, b) {
@@ -1302,10 +1312,16 @@ document.getElementById('lowStockInput').addEventListener('change', async (e) =>
 // View-only (accountant): the page is re-rendered from many places, so every render is locked here.
 // Buttons that change things are hidden by css (body.ro-promotions); Export, Copy codes, Download stay.
 function lockPromotionsViewOnly() {
-  if (canEditPromotions()) return;
   const root = document.getElementById('panel-promotions');
-  root.querySelectorAll('input[data-field], #promoName, #promoFrom, #promoTo, .audit-note-input').forEach(i => { if (!i.readOnly) i.readOnly = true; });
-  root.querySelectorAll('select[data-field], #promoAutoArchive, #catalogFileInput, #lowStockInput, [data-role="audit-type-btn"], [data-role="toggle-flag"]').forEach(i => { if (!i.disabled) i.disabled = true; });
+  if (!can('promotions.edit')) {
+    root.querySelectorAll('input[data-field], #promoName, #promoFrom, #promoTo').forEach(i => { if (!i.readOnly) i.readOnly = true; });
+    root.querySelectorAll('select[data-field], #catalogFileInput, #lowStockInput, [data-role="toggle-flag"]').forEach(i => { if (!i.disabled) i.disabled = true; });
+  }
+  if (!can('promotions.archive')) root.querySelectorAll('#promoAutoArchive').forEach(i => { if (!i.disabled) i.disabled = true; });
+  if (!can('promotions.audit')) {
+    root.querySelectorAll('.audit-note-input').forEach(i => { if (!i.readOnly) i.readOnly = true; });
+    root.querySelectorAll('[data-role="audit-type-btn"]').forEach(i => { if (!i.disabled) i.disabled = true; });
+  }
 }
 new MutationObserver(lockPromotionsViewOnly).observe(document.getElementById('panel-promotions'), { childList: true, subtree: true });
 
@@ -1663,7 +1679,7 @@ async function renderPromoWorkspace() {
               : 'Code and description next to the cost from the imported price sheet, for a manual check. Items with no cost yet are shown too.')
             : (tableSubView === 'supplier'
               ? 'Every item grouped by supplier, with stock, Out (YTD) and a reorder recommendation for each.'
-              : !canEditPromotions() ? 'View only: only an admin can change promotions. Export to Excel or Download to get the file.'
+              : !canEditPromotions() ? 'View only: you can export to Excel or download the file; ask the admin for permission to change promotions.'
               : 'Tip: copy a block of cells from Excel and paste directly into the table \u2014 it will fill rows and columns starting from where you paste, adding new rows if needed. Enter moves down a column, Tab at the last field adds a new row.')}</p>
         </div>
         <div class="view-toolbar" style="border:none;background:none;padding:0;margin:0;">
@@ -1814,8 +1830,9 @@ async function renderPromoWorkspace() {
         if (!row) return;
         // Clicking the already-active type clears it back to "no type", so
         // the buttons can also represent the dropdown's old blank option.
+        if (!can('promotions.audit')) return refuseViewOnly('promotions');
         row.priceType = row.priceType === btn.dataset.type ? '' : btn.dataset.type;
-        await savePromoRow(row);
+        await savePromoRow(row, 'promotions.audit');
         await renderPromoWorkspace();
       });
     });
@@ -1824,8 +1841,9 @@ async function renderPromoWorkspace() {
       input.addEventListener('blur', async () => {
         const row = currentRows.find(r => r.id === input.dataset.rowId);
         if (!row) return;
+        if (!can('promotions.audit')) return;
         row.note = input.value;
-        await savePromoRow(row);
+        await savePromoRow(row, 'promotions.audit');
       });
     });
 
@@ -2550,13 +2568,14 @@ function wirePromoWorkspaceEvents(promo) {
 
   autoArchiveCb.addEventListener('change', async () => {
     promo.autoArchive = autoArchiveCb.checked;
-    await savePromotion(promo);
+    await savePromotion(promo, 'promotions.archive');
     showToast(promo.autoArchive ? 'Will auto-archive once the "To" date passes.' : 'Auto-archive turned off for this promotion.');
   });
 
   document.getElementById('toggleArchivePromoBtn').addEventListener('click', async () => {
+    if (!can('promotions.archive')) return refuseViewOnly('promotions');
     promo.archived = !promo.archived;
-    await savePromotion(promo);
+    await savePromotion(promo, 'promotions.archive');
     showToast(promo.archived ? 'Promotion archived.' : 'Promotion unarchived.');
     const stillVisible = !!promo.archived === showArchivedPromos;
     if (!stillVisible) {

@@ -95,6 +95,98 @@
     el('usersBody').onclick = onUserAction;
   }
 
+  /* ---------- permissions (per user overrides on top of the role, migration 014) ---------- */
+  let overrides = {};          // user_id -> { perm: true|false }
+  let permsTableMissing = false;
+  async function loadOverrides() {
+    const { data, error } = await sb.from('user_permissions').select('user_id, perm, allowed');
+    permsTableMissing = !!error;
+    overrides = {};
+    (data || []).forEach(r => { (overrides[r.user_id] = overrides[r.user_id] || {})[r.perm] = r.allowed; });
+  }
+  // A permission that needs the group's "see" permission first.
+  const REQUIRES = {};
+  PERMISSIONS.forEach(([k]) => {
+    const [sec, act] = k.split('.');
+    if (act !== 'view' && PERMISSION_KEYS.includes(sec + '.view')) REQUIRES[k] = sec + '.view';
+  });
+  function overrideBadge(u) {
+    const o = overrides[u.id]; if (!o || u.role === 'admin') return '';
+    const plus = Object.values(o).filter(Boolean).length, minus = Object.values(o).length - plus;
+    return ` <span class="badge inactive" title="Permissions changed for this user">${plus ? '+' + plus : ''}${plus && minus ? ' ' : ''}${minus ? '−' + minus : ''} custom</span>`;
+  }
+
+  function ensurePermModal() {
+    if (document.getElementById('userPermOverlay')) return;
+    document.body.insertAdjacentHTML('beforeend', `
+      <div class="modal-overlay" id="userPermOverlay">
+        <div class="modal-box form-box perm-box">
+          <h3 id="upTitle" style="margin:0 0 4px;font-family:var(--font-head);"></h3>
+          <p class="muted-note" id="upSub" style="margin:0 0 14px;"></p>
+          <div id="upBody" class="perm-groups"></div>
+          <div class="actions-row">
+            <button type="button" class="btn ghost small" id="upReset" style="margin-right:auto;">Reset to role</button>
+            <button type="button" class="btn ghost small" id="upCancel">Cancel</button>
+            <button type="button" class="btn small" id="upSave">Save permissions</button>
+          </div>
+        </div>
+      </div>`);
+  }
+
+  async function openPermissions(u) {
+    ensurePermModal();
+    await loadOverrides();
+    if (permsTableMissing) { showToast('Per-user permissions are not set up yet: apply migration 014 first.', true); return; }
+    const el = id => document.getElementById(id);
+    const overlay = el('userPermOverlay');
+    const base = rolePermissions(u.role);
+    let current = effectivePermissions(u.role, overrides[u.id]);
+    el('upTitle').textContent = `Permissions — ${u.display_name || u.username}`;
+    el('upSub').textContent = `Role: ${ROLES[u.role]?.label || u.role}. The role gives the ticked boxes by default; change any box for this user only.`;
+    const draw = () => {
+      el('upBody').innerHTML = PERMISSION_GROUPS.map(g => `
+        <fieldset class="perm-group"><legend>${escapeHtml(g)}</legend>
+          ${PERMISSIONS.filter(p => p[1] === g).map(([k, , label]) => {
+            const on = current.has(k), custom = on !== base.has(k);
+            return `<label class="perm-row ${custom ? 'is-custom' : ''}"><input type="checkbox" data-perm="${k}" ${on ? 'checked' : ''}>
+              <span>${escapeHtml(label)}</span>${custom ? `<span class="badge ${on ? 'active' : 'danger'}">${on ? 'added' : 'removed'}</span>` : ''}</label>`;
+          }).join('')}
+        </fieldset>`).join('');
+    };
+    draw();
+    el('upBody').onchange = e => {
+      const k = e.target.dataset.perm; if (!k) return;
+      if (e.target.checked) { current.add(k); if (REQUIRES[k]) current.add(REQUIRES[k]); }
+      else { current.delete(k); Object.entries(REQUIRES).forEach(([dep, req]) => { if (req === k) current.delete(dep); }); }
+      draw();
+    };
+    el('upReset').onclick = () => { current = new Set(base); draw(); };
+    const close = () => { overlay.classList.remove('open'); el('upSave').onclick = null; };
+    el('upCancel').onclick = close;
+    overlay.onclick = ev => { if (ev.target === overlay) close(); };
+    el('upSave').onclick = async () => {
+      // Store only what differs from the role; the rest follows the role (also when the role changes later).
+      const rows = PERMISSION_KEYS.filter(k => current.has(k) !== base.has(k)).map(k => ({ user_id: u.id, perm: k, allowed: current.has(k) }));
+      el('upSave').disabled = true;
+      try {
+        const { error: delErr } = await sb.from('user_permissions').delete().eq('user_id', u.id);
+        if (delErr) throw delErr;
+        if (rows.length) { const { error } = await sb.from('user_permissions').insert(rows); if (error) throw error; }
+        const before = overrides[u.id] || {};
+        overrides[u.id] = Object.fromEntries(rows.map(r => [r.perm, r.allowed]));
+        logActivity('users', 'permissions', { type: 'user', id: u.id },
+          `Permissions of ${u.username}: ${rows.length ? rows.map(r => (r.allowed ? '+' : '−') + r.perm).join(', ') : 'back to the role defaults'}`,
+          { before, after: overrides[u.id] });
+        renderUsers();
+        close();
+        showToast(`Permissions saved. ${u.display_name || u.username} gets them the next time they open the app.`);
+      } catch (err) {
+        showToast('Could not save the permissions — ' + friendlyError(err), true);
+      } finally { el('upSave').disabled = false; }
+    };
+    overlay.classList.add('open');
+  }
+
   async function loadUsers() {
     const notice = document.getElementById('usersNotice');
     try {
@@ -109,6 +201,7 @@
       notice.hidden = false;
       notice.innerHTML = `<p style="margin:0;"><b>Read-only for now.</b> ${escapeHtml(e.message)}</p>`;
     }
+    await loadOverrides();
     renderUsers();
   }
 
@@ -122,11 +215,12 @@
       return `<tr data-id="${escapeHtml(u.id)}">
         <td><b>${escapeHtml(u.display_name || u.username)}</b>${me ? ' <span class="muted-note">(you)</span>' : ''}</td>
         <td style="font-family:var(--font-mono);">${escapeHtml(login)}</td>
-        <td>${roleBadge(u.role)}</td>
+        <td>${roleBadge(u.role)}${overrideBadge(u)}</td>
         <td>${u.active ? '<span class="badge active">Active</span>' : '<span class="badge inactive">Disabled</span>'}</td>
         <td style="font-family:var(--font-mono);font-size:12px;">${escapeHtml(fmtWhen(u.last_sign_in_at))}</td>
         <td>${serviceMissing ? '' : `<div class="icon-actions" style="justify-content:flex-end;">
           <button class="btn secondary small" data-act="edit">Edit</button>
+          ${u.role === 'admin' ? '' : '<button class="btn secondary small" data-act="perms">Permissions</button>'}
           <button class="btn secondary small" data-act="password">Reset password</button>
           ${me ? '' : `<button class="btn ghost small" data-act="${u.active ? 'disable' : 'enable'}">${u.active ? 'Disable' : 'Enable'}</button>`}
         </div>`}</td>
@@ -166,6 +260,7 @@
     const act = btn.dataset.act;
     try {
       if (act === 'edit') return openEdit(u);
+      if (act === 'perms') return openPermissions(u);
       if (act === 'password') {
         const pw = await showPrompt(`New password for ${u.display_name || u.username} (8+ characters):`, { defaultValue: randomPassword(), confirmLabel: 'Set password' });
         if (pw === null) return;
@@ -311,7 +406,7 @@
 
   window.ActivityPage = {
     show() {
-      if (!isAdmin()) return;
+      if (!can('activity.view')) return;
       if (!actReady) { actReady = true; activityShell(); }
       loadActivity(false);
     },

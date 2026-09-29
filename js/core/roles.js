@@ -1,6 +1,9 @@
 /* ============================================================
-   Who can see what (PLAN §3). This only shapes the UI; the real
-   rules are the RLS policies and triggers in the database.
+   Who can see what (PLAN §3, §10c). Roles are templates: their
+   `sections`/`delivery` lists are the role's usual pages and `home`
+   its landing page; what a user may really open and do comes from
+   their permissions (js/core/permissions.js). This only shapes the
+   UI; the real rules are the RLS policies and triggers in the database.
    ============================================================ */
 const ROLES = {
   admin: {
@@ -37,19 +40,34 @@ const ROLES = {
 };
 
 // Set by auth.js once the profile is loaded.
-const Session = { user: null, profile: null, role: null };
+const Session = { user: null, profile: null, role: null, perms: null };
 
-function roleInfo() { return ROLES[Session.role] || { label: '', sections: [], delivery: [], home: null }; }
-function canSee(section) { return roleInfo().sections.includes(section); }
-function canSeeDeliveryPage(page) { return roleInfo().delivery.includes(page); }
+const SECTION_ORDER = ['sellouts', 'creditnotes', 'promotions', 'vendors', 'rentals', 'delivery', 'cash', 'floorcheck', 'labels', 'users', 'activity'];
+function roleInfo() {
+  const r = ROLES[Session.role] || { label: '', sections: [], delivery: [], home: null };
+  // Landing page: the role's usual one, or the first section this user can open.
+  const home = r.home && canSee(r.home) ? r.home : SECTION_ORDER.find(canSee) || null;
+  return Object.assign({}, r, { home });
+}
+function canSee(section) {
+  if (section === 'users') return isAdmin();
+  const perms = SECTION_PERMS[section];
+  return !!perms && can(...perms);
+}
+const DELIVERY_PAGE_PERMS = {
+  orders: ['delivery.orders', 'delivery.manage'], settle: ['delivery.settle'], customers: ['delivery.customers'],
+  reports: ['delivery.reports'], drivers: ['delivery.manage'], settings: ['delivery.manage'],
+};
+function canSeeDeliveryPage(page) { return can(...(DELIVERY_PAGE_PERMS[page] || [])); }
 function isAdmin() { return Session.role === 'admin'; }
-// Sell-outs and promotions: only the admin creates or changes them. The accountant views, downloads
-// and exports them, and archives / unarchives sell-outs (their confirmation that it left the system).
-function canEditSellouts() { return isAdmin(); }
-function canEditPromotions() { return isAdmin(); }
-function canArchiveSellouts() { return ['admin', 'accountant'].includes(Session.role); }
-// Body classes that switch the two pages to view-only (css: body.ro-sellouts, body.ro-promotions).
+// Sell-outs and promotions: which controls show is decided per permission (css: body.no-<perm>).
+function canEditSellouts() { return can('sellouts.edit'); }
+function canEditPromotions() { return can('promotions.edit'); }
+function canArchiveSellouts() { return can('sellouts.archive'); }
+// One body class per permission the user does NOT have, e.g. body.no-sellouts-delete hides Delete.
+// ro-sellouts / ro-promotions: no add/edit (the pages become view-only, apart from what is allowed).
 function applyEditClasses() {
+  PERMISSION_KEYS.forEach(k => document.body.classList.toggle('no-' + k.replace('.', '-'), !can(k)));
   document.body.classList.toggle('ro-sellouts', !canEditSellouts());
   document.body.classList.toggle('ro-promotions', !canEditPromotions());
 }
