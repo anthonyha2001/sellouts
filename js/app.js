@@ -39,7 +39,14 @@ async function idbAll(store) {
       active: !!row.active,
       log: row.log || [],
       notifiedFlags: row.notified_flags || {},
-      createdAt: row.created_at
+      createdAt: row.created_at,
+      note: row.note || '',
+      archived: !!row.archived,
+      archivedAt: row.archived_at || null,
+      archivedBy: row.archived_by || null,
+      priceColumn: row.price_column || null,
+      pricing: row.pricing || null,
+      pricedItems: Array.isArray(row.priced_items) ? row.priced_items : null
     }));
   }
   if (store === 'creditnotes') {
@@ -59,7 +66,10 @@ async function idbPut(store, val) {
       id: val.id, name: val.name, from: val.from, to: val.to,
       file_name: val.fileName,
       items: val.items, active: val.active, log: val.log,
-      notified_flags: val.notifiedFlags
+      notified_flags: val.notifiedFlags,
+      note: val.note || null,
+      archived: !!val.archived, archived_at: val.archivedAt || null, archived_by: val.archivedBy || null,
+      price_column: val.priceColumn || null, pricing: val.pricing || null, priced_items: val.pricedItems || null
     };
     if (val.fileBlob instanceof Blob && val.fileBlob.size > 0) {
       row.file_base64 = await blobToBase64(val.fileBlob);
@@ -74,6 +84,13 @@ async function idbPut(store, val) {
     if (error) { console.error(error); showToast('Could not save that credit note \u2014 ' + sbErrText(error), true); }
     return;
   }
+}
+
+// Saves only some sell-out columns (pricing, archive, note...) without re-uploading the file.
+async function updateSelloutFields(id, fields) {
+  const { error } = await sb.from('sellouts').update(fields).eq('id', id);
+  if (error) { console.error(error); showToast('Could not save that sell-out — ' + sbErrText(error), true); return false; }
+  return true;
 }
 
 async function idbDelete(store, id) {
@@ -364,19 +381,7 @@ function refreshRowFlagUi(tr, row) {
    validation cues that go with it: a blinking dot for a discount over 25%,
    and a red border on cells that are missing something they need. */
 const BIG_DISCOUNT_RATIO = 0.25;
-function mround(value, multiple) {
-  if (!multiple) return value;
-  return Math.round(value / multiple) * multiple;
-}
-// Every number in the promo table (prices, stock, discount %) is rounded to
-// 2 decimal places wherever it's shown or saved, so numbers coming in from a
-// catalog lookup with long decimal tails (e.g. 45.9690001) always read clean.
-function round2(v) {
-  if (v === null || v === undefined || v === '') return v;
-  const n = Number(v);
-  if (isNaN(n)) return v;
-  return Math.round((n + Number.EPSILON) * 100) / 100;
-}
+// mround() and round2() live in js/core/helpers.js (shared by Promotions and Sell-outs).
 function discountFraction(row) {
   if (row.salePrice === null || row.salePrice === undefined || row.salePrice === '') return null;
   if (row.promoPrice === null || row.promoPrice === undefined || row.promoPrice === '') return null;
@@ -611,7 +616,7 @@ function localDateStr(d) {
   const da = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${da}`;
 }
-const todayStr = () => localDateStr(new Date());
+const todayStr = () => beirutToday();   // Beirut date (js/core/config.js), not the device's
 
 /* Default a new promotion to the upcoming Friday-through-Monday run, since
    that is the usual pattern, while staying fully editable afterward. Built
@@ -824,280 +829,7 @@ async function loadAll() {
   runNotificationCheck();
 }
 
-/* ============================================================
-   Sell-outs
-   ============================================================ */
-document.getElementById('selloutForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const name = document.getElementById('soName').value.trim();
-  const from = document.getElementById('soFrom').value;
-  const to = document.getElementById('soTo').value;
-  const fileInput = document.getElementById('soFile');
-  const file = fileInput.files[0];
-  if (!file) return;
-
-  if (new Date(to) < new Date(from)) {
-    showToast('The "To" date is before the "From" date \u2014 please check the dates.', true);
-    return;
-  }
-
-  const buf = await file.arrayBuffer();
-  let items = [];
-  try {
-    const wb = XLSX.read(buf, { type: 'array' });
-    const ws = wb.Sheets[wb.SheetNames[0]];
-    items = XLSX.utils.sheet_to_json(ws, { defval: '' });
-  } catch (err) {
-    showToast('Could not read that file as Excel/CSV. Please check the format.', true);
-    return;
-  }
-
-  const record = {
-    id: uid(), name, from, to, fileName: file.name, fileBlob: file, items,
-    active: false, log: [], notifiedFlags: {},
-    createdAt: new Date().toISOString()
-  };
-  await idbPut('sellouts', record);
-  e.target.reset();
-  await loadAll();
-  closeAddSelloutModal();
-  showToast(`"${name}" added.`);
-});
-
-function openAddSelloutModal() {
-  document.getElementById('addSelloutOverlay').classList.add('open');
-  setTimeout(() => document.getElementById('soName').focus(), 30);
-}
-function closeAddSelloutModal() {
-  document.getElementById('addSelloutOverlay').classList.remove('open');
-  document.getElementById('selloutForm').reset();
-}
-document.getElementById('openAddSelloutBtn').addEventListener('click', openAddSelloutModal);
-document.getElementById('closeAddSelloutBtn').addEventListener('click', closeAddSelloutModal);
-document.getElementById('cancelAddSelloutBtn').addEventListener('click', closeAddSelloutModal);
-document.getElementById('addSelloutOverlay').addEventListener('click', (e) => {
-  if (e.target.id === 'addSelloutOverlay') closeAddSelloutModal();
-});
-document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && document.getElementById('addSelloutOverlay').classList.contains('open')) closeAddSelloutModal();
-});
-
-function itemColumns(items) {
-  if (!items || !items.length) return [];
-  const cols = new Set();
-  items.forEach(row => Object.keys(row).forEach(k => cols.add(k)));
-  return Array.from(cols);
-}
-
-function selloutStatusBadge(so) {
-  return so.active ? '<span class="badge active">Active</span>' : '<span class="badge inactive">Inactive</span>';
-}
-
-// 'activate' = from-date reached but still inactive, and the period hasn't fully ended yet
-// 'deactivate' = to-date reached but still active
-function actionFlag(so) {
-  const today = todayStr();
-  const daysToStart = daysBetween(today, so.from);
-  const daysToEnd = daysBetween(today, so.to);
-  if (!so.active && daysToStart <= 0 && daysToEnd >= 0) return 'activate';
-  if (so.active && daysToEnd <= 0) return 'deactivate';
-  return null;
-}
-function actionFlagHtml(so) {
-  const flag = actionFlag(so);
-  if (!flag) return '';
-  const isActivate = flag === 'activate';
-  return `
-    <span class="action-flag ${isActivate ? 'warn' : 'danger'}">
-      <span class="pulse"></span>
-      ${isActivate ? 'Needs activation' : 'Needs deactivation'}
-    </span>`;
-}
-
-function applyFilter(list) {
-  if (currentFilter === 'active') return list.filter(s => s.active);
-  if (currentFilter === 'inactive') return list.filter(s => !s.active);
-  if (currentFilter === 'needsaction') return list.filter(s => actionFlag(s));
-  return list;
-}
-
-document.querySelectorAll('.filter-row button').forEach(b => {
-  b.addEventListener('click', () => {
-    document.querySelectorAll('.filter-row button').forEach(x => x.classList.remove('active'));
-    b.classList.add('active');
-    currentFilter = b.dataset.filter;
-    renderSellouts();
-  });
-});
-
-function renderSellouts() {
-  const list = document.getElementById('selloutList');
-  const empty = document.getElementById('selloutEmpty');
-  list.innerHTML = '';
-  const shown = applyFilter(sellouts)
-    .slice()
-    .sort((a, b) => (actionFlag(b) ? 1 : 0) - (actionFlag(a) ? 1 : 0));
-  if (!shown.length) {
-    empty.style.display = 'block';
-    empty.querySelector('p.big').textContent = sellouts.length ? 'No sell-outs match this filter' : 'No sell-outs yet';
-    return;
-  }
-  empty.style.display = 'none';
-
-  shown.forEach(so => {
-    const cols = itemColumns(so.items);
-    const el = document.createElement('div');
-    const flag = actionFlag(so);
-    const isEditing = editingSelloutId === so.id;
-    el.className = 'sellout'
-      + (flag ? ' needs-action flag-' + (flag === 'activate' ? 'warn' : 'danger') : '')
-      + (openIds.has(so.id) ? ' open' : '');
-    el.dataset.id = so.id;
-
-    const logHtml = so.log.length
-      ? '<ul class="log-list">' + so.log.slice().reverse().map(l =>
-          `<li><span class="dot2 ${l.action === 'activated' ? 'on' : 'off'}"></span>
-           <div>${l.action === 'activated' ? 'Activated' : 'Deactivated'} <span class="ts">\u2014 ${fmtTs(l.at)}</span></div></li>`
-        ).join('') + '</ul>'
-      : '<p class="empty-note">No activity yet.</p>';
-
-    const itemsHtml = so.items.length
-      ? `<div class="items-scroll"><table class="items"><thead><tr>${cols.map(c => `<th>${escapeHtml(c)}</th>`).join('')}</tr></thead>
-         <tbody>${so.items.map(row => `<tr>${cols.map(c => `<td>${escapeHtml(row[c])}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`
-      : '<p class="empty-note">No item rows found in this file.</p>';
-
-    const bodyHtml = isEditing ? `
-        <div class="edit-form">
-          <div class="form-grid">
-            <div class="full">
-              <label for="edit-name-${so.id}">Name</label>
-              <input type="text" id="edit-name-${so.id}" data-field="name" value="${escapeHtml(so.name)}">
-            </div>
-            <div>
-              <label for="edit-from-${so.id}">From</label>
-              <input type="date" id="edit-from-${so.id}" data-field="from" value="${so.from}">
-            </div>
-            <div>
-              <label for="edit-to-${so.id}">To</label>
-              <input type="date" id="edit-to-${so.id}" data-field="to" value="${so.to}">
-            </div>
-          </div>
-          <div class="actions-row">
-            <button type="button" class="btn ghost small" data-role="cancel-edit">Cancel</button>
-            <button type="button" class="btn small" data-role="save-edit">Save changes</button>
-          </div>
-        </div>
-      ` : `
-        <h4>Items (${so.items.length})</h4>
-        ${itemsHtml}
-        <h4 style="margin-top:18px;">Activity log</h4>
-        ${logHtml}
-      `;
-
-    el.innerHTML = `
-      <div class="sellout-head" data-toggle>
-        ${actionFlagHtml(so)}
-        <span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></span>
-        <div class="who">
-          <div class="name">${escapeHtml(so.name)}</div>
-          <div class="dates"><span>${fmtDate(so.from)}</span><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></svg><span>${fmtDate(so.to)}</span></div>
-        </div>
-        <div class="badge-row">${selloutStatusBadge(so)}</div>
-        <button class="btn ghost small" data-role="copy-codes" title="Copy this sell-out's codes (column 1 of its item file)">Copy codes</button>
-        <div class="icon-actions">
-          <button class="icon-btn" data-role="edit" title="Edit sell-out" aria-label="Edit sell-out">
-            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
-          </button>
-          <button class="icon-btn" data-role="download" title="Download original file" aria-label="Download original file">
-            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 19h14"/></svg>
-          </button>
-          <button class="icon-btn danger" data-role="delete" title="Delete sell-out" aria-label="Delete sell-out">
-            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/><path d="M10 11v6M14 11v6"/></svg>
-          </button>
-        </div>
-        <label class="switch" title="Toggle active">
-          <input type="checkbox" data-role="active-toggle" ${so.active ? 'checked' : ''}>
-          <span class="track"></span>
-        </label>
-      </div>
-      <div class="sellout-body">${bodyHtml}</div>
-    `;
-    list.appendChild(el);
-
-    el.querySelector('[data-toggle]').addEventListener('click', (ev) => {
-      if (ev.target.closest('.switch') || ev.target.closest('.icon-actions') || ev.target.closest('[data-role="copy-codes"]')) return;
-      el.classList.toggle('open');
-      if (el.classList.contains('open')) openIds.add(so.id); else openIds.delete(so.id);
-    });
-    // Codes live in whatever the first column of the uploaded file turned out
-    // to be (files vary promotion to promotion), so this always reads
-    // whichever column ended up first — same join format (comma-separated)
-    // as the "Copy codes" buttons on the Promotions page.
-    el.querySelector('[data-role="copy-codes"]').addEventListener('click', async (ev) => {
-      ev.stopPropagation();
-      const cols = itemColumns(so.items);
-      if (!cols.length) { showToast('No items to copy codes from.', true); return; }
-      const codeCol = cols[0];
-      const codes = so.items.map(row => String(row[codeCol] ?? '').trim()).filter(Boolean);
-      if (!codes.length) { showToast('No codes found in column 1.', true); return; }
-      const ok = await copyTextToClipboard(codes.join(','));
-      if (ok) showToast(`Copied ${codes.length} code${codes.length === 1 ? '' : 's'} for ${so.name}.`);
-      else showToast('Could not copy — your browser blocked clipboard access.', true);
-    });
-    el.querySelector('[data-role="active-toggle"]').addEventListener('change', async (ev) => {
-      ev.stopPropagation();
-      so.active = ev.target.checked;
-      so.log.push({ action: so.active ? 'activated' : 'deactivated', at: new Date().toISOString() });
-      await idbPut('sellouts', so);
-      await loadAll();
-    });
-    el.querySelector('[data-role="download"]').addEventListener('click', (ev) => {
-      ev.stopPropagation();
-      const url = URL.createObjectURL(so.fileBlob);
-      const a = document.createElement('a');
-      a.href = url; a.download = so.fileName || 'sellout.xlsx';
-      document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 2000);
-    });
-    el.querySelector('[data-role="delete"]').addEventListener('click', async (ev) => {
-      ev.stopPropagation();
-      const ok = await showConfirm(`Delete "${so.name}"? This can't be undone.`, 'Delete');
-      if (!ok) return;
-      await idbDelete('sellouts', so.id);
-      openIds.delete(so.id);
-      await loadAll();
-      showToast(`"${so.name}" deleted.`);
-    });
-    el.querySelector('[data-role="edit"]').addEventListener('click', (ev) => {
-      ev.stopPropagation();
-      editingSelloutId = so.id;
-      openIds.add(so.id);
-      renderSellouts();
-    });
-
-    if (isEditing) {
-      el.querySelector('[data-role="cancel-edit"]').addEventListener('click', (ev) => {
-        ev.stopPropagation();
-        editingSelloutId = null;
-        renderSellouts();
-      });
-      el.querySelector('[data-role="save-edit"]').addEventListener('click', async (ev) => {
-        ev.stopPropagation();
-        const name = el.querySelector('[data-field="name"]').value.trim();
-        const from = el.querySelector('[data-field="from"]').value;
-        const to = el.querySelector('[data-field="to"]').value;
-        if (!name) { showToast('Name can\u2019t be empty.', true); return; }
-        if (!from || !to) { showToast('Please set both dates.', true); return; }
-        if (new Date(to) < new Date(from)) { showToast('The "To" date is before the "From" date.', true); return; }
-        so.name = name; so.from = from; so.to = to;
-        await idbPut('sellouts', so);
-        editingSelloutId = null;
-        await loadAll();
-        showToast('Sell-out updated.');
-      });
-    }
-  });
-}
+/* Sell-outs UI: js/modules/sellouts.js */
 
 /* ============================================================
    Credit notes - a fully independent tracker, no link to sell-outs
@@ -1320,19 +1052,21 @@ document.addEventListener('click', (e) => {
 
 async function runNotificationCheck() {
   const today = todayStr();
-  let changed = false;
+  const changedSellouts = new Set();
   for (const so of sellouts) {
+    if (so.archived) continue;            // archived sell-outs never notify
     so.notifiedFlags = so.notifiedFlags || {};
     const daysToStart = daysBetween(today, so.from);
     const daysToEnd = daysBetween(today, so.to);
     const fire = (key, msg) => {
       if (so.notifiedFlags[key] === today) return;
-      so.notifiedFlags[key] = today; changed = true; pushNotification(msg);
+      so.notifiedFlags[key] = today; changedSellouts.add(so); pushNotification(msg);
     };
     if (!so.active) {
       if (daysToStart === 1) fire('startSoon', `"${so.name}" starts tomorrow (${fmtDate(so.from)}) and is not activated yet.`);
       if (daysToStart === 0) fire('startDay', `"${so.name}" starts today and is still not activated.`);
-      if (daysToStart < 0) fire('startOverdue', `"${so.name}" was due to start on ${fmtDate(so.from)} and has still not been activated.`);
+      // Only while it is still running: an ended, never-activated one shows "Needs archiving" instead.
+      if (daysToStart < 0 && daysToEnd >= 0) fire('startOverdue', `"${so.name}" was due to start on ${fmtDate(so.from)} and has still not been activated.`);
     }
     if (so.active) {
       if (daysToEnd === 1) fire('endSoon', `"${so.name}" ends tomorrow (${fmtDate(so.to)}) \u2014 remember to deactivate it.`);
@@ -1340,7 +1074,8 @@ async function runNotificationCheck() {
       if (daysToEnd < 0) fire('endOverdue', `"${so.name}" ended on ${fmtDate(so.to)} and is still active \u2014 deactivate it.`);
     }
   }
-  if (changed) for (const so of sellouts) await idbPut('sellouts', so);
+  // Only the flags are saved (not the whole row with its file).
+  for (const so of changedSellouts) await updateSelloutFields(so.id, { notified_flags: so.notifiedFlags });
   renderNotifPanel();
 }
 setInterval(runNotificationCheck, 5 * 60 * 1000);

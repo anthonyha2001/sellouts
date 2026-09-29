@@ -611,3 +611,47 @@ body.booting .login-fields{display:none;}
 /* Dialog messages may contain line breaks (e.g. sign-in details). */
 #modalMsg{white-space:pre-line;}
 .filter-row button:disabled{opacity:.45;cursor:not-allowed;}
+
+/* ================= Sell-outs: note, mapping, pricing, archive ================= */
+.sellout-head .who .so-note{font-size:12.5px;color:var(--ink-soft);margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:60ch;}
+.sellout.is-archived{opacity:.78;}
+.sellout.is-archived .sellout-head .who .name{color:var(--ink-soft);}
+.icon-btn:disabled{opacity:.4;cursor:not-allowed;}
+.icon-btn:disabled:hover{border-color:var(--line-strong);color:var(--ink-soft);}
+.so-mapping{margin-top:18px;padding:14px 16px;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--paper);}
+.so-mapping h4{font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-faint);margin:0 0 12px;}
+.so-map-grid{grid-template-columns:repeat(3,1fr);}
+.so-body-head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px;}
+.so-price-controls{display:grid;grid-template-columns:200px 120px auto 1fr;gap:12px;align-items:end;margin-bottom:12px;}
+.so-price-controls label{margin-bottom:6px;}
+.so-price-controls input[type=text],.so-price-controls select{padding:8px 10px;}
+.so-price-buttons{display:flex;gap:8px;flex-wrap:wrap;}
+.so-price-buttons .btn:disabled{opacity:.45;cursor:not-allowed;}
+.so-price-controls > div:last-child{max-width:240px;justify-self:end;width:100%;}
+.so-price-summary{display:flex;gap:16px;flex-wrap:wrap;align-items:center;font-size:12.5px;color:var(--ink-soft);margin-bottom:10px;}
+.so-price-summary b{color:var(--ink);font-family:var(--font-mono);}
+table.items.so-price-table th.num,table.items.so-price-table td.num{text-align:right;font-family:var(--font-mono);}
+table.items.so-price-table td.so-desc{white-space:normal;min-width:220px;}
+table.items.so-price-table tr.so-warn-row > td{background:var(--brick-tint);}
+table.items input.so-new-price{
+  width:84px;text-align:right;font-family:var(--font-mono);font-size:13px;color:var(--ink);background:var(--paper-raised);
+  border:1px solid var(--line-strong);border-radius:6px;padding:5px 7px;
+}
+table.items input.so-new-price:focus{outline:none;border-color:var(--pine);box-shadow:0 0 0 3px var(--pine-tint);}
+@media (max-width:860px){
+  .so-map-grid{grid-template-columns:1fr;}
+  .so-price-controls{grid-template-columns:1fr 1fr;}
+  .so-price-buttons,.so-price-controls > div:last-child{grid-column:1/-1;justify-self:stretch;max-width:none;}
+}
+/* Phones: the sell-out header wraps (name + dates on top, badge + actions + switch below)
+   instead of squeezing everything onto one line. */
+@media (max-width:860px){
+  .sellout-head{flex-wrap:wrap;gap:10px 10px;padding:14px;}
+  .sellout-head .action-flag{flex:1 1 100%;justify-content:center;}
+  .sellout-head .who{flex:1 1 calc(100% - 40px);min-width:0;}
+  .sellout-head .who .so-note{white-space:normal;}
+  .sellout-head .badge-row{margin-left:30px;}
+  .sellout-head .icon-actions{flex-wrap:wrap;}
+  .sellout-head .switch{margin-left:auto;}
+  .sellout-body{padding:14px;}
+}

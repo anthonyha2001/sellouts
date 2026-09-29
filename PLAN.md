@@ -161,40 +161,40 @@ Roles live in a `profiles` table (Phase 1). Cashiers have **no accounts**; they 
 
 ### 6.2 Import and pricing
 
-- [ ] **No catalog.** The price comes from the imported Excel.
-- [ ] On import, detect columns: code (first column, as today), description, and price (header aliases: `price`, `sale price`, `saleprice`, `retail`, `old price`, `unit price`, …). Show a small mapping step so the user can correct detected columns before saving.
-- [ ] Pricing panel on each sell-out with three modes:
+- [x] **No catalog.** The price comes from the imported Excel.
+- [x] On import, detect columns: code (first column, as today), description, and price (header aliases: `price`, `sale price`, `saleprice`, `retail`, `old price`, `unit price`, …). Show a small mapping step so the user can correct detected columns before saving.
+- [x] Pricing panel on each sell-out with three modes:
   - **Percentage off:** `newPrice = MROUND(oldPrice × (1 − pct/100), 0.05)`
   - **Fixed amount off:** `newPrice = MROUND(oldPrice − amount, 0.05)`
   - **Fixed final price:** `newPrice = value` (rounded to 2 decimals)
-- [ ] Apply to **all items** or **selected items**; any single row can be overridden by hand (mode `manual`).
-- [ ] Table columns: Code, Description, Old price, New price, Discount % (computed), Mode.
-- [ ] Warnings: new price ≥ old price, new price ≤ 0, discount > 25% (same blinking dot style as Promotions), missing old price.
-- [ ] **Export to Excel:** sell-out name and dates, note, then Code, Description, Old price, New price, Discount %.
-- [ ] Reuse the existing `mround` / `round2` helpers from Promotions (move them to a shared helpers file).
+- [x] Apply to **all items** or **selected items**; any single row can be overridden by hand (mode `manual`).
+- [x] Table columns: Code, Description, Old price, New price, Discount % (computed), Mode.
+- [x] Warnings: new price ≥ old price, new price ≤ 0, discount > 25% (same blinking dot style as Promotions), missing old price.
+- [x] **Export to Excel:** sell-out name and dates, note, then Code, Description, Old price, New price, Discount %.
+- [x] Reuse the existing `mround` / `round2` helpers from Promotions (move them to a shared helpers file).
 
 ### 6.3 Note field
 
-- [ ] Note in the Add and Edit sell-out forms; shown under the name in the list.
+- [x] Note in the Add and Edit sell-out forms; shown under the name in the list.
 
 ### 6.4 Filters and archiving
 
-- [ ] Filters: **All · Needs action · Active · Upcoming · Archived**. Remove "Inactive".
+- [x] Filters: **All · Needs action · Active · Upcoming · Archived**. Remove "Inactive".
   - Upcoming = not active, not archived, start date in the future.
   - All = everything **not archived**.
-- [ ] **Archiving is manual only** (it is the accountant's confirmation that the sell-out was removed from the store's system):
+- [x] **Archiving is manual only** (it is the accountant's confirmation that the sell-out was removed from the store's system):
   - The Archive button is disabled while the sell-out is active (tooltip: "Deactivate it first").
   - The confirmation text: "Confirm this sell-out has been removed from the system?"
   - Sets `archived`, `archived_at`, `archived_by`; logs to `activity_log`.
   - Unarchive is available from the Archived filter (admin and accountant), and is logged.
-- [ ] New **"Needs archiving"** flag (gold): end date passed, deactivated, not archived. Include it in the Needs action filter and the sidebar pill count.
-- [ ] Archived sell-outs never trigger notifications.
+- [x] New **"Needs archiving"** flag (gold): end date passed, deactivated, not archived. Include it in the Needs action filter and the sidebar pill count.
+- [x] Archived sell-outs never trigger notifications.
 
 ### 6.5 Templates (duplicate)
 
-- [ ] **Duplicate** button on archived sell-outs (and on active ones for convenience).
-- [ ] Copies items, `priced_items`, `pricing`, `price_column`, note, and file; name gets " (copy)"; asks for the new From/To dates; resets `active`, `log`, `notified_flags`, `archived`.
-- [ ] Logged.
+- [x] **Duplicate** button on archived sell-outs (and on active ones for convenience).
+- [x] Copies items, `priced_items`, `pricing`, `price_column`, note, and file; name gets " (copy)"; asks for the new From/To dates; resets `active`, `log`, `notified_flags`, `archived`.
+- [x] Logged.
 
 ### 6.6 Activity log entries
 
