@@ -113,11 +113,13 @@ function sbErrText(error) {
 // one promotion's catalog without colliding on the primary key \u2014 the real
 // code lives in its own `code` column.
 async function loadCatalogFor(promoId) {
-  if (!promoId) { catalogItems = []; catalogMap = new Map(); return; }
+  if (!promoId) { catalogItems = []; catalogMap = new Map(); catalogBarcodeMap = new Map(); return; }
   const { data, error } = await sb.from('catalog_items').select('*').eq('promotion_id', promoId).order('code', { ascending: true });
   if (error) { console.error(error); showToast('Could not load this promotion\u2019s catalog \u2014 ' + sbErrText(error), true); return; }
-  catalogItems = (data || []).map(r => ({ code: r.code, description: r.description || '', balance: r.balance, salePrice: r.sale_price === undefined ? null : r.sale_price, supplier: r.supplier || '', country: r.country || '', outYtd: r.out_ytd === undefined ? null : r.out_ytd }));
+  catalogItems = (data || []).map(r => ({ code: r.code, description: r.description || '', balance: r.balance, salePrice: r.sale_price === undefined ? null : r.sale_price, supplier: r.supplier || '', country: r.country || '', outYtd: r.out_ytd === undefined ? null : r.out_ytd, barcodes: Array.isArray(r.barcodes) ? r.barcodes : [] }));
   catalogMap = new Map(catalogItems.map(i => [normalizeCatalogCode(i.code), i]));
+  catalogBarcodeMap = new Map();
+  catalogItems.forEach(i => i.barcodes.forEach(b => catalogBarcodeMap.set(b, i)));
 }
 
 async function replaceCatalog(rows, fileName, promoId) {
@@ -125,7 +127,8 @@ async function replaceCatalog(rows, fileName, promoId) {
   const { error: delErr } = await sb.from('catalog_items').delete().eq('promotion_id', promoId);
   if (delErr) { console.error(delErr); showToast('Could not clear the old catalog \u2014 ' + sbErrText(delErr), true); return false; }
   const now = new Date().toISOString();
-  const payload = rows.map(r => ({ id: `${promoId}::${r.code}`, code: r.code, promotion_id: promoId, description: r.description, balance: r.balance, sale_price: r.salePrice, supplier: r.supplier || null, country: r.country || null, out_ytd: r.outYtd === undefined ? null : r.outYtd, updated_at: now }));
+  const payload = rows.map(r => ({ id: `${promoId}::${r.code}`, code: r.code, promotion_id: promoId, description: r.description, balance: r.balance, sale_price: r.salePrice, supplier: r.supplier || null, country: r.country || null, out_ytd: r.outYtd === undefined ? null : r.outYtd, updated_at: now,
+    ...(r.barcodes && r.barcodes.length ? { barcodes: r.barcodes } : {}) }));
   const chunkSize = 500;
   for (let i = 0; i < payload.length; i += chunkSize) {
     const chunk = payload.slice(i, i + chunkSize);
@@ -198,6 +201,7 @@ async function loadPromoRows(promoId) {
     cost: r.cost === undefined ? null : r.cost,
     country: r.country || '',
     outYtd: r.out_ytd === undefined ? null : r.out_ytd,
+    barcode: r.barcode || '',
     note: r.note || '',
     sortOrder: r.sort_order || 0, _savedSortOrder: r.sort_order ?? null, _lastLookupCode: r.code || ''
   }));
@@ -235,7 +239,9 @@ function promoRowPayload(row) {
     country: row.country || null,
     out_ytd: numOrNull(row.outYtd),
     note: row.note || null,
-    sort_order: row.sortOrder
+    sort_order: row.sortOrder,
+    // Only sent when there is one, so saving keeps working before migration 008 adds the column.
+    ...(row.barcode ? { barcode: String(row.barcode) } : {})
   };
 }
 function isFkViolation(error) {
@@ -546,6 +552,7 @@ let editingCnId = null;
 // Promotions
 let catalogItems = [];
 let catalogMap = new Map();
+let catalogBarcodeMap = new Map(); // barcode (digits) -> catalog item, for the offer import and price sheets
 // Catalog codes are matched case-insensitively and whitespace-trimmed: the
 // catalog file and the price sheet / pasted codes are often two different
 // exports of the same data, and a code that's "ABC123" in one and "abc123"
@@ -1171,6 +1178,7 @@ document.getElementById('catalogFileInput').addEventListener('change', async (e)
   const supplierIdx = findExactIdx('supplierdesc', 'supplier', 'suppliername', 'supplierdescription', 'vendordesc', 'vendor', 'vendorname');
   const countryIdx = findExactIdx('countrydesc', 'country', 'countryname', 'countryoforigin', 'origincountry');
   const outIdx = findExactIdx('out', 'outytd', 'ytdout', 'salesytd', 'ytdsales', 'qtyout', 'unitsout', 'totalout', 'soldytd');
+  const barcodeIdx = findExactIdx(...BARCODE_HEADERS);
   const balanceKey = balanceIdx > -1, saleKey = saleIdx > -1, supplierKey = supplierIdx > -1, countryKey = countryIdx > -1, outKey = outIdx > -1;
 
   // Item codes are the join key against price-sheet/pasted codes, so they
@@ -1197,7 +1205,9 @@ document.getElementById('catalogFileInput').addEventListener('change', async (e)
       salePrice: (saleKey && line[saleIdx] !== '' && !isNaN(Number(line[saleIdx]))) ? Number(line[saleIdx]) : null,
       supplier: supplierKey ? String(line[supplierIdx] ?? '').trim() : '',
       country: countryKey ? String(line[countryIdx] ?? '').trim() : '',
-      outYtd: (outKey && line[outIdx] !== '' && !isNaN(Number(line[outIdx]))) ? Number(line[outIdx]) : null
+      outYtd: (outKey && line[outIdx] !== '' && !isNaN(Number(line[outIdx]))) ? Number(line[outIdx]) : null,
+      // Several barcodes per item: in one cell ("/ , ;" or spaces) or on repeated rows of the same code.
+      barcodes: barcodeIdx > -1 ? splitBarcodes(barcodeCellText(ws, i, barcodeIdx)) : []
     });
   }
   const totalDataRows = aoa.length - 1;
@@ -1208,7 +1218,12 @@ document.getElementById('catalogFileInput').addEventListener('change', async (e)
   // constraint within the same upload, so keep only the last occurrence of
   // each code (a re-exported catalog usually supersedes earlier duplicates).
   const byCode = new Map();
-  withCode.forEach(r => byCode.set(r.code, r));
+  withCode.forEach(r => {
+    const prev = byCode.get(r.code);
+    // Keep the last row's details, but collect every barcode seen for that code.
+    if (prev) r.barcodes = [...new Set([...prev.barcodes, ...r.barcodes])];
+    byCode.set(r.code, r);
+  });
   const parsed = Array.from(byCode.values());
   const dupCount = withCode.length - parsed.length;
 
@@ -1235,9 +1250,12 @@ document.getElementById('catalogFileInput').addEventListener('change', async (e)
   if (!countryKey) warnings.push('no "Country" column was found, so the country filter won’t have anything to show');
   if (!outKey) warnings.push('no "Out"/sales column was found, so the stock-weeks flag won’t work');
   if (skipped > 0) warnings.push(`${skipped} row${skipped === 1 ? '' : 's'} had no code and ${skipped === 1 ? 'was' : 'were'} skipped`);
-  if (dupCount > 0) warnings.push(`${dupCount} duplicate code${dupCount === 1 ? '' : 's'} \u2014 kept the last row for each`);
+  if (dupCount > 0 && barcodeIdx === -1) warnings.push(`${dupCount} duplicate code${dupCount === 1 ? '' : 's'} \u2014 kept the last row for each`);
 
-  const matchedNote = relookedUp.length ? ` \u2014 matched ${relookedUp.length} existing row${relookedUp.length === 1 ? '' : 's'} already on the table` : '';
+  // With a barcode column, repeated codes are normal (one row per barcode): they are merged, not a warning.
+  const barcodeCount = parsed.reduce((n, r) => n + r.barcodes.length, 0);
+  const barcodeNote = barcodeIdx > -1 ? ` \u2014 ${barcodeCount} barcode${barcodeCount === 1 ? '' : 's'}${dupCount ? ` (${dupCount} repeated row${dupCount === 1 ? '' : 's'} merged)` : ''}` : '';
+  const matchedNote = barcodeNote + (relookedUp.length ? ` \u2014 matched ${relookedUp.length} existing row${relookedUp.length === 1 ? '' : 's'} already on the table` : '');
   if (warnings.length) showToast(`Catalog updated (${parsed.length} items)${matchedNote} \u2014 but ${warnings.join('; ')}.`, true);
   else showToast(`Catalog updated \u2014 ${parsed.length} items loaded${matchedNote}.`);
 });
@@ -1572,6 +1590,7 @@ async function renderPromoWorkspace() {
       </div>
       <div class="promo-header-actions">
         <button class="btn secondary small" id="importPriceSheetBtn" title="Upload the raw supplier price sheet — splits multi-codes into rows and fills in Promo/Before Price automatically">Import price sheet</button>
+        ${isAdmin() ? '<button class="btn secondary small" id="offerImportBtn" title="Read supplier offers from PDFs, photos or WhatsApp screenshots, review the lines, then add them">Import from file or photo</button>' : ''}
         <input type="file" id="priceSheetInput" accept=".xlsx,.xls,.csv" style="display:none;">
         <button class="btn secondary small" id="copyCodesBtn">Copy codes</button>
         <button class="btn secondary small" id="exportPromoBtn">Export to Excel</button>
@@ -2460,6 +2479,7 @@ function wirePromoWorkspaceEvents(promo) {
 
   document.getElementById('exportPromoBtn').addEventListener('click', () => exportPromotionToExcel(promo));
 
+  document.getElementById('offerImportBtn')?.addEventListener('click', () => { if (window.OfferImport) OfferImport.open(promo); });
   document.getElementById('importPriceSheetBtn').addEventListener('click', () => {
     document.getElementById('priceSheetInput').click();
   });
@@ -2838,6 +2858,9 @@ function parsePriceSheetRows(buf) {
   const promoCol = findCol('promoprice', 'promo');
   const beforeCol = findCol('oldprice', 'beforeprice', 'before');
   const costCol = findCol('cost');
+  // Optional (the offer import's export has both): barcodes, and a Discount % used only when a line has no promo price.
+  const barcodeCol = findCol(...BARCODE_HEADERS, 'barcode');
+  const discountCol = findCol('discount', 'discount%', 'disc%', 'disc');
   if (codeCol === -1 || descCol === -1) return { error: 'Could not find an "Itemcode" and "Description" header row in that file.' };
 
   const toNum = (v) => {
@@ -2895,6 +2918,7 @@ function parsePriceSheetRows(buf) {
     let promoPrice = promoCol > -1 ? toNum(line[promoCol]) : null;
     let beforePrice = beforeCol > -1 ? toNum(line[beforeCol]) : null;
     const cost = costCol > -1 ? toText(line[costCol]) : null;
+    const barcodes = barcodeCol > -1 ? splitBarcodes(barcodeCellText(ws, i, barcodeCol)) : [];
     let discountFromPercent = null;
     if (promoPrice !== null && isPercentCell(i, promoCol)) {
       discountFromPercent = round2(promoPrice * 100);
@@ -2905,11 +2929,17 @@ function parsePriceSheetRows(buf) {
       beforePrice = null;
       percentAsDiscountCount++;
     }
-    const isBlankLine = !rawCode && !desc && promoPrice === null && beforePrice === null && cost === null && discountFromPercent === null;
+    if (promoPrice === null && discountFromPercent === null && discountCol > -1) {
+      const d = toNum(line[discountCol]);
+      if (d !== null) discountFromPercent = isPercentCell(i, discountCol) ? round2(d * 100) : round2(d);
+    }
+    const isBlankLine = !rawCode && !desc && promoPrice === null && beforePrice === null && cost === null && discountFromPercent === null && !barcodes.length;
     if (isBlankLine) continue;
     sourceLineCount++;
 
-    const codes = rawCode ? rawCode.split('/').map(s => s.trim()).filter(Boolean) : [];
+    let codes = rawCode ? rawCode.split('/').map(s => s.trim()).filter(Boolean) : [];
+    // No item code but a barcode the catalog knows: use the catalog's code.
+    if (!codes.length && barcodes.length) { const hit = barcodes.map(b => catalogBarcodeMap.get(b)).find(Boolean); if (hit) codes = [hit.code]; }
     if (codes.length > 1) splitCount++;
     if (!codes.length) blankCodeCount++;
     const expansions = codes.length ? codes : [''];
@@ -2922,6 +2952,7 @@ function parsePriceSheetRows(buf) {
       row.promoPrice = promoPrice;
       row.beforePrice = beforePrice;
       row.cost = cost;
+      row.barcode = barcodes[0] || '';
       if (discountFromPercent !== null) { row.discount = discountFromPercent; autoSelloutOnDiscount(row); }
       if (code) {
         const item = catalogMap.get(normalizeCatalogCode(code));

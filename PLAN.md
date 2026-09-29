@@ -300,10 +300,10 @@ Goal: suppliers send offers as PDFs, photos, or WhatsApp screenshots, usually id
 
 ### 10.1 Catalog barcodes
 
-- [ ] Catalog upload detects a barcode column (aliases: `barcode`, `bar code`, `ean`, `upc`, `gtin`).
-- [ ] Support several barcodes per item, both as one row per barcode and as several barcodes in one cell separated by `/ , ;` or spaces (the actual format is an open question, §11).
-- [ ] Store the mapping (e.g. `catalog_barcodes`: `promotion_id`, `barcode`, `code`), or a `barcodes text[]` column on `catalog_items`.
-- [ ] Keep reading barcodes as text (leading zeros matter), like codes today.
+- [x] Catalog upload detects a barcode column (aliases: `barcode`, `bar code`, `ean`, `upc`, `gtin`).
+- [x] Support several barcodes per item, both as one row per barcode and as several barcodes in one cell separated by `/ , ;` or spaces (the actual format is an open question, §11).
+- [x] Store the mapping (e.g. `catalog_barcodes`: `promotion_id`, `barcode`, `code`), or a `barcodes text[]` column on `catalog_items`.
+- [x] Keep reading barcodes as text (leading zeros matter), like codes today.
 
 ### 10.2 Edge function `extract-offer`
 
@@ -316,13 +316,13 @@ Goal: suppliers send offers as PDFs, photos, or WhatsApp screenshots, usually id
 
 ### 10.3 Review screen
 
-- [ ] Entry point: in a promotion, an **"Import from file or photo"** button (admin only).
-- [ ] Left: preview of the uploaded file or page; right: an editable table of extracted lines.
-- [ ] Validate barcodes with the check digit (EAN-13, EAN-8, UPC-A); invalid ones are highlighted as a likely misread.
-- [ ] Matching order: barcode → item code; else exact code; else the top 3 suggestions by description similarity for the admin to pick.
-- [ ] Highlight low-confidence lines, invalid barcodes, and unmatched lines; each line can be accepted or skipped.
-- [ ] **Export to Excel** at any time from the review screen, with columns `Itemcode`, `Barcode`, `Description`, `Old Price`, `Promo Price`, `Discount`, `Cost`, `Check`. It must re-import cleanly through the existing "Import price sheet" (which looks for the `Itemcode` and `Description` headers).
-- [ ] **Add to promotion:** ask whether to append or replace the table, then reuse the existing price-sheet import logic (catalog lookup, discount rules, flags). Save the source files to the promotion (Supabase Storage).
+- [x] Entry point: in a promotion, an **"Import from file or photo"** button (admin only).
+- [x] Left: preview of the uploaded file or page; right: an editable table of extracted lines.
+- [x] Validate barcodes with the check digit (EAN-13, EAN-8, UPC-A); invalid ones are highlighted as a likely misread.
+- [x] Matching order: barcode → item code; else exact code; else the top 3 suggestions by description similarity for the admin to pick.
+- [x] Highlight low-confidence lines, invalid barcodes, and unmatched lines; each line can be accepted or skipped.
+- [x] **Export to Excel** at any time from the review screen, with columns `Itemcode`, `Barcode`, `Description`, `Old Price`, `Promo Price`, `Discount`, `Cost`, `Check`. It must re-import cleanly through the existing "Import price sheet" (which looks for the `Itemcode` and `Description` headers).
+- [x] **Add to promotion:** ask whether to append or replace the table, then reuse the existing price-sheet import logic (catalog lookup, discount rules, flags). Save the source files to the promotion (Supabase Storage).
 
 ---
 
