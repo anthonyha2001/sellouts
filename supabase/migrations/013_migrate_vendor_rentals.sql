@@ -1,4 +1,6 @@
 -- 013 — Copy the old rentals (vendor_rentals) into rental_contracts (store-map/WIRING.md step 5).
+-- SUPERSEDED by 016 (owner, 2026-09-29: empty the list and re-assign everything on the map).
+-- It was applied once; do not run it again.
 -- Owner, 2026-09-29: every old rental becomes ONE yearly contract, amount 0 (the owner fills in the
 -- real amount), same supplier, description and dates, NOT placed on the map (spot_id null) — the
 -- owner places each one with "Place". The monthly figures are the supplier's sales: they move to

@@ -2,11 +2,13 @@
    Rentals (store-map/WIRING.md, replaces the list-only PLAN §7):
    the store map is the place where rentals live. Every contract sits
    on a spot of the map (gondola, end cap, basket side, pillar, screen…);
-   the List view shows the same contracts as a list, read from the map.
+   the List view is a recap per supplier of what is assigned on the map
+   (owner, 2026-09-29): "Halwani — 1 End cap · 1 Freezer — $21,000 / year".
    - Map view: store-map/store-map.js, data through the Supabase adapter.
-   - List view: filters by billing term and spot type, sales history with
-     the renew / review signal (old rentals' monthly figures are the
-     supplier's sales, owner 2026-09-29), "Show on map" / "Place on map".
+   - List view: one card per supplier (their spots, total, billing, ending
+     soon), the contracts with "Show on map" / "Place on map", and the
+     supplier's monthly sales (performance, rental_supplier_sales) with the
+     renew / review signal.
    - Renewal reminders on the bell, once a day per contract.
    Admin only (RLS in supabase/migrations/012_store_map.sql).
    ============================================================ */
@@ -14,7 +16,8 @@ const Rentals = (function () {
   const RENEWAL_WARNING_DAYS = 30;
   const NOTIFY_LOG_KEY = 'lv:rentalNotifyLog';
   const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  const S = { adapter: null, map: null, view: 'map', term: 'all', type: 'all', q: '', expanded: new Set(), contracts: [], vendorNames: [] };
+  const S = { adapter: null, map: null, view: 'map', showAll: false, q: '', expanded: new Set(), contracts: [], vendorNames: [],
+    sales: new Map(), salesMissing: false };   // sales: supplier key -> { supplier, monthly_sales }
   const el = id => document.getElementById(id);
   const esc = escapeHtml;
   const money = n => '$' + Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
@@ -38,8 +41,15 @@ const Rentals = (function () {
 
   async function show() {
     renderTabs();
-    if (!S.map) await mountMap();
+    if (!S.map) await Promise.all([mountMap(), loadSales()]);
     renderList();
+  }
+  const keyOf = name => String(name || '').trim().toLowerCase();
+  async function loadSales() {
+    const { data, error } = await sb.from('rental_supplier_sales').select('supplier_key, supplier, monthly_sales');
+    S.salesMissing = !!error;
+    if (error) { console.warn('Rentals: supplier sales not available (migration 016?)', error.message); return; }
+    S.sales = new Map((data || []).map(r => [r.supplier_key, r]));
   }
 
   // Supplier names offered in the contract form: the Vendors list (owner, 2026-09-29).
@@ -113,8 +123,7 @@ const Rentals = (function () {
     renderTabs();
     if (S.view === 'list') renderList();
   });
-  el('rentalTermTabs').addEventListener('click', e => { const b = e.target.closest('[data-term]'); if (b) { S.term = b.dataset.term; renderList(); } });
-  el('rentalTypeTabs').addEventListener('click', e => { const b = e.target.closest('[data-type]'); if (b) { S.type = b.dataset.type; renderList(); } });
+  el('rentalShowTabs').addEventListener('click', e => { const b = e.target.closest('[data-show]'); if (b) { S.showAll = b.dataset.show === 'all'; renderList(); } });
   el('rentalSearch').addEventListener('input', e => { S.q = e.target.value.trim().toLowerCase(); renderList(); });
 
   /* ---------------- contract facts ---------------- */
@@ -142,8 +151,8 @@ const Rentals = (function () {
     ending: { label: 'Ending soon', cls: 'warn' }, unbilled: { label: 'Not billed', cls: 'danger' }, rented: { label: 'Active', cls: 'active' },
     upcoming: { label: 'Starts later', cls: 'inactive' }, expired: { label: 'Ended, not renewed', cls: 'danger' }, renewed: { label: 'Ended · renewed', cls: 'inactive' },
   };
-  const salesTotal = (c, year) => { let s = 0; for (let i = 0; i < 12; i++) s += Number((c.sales || {})[`${year}-${String(i + 1).padStart(2, '0')}`] || 0); return s; };
-  const hasSales = c => c.sales && Object.values(c.sales).some(v => Number(v));
+  const salesTotal = (sales, year) => { let s = 0; for (let i = 0; i < 12; i++) s += Number((sales || {})[`${year}-${String(i + 1).padStart(2, '0')}`] || 0); return s; };
+  const hasSales = sales => sales && Object.values(sales).some(v => Number(v));
   function salesSignal(prev, cur) {
     if (!prev) return cur > 0 ? { label: 'New', cls: 'warn' } : null;
     const pct = Math.round(((cur - prev) / prev) * 100);
@@ -152,105 +161,131 @@ const Rentals = (function () {
     return { label: `Sales ${pct}%`, cls: 'warn' };
   }
 
-  /* ---------------- list ---------------- */
-  function typeKeyOf(c) { const s = spotOf(c); return s ? s.o.type : 'unplaced'; }
+  /* ---------------- list: a recap per supplier ---------------- */
+  // One entry per supplier: their contracts (current ones, or all with "All, with ended contracts").
+  function recap() {
+    const t = today();
+    const groups = new Map();
+    S.contracts.forEach(c => {
+      if (!S.showAll && c.end < t) return;
+      const k = keyOf(c.supplier);
+      if (!groups.has(k)) groups.set(k, { key: k, name: c.supplier.trim(), contracts: [] });
+      groups.get(k).contracts.push(c);
+    });
+    return [...groups.values()].map(g => {
+      g.contracts.sort((a, b) => (b.start || '').localeCompare(a.start || ''));
+      const live = g.contracts.filter(c => c.end >= t);
+      // "1 End cap · 2 Side gondolas · 1 not placed"
+      const byType = new Map();
+      live.forEach(c => { const sp = spotOf(c); const n = sp ? sp.type.name : 'not placed on the map'; byType.set(n, (byType.get(n) || 0) + 1); });
+      g.items = [...byType.entries()].sort((a, b) => (a[0].startsWith('not placed')) - (b[0].startsWith('not placed')) || a[0].localeCompare(b[0]));
+      g.yearly = live.filter(c => c.term === 'yearly').reduce((s, c) => s + (Number(c.amount) || 0), 0);
+      g.monthly = live.filter(c => c.term === 'monthly').reduce((s, c) => s + (Number(c.amount) || 0), 0);
+      g.ending = live.filter(c => statusOf(c) === 'ending').length;
+      g.unbilled = live.filter(c => c.start <= t && !c.billed).length;
+      g.unplaced = live.filter(c => !spotOf(c)).length;
+      g.sales = S.sales.get(g.key)?.monthly_sales || null;
+      return g;
+    });
+  }
+
   function renderList() {
     if (el('rentalListView').hidden && S.view !== 'list') return;
-    const all = S.contracts.slice();
-    const cur = Number(today().slice(0, 4));
-    // Type chips: the spot types that have contracts, plus "Not placed".
-    const counts = {};
-    all.forEach(c => { const k = typeKeyOf(c); counts[k] = (counts[k] || 0) + 1; });
-    const typeName = k => k === 'unplaced' ? 'Not placed on the map' : (S.map?.types[k]?.name || k);
-    if (S.type !== 'all' && !counts[S.type]) S.type = 'all';
-    el('rentalTypeTabs').innerHTML = `<button data-type="all" class="${S.type === 'all' ? 'active' : ''}">All types <span class="muted-note">${all.length}</span></button>` +
-      Object.keys(counts).sort((a, b) => (a === 'unplaced') - (b === 'unplaced') || typeName(a).localeCompare(typeName(b)))
-        .map(k => `<button data-type="${esc(k)}" class="${S.type === k ? 'active' : ''}">${esc(typeName(k))} <span class="muted-note">${counts[k]}</span></button>`).join('');
-    document.querySelectorAll('#rentalTermTabs [data-term]').forEach(b => b.classList.toggle('active', b.dataset.term === S.term));
+    document.querySelectorAll('#rentalShowTabs [data-show]').forEach(b => b.classList.toggle('active', (b.dataset.show === 'all') === S.showAll));
+    const cur = Number(today().slice(0, 4)), t = today();
+    const all = recap();
+    const list = all.filter(g => !S.q || g.name.toLowerCase().includes(S.q) || g.contracts.some(c => (spotOf(c)?.o.label || '').toLowerCase().includes(S.q)))
+      .sort((a, b) => (b.ending > 0) - (a.ending > 0) || a.name.localeCompare(b.name));
 
-    const list = all.filter(c => (S.term === 'all' || c.term === S.term) && (S.type === 'all' || typeKeyOf(c) === S.type)
-      && (!S.q || [c.supplier, c.legacyLabel, c.note, spotOf(c)?.o.label].join(' ').toLowerCase().includes(S.q)));
-    const rank = { ending: 0, unbilled: 1, expired: 2, rented: 3, upcoming: 4, renewed: 5 };
-    list.sort((a, b) => rank[statusOf(a)] - rank[statusOf(b)] || a.supplier.localeCompare(b.supplier) || (b.start || '').localeCompare(a.start || ''));
-
-    // Totals for what is shown.
-    const t = today();
-    const active = list.filter(c => c.start <= t && c.end >= t);
-    const income = y => list.reduce((s, c) => s + (S.map ? S.map.revenueInYear(c, y) : 0), 0);
-    const unplaced = list.filter(c => !spotOf(c) && c.end >= t).length;
+    const live = S.contracts.filter(c => c.end >= t && c.start <= t);
+    const income = y => S.contracts.reduce((s, c) => s + (S.map ? S.map.revenueInYear(c, y) : 0), 0);
+    const ending = S.contracts.filter(c => statusOf(c) === 'ending').length;
     el('rentalTotals').innerHTML = `<div class="rental-summary">
-      <span class="rs-item">Active contracts: <strong>${active.length}</strong></span>
+      <span class="rs-item">Suppliers: <strong>${all.filter(g => g.contracts.some(c => c.end >= t)).length}</strong></span>
+      <span class="rs-item">Spots rented now: <strong>${live.filter(c => spotOf(c)).length}</strong></span>
       <span class="rs-item">Rental income ${cur}: <strong>${money(income(cur))}</strong></span>
       <span class="rs-item">${cur - 1}: <strong>${money(income(cur - 1))}</strong></span>
-      <span class="rs-item">Not billed: <strong style="color:${active.some(c => !c.billed) ? 'var(--brick)' : 'inherit'}">${active.filter(c => !c.billed).length}</strong></span>
-      ${list.some(c => statusOf(c) === 'ending') ? `<span class="badge warn">${list.filter(c => statusOf(c) === 'ending').length} ending within ${RENEWAL_WARNING_DAYS} days</span>` : ''}
-      ${unplaced ? `<span class="badge inactive">${unplaced} not placed on the map</span>` : ''}
+      <span class="rs-item">Not billed: <strong style="color:${live.some(c => !c.billed) ? 'var(--brick)' : 'inherit'}">${live.filter(c => !c.billed).length}</strong></span>
+      ${ending ? `<span class="badge warn">${ending} ending within ${RENEWAL_WARNING_DAYS} days</span>` : ''}
     </div>`;
 
     el('rentalList').innerHTML = list.map(cardHtml).join('');
     el('rentalEmpty').style.display = list.length ? 'none' : 'block';
-    el('rentalEmptyTitle').textContent = all.length ? 'No contracts match' : 'No rental contracts yet';
+    el('rentalEmptyTitle').textContent = all.length ? 'No supplier matches' : 'Nothing assigned yet';
   }
 
-  function cardHtml(c) {
-    const open = S.expanded.has(c.id);
-    const spot = spotOf(c), st = statusOf(c), cur = Number(today().slice(0, 4));
-    const where = spot
-      ? `${esc(spot.type.name)}${spot.o.label ? ' · ' + esc(spot.o.label) : ''}${spot.near ? ' · by ' + esc(spot.near) : ''} · ${esc(spot.floor?.name || '')}`
-      : `<span style="color:var(--brick)">Not placed on the map</span>${c.legacyLabel ? ' · ' + esc(c.legacyLabel) : ''}`;
-    const sig = hasSales(c) ? salesSignal(salesTotal(c, cur - 1), salesTotal(c, cur)) : null;
-    const left = daysBetween(today(), c.end);
-    const salesYears = [cur - 1, cur];
+  // "1 End cap", "2 Side gondolas", "3 not placed on the map"
+  const plural = (n, word) => n === 1 || /^not placed/.test(word) || /s$/i.test(word) ? `${n} ${word}` : `${n} ${word}s`;
+  function totalHtml(g) {
+    const parts = [];
+    if (g.yearly || !g.monthly) parts.push(`<strong>${money(g.yearly)}</strong> / year`);
+    if (g.monthly) parts.push(`<strong>${money(g.monthly)}</strong> / month`);
+    return parts.join(' + ');
+  }
+  function cardHtml(g) {
+    const open = S.expanded.has(g.key), cur = Number(today().slice(0, 4));
+    const sig = hasSales(g.sales) ? salesSignal(salesTotal(g.sales, cur - 1), salesTotal(g.sales, cur)) : null;
+    const editable = can('rentals.contracts') && !S.salesMissing;
     return `
-    <div class="sellout ${open ? 'open' : ''} ${st === 'ending' ? 'needs-action flag-warn' : ''}" data-contract="${esc(c.id)}">
+    <div class="sellout ${open ? 'open' : ''} ${g.ending ? 'needs-action flag-warn' : ''}" data-supplier="${esc(g.key)}">
       <div class="sellout-head" data-role="toggle">
         <span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></span>
         <div class="who">
-          <div class="name">${esc(c.supplier)}</div>
-          <div class="dates">${where}</div>
+          <div class="name">${esc(g.name)}</div>
+          <div class="dates">${g.items.length ? g.items.map(([n, k]) => esc(plural(k, n))).join(' · ') : '<span class="muted-note">no current contract</span>'}</div>
         </div>
         <div class="rental-summary">
-          <span class="badge ${STATUS[st].cls}">${STATUS[st].label}</span>
-          <span class="rs-item">${fmtDate(c.start)} → ${fmtDate(c.end)}</span>
-          <span class="rs-item"><strong>${money(c.amount)}</strong>${c.term === 'monthly' ? '/mo' : '/yr'}</span>
-          ${sig ? `<span class="badge ${sig.cls}" title="Supplier sales ${cur - 1}: ${money2s(salesTotal(c, cur - 1))} · ${cur}: ${money2s(salesTotal(c, cur))}">${sig.label}</span>` : ''}
-        </div>
-        <div class="icon-actions">
-          ${spot ? `<button class="btn ghost small" data-role="show">Show on map</button>`
-            : can('rentals.contracts') && c.end >= today() ? `<button class="btn small" data-role="place">Place on map</button>` : ''}
+          <span class="rs-item">${totalHtml(g)}</span>
+          ${g.ending ? `<span class="badge warn">${g.ending} ending soon</span>` : ''}
+          ${g.unbilled ? `<span class="badge danger">${g.unbilled} not billed</span>` : ''}
+          ${g.unplaced ? `<span class="badge inactive">${g.unplaced} not placed</span>` : ''}
+          ${sig ? `<span class="badge ${sig.cls}" title="Sales ${cur - 1}: ${money2s(salesTotal(g.sales, cur - 1))} · ${cur}: ${money2s(salesTotal(g.sales, cur))}">${sig.label}</span>` : ''}
         </div>
       </div>
       <div class="sellout-body">
-        <table class="rental-year-table rental-details"><tbody>
-          <tr><td>Spot</td><td>${where}</td></tr>
-          <tr><td>Billing</td><td>${c.term === 'yearly' ? 'Yearly — one amount, billed once' : 'Monthly — amount each month'}: <strong>${money(c.amount)}</strong>${c.amount ? '' : ' <span style="color:var(--brick)">(amount not set yet)</span>'}</td></tr>
-          <tr><td>Period</td><td>${fmtDate(c.start)} → ${fmtDate(c.end)}${left >= 0 && c.start <= today() ? ` (${left} day${left === 1 ? '' : 's'} left)` : ''}</td></tr>
-          <tr><td>Billed / paid</td><td>${c.billed ? 'Billed' + (c.billedAt ? ' ' + fmtDate(c.billedAt) : '') : 'Not billed'} · ${c.paid ? 'Paid' + (c.paidAt ? ' ' + fmtDate(c.paidAt) : '') : 'Not paid'}</td></tr>
-          ${c.note ? `<tr><td>Note</td><td>${esc(c.note)}</td></tr>` : ''}
-        </tbody></table>
-        <p class="muted-note" style="margin:10px 0 6px;">Supplier sales (for the renew / review decision)${can('rentals.contracts') ? ' — type the figures, then Save sales' : ''}. Edit the contract itself on the map.</p>
-        ${salesYears.map(y => `
+        <div class="items-scroll"><table class="items rental-recap-table">
+          <thead><tr><th>Spot</th><th>Period</th><th class="num">Amount</th><th>Billing</th><th>Status</th><th></th></tr></thead>
+          <tbody>${g.contracts.map(c => {
+            const sp = spotOf(c), st = statusOf(c);
+            const where = sp ? `<b>${esc(sp.type.name)}</b>${sp.o.label ? ' · ' + esc(sp.o.label) : ''}${sp.near ? ' · by ' + esc(sp.near) : ''} <span class="muted-note">${esc(sp.floor?.name || '')}</span>`
+              : '<span style="color:var(--brick)">Not placed on the map</span>';
+            return `<tr data-contract="${esc(c.id)}">
+              <td>${where}</td>
+              <td>${fmtDate(c.start)} → ${fmtDate(c.end)}</td>
+              <td class="num">${money(c.amount)}${c.term === 'monthly' ? '/mo' : '/yr'}</td>
+              <td>${c.billed ? 'Billed' : '<span style="color:var(--brick)">Not billed</span>'} · ${c.paid ? 'Paid' : 'Not paid'}</td>
+              <td><span class="badge ${STATUS[st].cls}">${STATUS[st].label}</span></td>
+              <td>${sp ? '<button class="btn ghost small" data-role="show">Show on map</button>'
+                : can('rentals.contracts') && c.end >= today() ? '<button class="btn small" data-role="place">Place on map</button>' : ''}</td>
+            </tr>`;
+          }).join('')}</tbody>
+        </table></div>
+        <p class="muted-note" style="margin:12px 0 6px;">Performance — ${esc(g.name)}'s monthly sales (for the renew / review decision)${editable ? ': type the figures, then Save sales' : ''}. Change the contracts themselves on the map.</p>
+        ${S.salesMissing ? '<p class="muted-note" style="color:var(--brick)">Sales can be saved once migration 016 is applied.</p>' : ''}
+        ${[cur - 1, cur].map(y => `
           <table class="rental-year-table">
             <thead><tr><th>${y}</th>${MONTHS.map(m => `<th>${m}</th>`).join('')}<th>Total</th></tr></thead>
             <tbody><tr><td>Sales</td>${MONTHS.map((m, i) => {
-              const k = `${y}-${String(i + 1).padStart(2, '0')}`, v = (c.sales || {})[k];
-              return `<td>${can('rentals.contracts') ? `<input type="text" inputmode="decimal" class="rental-sales-input" data-mkey="${k}" value="${v ? esc(String(v)) : ''}" placeholder="0">` : money2s(v)}</td>`;
-            }).join('')}<td><strong>${money2s(salesTotal(c, y))}</strong></td></tr></tbody>
+              const k = `${y}-${String(i + 1).padStart(2, '0')}`, v = (g.sales || {})[k];
+              return `<td>${editable ? `<input type="text" inputmode="decimal" class="rental-sales-input" data-mkey="${k}" value="${v ? esc(String(v)) : ''}" placeholder="0">` : money2s(v)}</td>`;
+            }).join('')}<td><strong>${money2s(salesTotal(g.sales, y))}</strong></td></tr></tbody>
           </table>`).join('')}
-        ${can('rentals.contracts') ? `<div class="actions-row" style="justify-content:flex-start;"><button class="btn small secondary" data-role="save-sales">Save sales</button></div>` : ''}
+        ${editable ? '<div class="actions-row" style="justify-content:flex-start;"><button class="btn small secondary" data-role="save-sales">Save sales</button></div>' : ''}
       </div>
     </div>`;
   }
   const money2s = n => Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
 
   el('rentalList').addEventListener('click', async e => {
-    const card = e.target.closest('[data-contract]'); if (!card) return;
-    const c = S.contracts.find(x => x.id === card.dataset.contract); if (!c) return;
-    if (e.target.closest('[data-role="show"]')) { e.stopPropagation(); return goToMap(() => S.map.focusSpot(c.spotId)); }
-    if (e.target.closest('[data-role="place"]')) { e.stopPropagation(); return goToMap(() => S.map.startAssign(c.id)); }
-    if (e.target.closest('[data-role="save-sales"]')) return saveSales(c, card);
-    if (e.target.closest('[data-role="toggle"]') && !e.target.closest('.icon-actions')) {
-      S.expanded.has(c.id) ? S.expanded.delete(c.id) : S.expanded.add(c.id);
+    const card = e.target.closest('[data-supplier]'); if (!card) return;
+    const row = e.target.closest('tr[data-contract]');
+    const c = row ? S.contracts.find(x => x.id === row.dataset.contract) : null;
+    if (c && e.target.closest('[data-role="show"]')) return goToMap(() => S.map.focusSpot(c.spotId));
+    if (c && e.target.closest('[data-role="place"]')) return goToMap(() => S.map.startAssign(c.id));
+    if (e.target.closest('[data-role="save-sales"]')) return saveSales(card);
+    if (e.target.closest('[data-role="toggle"]')) {
+      const k = card.dataset.supplier;
+      S.expanded.has(k) ? S.expanded.delete(k) : S.expanded.add(k);
       renderList();
     }
   });
@@ -261,18 +296,20 @@ const Rentals = (function () {
     requestAnimationFrame(() => { then(); el('rentalMapView').scrollIntoView({ behavior: 'smooth', block: 'start' }); });
   }
 
-  async function saveSales(c, card) {
-    const sales = Object.assign({}, c.sales || {});
+  async function saveSales(card) {
+    const g = recap().find(x => x.key === card.dataset.supplier); if (!g) return;
+    const sales = Object.assign({}, g.sales || {});
     for (const inp of card.querySelectorAll('.rental-sales-input')) {
       const raw = inp.value.trim();
       const n = raw === '' ? 0 : parseNum(raw);
       if (n === null || n < 0) { showToast('Sales must be numbers.', true); inp.focus(); return; }
       if (n) sales[inp.dataset.mkey] = n; else delete sales[inp.dataset.mkey];
     }
-    const { error } = await sb.from('rental_contracts').update({ monthly_sales: Object.keys(sales).length ? sales : null, updated_at: new Date().toISOString() }).eq('id', c.id);
+    const row = { supplier_key: g.key, supplier: g.name, monthly_sales: sales, updated_at: new Date().toISOString() };
+    const { error } = await sb.from('rental_supplier_sales').upsert(row, { onConflict: 'supplier_key' });
     if (error) { console.error(error); showToast('Could not save the sales — ' + friendlyError(error), true); return; }
-    c.sales = Object.keys(sales).length ? sales : null;
-    logActivity('rentals', 'sales', { type: 'rental', id: c.id }, `Updated sales figures for ${c.supplier}`);
+    S.sales.set(g.key, row);
+    logActivity('rentals', 'sales', { type: 'supplier', id: g.key }, `Updated the sales figures of ${g.name}`);
     renderList();
     showToast('Sales saved.');
   }

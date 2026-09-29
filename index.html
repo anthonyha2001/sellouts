@@ -491,19 +491,17 @@
 
       <div id="rentalListView" hidden>
         <div class="filter-row" style="justify-content:space-between;flex-wrap:wrap;">
-          <div id="rentalTermTabs" style="display:flex;gap:8px;flex-wrap:wrap;">
-            <button class="active" data-term="all">All</button>
-            <button data-term="yearly">Yearly</button>
-            <button data-term="monthly">Monthly</button>
+          <div id="rentalShowTabs" style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="active" data-show="current">Current</button>
+            <button data-show="all">All, with ended contracts</button>
           </div>
           <input type="search" id="rentalSearch" placeholder="Search supplier…" style="max-width:240px;">
         </div>
-        <div class="filter-row" id="rentalTypeTabs" style="flex-wrap:wrap;"></div>
         <div class="card rental-totals" id="rentalTotals"></div>
         <div id="rentalList"></div>
         <div class="empty-state" id="rentalEmpty" style="display:none;">
-          <p class="big" id="rentalEmptyTitle">No rental contracts yet</p>
-          <p>Contracts are added on the map: click a spot, then "Rent this spot".</p>
+          <p class="big" id="rentalEmptyTitle">Nothing assigned yet</p>
+          <p>Assign spots on the map (click a spot, then "Rent this spot"); each supplier then appears here with a recap of their spots.</p>
         </div>
       </div>
 
