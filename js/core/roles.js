@@ -43,3 +43,13 @@ function roleInfo() { return ROLES[Session.role] || { label: '', sections: [], d
 function canSee(section) { return roleInfo().sections.includes(section); }
 function canSeeDeliveryPage(page) { return roleInfo().delivery.includes(page); }
 function isAdmin() { return Session.role === 'admin'; }
+// Sell-outs and promotions: only the admin creates or changes them. The accountant views, downloads
+// and exports them, and archives / unarchives sell-outs (their confirmation that it left the system).
+function canEditSellouts() { return isAdmin(); }
+function canEditPromotions() { return isAdmin(); }
+function canArchiveSellouts() { return ['admin', 'accountant'].includes(Session.role); }
+// Body classes that switch the two pages to view-only (css: body.ro-sellouts, body.ro-promotions).
+function applyEditClasses() {
+  document.body.classList.toggle('ro-sellouts', !canEditSellouts());
+  document.body.classList.toggle('ro-promotions', !canEditPromotions());
+}

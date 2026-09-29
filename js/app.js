@@ -60,8 +60,18 @@ async function idbAll(store) {
   return [];
 }
 
+// View-only users (the accountant) never write sell-outs or promotions, whatever the screen offers.
+// The database enforces the same rule once the lockdown (002) is applied.
+const SELLOUT_ARCHIVE_FIELDS = ['archived', 'archived_at', 'archived_by', 'log', 'notified_flags'];
+let viewOnlyWarned = 0;
+function refuseViewOnly(what) {
+  if (Date.now() - viewOnlyWarned > 3000) { viewOnlyWarned = Date.now(); showToast(`Only an admin can change ${what}. You can view and download them.`, true); }
+  return false;
+}
+
 async function idbPut(store, val) {
   if (store === 'sellouts') {
+    if (!canEditSellouts()) return refuseViewOnly('sell-outs');
     const row = {
       id: val.id, name: val.name, from: val.from, to: val.to,
       file_name: val.fileName,
@@ -88,12 +98,14 @@ async function idbPut(store, val) {
 
 // Saves only some sell-out columns (pricing, archive, note...) without re-uploading the file.
 async function updateSelloutFields(id, fields) {
+  if (!canEditSellouts() && !(canArchiveSellouts() && Object.keys(fields).every(k => SELLOUT_ARCHIVE_FIELDS.includes(k)))) return refuseViewOnly('sell-outs');
   const { error } = await sb.from('sellouts').update(fields).eq('id', id);
   if (error) { console.error(error); showToast('Could not save that sell-out — ' + sbErrText(error), true); return false; }
   return true;
 }
 
 async function idbDelete(store, id) {
+  if (store === 'sellouts' && !canEditSellouts()) return refuseViewOnly('sell-outs');
   const table = store === 'sellouts' ? 'sellouts' : 'credit_notes';
   const { error } = await sb.from(table).delete().eq('id', id);
   if (error) { console.error(error); showToast('Could not delete \u2014 ' + sbErrText(error), true); }
@@ -123,6 +135,7 @@ async function loadCatalogFor(promoId) {
 }
 
 async function replaceCatalog(rows, fileName, promoId) {
+  if (!canEditPromotions()) return refuseViewOnly('promotions');
   if (!promoId) { showToast('Select or create a promotion first.', true); return false; }
   const { error: delErr } = await sb.from('catalog_items').delete().eq('promotion_id', promoId);
   if (delErr) { console.error(delErr); showToast('Could not clear the old catalog \u2014 ' + sbErrText(delErr), true); return false; }
@@ -146,6 +159,7 @@ async function loadSettings() {
   if (data && typeof data.low_stock_threshold === 'number') lowStockThreshold = data.low_stock_threshold;
 }
 async function saveSettings() {
+  if (!canEditPromotions()) return refuseViewOnly('promotions');
   const { error } = await sb.from('app_settings').upsert({ id: 'singleton', low_stock_threshold: lowStockThreshold });
   if (error) { console.error(error); showToast('Could not save the threshold — ' + sbErrText(error), true); }
 }
@@ -162,6 +176,7 @@ async function loadPromotions() {
   }));
 }
 async function savePromotion(promo) {
+  if (!canEditPromotions()) return refuseViewOnly('promotions');
   const row = {
     id: promo.id, name: promo.name, from_date: promo.from || null, to_date: promo.to || null,
     archived: !!promo.archived,
@@ -173,6 +188,7 @@ async function savePromotion(promo) {
 // Keeps the raw price-sheet file the person imported, so it stays available
 // after a reload instead of only living in that one browser tab's memory.
 async function savePromotionSourceFile(promoId, file) {
+  if (!canEditPromotions()) return refuseViewOnly('promotions');
   const base64 = await blobToBase64(file);
   const { error } = await sb.from('promotions').upsert({ id: promoId, source_file_name: file.name, source_file_base64: base64 });
   if (error) { console.error(error); showToast('Imported the rows, but could not save the source file — ' + sbErrText(error), true); return; }
@@ -180,6 +196,7 @@ async function savePromotionSourceFile(promoId, file) {
   if (promo) { promo.sourceFileName = file.name; promo.sourceFileBase64 = base64; }
 }
 async function deletePromotionRemote(id) {
+  if (!canEditPromotions()) return refuseViewOnly('promotions');
   const { error } = await sb.from('promotions').delete().eq('id', id);
   if (error) { console.error(error); showToast('Could not delete the promotion — ' + sbErrText(error), true); }
 }
@@ -260,6 +277,7 @@ async function ensurePromotionExistsFor(row) {
   return true;
 }
 async function savePromoRow(row) {
+  if (!canEditPromotions()) return refuseViewOnly('promotions');
   let { error } = await sb.from('promotion_rows').upsert(promoRowPayload(row));
   if (error && isFkViolation(error) && await ensurePromotionExistsFor(row)) {
     ({ error } = await sb.from('promotion_rows').upsert(promoRowPayload(row)));
@@ -268,6 +286,7 @@ async function savePromoRow(row) {
   else row._savedSortOrder = row.sortOrder;
 }
 async function persistRowsBulk(rows) {
+  if (!canEditPromotions()) return refuseViewOnly('promotions');
   if (!rows.length) return;
   const payload = rows.map(promoRowPayload);
   const chunkSize = 500;
@@ -282,10 +301,12 @@ async function persistRowsBulk(rows) {
   }
 }
 async function deletePromoRow(id) {
+  if (!canEditPromotions()) return refuseViewOnly('promotions');
   const { error } = await sb.from('promotion_rows').delete().eq('id', id);
   if (error) { console.error(error); showToast('Could not delete that row — ' + sbErrText(error), true); }
 }
 async function deleteRowsBulk(ids) {
+  if (!canEditPromotions()) return refuseViewOnly('promotions');
   if (!ids.length) return;
   const { error } = await sb.from('promotion_rows').delete().in('id', ids);
   if (error) { console.error(error); showToast('Could not delete the selected rows — ' + sbErrText(error), true); }
@@ -295,6 +316,7 @@ async function deleteRowsBulk(ids) {
 // importing the same (or an overlapping) file twice doesn't leave the table
 // full of duplicate codes.
 async function replaceAllPromoRows(promoId, rows) {
+  if (!canEditPromotions()) return refuseViewOnly('promotions');
   const { error } = await sb.from('promotion_rows').delete().eq('promotion_id', promoId);
   if (error) { console.error(error); showToast('Could not clear the old rows — ' + sbErrText(error), true); return false; }
   await persistRowsBulk(rows);
@@ -646,6 +668,7 @@ function fmtDMY(iso) {
    has turned auto-archive off for that one. Runs on load and periodically
    while the page stays open, and is always reversible from the UI. */
 async function autoArchiveDuePromotions() {
+  if (!canEditPromotions()) return false;          // the admin's session archives them
   const today = todayStr();
   const due = promotions.filter(p => !p.archived && p.autoArchive !== false && p.to && p.to < today);
   if (!due.length) return false;
@@ -1273,6 +1296,16 @@ document.getElementById('lowStockInput').addEventListener('change', async (e) =>
   showToast(`Low-stock threshold set to ${val}.`);
 });
 
+// View-only (accountant): the page is re-rendered from many places, so every render is locked here.
+// Buttons that change things are hidden by css (body.ro-promotions); Export, Copy codes, Download stay.
+function lockPromotionsViewOnly() {
+  if (canEditPromotions()) return;
+  const root = document.getElementById('panel-promotions');
+  root.querySelectorAll('input[data-field], #promoName, #promoFrom, #promoTo, .audit-note-input').forEach(i => { if (!i.readOnly) i.readOnly = true; });
+  root.querySelectorAll('select[data-field], #promoAutoArchive, #catalogFileInput, #lowStockInput, [data-role="audit-type-btn"], [data-role="toggle-flag"]').forEach(i => { if (!i.disabled) i.disabled = true; });
+}
+new MutationObserver(lockPromotionsViewOnly).observe(document.getElementById('panel-promotions'), { childList: true, subtree: true });
+
 function renderPromoTabstrip() {
   const strip = document.getElementById('promoTabstrip');
   const dropdown = document.getElementById('promoDropdown');
@@ -1616,6 +1649,7 @@ async function renderPromoWorkspace() {
               : 'Code and description next to the cost from the imported price sheet, for a manual check. Items with no cost on file are left out.')
             : (tableSubView === 'supplier'
               ? 'Every item grouped by supplier, with stock, Out (YTD) and a reorder recommendation for each.'
+              : !canEditPromotions() ? 'View only: only an admin can change promotions. Export to Excel or Download to get the file.'
               : 'Tip: copy a block of cells from Excel and paste directly into the table \u2014 it will fill rows and columns starting from where you paste, adding new rows if needed. Enter moves down a column, Tab at the last field adds a new row.')}</p>
         </div>
         <div class="view-toolbar" style="border:none;background:none;padding:0;margin:0;">
@@ -2668,6 +2702,7 @@ function wirePromoWorkspaceEvents(promo) {
   body.addEventListener('paste', async (e) => {
     const target = e.target;
     if (!target || !target.matches('input[data-field], select[data-field]')) return;
+    if (!canEditPromotions()) { e.preventDefault(); return; }
     const clipboard = e.clipboardData || window.clipboardData;
     if (!clipboard) return;
     const text = clipboard.getData('text/plain');

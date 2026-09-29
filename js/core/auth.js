@@ -34,6 +34,7 @@
     Session.user = user;
     Session.profile = profile;
     Session.role = profile.role;
+    applyEditClasses();
     startApp();
     return true;
   }

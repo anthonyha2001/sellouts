@@ -49,8 +49,10 @@ Roles live in a `profiles` table (Phase 1). Cashiers have **no accounts**; they 
 
 | Area | admin | accountant | delivery | floor_manager |
 |---|---|---|---|---|
-| Sell-outs (view, edit, price, archive, duplicate) | ✅ | ✅ | ❌ | read active only (for floor check) |
-| Promotions | ✅ | ✅ | ❌ | ❌ |
+| Sell-outs: view, download, export, archive / unarchive | ✅ | ✅ | ❌ | read active only (for floor check) |
+| Sell-outs: add, edit, price, activate, duplicate, delete | ✅ | ❌ (owner, 2026-09-29) | ❌ | ❌ |
+| Promotions: view, export, download the file | ✅ | ✅ | ❌ | current ones, read only (floor check) |
+| Promotions: create, edit rows, import, catalog, archive, delete | ✅ | ❌ (owner, 2026-09-29) | ❌ | ❌ |
 | Promotions: AI offer import | ✅ | ❌ | ❌ | ❌ |
 | Credit notes | ✅ | ❌ | ❌ | ❌ |
 | Vendors (directory, orders) | ✅ | ❌ | ❌ | ❌ |

@@ -53,25 +53,51 @@ alter table public.dt_settings     enable row level security;
 --    disabled or profile-less accounts.
 -- ---------------------------------------------------------------------------
 
--- Sell-outs: admin + accountant full; floor manager reads active ones (floor check).
+-- Sell-outs (owner, 2026-09-29): admin creates and changes them. The accountant views and downloads
+-- them and archives / unarchives (their confirmation that it left the till system) — nothing else.
+-- The floor manager reads active ones (floor check).
 create policy sellouts_select on public.sellouts for select to authenticated
   using (public.is_role('admin','accountant') or (public.is_role('floor_manager') and active));
 create policy sellouts_insert on public.sellouts for insert to authenticated
-  with check (public.is_role('admin','accountant'));
+  with check (public.is_role('admin'));
 create policy sellouts_update on public.sellouts for update to authenticated
   using (public.is_role('admin','accountant')) with check (public.is_role('admin','accountant'));
 create policy sellouts_delete on public.sellouts for delete to authenticated
-  using (public.is_role('admin','accountant'));
+  using (public.is_role('admin'));
+-- The accountant's updates may only touch the archive fields (plus the activity log entry and the
+-- "already notified" flags the app keeps up to date in the background).
+create or replace function public.sellouts_accountant_guard() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare keep text[] := array['archived','archived_at','archived_by','log','notified_flags'];
+begin
+  if public.is_role('accountant') and not public.is_role('admin')
+     and (to_jsonb(new) - keep) is distinct from (to_jsonb(old) - keep) then
+    raise exception 'Only an admin can change a sell-out; the accountant can archive or unarchive it' using errcode = '42501';
+  end if;
+  return new;
+end $$;
+drop trigger if exists sellouts_accountant_guard on public.sellouts;
+create trigger sellouts_accountant_guard before update on public.sellouts
+  for each row execute function public.sellouts_accountant_guard();
 
--- Promotions and their catalog/settings: admin + accountant.
-create policy promotions_all on public.promotions for all to authenticated
-  using (public.is_role('admin','accountant')) with check (public.is_role('admin','accountant'));
-create policy promotion_rows_all on public.promotion_rows for all to authenticated
-  using (public.is_role('admin','accountant')) with check (public.is_role('admin','accountant'));
-create policy catalog_items_all on public.catalog_items for all to authenticated
-  using (public.is_role('admin','accountant')) with check (public.is_role('admin','accountant'));
-create policy app_settings_all on public.app_settings for all to authenticated
-  using (public.is_role('admin','accountant')) with check (public.is_role('admin','accountant'));
+-- Promotions, their rows, catalog and settings (owner, 2026-09-29): admin changes them; the
+-- accountant only views and downloads.
+create policy promotions_read on public.promotions for select to authenticated
+  using (public.is_role('admin','accountant'));
+create policy promotions_write on public.promotions for all to authenticated
+  using (public.is_role('admin')) with check (public.is_role('admin'));
+create policy promotion_rows_read on public.promotion_rows for select to authenticated
+  using (public.is_role('admin','accountant'));
+create policy promotion_rows_write on public.promotion_rows for all to authenticated
+  using (public.is_role('admin')) with check (public.is_role('admin'));
+create policy catalog_items_read on public.catalog_items for select to authenticated
+  using (public.is_role('admin','accountant'));
+create policy catalog_items_write on public.catalog_items for all to authenticated
+  using (public.is_role('admin')) with check (public.is_role('admin'));
+create policy app_settings_read on public.app_settings for select to authenticated
+  using (public.is_role('admin','accountant'));
+create policy app_settings_write on public.app_settings for all to authenticated
+  using (public.is_role('admin')) with check (public.is_role('admin'));
 
 -- Floor manager: read-only view of the promotions running today and their rows, for the floor
 -- check (owner, 2026-09-29: the floor check covers promotions as well as sell-outs).

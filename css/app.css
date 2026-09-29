@@ -859,3 +859,32 @@ table.items tr.fc-resolved > td{opacity:.55;}
 .login-cashier-link:hover{text-decoration:underline;}
 body.booting .login-cashier-link{display:none;}
 .lb-pending{font-size:13px;color:var(--gold);background:var(--gold-tint);border:1px solid var(--gold);border-radius:var(--radius-sm);padding:8px 12px;margin:0 0 10px;}
+
+/* View-only sell-outs / promotions (accountant): see canEditSellouts / canEditPromotions in roles.js. */
+body.ro-sellouts #openAddSelloutBtn,
+body.ro-sellouts #panel-sellouts [data-role="edit"],
+body.ro-sellouts #panel-sellouts [data-role="duplicate"],
+body.ro-sellouts #panel-sellouts [data-role="delete"],
+body.ro-sellouts #panel-sellouts .so-price-controls,
+body.ro-sellouts #panel-sellouts .so-price-summary .muted-note,
+body.ro-sellouts #panel-sellouts .so-price-table .checkbox-cell { display: none !important; }
+body.ro-sellouts #panel-sellouts .so-new-price:disabled { background: transparent; border-color: transparent; color: var(--ink); opacity: 1; text-align: right; }
+body.ro-sellouts #panel-sellouts .switch:has(input:disabled) { opacity: .6; cursor: default; }
+
+body.ro-promotions #newPromoBtn,
+body.ro-promotions #catalogBody .form-grid,
+body.ro-promotions #importPriceSheetBtn,
+body.ro-promotions #toggleArchivePromoBtn,
+body.ro-promotions #deletePromoBtn,
+body.ro-promotions #addRowBtn,
+body.ro-promotions #addRowsBulkBtn,
+body.ro-promotions #applyDiscountSelectedBtn,
+body.ro-promotions #deleteSelectedBtn,
+body.ro-promotions #panel-promotions [data-role="insert-row"],
+body.ro-promotions #panel-promotions [data-role="insert-rows-bulk"],
+body.ro-promotions #panel-promotions [data-role="remove-row"],
+body.ro-promotions #panel-promotions .chk-col { display: none !important; }
+body.ro-promotions #panel-promotions input[data-field]:read-only,
+body.ro-promotions #panel-promotions .audit-note-input:read-only { background: transparent; border-color: transparent; box-shadow: none; cursor: default; }
+body.ro-promotions #panel-promotions [data-role="audit-type-btn"]:disabled,
+body.ro-promotions #panel-promotions [data-role="toggle-flag"]:disabled { cursor: default; }

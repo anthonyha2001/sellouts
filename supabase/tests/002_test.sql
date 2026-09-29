@@ -121,7 +121,34 @@ select pg_temp.t('accountant marks paid via upsert','00000000-0000-0000-0000-000
      on conflict (id) do update set paid = excluded.paid, paid_at = excluded.paid_at$q$, 'ok');
 select pg_temp.t('accountant creates an order',     '00000000-0000-0000-0000-0000000000ac', $q$insert into public.dt_orders (id, order_date, c_name) values ('t_acc', public.beirut_today(), 'x')$q$, 'blocked');
 select pg_temp.t('accountant edits an amount',      '00000000-0000-0000-0000-0000000000ac', $q$update public.dt_orders set amount = 99 where id = 't_today'$q$, 'blocked');
-select pg_temp.t('accountant adds a sell-out',      '00000000-0000-0000-0000-0000000000ac', $q$insert into public.sellouts (id, name) values ('t_so', 'x')$q$, 'ok');
+-- Sell-outs and promotions: view + download only; sell-outs can be archived / unarchived.
+insert into public.sellouts (id, name, active, archived) values ('t_so_acc', 'Test sell-out', false, false);
+insert into public.promotions (id, name) values ('t_promo_acc', 'Test promo');
+insert into public.promotion_rows (id, promotion_id, code, promo_price) values ('t_pr_acc', 't_promo_acc', '333', 3);
+select pg_temp.t('accountant adds a sell-out',      '00000000-0000-0000-0000-0000000000ac', $q$insert into public.sellouts (id, name) values ('t_so', 'x')$q$, 'blocked');
+select pg_temp.t('accountant renames a sell-out',   '00000000-0000-0000-0000-0000000000ac', $q$update public.sellouts set name = 'hacked' where id = 't_so_acc'$q$, 'blocked');
+select pg_temp.t('accountant activates a sell-out', '00000000-0000-0000-0000-0000000000ac', $q$update public.sellouts set active = true where id = 't_so_acc'$q$, 'blocked');
+select pg_temp.t('accountant archives a sell-out',  '00000000-0000-0000-0000-0000000000ac', $q$update public.sellouts set archived = true, archived_at = now(), archived_by = '00000000-0000-0000-0000-0000000000ac', log = '[{"action":"archived"}]' where id = 't_so_acc'$q$, 'ok');
+select pg_temp.check_owner('…archived, name unchanged', (select archived and name = 'Test sell-out' from public.sellouts where id = 't_so_acc'));
+select pg_temp.t('accountant unarchives it',        '00000000-0000-0000-0000-0000000000ac', $q$update public.sellouts set archived = false, archived_at = null, archived_by = null where id = 't_so_acc'$q$, 'ok');
+select pg_temp.t('accountant saves notified flags', '00000000-0000-0000-0000-0000000000ac', $q$update public.sellouts set notified_flags = '{"ending":true}' where id = 't_so_acc'$q$, 'ok');
+select pg_temp.t('accountant deletes a sell-out (silently nothing)', '00000000-0000-0000-0000-0000000000ac', $q$delete from public.sellouts where id = 't_so_acc'$q$, 'ok');
+select pg_temp.check_owner('…sell-out still there', exists (select 1 from public.sellouts where id = 't_so_acc'));
+select pg_temp.t('accountant creates a promotion',  '00000000-0000-0000-0000-0000000000ac', $q$insert into public.promotions (id, name) values ('t_promo_x', 'x')$q$, 'blocked');
+select pg_temp.t('accountant adds a promo row',     '00000000-0000-0000-0000-0000000000ac', $q$insert into public.promotion_rows (id, promotion_id, code) values ('t_pr_x', 't_promo_acc', '1')$q$, 'blocked');
+select pg_temp.t('accountant edits a promo price (silently nothing)', '00000000-0000-0000-0000-0000000000ac', $q$update public.promotion_rows set promo_price = 0.01 where id = 't_pr_acc'$q$, 'ok');
+select pg_temp.check_owner('…price unchanged', (select promo_price = 3 from public.promotion_rows where id = 't_pr_acc'));
+select pg_temp.t('accountant renames a promotion (silently nothing)', '00000000-0000-0000-0000-0000000000ac', $q$update public.promotions set name = 'hacked' where id = 't_promo_acc'$q$, 'ok');
+select pg_temp.check_owner('…name unchanged', (select name = 'Test promo' from public.promotions where id = 't_promo_acc'));
+select pg_temp.t('accountant deletes a promo row (silently nothing)', '00000000-0000-0000-0000-0000000000ac', $q$delete from public.promotion_rows where id = 't_pr_acc'$q$, 'ok');
+select pg_temp.check_owner('…row still there', exists (select 1 from public.promotion_rows where id = 't_pr_acc'));
+select pg_temp.t('accountant uploads a catalog',    '00000000-0000-0000-0000-0000000000ac', $q$insert into public.catalog_items (id, promotion_id, code) values ('t_promo_acc::1', 't_promo_acc', '1')$q$, 'blocked');
+select pg_temp.t('accountant changes settings',     '00000000-0000-0000-0000-0000000000ac', $q$insert into public.app_settings (id, low_stock_threshold) values ('t_set', 5)$q$, 'blocked');
+select pg_temp.t('accountant reads settings',       '00000000-0000-0000-0000-0000000000ac', $q$select 1 from public.app_settings$q$, 'ok');
+select pg_temp.t('admin still renames a sell-out',  '00000000-0000-0000-0000-00000000000a', $q$update public.sellouts set name = 'Renamed' where id = 't_so_acc'$q$, 'ok');
+select pg_temp.check_owner('…renamed by admin', (select name = 'Renamed' from public.sellouts where id = 't_so_acc'));
+select pg_temp.t('admin edits a promo price',       '00000000-0000-0000-0000-00000000000a', $q$update public.promotion_rows set promo_price = 2.5 where id = 't_pr_acc'$q$, 'ok');
+select pg_temp.check_owner('…price changed by admin', (select promo_price = 2.5 from public.promotion_rows where id = 't_pr_acc'));
 select pg_temp.t('accountant adds a credit note',   '00000000-0000-0000-0000-0000000000ac', $q$insert into public.credit_notes (id, number) values ('t_cn', 'x')$q$, 'blocked');
 
 -- ============ Floor manager ============
