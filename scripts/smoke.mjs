@@ -33,6 +33,7 @@ const exe = process.env.CHROME_PATH || 'C:/Program Files/Google/Chrome/Applicati
 const browser = await chromium.launch({ executablePath: exe, headless: true });
 const ctx = await browser.newContext({
   viewport: flag('mobile') ? { width: 390, height: 844 } : { width: 1400, height: 900 },
+  isMobile: flag('mobile'), hasTouch: flag('mobile'),
   colorScheme: flag('dark') ? 'dark' : 'light',
   timezoneId: 'Asia/Beirut',
 });
@@ -51,6 +52,14 @@ await page.route(url => !url.href.startsWith(base), async route => {
   if (isData && !['GET', 'HEAD', 'OPTIONS'].includes(r.method())) {
     blocked.push(`${r.method()} ${r.url().replace(/^.*supabase\.co/, '')}`);
     return route.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ code: '42501', message: 'smoke test: writes are blocked' }) });
+  }
+  // --as-role X: pretend the signed-in profile has role X, to check what each role's UI shows.
+  // (UI only; the database still sees the real user. RLS is tested separately in SQL.)
+  if (opt('as-role') && /\/rest\/v1\/profiles\?/.test(r.url()) && r.method() === 'GET') {
+    const res = await route.fetch();
+    const body = await res.json();
+    const patch = p => (p && p.id ? { ...p, role: opt('as-role') } : p);
+    return route.fulfill({ response: res, json: Array.isArray(body) ? body.map(patch) : patch(body) });
   }
   try { await route.fulfill({ response: await route.fetch() }); }
   catch (e) { problems.push(`fetch failed: ${r.url()} ${e.message.split('\n')[0]}`); await route.abort(); }
@@ -77,6 +86,7 @@ const summary = await page.evaluate(() => ({
   title: document.title,
   heading: document.body.classList.contains('locked') ? '(login screen) ' + (document.getElementById('loginErr')?.textContent || '') : document.getElementById('pageTitle')?.textContent,
   hash: location.hash,
+  overflowX: document.documentElement.scrollWidth > document.documentElement.clientWidth ? document.documentElement.scrollWidth + 'px wide' : false,
   visibleNav: [...document.querySelectorAll('.sidenav .nav-btn')].filter(b => b.offsetParent).map(b => b.dataset.tab),
 }));
 console.log('PAGE   ', JSON.stringify(summary));

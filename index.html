@@ -10,6 +10,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <link rel="stylesheet" href="css/app.css">
+<link rel="stylesheet" href="css/delivery.css">
 </head>
 <body class="locked booting">
 
@@ -517,7 +518,280 @@
     </section>
 
     <!-- DELIVERY (js/modules/delivery.js) -->
-    <section class="panel" id="panel-delivery"></section>
+    <section class="panel" id="panel-delivery">
+      <div class="dt-subnav">
+        <div class="filter-row" id="dtNav">
+          <button data-page="orders">Orders<kbd></kbd></button>
+          <button data-page="settle">Driver payments<kbd></kbd></button>
+          <button data-page="reports">Reports<kbd></kbd></button>
+          <button data-page="customers">Customers<kbd></kbd></button>
+          <button data-page="drivers">Drivers<kbd></kbd></button>
+          <button data-page="settings">Settings<kbd></kbd></button>
+        </div>
+        <div class="dt-subnav-right">
+          <span class="sync loading" id="syncStatus"><i></i><span>Loading…</span></span>
+          <button type="button" class="btn sm" id="helpBtn"><i data-ic="keyboard"></i> Shortcuts <kbd>?</kbd></button>
+        </div>
+      </div>
+      <div class="dt-boot" id="dtBoot">Loading deliveries…</div>
+    <section class="page" id="page-orders" hidden>
+      <div class="toolbar">
+        <h2>Orders</h2><div class="spacer"></div>
+        <button class="btn" id="exportOrders"><i data-ic="download"></i> Export Excel</button>
+        <button class="btn primary" id="newOrderBtn"><i data-ic="plus"></i> New order <kbd>F2</kbd></button>
+      </div>
+      <div class="card filters">
+        <label>Day
+          <div class="daynav">
+            <button type="button" class="btn sm" id="dayPrev" title="Previous day (←)"><i data-ic="left"></i></button>
+            <select id="fDay"></select>
+            <button type="button" class="btn sm" id="dayNext" title="Next day (→)"><i data-ic="right"></i></button>
+            <button type="button" class="btn sm" id="dayToday" title="Back to today (T)">Today</button>
+          </div>
+        </label>
+        <label>Driver<select id="fDriver"></select></label>
+        <label>Status<select id="fStatus"><option value="">All</option><option value="unpaid">Unpaid</option><option value="paid">Paid</option></select></label>
+        <label>Payment<select id="fPay"></select></label>
+        <label>Platform<select id="fPlat"></select></label>
+        <label class="grow">Search<input id="fSearch" placeholder="Name, phone, area…"></label>
+      </div>
+      <div class="summary" id="ordersSummary"></div>
+      <div class="keys-hint">Customer → <kbd>Enter</kbd> → driver → <kbd>Enter</kbd> → amount → <kbd>Enter</kbd> saves the order. Payment and platform are filled from the customer's last order.
+        &nbsp;·&nbsp; <kbd>Esc</kbd> then <kbd>↑</kbd><kbd>↓</kbd> move in the list, <kbd>←</kbd><kbd>→</kbd> change day &nbsp;·&nbsp; <kbd>?</kbd> all shortcuts</div>
+      <div class="card table-wrap">
+        <table class="tbl">
+          <thead><tr><th></th><th>Customer</th><th>Driver</th><th>Area</th><th class="num">Amount</th><th>Platform</th><th>Payment</th><th>Status</th><th></th></tr>
+          <tr class="quick-row" id="quickRow">
+            <td class="qplus"><i data-ic="plus"></i></td>
+            <td class="qcust"><input id="qCust" placeholder="Customer name or phone…" autocomplete="off"></td>
+            <td><select id="qDriver" title="Keys 1–9 pick a driver"></select></td>
+            <td id="qArea" class="muted"></td>
+            <td><input id="qAmount" inputmode="decimal" placeholder="Amount" autocomplete="off"></td>
+            <td><div class="seg" id="qPlat"></div></td>
+            <td><div class="seg" id="qPay"></div></td>
+            <td><button type="button" class="status unpaid" id="qPaid" tabindex="-1"></button></td>
+            <td><button type="button" class="btn primary sm" id="qAdd" tabindex="-1">Add <i data-ic="enter"></i></button></td>
+          </tr></thead>
+          <tbody id="ordersBody"></tbody>
+        </table>
+      </div>
+    </section>
+  
+    <!-- DRIVER PAYMENTS -->
+    <section class="page" id="page-settle" hidden>
+      <div class="toolbar"><h2>Driver payments</h2></div>
+      <p class="muted" style="margin-top:0">Pick a driver to see his unpaid orders. Tick the ones he is paying now and mark them as paid.</p>
+      <div class="driver-cards" id="settleCards"></div>
+      <div id="settlePanel"></div>
+    </section>
+  
+    <!-- REPORTS -->
+    <section class="page" id="page-reports" hidden>
+      <div class="toolbar no-print">
+        <h2>Reports</h2><div class="spacer"></div>
+        <select id="rPeriod">
+          <option value="today">Today</option>
+          <option value="yesterday">Yesterday</option>
+          <option value="thismonth">This month</option>
+          <option value="lastmonth">Last month</option>
+          <option value="month">End of month (pick month)</option>
+          <option value="custom">Custom range</option>
+        </select>
+        <input type="month" id="rMonth" hidden>
+        <input type="date" id="rFrom" hidden>
+        <input type="date" id="rTo" hidden>
+        <select id="rDriver"></select>
+        <button class="btn" id="printReport"><i data-ic="print"></i> Print</button>
+      </div>
+      <div id="reportBody"></div>
+    </section>
+  
+    <!-- CUSTOMERS -->
+    <section class="page" id="page-customers" hidden>
+      <div class="toolbar">
+        <h2>Customers</h2><div class="spacer"></div>
+        <input id="cSearch" placeholder="Search name, phone, area…" style="min-width:220px">
+        <button class="btn" id="importBtn"><i data-ic="upload"></i> Import Excel</button>
+        <button class="btn" id="exportCust"><i data-ic="download"></i> Export</button>
+        <button class="btn primary" id="newCustBtn"><i data-ic="plus"></i> Add customer</button>
+      </div>
+      <div class="summary" id="custSummary"></div>
+      <div class="card table-wrap">
+        <table class="tbl">
+          <thead><tr><th>Name</th><th>Phone</th><th>Area</th><th>Address</th><th class="num">Orders</th><th class="num">Total spent</th><th></th></tr></thead>
+          <tbody id="custBody"></tbody>
+        </table>
+      </div>
+    </section>
+  
+    <!-- DRIVERS -->
+    <section class="page" id="page-drivers" hidden>
+      <div class="toolbar"><h2>Drivers</h2></div>
+      <form class="card filters" id="driverForm">
+        <label class="grow">Driver name<input name="name" required placeholder="e.g. Elie"></label>
+        <label>Phone (optional)<input name="phone"></label>
+        <button class="btn primary"><i data-ic="plus"></i> Add driver</button>
+      </form>
+      <div class="card table-wrap">
+        <table class="tbl">
+          <thead><tr><th>Driver</th><th>Phone</th><th class="num">Orders (all)</th><th class="num">Orders this month</th><th class="num">Unpaid orders</th><th class="num">Unpaid amount</th><th></th></tr></thead>
+          <tbody id="driversBody"></tbody>
+        </table>
+      </div>
+    </section>
+  
+    <!-- SETTINGS -->
+    <section class="page" id="page-settings" hidden>
+      <div class="toolbar"><h2>Settings</h2></div>
+      <div class="card">
+        <h3>Areas</h3>
+        <p class="muted" style="margin-top:0">These appear as suggestions when adding customers and are used in the driver / area reports.</p>
+        <div class="chips" id="areaChips"></div>
+        <form id="areaForm" class="inline" style="margin-top:12px;max-width:380px">
+          <input name="area" placeholder="New area, e.g. Kfardebian" required>
+          <button class="btn primary">Add</button>
+        </form>
+      </div>
+      <div class="card">
+        <h3>Currency symbol</h3>
+        <form id="curForm" class="inline" style="max-width:260px"><input name="cur" maxlength="5"><button class="btn primary">Save</button></form>
+      </div>
+      <div class="card">
+        <h3>Backup</h3>
+        <p class="muted" style="margin-top:0">Data is saved in your Supabase database and shared by everyone who signs in. A downloaded backup is an extra copy for safety.</p>
+        <div class="toolbar">
+          <button class="btn" id="backupBtn"><i data-ic="download"></i> Download backup</button>
+          <button class="btn" id="restoreBtn"><i data-ic="upload"></i> Restore backup</button>
+          <input type="file" id="restoreFile" accept=".json" hidden>
+          <div class="spacer"></div>
+          <button class="btn danger" id="wipeBtn"><i data-ic="trash"></i> Delete all data</button>
+        </div>
+      </div>
+    </section>
+
+  <datalist id="custList"></datalist>
+  <datalist id="areaList"></datalist>
+  
+  <!-- ORDER DIALOG -->
+  <dialog id="orderDlg">
+    <form id="orderForm">
+      <h3 id="orderTitle">New order</h3>
+      <div class="fgrid">
+        <label class="span2">Driver<select name="driverId" required></select></label>
+        <label class="span2">Customer
+          <div class="inline">
+            <input name="customer" required placeholder="Type name or phone…" autocomplete="off">
+            <button type="button" class="btn" id="quickCust"><i data-ic="plus"></i> New</button>
+          </div>
+          <span class="hint" id="custHint"></span>
+        </label>
+        <label>Amount<input type="number" step="0.01" min="0" name="amount" required></label>
+        <label>Platform<select name="platform"></select></label>
+        <label>Payment<select name="payment"></select></label>
+        <label class="chk" style="align-self:end;padding-bottom:8px"><input type="checkbox" name="paid"> Paid</label>
+        <label class="span2">Note (optional)<input name="note"></label>
+      </div>
+      <div class="dlg-actions">
+        <button type="button" class="btn" data-close>Cancel</button>
+        <button class="btn primary">Save order</button>
+      </div>
+    </form>
+  </dialog>
+  
+  <!-- CUSTOMER DIALOG -->
+  <dialog id="custDlg">
+    <form id="custForm">
+      <h3 id="custTitle">New customer</h3>
+      <div class="fgrid">
+        <label class="span2">Name<input name="name" required></label>
+        <label>Phone<input name="phone" inputmode="tel"></label>
+        <label>Area<input name="area" list="areaList" placeholder="Ajaltoun, Faraya…"></label>
+        <label class="span2">Address details<input name="address" placeholder="Building, street, floor…"></label>
+      </div>
+      <div class="dlg-actions">
+        <button type="button" class="btn" data-close>Cancel</button>
+        <button class="btn primary">Save customer</button>
+      </div>
+    </form>
+  </dialog>
+  
+  <!-- IMPORT DIALOG -->
+  <dialog id="importDlg" style="width:min(760px,96vw)">
+    <div class="dlg">
+      <h3>Import customers from Excel</h3>
+      <input type="file" id="impFile" accept=".xlsx,.xls,.csv">
+      <div id="impBody"></div>
+      <div class="dlg-actions">
+        <button type="button" class="btn" data-close>Cancel</button>
+        <button type="button" class="btn primary" id="impGo" disabled>Import</button>
+      </div>
+    </div>
+  </dialog>
+  
+  <!-- HELP DIALOG -->
+  <dialog id="helpDlg" style="width:min(720px,96vw)">
+    <div class="dlg">
+      <h3>Keyboard shortcuts</h3>
+      <div class="help-grid">
+        <div>
+          <h4>Anywhere</h4>
+          <table>
+            <tr><td><kbd>F2</kbd> or <kbd>N</kbd></td><td>New order (jumps to the quick row)</td></tr>
+            <tr><td><kbd id="helpNumKeys">1 … 6</kbd></td><td>Switch page</td></tr>
+            <tr><td><kbd>/</kbd></td><td>Search on this page</td></tr>
+            <tr><td><kbd>Esc</kbd></td><td>Clear / leave a field</td></tr>
+            <tr><td><kbd>?</kbd></td><td>This help</td></tr>
+          </table>
+          <h4>Quick order row</h4>
+          <table>
+            <tr><td><kbd>↑</kbd><kbd>↓</kbd> <kbd>Enter</kbd></td><td>Pick customer from the list</td></tr>
+            <tr><td><kbd>Enter</kbd></td><td>On the last choice “+ New customer” to create one</td></tr>
+            <tr><td><kbd>Enter</kbd></td><td>Customer → driver → amount → save</td></tr>
+            <tr><td><kbd>1</kbd>–<kbd>9</kbd></td><td>On the driver field: pick driver by number</td></tr>
+          </table>
+        </div>
+        <div>
+          <h4>Orders list (after <kbd>Esc</kbd>)</h4>
+          <table>
+            <tr><td><kbd>↑</kbd><kbd>↓</kbd></td><td>Move between orders</td></tr>
+            <tr><td><kbd>Space</kbd> / <kbd>Enter</kbd></td><td>Show phone &amp; address</td></tr>
+            <tr><td><kbd>E</kbd></td><td>Edit order</td></tr>
+            <tr><td><kbd>Del</kbd></td><td>Delete order</td></tr>
+            <tr><td><kbd>←</kbd><kbd>→</kbd></td><td>Previous / next day (archive)</td></tr>
+            <tr><td><kbd>T</kbd></td><td>Back to today</td></tr>
+          </table>
+          <h4>Driver payments</h4>
+          <table>
+            <tr><td><kbd>←</kbd><kbd>→</kbd></td><td>Previous / next driver</td></tr>
+            <tr><td><kbd>↑</kbd><kbd>↓</kbd></td><td>Move between orders</td></tr>
+            <tr><td><kbd>Space</kbd></td><td>Tick / untick order</td></tr>
+            <tr><td><kbd>A</kbd></td><td>Select all</td></tr>
+            <tr><td><kbd>Enter</kbd></td><td>Mark selected as paid</td></tr>
+          </table>
+        </div>
+      </div>
+      <div class="dlg-actions"><button type="button" class="btn" data-close>Close</button></div>
+    </div>
+  </dialog>
+  
+  <!-- CUSTOM MESSAGE / CONFIRM / INPUT DIALOG -->
+  <dialog id="uiDlg" class="ui-dlg">
+    <form id="uiForm">
+      <div class="ui-head">
+        <div class="ui-icon" id="uiIcon"></div>
+        <div style="flex:1;min-width:0">
+          <h3 class="ui-title" id="uiTitle"></h3>
+          <p class="ui-msg" id="uiMsg"></p>
+          <div class="ui-fields" id="uiFields"></div>
+        </div>
+      </div>
+      <div class="dlg-actions">
+        <button type="button" class="btn" id="uiCancel">Cancel</button>
+        <button class="btn primary" id="uiOk">OK</button>
+      </div>
+    </form>
+  </dialog>
+    </section>
 
     <!-- CASH (Phase 4) -->
     <section class="panel" id="panel-cash">
@@ -619,6 +893,7 @@
 <script src="js/core/roles.js"></script>
 <script src="js/core/activity.js"></script>
 <script src="js/app.js"></script>
+<script src="js/modules/delivery.js"></script>
 <script src="js/core/auth.js"></script>
 </body>
 </html>
