@@ -1,19 +1,19 @@
 // Full data backup of every app table to backups/<timestamp>/<table>.json (+ .csv).
-// Usage:  node scripts/backup.mjs
-// See scripts/backup.md for which key to use before/after Phase 1 (RLS).
+// Usage:  node --env-file=.env scripts/backup.mjs
+// .env (git-ignored) holds SUPABASE_SECRET_KEY. See scripts/backup.md.
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 const URL = process.env.SUPABASE_URL || 'https://sezjqcbkiydckhirycjb.supabase.co';
-// Default: the publishable key already shipped in the page. After Phase 1 this reads nothing;
-// set SUPABASE_KEY to the secret key (never commit it) or SUPABASE_JWT to a signed-in admin's access token.
-const KEY = process.env.SUPABASE_KEY || 'sb_publishable_LRI-MmDPYE_IjrHG-LZ7Xg_mQovg24F';
+// The secret key bypasses RLS, so backups stay complete after Phase 1 locks the tables.
+// Fallbacks: SUPABASE_JWT (a signed-in admin's token) or the publishable key (reads nothing once RLS is on).
+const KEY = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_KEY || 'sb_publishable_LRI-MmDPYE_IjrHG-LZ7Xg_mQovg24F';
 const JWT = process.env.SUPABASE_JWT || '';
 
 const TABLES = [
   'sellouts', 'credit_notes', 'catalog_items', 'app_settings', 'promotions', 'promotion_rows',
   'vendors', 'vendor_orders', 'vendor_skips', 'vendor_rentals',
-  'dt_drivers', 'dt_customers', 'dt_orders', 'dt_settings',
+  'dt_drivers', 'dt_customers', 'dt_orders', 'dt_settings', 'dt_staff',
   ...(process.env.EXTRA_TABLES ? process.env.EXTRA_TABLES.split(',') : []),
 ];
 const PAGE = 1000;
@@ -72,5 +72,5 @@ for (const t of TABLES) {
   }
 }
 await writeFile(join(dir, '_summary.json'), JSON.stringify({ at: new Date().toISOString(), url: URL, tables: summary }, null, 1));
-console.log(`\nSaved to ${dir}`);
+console.log(`\nSaved to ${dir} (key: ${KEY.startsWith('sb_secret_') ? 'secret' : 'publishable'})`);
 if (failed) { console.error('Backup INCOMPLETE - see errors above.'); process.exit(1); }

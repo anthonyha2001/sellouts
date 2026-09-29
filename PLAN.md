@@ -79,7 +79,7 @@ Roles live in a `profiles` table (Phase 1). Cashiers have **no accounts**; they 
 
 - [x] `git init`, add both HTML files, first commit "Baseline before rebuild".
 - [x] Write `scripts/backup.md` (or a small admin-only in-app button, Phase 1) describing how to export every table to JSON/CSV. **Take a full backup now.**
-- [ ] Inspect the live schema (tables, columns, existing RLS policies, especially the delivery app's `setup.sql` policies on `dt_*` tables) and write it to `docs/schema-before.md`.
+- [x] Inspect the live schema (tables, columns, existing RLS policies, especially the delivery app's `setup.sql` policies on `dt_*` tables) and write it to `docs/schema-before.md`.
 - [x] Fix the main app sidebar footer: it says data is "stored locally in this browser only", which is false. Replace it with the signed-in user's name and role (Phase 1). For now, remove the false sentence.
 - [x] Decide the final file layout, e.g.:
   ```
