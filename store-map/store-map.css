@@ -311,3 +311,11 @@
 .sm-fixtag rect.sm-sb{ stroke-width:1.5; }
 .sm-fixtag text{ font-weight:700; }
 .sm-o.sel .sm-fixstatus{ stroke:var(--sm-accent); }
+
+/* Group selection + align helper (Edit layout) */
+.sm-guide{ stroke:#E0457B; stroke-dasharray:6 4; pointer-events:none; }
+.sm-boxsel{ fill:var(--sm-accent); fill-opacity:.08; stroke:var(--sm-accent); stroke-dasharray:5 4; pointer-events:none; }
+.sm-groupbox{ fill:none; stroke:var(--sm-accent); stroke-opacity:.55; stroke-dasharray:2 5; pointer-events:none; }
+.sm-al-grid{ display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:6px; }
+.sm-al{ flex-direction:column; gap:3px; padding:7px 4px; font-size:11.5px; justify-content:center; }
+.sm-al .sm-ic{ width:20px; height:20px; }

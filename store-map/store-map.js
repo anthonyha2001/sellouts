@@ -274,6 +274,7 @@
       this.floors = []; this.layouts = {}; this.contracts = [];
       this.floorId = null; this.mode = 'rentals'; this.q = '';
       this.statusFilter = new Set(); this.typeFilter = '';
+      this.selSet = new Set(); this.guides = []; this.box = null;
       this.sel = null; this.editing = false; this.draft = null; this.undoStack = []; this.redoStack = [];
       this.dirty = false; this.grid = 5; this.views = {}; this.panelView = null; this.contractForm = null;
       this.assignFor = null; this.legendCollapsed = global.innerWidth < 640; this.pid = 'sm' + Math.random().toString(36).slice(2, 7); this.pointers = new Map();
@@ -550,6 +551,49 @@
     }
 
     /* ---------------- render ---------------- */
+    // Selection: `sel` is the main element (resize handles, properties panel); `selSet` holds every
+    // selected element (Ctrl / Cmd / Shift + click, or Ctrl + drag on the floor, in Edit layout).
+    // Setting `sel` selects that one element only.
+    get sel() { return this._sel || null; }
+    set sel(v) { this._sel = v || null; this.selSet = v ? new Set([v]) : new Set(); }
+    selectedObjs() { return this.editing && this.draft ? this.draft.filter(o => this.selSet.has(o.id)) : []; }
+    // Axis-aligned box of an element on the floor (rotation included).
+    abox(o) {
+      const r = normRot(o.rot) * Math.PI / 180, cx = o.x + o.w / 2, cy = o.y + o.h / 2;
+      const ex = Math.abs(o.w / 2 * Math.cos(r)) + Math.abs(o.h / 2 * Math.sin(r));
+      const ey = Math.abs(o.w / 2 * Math.sin(r)) + Math.abs(o.h / 2 * Math.cos(r));
+      return { x0: cx - ex, x1: cx + ex, y0: cy - ey, y1: cy + ey };
+    }
+    bounds(list) {
+      const bs = list.map(o => this.abox(o));
+      return { x0: Math.min(...bs.map(b => b.x0)), x1: Math.max(...bs.map(b => b.x1)), y0: Math.min(...bs.map(b => b.y0)), y1: Math.max(...bs.map(b => b.y1)) };
+    }
+    // Smart guides: while dragging, snap the moving group's left / centre / right (top / middle / bottom)
+    // to the same line of another element when it is within a few pixels, and show that line.
+    guideSnap(moving, k) {
+      const B = this.bounds(moving), thr = 7 / k, ids = new Set(moving.map(o => o.id));
+      const mx = [B.x0, (B.x0 + B.x1) / 2, B.x1], my = [B.y0, (B.y0 + B.y1) / 2, B.y1];
+      const others = (this.draft || []).filter(o => !ids.has(o.id) && this.typeOf(o).kind !== 'text').map(o => this.abox(o));
+      let bx = null, by = null;
+      others.forEach(b => {
+        [b.x0, (b.x0 + b.x1) / 2, b.x1].forEach(c => mx.forEach(a => { const d = c - a; if (Math.abs(d) <= thr && (!bx || Math.abs(d) < Math.abs(bx.d))) bx = { d, at: c }; }));
+        [b.y0, (b.y0 + b.y1) / 2, b.y1].forEach(c => my.forEach(a => { const d = c - a; if (Math.abs(d) <= thr && (!by || Math.abs(d) < Math.abs(by.d))) by = { d, at: c }; }));
+      });
+      const lines = [];
+      const near = (v, c) => Math.abs(v - c) < 0.75;
+      if (bx) {
+        const hit = others.filter(b => [b.x0, (b.x0 + b.x1) / 2, b.x1].some(c => near(c, bx.at)));
+        const ys = [B.y0 + (by ? by.d : 0), B.y1 + (by ? by.d : 0), ...hit.flatMap(b => [b.y0, b.y1])];
+        lines.push({ x1: bx.at, x2: bx.at, y1: Math.min(...ys) - 30, y2: Math.max(...ys) + 30 });
+      }
+      if (by) {
+        const hit = others.filter(b => [b.y0, (b.y0 + b.y1) / 2, b.y1].some(c => near(c, by.at)));
+        const xs = [B.x0 + (bx ? bx.d : 0), B.x1 + (bx ? bx.d : 0), ...hit.flatMap(b => [b.x0, b.x1])];
+        lines.push({ y1: by.at, y2: by.at, x1: Math.min(...xs) - 30, x2: Math.max(...xs) + 30 });
+      }
+      return { dx: bx ? bx.d : 0, dy: by ? by.d : 0, lines };
+    }
+
     renderAll() { this.renderFloors(); this.renderBar(); this.renderSvg(); this.renderLegend(); this.renderPanel(); }
 
     renderFloors() {
@@ -570,10 +614,10 @@
           <select class="sm-select" data-e="type" aria-label="Type to add">${typeOpts}</select>
           <button class="sm-btn" data-e="add">${ic('plus')} Add</button>
           <span class="sm-sep"></span>
-          <button class="sm-btn icon" data-e="dup" title="Duplicate (Ctrl+D)" ${this.sel ? '' : 'disabled'}>${ic('copy')}</button>
-          <button class="sm-btn icon" data-e="rot" title="Rotate 90°" ${this.sel ? '' : 'disabled'}>${ic('rotate')}</button>
+          <button class="sm-btn icon" data-e="dup" title="Duplicate (Ctrl+D)" ${this.selSet.size ? '' : 'disabled'}>${ic('copy')}</button>
+          <button class="sm-btn icon" data-e="rot" title="Rotate 90°" ${this.selSet.size ? '' : 'disabled'}>${ic('rotate')}</button>
           <button class="sm-btn" data-e="std" title="Give the selected element — or every gondola, end cap, side, basket and display on this floor — its standard size">${ic('fit')} Standard size</button>
-          <button class="sm-btn icon danger" data-e="del" title="Delete (Del)" ${this.sel ? '' : 'disabled'}>${ic('trash')}</button>
+          <button class="sm-btn icon danger" data-e="del" title="Delete (Del)" ${this.selSet.size ? '' : 'disabled'}>${ic('trash')}</button>
           <span class="sm-sep"></span>
           <button class="sm-btn icon" data-e="undo" title="Undo (Ctrl+Z)" ${this.undoStack.length ? '' : 'disabled'}>${ic('undo')}</button>
           <button class="sm-btn icon" data-e="redo" title="Redo (Ctrl+Y)" ${this.redoStack.length ? '' : 'disabled'}>${ic('redo')}</button>
@@ -644,7 +688,7 @@
         if (this.typeFilter && o.type !== this.typeFilter) dim = true;
       }
       const look = t.look || (kind === 'fixture' ? (/fridge|freezer/.test(o.type) ? 'cold' : 'shelf') : o.type);
-      const cls = ['sm-o', `sm-k-${kind}`, `sm-look-${look}`, dim ? 'dim' : '', hit ? 'hit' : '', this.sel === o.id ? 'sel' : ''];
+      const cls = ['sm-o', `sm-k-${kind}`, `sm-look-${look}`, dim ? 'dim' : '', hit ? 'hit' : '', (this.editing ? this.selSet.has(o.id) : this.sel === o.id) ? 'sel' : ''];
       const P = this.pid;
       const f1 = (n) => (+n).toFixed(1);
       const shadow = (rx, d = Math.min(8, Math.max(2.5, Math.min(w, h) * 0.08))) =>
@@ -805,12 +849,22 @@
       this.applyView();
     }
     overlaySvg() {
-      if (!this.editing || !this.sel) return '';
-      const o = this.draft.find(x => x.id === this.sel); if (!o) return '';
-      const rot = normRot(o.rot), k = this.view().k, hs = 6 / k;
+      if (!this.editing) return '';
+      const k = this.view().k;
+      let out = (this.guides || []).map(g => `<line class="sm-guide" x1="${g.x1}" y1="${g.y1}" x2="${g.x2}" y2="${g.y2}" stroke-width="${1.5 / k}"/>`).join('');
+      if (this.box) out += `<rect class="sm-boxsel" x="${this.box.x}" y="${this.box.y}" width="${this.box.w}" height="${this.box.h}" stroke-width="${1.5 / k}"/>`;
+      const sel = this.selectedObjs();
+      if (sel.length > 1) {
+        out += sel.map(o => { const r = normRot(o.rot); return `<g transform="translate(${o.x} ${o.y})${r ? ` rotate(${r} ${o.w / 2} ${o.h / 2})` : ''}"><rect class="sm-selbox" x="${-3 / k}" y="${-3 / k}" width="${o.w + 6 / k}" height="${o.h + 6 / k}" stroke-width="${2 / k}"/></g>`; }).join('');
+        const b = this.bounds(sel), p = 10 / k;
+        return out + `<rect class="sm-groupbox" x="${b.x0 - p}" y="${b.y0 - p}" width="${b.x1 - b.x0 + 2 * p}" height="${b.y1 - b.y0 + 2 * p}" stroke-width="${1.5 / k}"/>`;
+      }
+      if (!this.sel) return out;
+      const o = this.draft.find(x => x.id === this.sel); if (!o) return out;
+      const rot = normRot(o.rot), hs = 6 / k;
       const tr = `translate(${o.x} ${o.y})${rot ? ` rotate(${rot} ${o.w / 2} ${o.h / 2})` : ''}`;
       const hd = (name, x, y) => `<rect class="sm-handle" data-h="${name}" x="${x - hs}" y="${y - hs}" width="${hs * 2}" height="${hs * 2}" rx="${hs * 0.3}" stroke-width="${2 / k}"/>`;
-      return `<g transform="${tr}"><rect class="sm-selbox" x="${-4 / k}" y="${-4 / k}" width="${o.w + 8 / k}" height="${o.h + 8 / k}" stroke-width="${2 / k}"/>
+      return out + `<g transform="${tr}"><rect class="sm-selbox" x="${-4 / k}" y="${-4 / k}" width="${o.w + 8 / k}" height="${o.h + 8 / k}" stroke-width="${2 / k}"/>
         ${hd('e', o.w, o.h / 2)}${hd('s', o.w / 2, o.h)}${hd('se', o.w, o.h)}</g>`;
     }
 
@@ -862,16 +916,27 @@
       const handle = e.target.closest('.sm-handle');
       const g = e.target.closest('.sm-o');
       const start = { x: e.clientX, y: e.clientY };
-      if (this.editing && handle && this.sel) {
+      if (this.editing && handle && this.sel && this.selSet.size === 1) {
         const o = this.draft.find(x => x.id === this.sel);
         this.gesture = { type: 'resize', h: handle.dataset.h, start, orig: clone(o), snap: JSON.stringify(this.draft), moved: false };
         return;
       }
+      const add = e.ctrlKey || e.metaKey || e.shiftKey;
       if (this.editing && g) {
         const id = g.dataset.id;
-        if (this.sel !== id) { this.sel = id; this.renderBar(); this.renderSvg(); this.renderPanel(); }
-        const o = this.draft.find(x => x.id === id);
-        this.gesture = { type: 'drag', id, start, orig: { x: o.x, y: o.y }, snap: JSON.stringify(this.draft), moved: false };
+        if (add) {                               // add to / remove from the selection
+          if (this.selSet.has(id)) { this.selSet.delete(id); if (this._sel === id) this._sel = [...this.selSet].pop() || null; }
+          else { this.selSet.add(id); this._sel = id; }
+          this.renderBar(); this.renderSvg(); this.renderPanel();
+          if (!this.selSet.has(id)) return;
+        } else if (!this.selSet.has(id)) { this.sel = id; this.renderBar(); this.renderSvg(); this.renderPanel(); }
+        else this._sel = id;                     // a member of the group: keep the group, it moves together
+        const origs = new Map(this.selectedObjs().map(o => [o.id, { x: o.x, y: o.y }]));
+        this.gesture = { type: 'drag', id, start, origs, add, snap: JSON.stringify(this.draft), moved: false };
+        return;
+      }
+      if (this.editing && !g && add) {           // Ctrl + drag on the floor: select everything in the box
+        this.gesture = { type: 'box', start, w0: this.toWorld(e.clientX, e.clientY), keep: new Set(this.selSet), moved: false };
         return;
       }
       const v = this.view();
@@ -897,12 +962,26 @@
         this.userMoved = true;
         this.canvasEl.classList.add('panning');
         const v = this.view(); v.x = G.orig.x + dx; v.y = G.orig.y + dy; this.applyView();
+      } else if (G.type === 'box') {
+        const w = this.toWorld(e.clientX, e.clientY);
+        this.box = { x: Math.min(w.x, G.w0.x), y: Math.min(w.y, G.w0.y), w: Math.abs(w.x - G.w0.x), h: Math.abs(w.y - G.w0.y) };
+        this.renderOverlay();
       } else if (G.type === 'drag') {
-        const o = this.draft.find(x => x.id === G.id);
-        o.x = this.snapV(G.orig.x + dx / k); o.y = this.snapV(G.orig.y + dy / k);
-        const el = this.vp.querySelector(`.sm-o[data-id="${CSS.escape(o.id)}"]`);
-        const rot = normRot(o.rot);
-        if (el) el.setAttribute('transform', `translate(${o.x} ${o.y})${rot ? ` rotate(${rot} ${o.w / 2} ${o.h / 2})` : ''}`);
+        const po = G.origs.get(G.id);
+        let ddx = this.snapV(po.x + dx / k) - po.x, ddy = this.snapV(po.y + dy / k) - po.y;
+        const sel = this.selectedObjs();
+        this.guides = [];
+        if (!e.altKey) {                         // Alt: move freely, no guides
+          const g2 = this.guideSnap(sel.map(o => { const O = G.origs.get(o.id); return Object.assign({}, o, { x: O.x + ddx, y: O.y + ddy }); }), k);
+          ddx += g2.dx; ddy += g2.dy; this.guides = g2.lines;
+        }
+        sel.forEach(o => {
+          const O = G.origs.get(o.id); if (!O) return;
+          o.x = Math.round((O.x + ddx) * 10) / 10; o.y = Math.round((O.y + ddy) * 10) / 10;
+          const el = this.vp.querySelector(`.sm-o[data-id="${CSS.escape(o.id)}"]`);
+          const rot = normRot(o.rot);
+          if (el) el.setAttribute('transform', `translate(${o.x} ${o.y})${rot ? ` rotate(${rot} ${o.w / 2} ${o.h / 2})` : ''}`);
+        });
         this.renderOverlay();
       } else if (G.type === 'resize') {
         const o = this.draft.find(x => x.id === this.sel), O = G.orig, rot = normRot(O.rot) * Math.PI / 180;
@@ -927,9 +1006,22 @@
       this.gesture = null;
       this.canvasEl.classList.remove('panning');
       if (!G) return;
+      if (G.type === 'box') {
+        const B = this.box; this.box = null;
+        if (G.moved && B) {
+          const inBox = this.draft.filter(o => { const b = this.abox(o); return b.x1 >= B.x && b.x0 <= B.x + B.w && b.y1 >= B.y && b.y0 <= B.y + B.h; });
+          this.selSet = new Set([...G.keep, ...inBox.map(o => o.id)]);
+          this._sel = inBox.length ? inBox[inBox.length - 1].id : (this._sel && this.selSet.has(this._sel) ? this._sel : [...this.selSet].pop() || null);
+        }
+        this.renderBar(); this.renderSvg(); this.renderPanel(); return;
+      }
+      if (G.type === 'drag') this.guides = [];
       if ((G.type === 'drag' || G.type === 'resize') && G.moved) {
         this.pushUndo(G.snap); this.dirty = true; this.renderSvg(); this.renderPanel(); this.renderBar(); return;
       }
+      // A plain click on one member of a group selects just that one.
+      if (G.type === 'drag' && !G.add && this.selSet.size > 1) { this.sel = G.id; this.renderBar(); this.renderSvg(); this.renderPanel(); return; }
+      if (G.type === 'drag') { this.renderOverlay(); return; }
       if (G.type === 'pan' && !G.moved) {
         if (this.editing) { if (this.sel) { this.sel = null; this.renderBar(); this.renderSvg(); this.renderPanel(); } return; }
         if (this.assignFor && G.target) return this.finishAssign(G.target);
@@ -952,6 +1044,11 @@
       if (mod && (e.key.toLowerCase() === 'y' || (e.key.toLowerCase() === 'z' && e.shiftKey))) { e.preventDefault(); return this.editAction('redo'); }
       if (mod && e.key.toLowerCase() === 'd') { e.preventDefault(); return this.editAction('dup'); }
       if (mod && e.key.toLowerCase() === 's') { e.preventDefault(); return this.editAction('save'); }
+      if (mod && e.key.toLowerCase() === 'a') {
+        e.preventDefault();
+        this.selSet = new Set(this.draft.map(o => o.id)); this._sel = this.draft.length ? this.draft[this.draft.length - 1].id : null;
+        this.renderBar(); this.renderSvg(); this.renderPanel(); return;
+      }
       if (!this.sel) return;
       if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); return this.editAction('del'); }
       if (e.key === 'Escape') { this.sel = null; this.renderBar(); this.renderSvg(); this.renderPanel(); return; }
@@ -959,8 +1056,8 @@
       const mv = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
       if (mv) {
         e.preventDefault();
-        const o = this.draft.find(x => x.id === this.sel);
-        this.pushUndo(); o.x += mv[0]; o.y += mv[1]; this.dirty = true; this.renderSvg(); this.renderPanel();
+        this.pushUndo(); this.selectedObjs().forEach(o => { o.x += mv[0]; o.y += mv[1]; });
+        this.dirty = true; this.renderSvg(); this.renderPanel();
       }
     }
 
@@ -1251,7 +1348,10 @@
     pushUndo(snap) { this.undoStack.push(snap || JSON.stringify(this.draft)); if (this.undoStack.length > 100) this.undoStack.shift(); this.redoStack = []; }
     async editAction(a) {
       const o = this.sel ? this.draft.find(x => x.id === this.sel) : null;
+      const many = this.selectedObjs();
       const rerender = () => { this.dirty = true; this.renderBar(); this.renderSvg(); this.renderPanel(); };
+      if (many.length > 1 && /^(dup|rot|del|std)$/.test(a)) return this.groupAction(a, many, rerender);
+      if (/^(al-|dist-|same-)/.test(a)) return this.alignAction(a, many, rerender);
       switch (a) {
         case 'add': {
           const type = this.bar.querySelector('[data-e="type"]').value, t = this.types[type];
@@ -1280,8 +1380,8 @@
           if (held.length && !(await this.confirm(`This spot has ${held.length} current or future contract${held.length > 1 ? 's' : ''} (${held.map(c => c.supplier).join(', ')}). Delete the spot anyway? The contracts stay and appear under "not placed on the map".`, 'Delete spot'))) return;
           this.pushUndo(); this.draft = this.draft.filter(x => x !== o); this.sel = null; return rerender();
         }
-        case 'undo': if (!this.undoStack.length) return; this.redoStack.push(JSON.stringify(this.draft)); this.draft = JSON.parse(this.undoStack.pop()); if (this.sel && !this.draft.find(x => x.id === this.sel)) this.sel = null; return rerender();
-        case 'redo': if (!this.redoStack.length) return; this.undoStack.push(JSON.stringify(this.draft)); this.draft = JSON.parse(this.redoStack.pop()); if (this.sel && !this.draft.find(x => x.id === this.sel)) this.sel = null; return rerender();
+        case 'undo': if (!this.undoStack.length) return; this.redoStack.push(JSON.stringify(this.draft)); this.draft = JSON.parse(this.undoStack.pop()); this.pruneSel(); return rerender();
+        case 'redo': if (!this.redoStack.length) return; this.undoStack.push(JSON.stringify(this.draft)); this.draft = JSON.parse(this.redoStack.pop()); this.pruneSel(); return rerender();
         case 'save': return this.stopEdit(true);
         case 'cancel': return this.stopEdit(false);
         case 'types': return this.editTypes();
@@ -1289,14 +1389,119 @@
       }
     }
 
+    pruneSel() {
+      const ids = new Set(this.draft.map(o => o.id));
+      this.selSet = new Set([...this.selSet].filter(id => ids.has(id)));
+      if (this._sel && !ids.has(this._sel)) this._sel = [...this.selSet].pop() || null;
+    }
+    async groupAction(a, many, rerender) {
+      if (a === 'dup') {
+        this.pushUndo();
+        const copies = many.map(o => { const n = clone(o); n.id = uid('obj'); n.x += 20; n.y += 20; return n; });
+        this.draft.push(...copies);
+        this.selSet = new Set(copies.map(n => n.id)); this._sel = copies[copies.length - 1].id;
+        return rerender();
+      }
+      if (a === 'rot') { this.pushUndo(); many.forEach(o => { o.rot = (normRot(o.rot) + 90) % 360; }); return rerender(); }
+      if (a === 'std') {
+        const list = many.filter(x => { const t = this.types[x.type]; return t && t.std && t.w && t.h; });
+        if (!list.length) return this.toast('None of the selected elements has a standard size.', true);
+        this.pushUndo();
+        list.forEach(x => { const t = this.types[x.type], cx = x.x + x.w / 2, cy = x.y + x.h / 2; x.w = t.w; x.h = t.h; x.x = Math.round(cx - t.w / 2); x.y = Math.round(cy - t.h / 2); });
+        return rerender();
+      }
+      if (a === 'del') {
+        const ids = new Set(many.map(o => o.id));
+        const held = this.contracts.filter(c => ids.has(c.spotId) && c.end >= this.today());
+        const msg = `Delete ${many.length} elements?${held.length ? ` ${held.length} current or future contract${held.length > 1 ? 's' : ''} (${[...new Set(held.map(c => c.supplier))].join(', ')}) stay and appear under "not placed on the map".` : ''}`;
+        if (!(await this.confirm(msg, 'Delete'))) return;
+        this.pushUndo(); this.draft = this.draft.filter(x => !ids.has(x.id)); this.sel = null;
+        return rerender();
+      }
+    }
+    // Align the selection to its own edges / centre lines, spread it evenly, or give it the main element's size.
+    alignAction(a, many, rerender) {
+      if (many.length < 2) return this.toast('Select two or more elements first (Ctrl + click).', true);
+      if (a.startsWith('dist-') && many.length < 3) return this.toast('Select three or more elements to spread them evenly.', true);
+      this.pushUndo();
+      const B = this.bounds(many), mid = { x: (B.x0 + B.x1) / 2, y: (B.y0 + B.y1) / 2 };
+      const shift = (o, dx, dy) => { o.x = Math.round((o.x + dx) * 10) / 10; o.y = Math.round((o.y + dy) * 10) / 10; };
+      const boxes = new Map(many.map(o => [o.id, this.abox(o)]));
+      const bx = o => boxes.get(o.id);
+      switch (a) {
+        case 'al-left':   many.forEach(o => shift(o, B.x0 - bx(o).x0, 0)); break;
+        case 'al-hc':     many.forEach(o => shift(o, mid.x - (bx(o).x0 + bx(o).x1) / 2, 0)); break;
+        case 'al-right':  many.forEach(o => shift(o, B.x1 - bx(o).x1, 0)); break;
+        case 'al-top':    many.forEach(o => shift(o, 0, B.y0 - bx(o).y0)); break;
+        case 'al-vc':     many.forEach(o => shift(o, 0, mid.y - (bx(o).y0 + bx(o).y1) / 2)); break;
+        case 'al-bottom': many.forEach(o => shift(o, 0, B.y1 - bx(o).y1)); break;
+        case 'dist-h': case 'dist-v': {
+          const H = a === 'dist-h', lo = H ? 'x0' : 'y0', hi = H ? 'x1' : 'y1';
+          const list = many.slice().sort((p, q) => (bx(p)[lo] + bx(p)[hi]) - (bx(q)[lo] + bx(q)[hi]));
+          const total = list.reduce((t, o) => t + bx(o)[hi] - bx(o)[lo], 0);
+          const gap = ((H ? B.x1 - B.x0 : B.y1 - B.y0) - total) / (list.length - 1);
+          let at = H ? B.x0 : B.y0;
+          list.forEach(o => { const b = bx(o), d = at - b[lo]; shift(o, H ? d : 0, H ? 0 : d); at += b[hi] - b[lo] + gap; });
+          break;
+        }
+        case 'same-w': case 'same-h': {
+          const ref = this.draft.find(x => x.id === this.sel) || many[many.length - 1];
+          many.forEach(o => {
+            if (o === ref) return;
+            const cx = o.x + o.w / 2, cy = o.y + o.h / 2;
+            if (a === 'same-w') o.w = ref.w; else o.h = ref.h;
+            o.x = Math.round(cx - o.w / 2); o.y = Math.round(cy - o.h / 2);
+          });
+          break;
+        }
+      }
+      return rerender();
+    }
+
     renderEditPanel() {
       const P = this.panel, o = this.sel ? this.draft.find(x => x.id === this.sel) : null;
+      const many = this.selectedObjs();
+      if (many.length > 1) {
+        const AL = {"al-left":"M4 3v18M8 7h11v4H8zM8 14h6v4H8z","al-hc":"M12 3v18M5 7h14v4H5zM8 14h8v4H8z","al-right":"M20 3v18M5 7h11v4H5zM10 14h6v4h-6z","al-top":"M3 4h18M7 8v11h4V8zM14 8v6h4V8z","al-vc":"M3 12h18M7 5v14h4V5zM14 8v8h4V8z","al-bottom":"M3 20h18M7 5v11h4V5zM14 10v6h4v-6z","dist-h":"M4 3v18M20 3v18M9 8h6v8H9z","dist-v":"M3 4h18M3 20h18M8 9h8v6H8z","same-w":"M4 8v8M20 8v8M4 12h16M8 9l-4 3 4 3M16 9l4 3-4 3","same-h":"M8 4h8M8 20h8M12 4v16M9 8l3-4 3 4M9 16l3 4 3-4"};
+        const btn = (k, label) => `<button class="sm-btn sm-al" data-al="${k}" title="${label}"><svg viewBox="0 0 24 24" class="sm-ic"><path d="${AL[k]}"/></svg><span>${label}</span></button>`;
+        const main = this.draft.find(x => x.id === this.sel);
+        P.innerHTML = `
+          <div class="sm-p-head"><h3>${many.length} elements selected<button class="sm-close" data-p="close" aria-label="Clear the selection">${ic('close')}</button></h3>
+            <div class="sm-sub">Drag any of them to move them together · arrows nudge them · Ctrl + click adds or removes one · Esc clears</div></div>
+          <div class="sm-p-sec"><h4>Align</h4><div class="sm-al-grid">
+            ${btn('al-left', 'Left')}${btn('al-hc', 'Centre')}${btn('al-right', 'Right')}
+            ${btn('al-top', 'Top')}${btn('al-vc', 'Middle')}${btn('al-bottom', 'Bottom')}</div></div>
+          <div class="sm-p-sec"><h4>Spread evenly</h4><div class="sm-al-grid">
+            ${btn('dist-h', 'Across')}${btn('dist-v', 'Down')}</div>
+            ${many.length < 3 ? '<p class="sm-hint" style="margin:6px 0 0">Needs three or more elements.</p>' : ''}</div>
+          <div class="sm-p-sec"><h4>Same size as ${esc(main ? (main.label || this.typeOf(main).name) : 'the last one')}</h4><div class="sm-al-grid">
+            ${btn('same-w', 'Width')}${btn('same-h', 'Height')}</div>
+            <p class="sm-hint" style="margin:6px 0 0">The last element you clicked is the reference.</p></div>
+          <div class="sm-p-sec"><h4>Selected</h4><ul class="sm-list">${many.map(x => `
+            <li><div class="sm-li-main"><div>${esc(x.label || x.occupant || this.typeOf(x).name)}${x.id === this.sel ? ' <span class="sm-hint">· reference</span>' : ''}</div><div class="sm-li-sub">${esc(this.typeOf(x).name)}</div></div>
+            <button class="sm-mini" data-unsel="${esc(x.id)}" title="Remove from the selection" aria-label="Remove from the selection">${ic('close')}</button></li>`).join('')}</ul></div>
+          <div class="sm-p-sec"><div class="sm-actions">
+            <button class="sm-btn" data-e2="dup">${ic('copy')} Duplicate</button>
+            <button class="sm-btn" data-e2="rot">${ic('rotate')} Rotate 90°</button>
+            <button class="sm-btn" data-e2="std">${ic('fit')} Standard size</button>
+            <button class="sm-btn danger" data-e2="del">${ic('trash')} Delete</button></div></div>`;
+        P.querySelector('[data-p="close"]').onclick = () => { this.sel = null; this.renderBar(); this.renderSvg(); this.renderPanel(); };
+        P.onclick = (e) => {
+          const al = e.target.closest('[data-al]'); if (al) return this.editAction(al.dataset.al);
+          const ac = e.target.closest('[data-e2]'); if (ac) return this.editAction(ac.dataset.e2);
+          const un = e.target.closest('[data-unsel]');
+          if (un) { this.selSet.delete(un.dataset.unsel); if (this._sel === un.dataset.unsel) this._sel = [...this.selSet].pop() || null; this.renderBar(); this.renderSvg(); this.renderPanel(); }
+        };
+        return;
+      }
       if (!o) {
         const f = this.floor, tr = f.trace || {};
         P.innerHTML = `
           <div class="sm-p-head"><h3>Layout editor</h3><div class="sm-sub">Nothing is saved until you press Save layout.</div></div>
           <div class="sm-p-sec"><h4>How to</h4><p class="sm-hint" style="margin:0">
             • Click an element to select it; drag to move; drag the square handles to resize.<br>
+            • <b>Ctrl + click</b> (Cmd on a Mac) adds elements to the selection; <b>Ctrl + drag</b> on the floor selects everything in a box; Ctrl+A selects all. Then align, spread or move them together.<br>
+            • While dragging, pink guide lines show when edges or centres line up with another element, and it snaps to them (hold <b>Alt</b> to move freely).<br>
             • Pick a type in the bar and press <b>Add</b> to place a new element in the middle of the view.<br>
             • Arrows nudge (Shift = bigger steps) · Del deletes · Ctrl+D duplicates · Ctrl+Z / Ctrl+Y undo / redo.<br>
             • Drag the empty floor to pan, scroll or pinch to zoom.</p></div>
