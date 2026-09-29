@@ -101,15 +101,15 @@ Roles live in a `profiles` table (Phase 1). Cashiers have **no accounts**; they 
 
 ### 5.1 Database
 
-- [ ] `profiles` table: `id uuid primary key references auth.users on delete cascade`, `username text unique not null`, `display_name text`, `role text not null check (role in ('admin','accountant','delivery','floor_manager'))`, `active boolean default true`, `created_at timestamptz default now()`.
-- [ ] SQL helpers (`security definer`, `stable`):
+- [x] `profiles` table: `id uuid primary key references auth.users on delete cascade`, `username text unique not null`, `display_name text`, `role text not null check (role in ('admin','accountant','delivery','floor_manager'))`, `active boolean default true`, `created_at timestamptz default now()`.
+- [x] SQL helpers (`security definer`, `stable`):
   - `app_role()` → current user's role, or `null` if not signed in or inactive.
   - `is_role(variadic text[])` → boolean.
   - `beirut_today()` → `(now() at time zone 'Asia/Beirut')::date`.
 - [ ] **Enable RLS on every table** and write policies matching §3. Remove any existing "open to everyone" policies (check the `dt_*` ones from the delivery app's `setup.sql`). The `anon` role gets **no** access to any table.
-- [ ] `dt_orders`: add `created_by uuid`, `updated_by uuid`. Enforce the delivery editing rule with a `BEFORE UPDATE` trigger: if the user is not admin and `old.order_date <> beirut_today()`, reject any change except to `paid` and `paid_at`. Deletes: admin only (RLS).
-- [ ] `activity_log` table: `id bigserial`, `at timestamptz default now()`, `user_id uuid`, `username text`, `role text`, `module text`, `action text`, `entity_type text`, `entity_id text`, `summary text`, `details jsonb`. RLS: any signed-in active user may **insert** only rows with their own `user_id`; only admin may **select**; nobody may update or delete.
-- [ ] First admin: document how to create it (Supabase dashboard → Auth → add user, then insert the `profiles` row with role `admin`).
+- [x] `dt_orders`: add `created_by uuid`, `updated_by uuid`. Enforce the delivery editing rule with a `BEFORE UPDATE` trigger: if the user is not admin and `old.order_date <> beirut_today()`, reject any change except to `paid` and `paid_at`. Deletes: admin only (RLS).
+- [x] `activity_log` table: `id bigserial`, `at timestamptz default now()`, `user_id uuid`, `username text`, `role text`, `module text`, `action text`, `entity_type text`, `entity_id text`, `summary text`, `details jsonb`. RLS: any signed-in active user may **insert** only rows with their own `user_id`; only admin may **select**; nobody may update or delete.
+- [x] First admin: document how to create it (Supabase dashboard → Auth → add user, then insert the `profiles` row with role `admin`).
 
 ### 5.2 Edge function `admin-users`
 
@@ -119,23 +119,23 @@ Roles live in a `profiles` table (Phase 1). Cashiers have **no accounts**; they 
 
 ### 5.3 Frontend
 
-- [ ] Login screen: username + password, clear error messages, "signed in as" in the sidebar footer, logout button.
-- [ ] Session persists across reloads. On load: no session → login screen; inactive profile → message and sign out.
-- [ ] Role-based navigation: each role sees only its sections (§3). Direct navigation to a hidden section (URL hash) redirects to the role's home.
-- [ ] Landing page per role: admin → Sell-outs (a home dashboard is parked, §10); accountant → Sell-outs; delivery → Delivery › Orders with the quick-entry row focused; floor_manager → Floor check (placeholder page until Phase 5).
-- [ ] **Users page** (admin only, under Settings): list users, add, change role, reset password, disable.
-- [ ] Shared `logActivity(module, action, entity, summary, details)` helper, used everywhere from now on.
-- [ ] Every Supabase error that is an RLS denial shows a friendly "You don't have permission to do that" toast.
+- [x] Login screen: username + password, clear error messages, "signed in as" in the sidebar footer, logout button.
+- [x] Session persists across reloads. On load: no session → login screen; inactive profile → message and sign out.
+- [x] Role-based navigation: each role sees only its sections (§3). Direct navigation to a hidden section (URL hash) redirects to the role's home.
+- [x] Landing page per role: admin → Sell-outs (a home dashboard is parked, §10); accountant → Sell-outs; delivery → Delivery › Orders with the quick-entry row focused; floor_manager → Floor check (placeholder page until Phase 5).
+- [x] **Users page** (admin only, under Settings): list users, add, change role, reset password, disable.
+- [x] Shared `logActivity(module, action, entity, summary, details)` helper, used everywhere from now on.
+- [x] Every Supabase error that is an RLS denial shows a friendly "You don't have permission to do that" toast.
 
 ### 5.4 Merge the Delivery app into the main app
 
-- [ ] New sidebar section **Delivery** with sub-tabs: Orders, Driver payments, Customers, Drivers, Reports, Settings.
-- [ ] Port the delivery code as its own module, keeping its data layer (snapshot-diff `sync()`, realtime subscription, `fetchAll` paging) and all its behaviour.
-- [ ] Restyle it with the main app's design tokens so it looks like one app. Keep the quick-entry row and its layout.
-- [ ] Keyboard shortcuts (F2/N, 1–6, `/`, arrows, `?`) are active **only while the Delivery section is showing** and must not fire while typing in other modules.
-- [ ] Hide from delivery users (and block with RLS): Drivers, Reports, Settings, backup/restore, delete-all-data, deleting orders, editing past orders.
-- [ ] Record `created_by` / `updated_by` on orders; log order create/edit/delete and "marked paid" to `activity_log`.
-- [ ] Retire the old delivery link: replace `delivery.html` with a page that redirects to the main app (keep the file so old bookmarks still work).
+- [x] New sidebar section **Delivery** with sub-tabs: Orders, Driver payments, Customers, Drivers, Reports, Settings.
+- [x] Port the delivery code as its own module, keeping its data layer (snapshot-diff `sync()`, realtime subscription, `fetchAll` paging) and all its behaviour.
+- [x] Restyle it with the main app's design tokens so it looks like one app. Keep the quick-entry row and its layout.
+- [x] Keyboard shortcuts (F2/N, 1–6, `/`, arrows, `?`) are active **only while the Delivery section is showing** and must not fire while typing in other modules.
+- [x] Hide from delivery users (and block with RLS): Drivers, Reports, Settings, backup/restore, delete-all-data, deleting orders, editing past orders.
+- [x] Record `created_by` / `updated_by` on orders; log order create/edit/delete and "marked paid" to `activity_log`.
+- [x] Retire the old delivery link: replace `delivery.html` with a page that redirects to the main app (keep the file so old bookmarks still work).
 
 ### 5.5 Tests (must all pass)
 
