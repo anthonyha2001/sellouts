@@ -347,34 +347,34 @@ Decided with the owner (2026-09-29):
 
 ### 10b.1 Database
 
-- [ ] `profiles.role` accepts `'shelf'`; §3 gets a Labels row (shelf: scan own lists; accountant +
+- [x] `profiles.role` accepts `'shelf'`; §3 gets a Labels row (shelf: scan own lists; accountant +
   admin: see submitted lists, export).
-- [ ] `label_lists`: `id`, `created_by`, `created_at`, `submitted_at`, `exported_at`, `exported_by`.
-- [ ] `label_items`: `id`, `list_id`, `barcode text` (leading zeros kept), `qty int`, `scanned_at`;
+- [x] `label_lists`: `id`, `created_by`, `created_at`, `submitted_at`, `exported_at`, `exported_by`.
+- [x] `label_items`: `id`, `list_id`, `barcode text` (leading zeros kept), `qty int`, `scanned_at`;
   unique `(list_id, barcode)`.
-- [ ] RLS: a shelf worker creates and edits only their own list until it is submitted; accountant and
+- [x] RLS: a shelf worker creates and edits only their own list until it is submitted; accountant and
   admin read submitted lists and mark them exported; nobody else sees them.
 
 ### 10b.2 Shelf worker page (phone-first)
 
-- [ ] Big **Scan** view: camera opens, every barcode read is added at once (same barcode again = Qty + 1),
+- [x] Big **Scan** view: camera opens, every barcode read is added at once (same barcode again = Qty + 1),
   with a beep/vibration and the last items shown under the camera.
-- [ ] The list: barcode, Qty (+ / − / type a number), remove; can also type a barcode by hand.
-- [ ] The list is saved as it grows (a closed page loses nothing).
-- [ ] **Done** submits the list to the accountant and starts a new empty one.
+- [x] The list: barcode, Qty (+ / − / type a number), remove; can also type a barcode by hand.
+- [x] The list is saved as it grows (a closed page loses nothing).
+- [x] **Done** submits the list to the accountant and starts a new empty one.
 
 ### 10b.3 Accountant (and admin) page
 
-- [ ] Submitted lists (who, when, number of items), and one merged total per barcode.
-- [ ] **Export to Excel**: one sheet with exactly the headers **`ItemCode`** and **`Qty`** (barcodes as
+- [x] Submitted lists (who, when, number of items), and one merged total per barcode.
+- [x] **Export to Excel**: one sheet with exactly the headers **`ItemCode`** and **`Qty`** (barcodes as
   text so leading zeros survive; quantities summed per barcode across the exported lists).
-- [ ] After the export the page is **emptied**: the exported lists are marked exported and hidden
+- [x] After the export the page is **emptied**: the exported lists are marked exported and hidden
   (kept in the database for history; nothing is deleted). Logged.
 
 ### 10b.4 Scanning in the floor check
 
-- [ ] Sell-out and promotion imports detect a barcode column (aliases as in §10.1) and keep it as text.
-- [ ] Floor check items store the barcode; a **Scan** button opens the camera and jumps to the scanned
+- [x] Sell-out and promotion imports detect a barcode column (aliases as in §10.1) and keep it as text.
+- [x] Floor check items store the barcode; a **Scan** button opens the camera and jumps to the scanned
   item (opens its group, highlights it) so it can be marked straight away. Unknown barcode → "Not in
   today's check" message.
 

@@ -45,7 +45,8 @@ function detectColumns(items) {
   const description = find(DESC_ALIASES, [code]);
   const newPrice = find(NEW_PRICE_ALIASES, [code, description]);
   const price = find(PRICE_ALIASES, [code, description, newPrice]);
-  return { code, description, price, newPrice };
+  const barcode = cols.find(c => c !== code && BARCODE_HEADERS.includes(normHeader(c))) || null;
+  return { code, description, price, newPrice, barcode };
 }
 
 function buildPricedItems(items, map) {
@@ -56,6 +57,7 @@ function buildPricedItems(items, map) {
       code: String(r[map.code] ?? '').trim(),
       description: map.description ? String(r[map.description] ?? '').trim() : '',
       oldPrice: map.price ? parseNum(r[map.price]) : null,
+      barcode: map.barcode ? (splitBarcodes(r[map.barcode])[0] || '') : '',
       mode: fromFile !== null ? 'file' : null, value: null,
       newPrice: fromFile !== null ? round2(fromFile) : null,
     };
@@ -158,7 +160,16 @@ function readSheetItems(buf) {
   const wb = XLSX.read(buf, { type: 'array' });
   const ws = wb.Sheets[wb.SheetNames[0]];
   // raw:false keeps codes as the text shown in Excel (leading zeros survive); prices are parsed later.
-  return XLSX.utils.sheet_to_json(ws, { defval: '', raw: false });
+  const rows = XLSX.utils.sheet_to_json(ws, { defval: '', raw: false });
+  // Barcode columns: Excel's display text can turn 5281018709276 into "5.28102E+12", so take the exact
+  // number there (text cells stay as typed).
+  const raw = XLSX.utils.sheet_to_json(ws, { defval: '', raw: true });
+  const barcodeCols = itemColumns(rows).filter(c => BARCODE_HEADERS.includes(normHeader(c)));
+  barcodeCols.forEach(c => rows.forEach((r, i) => {
+    const v = raw[i]?.[c];
+    if (typeof v === 'number' && Number.isFinite(v)) r[c] = String(Math.round(v));
+  }));
+  return rows;
 }
 
 function renderMappingStep() {

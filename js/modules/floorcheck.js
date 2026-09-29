@@ -40,7 +40,7 @@
       .map(s => ({ id: s.id, name: s.name, from: s.from, to: s.to, items: s.items || [], pricedItems: Array.isArray(s.priced_items) ? s.priced_items : null, priceColumn: s.price_column }));
     const promotions = pr.data.map(p => ({ id: p.id, name: p.name || 'Promotion', from: p.from_date, to: p.to_date, rows: [] }));
     if (promotions.length) {
-      const { data: rows, error } = await sb.from('promotion_rows').select('id, promotion_id, code, description, supplier, promo_price, before_price, sale_price, sort_order')
+      const { data: rows, error } = await sb.from('promotion_rows').select('id, promotion_id, code, description, supplier, barcode, promo_price, before_price, sale_price, sort_order')
         .in('promotion_id', promotions.map(p => p.id)).order('sort_order');
       if (error) { fail('Could not load the promotion items', error); return { sellouts, promotions: [] }; }
       promotions.forEach(p => { p.rows = rows.filter(r => r.promotion_id === p.id); });
@@ -53,11 +53,13 @@
     const out = [];
     const priorityOf = x => (x.from === today || x.to === today) ? 0 : 1;
     sellouts.forEach(so => {
+      const bcCol = detectColumns(so.items).barcode;
       pricedRowsOf(so).forEach(p => {
         if (!p.code && !p.description) return;
         // Sell-out files have no supplier column; each sell-out is one supplier's offer, so its name groups it.
         out.push({ source: 'sellout', sellout_id: so.id, source_name: so.name, supplier: so.name, item_key: `so:${so.id}:${p.row}`, item_row: p.row,
-          code: p.code, description: p.description, expected_price: p.newPrice ?? null, old_price: p.oldPrice ?? null, priority: priorityOf(so) });
+          code: p.code, description: p.description, expected_price: p.newPrice ?? null, old_price: p.oldPrice ?? null, priority: priorityOf(so),
+          barcode: p.barcode || (bcCol ? (splitBarcodes(so.items[p.row]?.[bcCol])[0] || '') : '') });
       });
     });
     promotions.forEach(pm => {
@@ -65,7 +67,8 @@
         if (!String(r.code || '').trim() && !String(r.description || '').trim()) return;
         out.push({ source: 'promotion', promotion_id: pm.id, source_name: pm.name, supplier: String(r.supplier || '').trim() || 'No supplier',
           item_key: `pr:${r.id}`, item_row: i, code: String(r.code || '').trim(), description: r.description || '',
-          expected_price: numOrNull(r.promo_price), old_price: numOrNull(r.before_price) ?? numOrNull(r.sale_price), priority: priorityOf(pm) });
+          expected_price: numOrNull(r.promo_price), old_price: numOrNull(r.before_price) ?? numOrNull(r.sale_price), priority: priorityOf(pm),
+          barcode: String(r.barcode || '').trim() });
       });
     });
     // Supplier by supplier: suppliers with something starting/ending today first, then A-Z.
@@ -73,7 +76,7 @@
     out.forEach(x => groupPriority.set(x.supplier, Math.min(groupPriority.get(x.supplier) ?? 1, x.priority)));
     out.sort((a, b) => groupPriority.get(a.supplier) - groupPriority.get(b.supplier) || a.supplier.localeCompare(b.supplier)
       || a.priority - b.priority || a.source_name.localeCompare(b.source_name) || a.item_row - b.item_row);
-    out.forEach((x, i) => { x.sort_order = i; });
+    out.forEach((x, i) => { x.sort_order = i; if (!x.barcode) delete x.barcode; });
     return out;
   }
   const supplierOf = x => x.supplier || x.source_name || 'No supplier';
@@ -187,6 +190,9 @@
         <button data-f="problems" class="${S.filter === 'problems' ? 'active' : ''}">Problems (${c.problems})</button>
         <button data-f="all" class="${S.filter === 'all' ? 'active' : ''}">All (${c.total})</button>
       </div>
+      ${locked ? '' : `<button type="button" class="btn fc-scan-btn" id="fcScan">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 8v8M10 8v8M13 8v8M17 8v8"/></svg>
+        Scan an item</button>`}
       <div class="fc-view">
         <div class="fc-view-row"><span class="fc-view-label">Group by</span><div class="filter-row">
           ${pill('group', 'supplier', S.groupBy, 'Supplier')}${pill('group', 'source', S.groupBy, 'Sell-out / promotion')}</div></div>
@@ -205,6 +211,12 @@
       renderToday();
     });
     body.querySelectorAll('[data-show]').forEach(b => b.onclick = () => { S.show = b.dataset.show; S.openGroups = null; saveView(); renderToday(); });
+    el('fcScan')?.addEventListener('click', scanToItem);
+    if (S.focus) {
+      const card = body.querySelector(`.fc-item[data-id="${CSS.escape(S.focus)}"]`);
+      S.focus = null;
+      if (card) { card.scrollIntoView({ block: 'center' }); card.classList.add('fc-focus'); setTimeout(() => card.classList.remove('fc-focus'), 2500); }
+    }
     body.querySelectorAll('.fc-item').forEach(card => wireItem(card, locked));
     el('fcFinish')?.addEventListener('click', finishCheck);
     loadPhotoThumbs(body);
@@ -220,6 +232,27 @@
     }
   }
 
+  // Scan a shelf barcode and jump to that item: opens its group, clears filters that hide it, highlights it.
+  function scanToItem() {
+    Scanner.open({
+      title: 'Scan an item', continuous: true,
+      onCode: code => {
+        const x = S.items.find(i => i.barcode && i.barcode === code) || S.items.find(i => i.code && i.code === code);
+        if (!x) return `<span class="scan-code">${esc(code)}</span> is not in today's check`;
+        if (S.show !== 'all' && x.source !== S.show) S.show = 'all';
+        const matchesFilter = S.filter === 'all' || (S.filter === 'todo' ? x.status === 'pending' : PROBLEMS.includes(x.status));
+        if (!matchesFilter) S.filter = 'all';
+        const key = S.groupBy === 'source' ? `${x.source}|${x.source_name}` : `s|${supplierOf(x)}`;
+        S.openGroups = S.openGroups || new Set();
+        S.openGroups.add(key);
+        S.focus = x.id;
+        Scanner.close();
+        renderToday();
+        return '';
+      },
+    });
+  }
+
   // An open check follows price changes made after it started (e.g. a sell-out priced later):
   // items not yet checked get the current price; checked items keep the price they were checked against.
   // Also finds items from sell-outs / promotions that started since.
@@ -230,15 +263,16 @@
     const byKey = new Map(current.map(x => [x.item_key, x]));
     const same = (a, b) => String(a ?? '') === String(b ?? '');
     const stale = S.items.filter(i => i.status === 'pending' && byKey.has(i.item_key))
-      .filter(i => { const c = byKey.get(i.item_key); return !same(i.expected_price, c.expected_price) || !same(i.old_price, c.old_price); });
+      .filter(i => { const c = byKey.get(i.item_key); return !same(i.expected_price, c.expected_price) || !same(i.old_price, c.old_price) || (c.barcode && !same(i.barcode, c.barcode)); });
     for (let k = 0; k < stale.length; k += 20) {
       await Promise.all(stale.slice(k, k + 20).map(async i => {
         const c = byKey.get(i.item_key);
-        const { error } = await sb.from('floor_check_items').update({ expected_price: c.expected_price, old_price: c.old_price }).eq('id', i.id);
-        if (!error) { i.expected_price = c.expected_price; i.old_price = c.old_price; }
+        const patch = { expected_price: c.expected_price, old_price: c.old_price, ...(c.barcode ? { barcode: c.barcode } : {}) };
+        const { error } = await sb.from('floor_check_items').update(patch).eq('id', i.id);
+        if (!error) Object.assign(i, patch);
       }));
     }
-    if (stale.length) showToast(`Prices updated on ${stale.length} item${stale.length === 1 ? '' : 's'} not checked yet.`);
+    if (stale.length) showToast(`Updated ${stale.length} item${stale.length === 1 ? '' : 's'} not checked yet (prices / barcodes).`);
     const have = new Set(S.items.map(x => x.item_key));
     S.extra = current.filter(x => !have.has(x.item_key));
   }
@@ -469,7 +503,7 @@
   }
   async function show() {
     if (!S.started) { S.started = true; shell(); }
-    if (S.tab === 'today') await loadToday();
+    if (S.tab === 'today') { Scanner.warmUp(); await loadToday(); }
     if (S.tab === 'results') await loadResults();
     render();
     if (S.tab === 'today' && S.check && !S.check.completed_at) { await syncOpenCheck(); if (S.tab === 'today') renderToday(); }

@@ -947,6 +947,7 @@ const PAGES = {
   delivery:    { eyebrow: 'Deliveries', title: 'Delivery', sub: 'Home-delivery orders, driver payments and customers.' },
   cash:        { eyebrow: 'Cashiers', title: 'Cash differences', sub: 'Daily over and short amounts per cashier.' },
   floorcheck:  { eyebrow: 'Store floor', title: 'Floor check', sub: 'Check that every sell-out and promotion item on the floor has the right price.' },
+  labels:      { eyebrow: 'Shelves', title: 'Shelf labels', sub: 'Items that need a new shelf label: scanned on the floor, printed by the accountant.' },
   users:       { eyebrow: 'Settings', title: 'Users', sub: 'Who can sign in, and what each person can do.' },
   activity:    { eyebrow: 'Settings', title: 'Activity log', sub: 'Everything that was changed, by whom and when.' }
 };
@@ -967,6 +968,8 @@ function switchTab(name, sub) {
   if (name === 'users' && window.UsersPage) UsersPage.show();
   if (name === 'cash' && window.Cash) Cash.show();
   if (name === 'floorcheck' && window.FloorCheck) FloorCheck.show();
+  if (name === 'labels' && window.Labels) Labels.show();
+  if (name !== 'floorcheck' && name !== 'labels' && window.Scanner) Scanner.close();
   if (name === 'activity' && window.ActivityPage) ActivityPage.show();
 }
 function routeFromHash() {

@@ -5,13 +5,13 @@
 const ROLES = {
   admin: {
     label: 'Admin',
-    sections: ['sellouts', 'creditnotes', 'promotions', 'vendors', 'rentals', 'delivery', 'cash', 'floorcheck', 'users', 'activity'],
+    sections: ['sellouts', 'creditnotes', 'promotions', 'vendors', 'rentals', 'delivery', 'cash', 'floorcheck', 'labels', 'users', 'activity'],
     delivery: ['orders', 'settle', 'reports', 'customers', 'drivers', 'settings'],
     home: 'sellouts',
   },
   accountant: {
     label: 'Accountant',
-    sections: ['sellouts', 'promotions', 'cash', 'delivery'],
+    sections: ['sellouts', 'promotions', 'cash', 'delivery', 'labels'],
     delivery: ['settle'],
     home: 'sellouts',
   },
@@ -26,6 +26,13 @@ const ROLES = {
     sections: ['floorcheck'],
     delivery: [],
     home: 'floorcheck',
+  },
+  // Shelf workers scan items that need a new shelf label (Phase 7).
+  shelf: {
+    label: 'Shelf worker',
+    sections: ['labels'],
+    delivery: [],
+    home: 'labels',
   },
 };
 

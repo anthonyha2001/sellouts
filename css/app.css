@@ -795,3 +795,50 @@ table.items tr.fc-resolved > td{opacity:.55;}
 .fc-group-body{display:flex;flex-direction:column;gap:10px;padding:0 10px 12px;}
 .fc-group-body .fc-item{border-right:1px solid var(--line);}
 
+
+/* ================= Camera scanner (shared) ================= */
+.scan-overlay{position:fixed;inset:0;z-index:300;background:#000;display:none;}
+.scan-overlay.open{display:block;}
+.scan-overlay video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;}
+.scan-frame{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;}
+.scan-frame span{width:min(78vw,420px);height:min(34vw,190px);border:3px solid rgba(255,255,255,.9);border-radius:14px;
+  box-shadow:0 0 0 9999px rgba(0,0,0,.35);}
+.scan-top{position:absolute;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:center;gap:10px;
+  padding:14px 16px;padding-top:max(14px,env(safe-area-inset-top));background:linear-gradient(rgba(0,0,0,.6),transparent);color:#fff;}
+.scan-top b{font-size:16px;}
+.scan-top-actions{display:flex;gap:8px;}
+.scan-btn{background:rgba(255,255,255,.18);color:#fff;border:1px solid rgba(255,255,255,.35);border-radius:22px;padding:9px 18px;font-weight:600;font-size:14px;cursor:pointer;}
+.scan-btn.on{background:#fff;color:#000;}
+.scan-bottom{position:absolute;left:0;right:0;bottom:0;padding:16px;padding-bottom:max(18px,env(safe-area-inset-bottom));
+  background:linear-gradient(transparent,rgba(0,0,0,.75));color:#fff;text-align:center;}
+#scanStatus{font-size:13px;opacity:.85;}
+#scanLast{margin-top:8px;font-size:18px;min-height:26px;}
+.scan-code{font-family:var(--font-mono);letter-spacing:.03em;}
+.scan-ok{color:#7CE3A1;font-weight:700;}
+.scan-count{font-size:13px;opacity:.8;margin-left:6px;}
+
+/* ================= Shelf labels ================= */
+.lb-scan-card{display:flex;flex-direction:column;gap:12px;align-items:stretch;}
+.lb-scan-btn{display:flex;align-items:center;justify-content:center;gap:10px;font-size:18px;padding:18px;min-height:64px;}
+.lb-scan-btn svg{width:26px;height:26px;stroke:currentColor;}
+.lb-manual{display:flex;gap:8px;}
+.lb-manual input{flex:1;font-family:var(--font-mono);font-size:16px;}
+.lb-summary{font-size:14px;color:var(--ink-soft);margin:0 2px 10px;}
+.lb-summary b{font-family:var(--font-mono);color:var(--ink);}
+.lb-list{display:flex;flex-direction:column;gap:8px;padding-bottom:80px;}
+.lb-row{display:flex;align-items:center;gap:10px;background:var(--paper-raised);border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px;}
+.lb-row.flash{animation:lbFlash 1s ease-out;}
+@keyframes lbFlash{from{background:var(--pine-tint);border-color:var(--pine);}}
+.lb-code{flex:1;min-width:0;font-family:var(--font-mono);font-size:16px;overflow:hidden;text-overflow:ellipsis;}
+.lb-qty{display:flex;align-items:center;border:1px solid var(--line-strong);border-radius:var(--radius-sm);overflow:hidden;}
+.lb-qty button{width:40px;height:40px;border:0;background:var(--paper);color:var(--ink);font-size:20px;cursor:pointer;}
+.lb-qty input{width:52px;height:40px;border:0;text-align:center;font-family:var(--font-mono);font-size:16px;background:var(--paper-raised);color:var(--ink);padding:0;}
+.lb-remove{width:36px;height:36px;border:0;background:none;color:var(--ink-faint);cursor:pointer;border-radius:8px;}
+.lb-remove svg{width:18px;height:18px;stroke:currentColor;}
+.lb-remove:hover{color:var(--brick);background:var(--brick-tint);}
+.lb-done{position:sticky;bottom:0;padding:12px 0;background:linear-gradient(transparent,var(--paper) 30%);display:flex;justify-content:center;}
+.lb-done .btn{min-height:50px;min-width:260px;font-size:15px;}
+.lb-print-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;}
+.fc-scan-btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;min-height:50px;font-size:15px;margin:0 0 12px;}
+.fc-scan-btn svg{width:22px;height:22px;stroke:currentColor;}
+.fc-item.fc-focus{box-shadow:0 0 0 3px var(--pine);animation:lbFlash 1.2s ease-out;}

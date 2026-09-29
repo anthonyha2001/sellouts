@@ -44,6 +44,7 @@ select pg_temp.check('profiles accept the shelf role', exists (select 1 from pub
 -- shelf 1 scans
 select pg_temp.t('shelf 1 opens a list', '00000000-0000-0000-0000-0000000000a1',
   $q$insert into public.label_lists (id) values ('40000000-0000-0000-0000-000000000001')$q$, 'ok');
+select pg_temp.check('…stamped with the scanner''s name', (select created_by_name = 't_shelf1' from public.label_lists where id = '40000000-0000-0000-0000-000000000001'));
 select pg_temp.t('a second open list', '00000000-0000-0000-0000-0000000000a1',
   $q$insert into public.label_lists default values$q$, 'blocked');
 select pg_temp.t('shelf 1 scans items', '00000000-0000-0000-0000-0000000000a1',

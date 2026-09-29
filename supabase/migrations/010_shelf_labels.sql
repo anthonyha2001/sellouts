@@ -17,8 +17,20 @@ create table if not exists public.label_lists (
   created_at   timestamptz not null default now(),
   submitted_at timestamptz,
   exported_at  timestamptz,
-  exported_by  uuid
+  exported_by  uuid,
+  created_by_name text          -- who scanned, kept on the list (the accountant cannot read other profiles)
 );
+
+create or replace function public.label_lists_stamp() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  new.created_by := coalesce(auth.uid(), new.created_by);
+  select coalesce(p.display_name, p.username) into new.created_by_name from public.profiles p where p.id = new.created_by;
+  return new;
+end $$;
+drop trigger if exists label_lists_stamp on public.label_lists;
+create trigger label_lists_stamp before insert on public.label_lists
+  for each row execute function public.label_lists_stamp();
 -- One open (not yet submitted) list per person.
 create unique index if not exists label_lists_one_open on public.label_lists (created_by) where submitted_at is null;
 
