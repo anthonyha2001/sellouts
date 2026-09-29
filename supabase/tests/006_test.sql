@@ -50,11 +50,13 @@ select pg_temp.t('accountant starts a check', '00000000-0000-0000-0000-000000000
 select pg_temp.t('floor 2 starts own check', '00000000-0000-0000-0000-0000000000f2',
   $q$insert into public.floor_checks (id) values ('20000000-0000-0000-0000-000000000002')$q$, 'ok');
 select pg_temp.t('floor 1 adds items', '00000000-0000-0000-0000-0000000000f1',
-  $q$insert into public.floor_check_items (id, check_id, item_row, code, description, expected_price) values
-     ('30000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', 0, '151540', 'Test item', 1.35),
-     ('30000000-0000-0000-0000-000000000002', '20000000-0000-0000-0000-000000000001', 1, '00123', 'Other item', 2.80)$q$, 'ok');
+  $q$insert into public.floor_check_items (id, check_id, source, item_key, item_row, code, description, expected_price) values
+     ('30000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', 'sellout', 'so:x:0', 0, '151540', 'Test item', 1.35),
+     ('30000000-0000-0000-0000-000000000002', '20000000-0000-0000-0000-000000000001', 'promotion', 'pr:y', null, '00123', 'Promo item', 2.80)$q$, 'ok');
 select pg_temp.t('floor 2 adds items to floor 1''s check', '00000000-0000-0000-0000-0000000000f2',
-  $q$insert into public.floor_check_items (check_id, item_row, code) values ('20000000-0000-0000-0000-000000000001', 9, 'x')$q$, 'blocked');
+  $q$insert into public.floor_check_items (check_id, item_key, code) values ('20000000-0000-0000-0000-000000000001', 'so:z:9', 'x')$q$, 'blocked');
+select pg_temp.t('same item twice in one check', '00000000-0000-0000-0000-0000000000f1',
+  $q$insert into public.floor_check_items (check_id, item_key, code) values ('20000000-0000-0000-0000-000000000001', 'pr:y', 'dup')$q$, 'blocked');
 
 -- ---------- who sees what ----------
 select pg_temp.t('floor 1 sees only own check', '00000000-0000-0000-0000-0000000000f1', $q$select pg_temp.expect('select count(*) from public.floor_checks', 1)$q$, 'ok');

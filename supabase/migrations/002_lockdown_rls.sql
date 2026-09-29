@@ -73,6 +73,21 @@ create policy catalog_items_all on public.catalog_items for all to authenticated
 create policy app_settings_all on public.app_settings for all to authenticated
   using (public.is_role('admin','accountant')) with check (public.is_role('admin','accountant'));
 
+-- Floor manager: read-only view of the promotions running today and their rows, for the floor
+-- check (owner, 2026-09-29: the floor check covers promotions as well as sell-outs).
+create or replace function public.promotion_is_current(p_id text) returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.promotions p
+                 where p.id = p_id and not p.archived
+                   and p.from_date <= public.beirut_today() and public.beirut_today() <= p.to_date)
+$$;
+revoke execute on function public.promotion_is_current(text) from public, anon;
+grant execute on function public.promotion_is_current(text) to authenticated;
+create policy promotions_floor_read on public.promotions for select to authenticated
+  using (public.is_role('floor_manager') and public.promotion_is_current(id));
+create policy promotion_rows_floor_read on public.promotion_rows for select to authenticated
+  using (public.is_role('floor_manager') and public.promotion_is_current(promotion_id));
+
 -- Admin only: credit notes, vendors, vendor orders/skips, rentals.
 create policy credit_notes_admin   on public.credit_notes   for all to authenticated using (public.is_role('admin')) with check (public.is_role('admin'));
 create policy vendors_admin        on public.vendors        for all to authenticated using (public.is_role('admin')) with check (public.is_role('admin'));

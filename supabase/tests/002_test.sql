@@ -67,11 +67,15 @@ language plpgsql as $$
 declare n bigint; total bigint;
 begin
   execute format('select count(*) from public.%I', tbl) into n;
-  total := (select t_totals.n from t_totals where t = case when mode = 'active' then 'sellouts_active' else tbl end);
-  if (mode = 'none' and n <> 0) or (mode = 'all' and n < total) or (mode = 'active' and n <> total) then
+  total := (select t_totals.n from t_totals where t = case when mode = 'active' then 'sellouts_active'
+                                                            when mode = 'current' then tbl || '_current' else tbl end);
+  if (mode = 'none' and n <> 0) or (mode = 'all' and n < total) or (mode in ('active', 'current') and n <> total) then
     raise exception 'sees % of % rows (expected %)', n, total, mode;
   end if;
 end $$;
+
+create or replace function pg_temp.expect_zero(q text) returns void
+language plpgsql as $$ declare n bigint; begin execute q into n; if n <> 0 then raise exception 'saw % rows', n; end if; end $$;
 
 -- Row checks as the owner (e.g. "the forbidden delete did not happen").
 create or replace function pg_temp.check_owner(label text, ok boolean) returns void
@@ -122,8 +126,23 @@ select pg_temp.t('accountant adds a credit note',   '00000000-0000-0000-0000-000
 
 -- ============ Floor manager ============
 select pg_temp.t('floor sees only active sell-outs','00000000-0000-0000-0000-0000000000f0', $q$select pg_temp.sees('sellouts','active')$q$, 'ok');
+-- Promotions: one running today and one that has ended (fixtures), then counts of what is current.
+insert into public.promotions (id, name, from_date, to_date, archived) values
+  ('t_promo_now', 'Test promo now', public.beirut_today() - 1, public.beirut_today() + 1, false),
+  ('t_promo_old', 'Test promo old', public.beirut_today() - 20, public.beirut_today() - 10, false);
+insert into public.promotion_rows (id, promotion_id, code, promo_price) values
+  ('t_pr_now', 't_promo_now', '111', 1.5), ('t_pr_old', 't_promo_old', '222', 2.5);
+insert into t_totals values
+  ('promotions_current', (select count(*) from public.promotions where not archived and from_date <= public.beirut_today() and public.beirut_today() <= to_date)),
+  ('promotion_rows_current', (select count(*) from public.promotion_rows r join public.promotions p on p.id = r.promotion_id
+                              where not p.archived and p.from_date <= public.beirut_today() and public.beirut_today() <= p.to_date));
+select pg_temp.t('floor sees only current promotions', '00000000-0000-0000-0000-0000000000f0', $q$select pg_temp.sees('promotions','current')$q$, 'ok');
+select pg_temp.t('floor sees only their rows',         '00000000-0000-0000-0000-0000000000f0', $q$select pg_temp.sees('promotion_rows','current')$q$, 'ok');
+select pg_temp.t('floor cannot see the ended promo',   '00000000-0000-0000-0000-0000000000f0', $q$select pg_temp.expect_zero($x$select count(*) from public.promotion_rows where id = 't_pr_old'$x$)$q$, 'ok');
+select pg_temp.t('floor edits a promotion row (silently nothing)', '00000000-0000-0000-0000-0000000000f0', $q$update public.promotion_rows set promo_price = 0 where id = 't_pr_now'$q$, 'ok');
+select pg_temp.check_owner('…row unchanged', (select promo_price = 1.5 from public.promotion_rows where id = 't_pr_now'));
 select pg_temp.t('floor reads ' || tb || ': none',  '00000000-0000-0000-0000-0000000000f0', format($q$select pg_temp.sees(%L,'none')$q$, tb), 'ok')
-from unnest(array['promotions','dt_orders','dt_customers','vendors','credit_notes']) tb;
+from unnest(array['dt_orders','dt_customers','vendors','credit_notes','catalog_items']) tb;
 select pg_temp.t('floor edits a sell-out',          '00000000-0000-0000-0000-0000000000f0', $q$insert into public.sellouts (id, name) values ('t_so2', 'x')$q$, 'blocked');
 
 -- ============ Disabled account (even an admin) ============

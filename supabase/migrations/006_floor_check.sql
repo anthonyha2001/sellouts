@@ -1,7 +1,8 @@
--- 006 — Floor check (PLAN §9.1): daily check of sell-out prices on the shelves.
+-- 006 — Floor check (PLAN §9.1): daily check of sell-out and promotion prices on the shelves
+-- (promotions included: owner, 2026-09-29).
 -- New tables + a private storage bucket. Nothing existing changes.
 -- Who: floor_manager does checks and sees only their own; admin does/sees everything and is the
--- only one who marks a problem resolved. Items are a snapshot of the sell-outs at the start.
+-- only one who marks a problem resolved. Items are a snapshot taken when the check starts.
 
 create table if not exists public.floor_checks (
   id           uuid primary key default gen_random_uuid(),
@@ -16,14 +17,17 @@ create table if not exists public.floor_checks (
 create table if not exists public.floor_check_items (
   id             uuid primary key default gen_random_uuid(),
   check_id       uuid not null references public.floor_checks on delete cascade,
+  source         text not null default 'sellout' check (source in ('sellout', 'promotion')),
   sellout_id     text references public.sellouts on delete set null,
-  sellout_name   text,                -- snapshot, so history reads well after a sell-out is deleted
+  promotion_id   text references public.promotions on delete set null,
+  source_name    text,                -- sell-out / promotion name, kept for history if it is deleted
+  item_key       text not null,       -- 'so:<sellout id>:<row>' or 'pr:<promotion row id>'
   item_row       integer,             -- row of the item in the sell-out file
   code           text,
   description    text,
-  expected_price numeric,             -- the sell-out's new price (null when it was not priced)
-  old_price      numeric,
-  priority       integer not null default 1,   -- 0 = sell-out starts or ends today
+  expected_price numeric,             -- sell-out new price / promotion promo price (null when not set)
+  old_price      numeric,             -- regular price, shown for reference
+  priority       integer not null default 1,   -- 0 = the sell-out / promotion starts or ends today
   sort_order     integer not null default 0,
   status         text not null default 'pending'
                  check (status in ('pending', 'ok', 'wrong_price', 'missing_tag', 'out_of_stock')),
@@ -34,7 +38,7 @@ create table if not exists public.floor_check_items (
   resolved       boolean not null default false,
   resolved_by    uuid,
   resolved_at    timestamptz,
-  unique (check_id, sellout_id, item_row)
+  unique (check_id, item_key)
 );
 create index if not exists floor_check_items_check_idx on public.floor_check_items (check_id);
 create index if not exists floor_check_items_code_idx on public.floor_check_items (code) where status not in ('pending', 'ok');

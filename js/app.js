@@ -939,7 +939,7 @@ const PAGES = {
   rentals:     { eyebrow: 'Gondolas', title: 'Rentals', sub: 'Gondola and shelf-space rentals by supplier, tracked year over year.' },
   delivery:    { eyebrow: 'Deliveries', title: 'Delivery', sub: 'Home-delivery orders, driver payments and customers.' },
   cash:        { eyebrow: 'Cashiers', title: 'Cash differences', sub: 'Daily over and short amounts per cashier.' },
-  floorcheck:  { eyebrow: 'Store floor', title: 'Floor check', sub: 'Check that every sell-out item on the floor has the right price.' },
+  floorcheck:  { eyebrow: 'Store floor', title: 'Floor check', sub: 'Check that every sell-out and promotion item on the floor has the right price.' },
   users:       { eyebrow: 'Settings', title: 'Users', sub: 'Who can sign in, and what each person can do.' },
   activity:    { eyebrow: 'Settings', title: 'Activity log', sub: 'Everything that was changed, by whom and when.' }
 };

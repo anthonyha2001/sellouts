@@ -335,7 +335,7 @@ Goal: suppliers send offers as PDFs, photos, or WhatsApp screenshots, usually id
 | 3 | Cash colour thresholds | **Answered 2026-09-29:** ±$10 warning, ±$20 danger (editable in Cash settings) |
 | 4 | How does the catalog export list multiple barcodes per item? | Support both formats |
 | 5 | Does the catalog export already include a barcode column? | Ask before Phase 6 |
-| 6 | Should the floor check include active promotions? | Sell-outs only |
+| 6 | Should the floor check include active promotions? | **Answered 2026-09-29:** yes. Promotions running today (not archived, today within their dates) are checked against their promo price; the floor manager can read those promotions and their rows only |
 | 7 | Credit notes access for the accountant? | Admin only |
 
 ---

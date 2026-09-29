@@ -7,7 +7,11 @@ import { randomUUID } from 'node:crypto';
 export default async function (page, { log }) {
   const dir = process.env.SHOT_DIR || tmpdir();
   const tables = { floor_checks: [], floor_check_items: [] };
-  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Beirut' });
+  // FAKE_TODAY=YYYY-MM-DD makes the page believe it is that day (to test a promotion that is not running yet).
+  const today = process.env.FAKE_TODAY || new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Beirut' });
+  if (process.env.FAKE_TODAY) await page.addInitScript(d => { window.__fakeToday = d; }, process.env.FAKE_TODAY);
+  const fakeDay = async () => { if (process.env.FAKE_TODAY) await page.evaluate(d => { beirutToday = () => d; }, process.env.FAKE_TODAY); };
+  await fakeDay();
   const filt = (rows, url) => {
     for (const [k, v] of url.searchParams) {
       if (['select', 'order', 'limit', 'offset', 'on_conflict', 'columns'].includes(k)) continue;
@@ -48,7 +52,8 @@ export default async function (page, { log }) {
   await page.click('#fcStart');
   await page.waitForTimeout(2500);
   const items = tables.floor_check_items;
-  log('items created:', items.length, '| first sell-out:', items[0]?.sellout_name, '| with expected price:', items.filter(i => i.expected_price !== null).length,
+  log('by source:', JSON.stringify(items.reduce((m, x) => (m[x.source + ': ' + x.source_name] = (m[x.source + ': ' + x.source_name] || 0) + 1, m), {})));
+  log('items created:', items.length, '| first:', items[0]?.source_name, '| with expected price:', items.filter(i => i.expected_price !== null).length,
       '| priority 0 first:', items.every((x, i) => i === 0 || items[i - 1].priority <= x.priority));
   // mark a few
   const cards = await page.$$('.fc-item');
@@ -57,10 +62,13 @@ export default async function (page, { log }) {
   await (await (await page.$$('.fc-item'))[0].$('[data-status="missing_tag"]')).click(); await page.waitForTimeout(300);
   log('progress:', (await page.textContent('.fc-progress-top')).replace(/\s+/g, ' ').trim(), '| statuses:', JSON.stringify(tables.floor_check_items.slice(0, 4).map(x => x.status)));
   await page.screenshot({ path: join(dir, 'floor_today.png') });
-  // resume: reload the page, the same check comes back
-  await page.reload(); await page.waitForTimeout(6000);
-  await page.evaluate(() => { location.hash = '#floorcheck'; }); await page.waitForTimeout(1500);
-  log('after reload:', (await page.textContent('.fc-progress-top')).replace(/\s+/g, ' ').trim());
+  // resume: reload the page, the same check comes back (skipped with FAKE_TODAY: the reload
+  // would briefly run with the real date before the fake one is applied again)
+  if (!process.env.FAKE_TODAY) {
+    await page.reload(); await page.waitForTimeout(6000);
+    await page.evaluate(() => { location.hash = '#floorcheck'; }); await page.waitForTimeout(1500);
+    log('after reload:', (await page.textContent('.fc-progress-top')).replace(/\s+/g, ' ').trim());
+  }
   // finish
   await page.click('#fcFinish'); await page.waitForTimeout(300);
   await page.click('#modalConfirm'); await page.waitForTimeout(800);

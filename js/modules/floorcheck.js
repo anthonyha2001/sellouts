@@ -1,6 +1,6 @@
 /* ============================================================
    Floor check (PLAN §9): each day the floor manager walks the
-   store and checks every item of every sell-out running today
+   store and checks every item of every sell-out and promotion running today
    against its new price. One check per person per day; reopening
    the page resumes it. Admin sees results, resolves problems, and
    sees items that keep coming back wrong. Public API: window.FloorCheck.
@@ -25,26 +25,48 @@
 
   /* ---------------- which items to check today ---------------- */
   // Sell-outs running today: switched on in the store's system, or today falls in their dates. Never archived.
-  async function todaysSellouts() {
+  // Promotions running today: not archived and today falls in their dates (owner: promotions are checked too).
+  async function todaysSources() {
     const today = todayStr();
-    const { data, error } = await sb.from('sellouts').select('id, name, from, to, active, archived, items, priced_items, price_column');
-    if (error) { fail('Could not load the sell-outs', error); return []; }
-    return data
+    const [so, pr] = await Promise.all([
+      sb.from('sellouts').select('id, name, from, to, active, archived, items, priced_items, price_column'),
+      sb.from('promotions').select('id, name, from_date, to_date, archived').eq('archived', false).lte('from_date', today).gte('to_date', today),
+    ]);
+    if (so.error) { fail('Could not load the sell-outs', so.error); return { sellouts: [], promotions: [] }; }
+    if (pr.error) { fail('Could not load the promotions', pr.error); return { sellouts: [], promotions: [] }; }
+    const sellouts = so.data
       .filter(s => !s.archived && (s.active || (s.from <= today && today <= s.to)))
       .map(s => ({ id: s.id, name: s.name, from: s.from, to: s.to, items: s.items || [], pricedItems: Array.isArray(s.priced_items) ? s.priced_items : null, priceColumn: s.price_column }));
+    const promotions = pr.data.map(p => ({ id: p.id, name: p.name || 'Promotion', from: p.from_date, to: p.to_date, rows: [] }));
+    if (promotions.length) {
+      const { data: rows, error } = await sb.from('promotion_rows').select('id, promotion_id, code, description, promo_price, before_price, sale_price, sort_order')
+        .in('promotion_id', promotions.map(p => p.id)).order('sort_order');
+      if (error) { fail('Could not load the promotion items', error); return { sellouts, promotions: [] }; }
+      promotions.forEach(p => { p.rows = rows.filter(r => r.promotion_id === p.id); });
+    }
+    return { sellouts, promotions };
   }
-  function itemsFor(sellouts) {
+  const numOrNull = v => (v === null || v === undefined || v === '' ? null : Number(v));
+  function itemsFor({ sellouts, promotions }) {
     const today = todayStr();
     const out = [];
+    const priorityOf = x => (x.from === today || x.to === today) ? 0 : 1;
     sellouts.forEach(so => {
-      const pr = (so.from === today || so.to === today) ? 0 : 1;
       pricedRowsOf(so).forEach(p => {
         if (!p.code && !p.description) return;
-        out.push({ sellout_id: so.id, sellout_name: so.name, item_row: p.row, code: p.code, description: p.description,
-          expected_price: p.newPrice ?? null, old_price: p.oldPrice ?? null, priority: pr });
+        out.push({ source: 'sellout', sellout_id: so.id, source_name: so.name, item_key: `so:${so.id}:${p.row}`, item_row: p.row,
+          code: p.code, description: p.description, expected_price: p.newPrice ?? null, old_price: p.oldPrice ?? null, priority: priorityOf(so) });
       });
     });
-    out.sort((a, b) => a.priority - b.priority || a.sellout_name.localeCompare(b.sellout_name) || a.item_row - b.item_row);
+    promotions.forEach(pm => {
+      pm.rows.forEach((r, i) => {
+        if (!String(r.code || '').trim() && !String(r.description || '').trim()) return;
+        out.push({ source: 'promotion', promotion_id: pm.id, source_name: pm.name, item_key: `pr:${r.id}`, item_row: i,
+          code: String(r.code || '').trim(), description: r.description || '',
+          expected_price: numOrNull(r.promo_price), old_price: numOrNull(r.before_price) ?? numOrNull(r.sale_price), priority: priorityOf(pm) });
+      });
+    });
+    out.sort((a, b) => a.priority - b.priority || a.source.localeCompare(b.source) || a.source_name.localeCompare(b.source_name) || a.item_row - b.item_row);
     out.forEach((x, i) => { x.sort_order = i; });
     return out;
   }
@@ -62,24 +84,25 @@
     }
   }
   async function startCheck() {
-    const sellouts = await todaysSellouts();
-    const items = itemsFor(sellouts);
-    if (!items.length) { showToast('No sell-out is running today, so there is nothing to check.', true); return; }
+    const sources = await todaysSources();
+    const items = itemsFor(sources);
+    if (!items.length) { showToast('No sell-out or promotion is running today, so there is nothing to check.', true); return; }
     const { data: check, error } = await sb.from('floor_checks').insert({}).select().single();
     if (error) return fail('Could not start the check', error);
     for (let i = 0; i < items.length; i += 500) {
       const { error: e2 } = await sb.from('floor_check_items').insert(items.slice(i, i + 500).map(x => ({ ...x, check_id: check.id })));
       if (e2) return fail('Could not add the items', e2);
     }
-    logActivity('floorcheck', 'start', { type: 'floor_check', id: check.id }, `Started today's floor check (${items.length} items from ${sellouts.length} sell-outs)`);
+    logActivity('floorcheck', 'start', { type: 'floor_check', id: check.id },
+      `Started today's floor check (${items.length} items from ${sources.sellouts.length} sell-outs and ${sources.promotions.length} promotions)`);
     await loadToday();
     render();
   }
-  // Sell-outs switched on after the check started: offer to add their items.
+  // Sell-outs / promotion rows added or switched on after the check started: offer to add them.
   async function missingItems() {
     if (!S.check || S.check.completed_at) return [];
-    const have = new Set(S.items.map(x => `${x.sellout_id}|${x.item_row}`));
-    return itemsFor(await todaysSellouts()).filter(x => !have.has(`${x.sellout_id}|${x.item_row}`));
+    const have = new Set(S.items.map(x => x.item_key));
+    return itemsFor(await todaysSources()).filter(x => !have.has(x.item_key));
   }
 
   /* ---------------- today's check (mobile-first) ---------------- */
@@ -96,7 +119,7 @@
     if (!S.check) {
       body.innerHTML = `<div class="card fc-start">
         <p class="big">Today's floor check</p>
-        <p>Walk the store and check every item of every sell-out running today against its new price.</p>
+        <p>Walk the store and check every item of every sell-out and promotion running today against its price.</p>
         <button class="btn" id="fcStart">Start today's check</button>
       </div>`;
       el('fcStart').onclick = async () => { el('fcStart').disabled = true; await startCheck(); };
@@ -145,7 +168,7 @@
     return `<article class="fc-item fc-${st ? st.cls : 'pending'}" data-id="${esc(x.id)}">
       <div class="fc-item-top">
         <div class="fc-item-info">
-          <div class="fc-meta"><span class="fc-code">${esc(x.code)}</span>${tag}<span class="fc-so">${esc(x.sellout_name || '')}</span></div>
+          <div class="fc-meta"><span class="fc-code">${esc(x.code)}</span>${tag}${x.source === 'promotion' ? '<span class="badge active">Promo</span>' : ''}<span class="fc-so">${esc(x.source_name || '')}</span></div>
           <div class="fc-desc">${esc(x.description || '')}</div>
         </div>
         <div class="fc-price">
@@ -288,12 +311,12 @@
   function problemsHtml(items) {
     if (!items.length) return '<p class="empty-note">No problems in this check.</p>';
     return `<div class="items-scroll" style="margin-bottom:0;"><table class="items">
-      <thead><tr><th>Problem</th><th>Code</th><th>Description</th><th>Sell-out</th><th class="num">Expected</th><th>Note / photo</th><th></th></tr></thead>
+      <thead><tr><th>Problem</th><th>Code</th><th>Description</th><th>From</th><th class="num">Expected</th><th>Note / photo</th><th></th></tr></thead>
       <tbody>${items.map(x => `<tr class="${x.resolved ? 'fc-resolved' : ''}">
         <td><span class="badge ${x.status === 'out_of_stock' ? 'warn' : 'danger'}">${STATUSES[x.status].icon} ${STATUSES[x.status].label}</span></td>
         <td style="font-family:var(--font-mono);">${esc(x.code)}</td>
         <td style="white-space:normal;">${esc(x.description || '')}</td>
-        <td>${esc(x.sellout_name || '')}</td>
+        <td>${x.source === 'promotion' ? 'Promo · ' : ''}${esc(x.source_name || '')}</td>
         <td class="num" style="font-family:var(--font-mono);">${price(x.expected_price)}</td>
         <td style="white-space:normal;">${esc(x.note || '')}${x.photo_path ? ` <img class="fc-thumb" data-photo="${esc(x.photo_path)}" alt="Photo">` : ''}</td>
         <td>${isAdmin()
@@ -321,7 +344,7 @@
     const dates = new Map((checks || []).map(c => [c.id, c.check_date]));
     let rows = [];
     if (dates.size) {
-      const { data, error } = await sb.from('floor_check_items').select('check_id, code, description, sellout_name, status')
+      const { data, error } = await sb.from('floor_check_items').select('check_id, code, description, source_name, status')
         .in('check_id', [...dates.keys()]).in('status', PROBLEMS);
       if (error) return fail('Could not load the history', error);
       rows = data;
@@ -332,14 +355,14 @@
       const g = byCode.get(k) || { code: r.code, description: r.description, times: 0, days: new Set(), statuses: {}, last: '', sellouts: new Set() };
       g.times++; g.days.add(dates.get(r.check_id)); g.statuses[r.status] = (g.statuses[r.status] || 0) + 1;
       if (dates.get(r.check_id) > g.last) g.last = dates.get(r.check_id);
-      if (r.sellout_name) g.sellouts.add(r.sellout_name);
+      if (r.source_name) g.sellouts.add(r.source_name);
       byCode.set(k, g);
     });
     const repeat = [...byCode.values()].filter(g => g.days.size >= 2).sort((a, b) => b.days.size - a.days.size || b.last.localeCompare(a.last));
     body.innerHTML = `<div class="card">
       <h3>Items with problems on 2 or more days (last 90 days)</h3>
       ${repeat.length ? `<div class="items-scroll" style="margin-bottom:0;"><table class="items">
-        <thead><tr><th>Code</th><th>Description</th><th class="num">Days</th><th>Problems</th><th>Last seen</th><th>Sell-outs</th></tr></thead>
+        <thead><tr><th>Code</th><th>Description</th><th class="num">Days</th><th>Problems</th><th>Last seen</th><th>Sell-outs / promotions</th></tr></thead>
         <tbody>${repeat.map(g => `<tr>
           <td style="font-family:var(--font-mono);">${esc(g.code)}</td><td style="white-space:normal;">${esc(g.description || '')}</td>
           <td class="num"><b>${g.days.size}</b></td>
