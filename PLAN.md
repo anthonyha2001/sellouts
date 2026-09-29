@@ -326,6 +326,55 @@ Goal: suppliers send offers as PDFs, photos, or WhatsApp screenshots, usually id
 
 ---
 
+## 10b. Phase 7: Shelf labels and barcode scanning (added 2026-09-29)
+
+Goal: shelf workers scan items that need a new shelf label; the accountant prints the labels from an
+Excel file. The same camera scanner helps the floor check find items fast.
+
+Decided with the owner (2026-09-29):
+- A new role **`shelf`** ("Shelf worker") with its own username + password, created on the Users page.
+  Shelf workers see **only** the Labels page.
+- Scanning uses the **phone camera** and must be **very fast**: continuous scanning, a beep/vibration
+  on each read, no button press per item. Use the browser's `BarcodeDetector` where it exists (Android
+  Chrome) and a scanning library from the CDN where it does not (iPhone Safari).
+- **No barcode → item code lookup:** the Excel's `ItemCode` column holds the scanned barcode as-is.
+- Barcodes are added to the sell-out and promotion files from now on (owner).
+
+### 10b.1 Database
+
+- [ ] `profiles.role` accepts `'shelf'`; §3 gets a Labels row (shelf: scan own lists; accountant +
+  admin: see submitted lists, export).
+- [ ] `label_lists`: `id`, `created_by`, `created_at`, `submitted_at`, `exported_at`, `exported_by`.
+- [ ] `label_items`: `id`, `list_id`, `barcode text` (leading zeros kept), `qty int`, `scanned_at`;
+  unique `(list_id, barcode)`.
+- [ ] RLS: a shelf worker creates and edits only their own list until it is submitted; accountant and
+  admin read submitted lists and mark them exported; nobody else sees them.
+
+### 10b.2 Shelf worker page (phone-first)
+
+- [ ] Big **Scan** view: camera opens, every barcode read is added at once (same barcode again = Qty + 1),
+  with a beep/vibration and the last items shown under the camera.
+- [ ] The list: barcode, Qty (+ / − / type a number), remove; can also type a barcode by hand.
+- [ ] The list is saved as it grows (a closed page loses nothing).
+- [ ] **Done** submits the list to the accountant and starts a new empty one.
+
+### 10b.3 Accountant (and admin) page
+
+- [ ] Submitted lists (who, when, number of items), and one merged total per barcode.
+- [ ] **Export to Excel**: one sheet with exactly the headers **`ItemCode`** and **`Qty`** (barcodes as
+  text so leading zeros survive; quantities summed per barcode across the exported lists).
+- [ ] After the export the page is **emptied**: the exported lists are marked exported and hidden
+  (kept in the database for history; nothing is deleted). Logged.
+
+### 10b.4 Scanning in the floor check
+
+- [ ] Sell-out and promotion imports detect a barcode column (aliases as in §10.1) and keep it as text.
+- [ ] Floor check items store the barcode; a **Scan** button opens the camera and jumps to the scanned
+  item (opens its group, highlights it) so it can be marked straight away. Unknown barcode → "Not in
+  today's check" message.
+
+---
+
 ## 11. Open questions (ask the owner when you reach the phase)
 
 | # | Question | Default until answered |
@@ -334,7 +383,7 @@ Goal: suppliers send offers as PDFs, photos, or WhatsApp screenshots, usually id
 | 2 | Cash differences: LBP only, or USD too? | **Answered 2026-09-29:** USD only. Old sheets are LBP and are converted on import at a rate entered then (original LBP amount and rate kept) |
 | 3 | Cash colour thresholds | **Answered 2026-09-29:** ±$10 warning, ±$20 danger (editable in Cash settings) |
 | 4 | How does the catalog export list multiple barcodes per item? | Support both formats |
-| 5 | Does the catalog export already include a barcode column? | Ask before Phase 6 |
+| 5 | Does the catalog export already include a barcode column? | Owner, 2026-09-29: barcodes will be added to the sell-out and promotion files from now on. Catalog: detect a barcode column when present |
 | 6 | Should the floor check include active promotions? | **Answered 2026-09-29:** yes. Promotions running today (not archived, today within their dates) are checked against their promo price; the floor manager can read those promotions and their rows only |
 | 7 | Credit notes access for the accountant? | Admin only |
 
