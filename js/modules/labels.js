@@ -134,7 +134,13 @@
       S.offline = true;
       updatePending();
       // One message, not one per scan: the list is safe on the phone and is sent again later.
-      if (!offlineWarned) { offlineWarned = true; console.error(e); showToast('Not sent yet — your list is saved on this phone and will be sent automatically.', true); }
+      if (!offlineWarned) {
+        offlineWarned = true; console.error(e);
+        // A refusal from the database (not a lost connection) is shown as is, so it can be reported.
+        const refused = e && e.code && !/fetch|network/i.test(e.message || '');
+        showToast(refused ? `Not sent — the server refused it: ${friendlyError(e)}. Your list is saved on this phone.`
+          : 'Not sent yet — your list is saved on this phone and will be sent automatically.', true);
+      }
     }
   }
   async function deleteItem(code) {
