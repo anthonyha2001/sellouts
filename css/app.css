@@ -693,7 +693,8 @@ table.cash-grid .cash-day{position:sticky;left:0;z-index:1;background:var(--pape
 table.cash-grid thead .cash-day{z-index:3;}
 table.cash-grid .cash-day span{color:var(--ink-faint);font-weight:400;font-size:11px;}
 table.cash-grid tr.is-today .cash-day{color:var(--pine);}
-.cash-cell{position:relative;min-width:96px;}
+.cash-cell{position:relative;min-width:122px;}   /* LBP: "-1,790,000" */
+.cash-idle{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;}
 .cash-cell input{width:100%;border:0;background:transparent;padding:7px 22px 7px 10px;text-align:right;font-family:var(--font-mono);font-size:13px;color:var(--ink);}
 .cash-cell input:focus{outline:2px solid var(--pine);outline-offset:-2px;background:var(--paper-raised);box-shadow:none;}
 .cash-cell input[readonly]{cursor:default;}

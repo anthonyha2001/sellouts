@@ -64,19 +64,21 @@ Deno.serve(async req => {
 
       const months = beirutMonths();
       const month = months.includes(String(body.month)) ? String(body.month) : months[0];
-      const [{ data: cashier }, { data: rows, error: rowsErr }, { data: settings }] = await Promise.all([
+      // The amounts are in the app's cash currency (cash_settings.currency; LBP since migration 015).
+      const { data: settings } = await db.from('cash_settings').select('warning_threshold, danger_threshold, currency').eq('id', 'app').single();
+      const currency = settings?.currency ?? 'LBP';
+      const [{ data: cashier }, { data: rows, error: rowsErr }] = await Promise.all([
         db.from('cashiers').select('name').eq('id', cashierId).single(),
         db.from('cash_differences').select('day, amount, note')
-          .eq('cashier_id', cashierId).eq('currency', 'USD')
+          .eq('cashier_id', cashierId).eq('currency', currency)
           .gte('day', `${month}-01`).lte('day', monthEnd(month)).order('day'),
-        db.from('cash_settings').select('warning_threshold, danger_threshold, currency').eq('id', 'app').single(),
       ]);
       if (rowsErr) throw rowsErr;
       const entries = (rows ?? []).map(r => ({ day: r.day, amount: Number(r.amount), note: r.note }));
       const total = Math.round(entries.reduce((s, r) => s + r.amount, 0) * 100) / 100;
       return json({
         cashier: { name: cashier?.name ?? '' }, month, months, entries, total,
-        levels: { warning: Number(settings?.warning_threshold ?? 10), danger: Number(settings?.danger_threshold ?? 20), currency: settings?.currency ?? 'USD' },
+        levels: { warning: Number(settings?.warning_threshold ?? 0), danger: Number(settings?.danger_threshold ?? 0), currency },
       });
     }
 

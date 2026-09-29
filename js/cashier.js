@@ -11,7 +11,11 @@
   const IDLE_MS = 2 * 60 * 1000;
   const $ = id => document.getElementById(id);
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  const usd = n => (n < 0 ? '-' : '') + '$' + Math.abs(Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  // Amounts in the app's cash currency (settings): LBP in whole pounds, USD with cents.
+  let currency = 'LBP';
+  const money = n => currency === 'USD'
+    ? (n < 0 ? '-' : '') + '$' + Math.abs(Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    : Math.round(Number(n) || 0).toLocaleString('en-US') + ' LBP';
   const monthLabel = ym => new Date(ym + '-01T00:00:00').toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
   let session = null, idleTimer = null;   // { cashier_id, pin, name, data }
 
@@ -36,17 +40,18 @@
 
   function render() {
     const d = session.data, lv = d.levels;
+    currency = lv.currency || 'LBP';
     const level = a => Math.abs(a) >= lv.danger ? 'lv-danger' : Math.abs(a) >= lv.warning ? 'lv-warn' : '';
     $('cpWho').textContent = d.cashier.name;
     $('cpMonthLabel').textContent = monthLabel(d.month);
     $('cpMonths').innerHTML = d.months.map((m, i) => `<button type="button" data-m="${m}" class="${m === d.month ? 'active' : ''}">${i === 0 ? 'This month' : 'Last month'}</button>`).join('');
     const short = d.entries.filter(e => e.amount < 0).length;
-    $('cpTotal').innerHTML = `<span>Total for ${esc(monthLabel(d.month))}</span><b class="${d.total < 0 ? 'neg' : ''}">${usd(d.total)}</b>
+    $('cpTotal').innerHTML = `<span>Total for ${esc(monthLabel(d.month))}</span><b class="${d.total < 0 ? 'neg' : ''}">${money(d.total)}</b>
       <small>${d.entries.length} day${d.entries.length === 1 ? '' : 's'} entered · ${short} short</small>`;
     $('cpList').innerHTML = d.entries.length ? d.entries.map(e => `
       <tr class="${level(e.amount)}">
         <td>${esc(new Date(e.day + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }))}</td>
-        <td class="num">${usd(e.amount)}</td>
+        <td class="num">${money(e.amount)}</td>
       </tr>${e.note ? `<tr class="cp-note"><td colspan="2">${esc(e.note)}</td></tr>` : ''}`).join('')
       : '<tr><td colspan="2" class="empty-note">Nothing entered for this month yet.</td></tr>';
     $('cpLogin').hidden = true;

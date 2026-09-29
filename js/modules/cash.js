@@ -2,16 +2,18 @@
    Cash differences (PLAN §8): monthly grid (days x cashiers),
    analysis (summary, pattern alerts, 12-month trend), cashiers
    (order, PINs, lock-outs), settings, and import of the old
-   monthly Google Sheets (LBP, converted to USD at a given rate).
-   Admin + accountant. Currency: USD. Public API: window.Cash.
+   monthly Google Sheets (LBP).
+   Currency: LBP, whole pounds (owner, 2026-09-29: was USD; migration 015
+   converted every amount back to its LBP value). Public API: window.Cash.
    ============================================================ */
 (function () {
   const panel = document.getElementById('panel-cash');
-  const CURRENCY = 'USD';
+  const CURRENCY = 'LBP';
   const S = {
     tab: 'grid', month: todayStr().slice(0, 7),
-    cashiers: [], settings: { warning_threshold: 10, danger_threshold: 20, alert_short_count: 3, alert_short_streak: 3, reminder_hour: 12 },
+    cashiers: [], settings: { warning_threshold: 895000, danger_threshold: 1790000, alert_short_count: 3, alert_short_streak: 3, reminder_hour: 12 },
     entries: new Map(),          // `${cashierId}|${day}` -> row (selected month)
+    recentIds: new Set(),        // cashiers with entries this month or last month (current month only)
     locked: false, lockInfo: null,
     history: [],                 // last 12 months of rows (analysis)
     started: false, trendAsTable: false,
@@ -21,7 +23,9 @@
   /* ---------------- helpers ---------------- */
   const el = id => document.getElementById(id);
   const esc = escapeHtml;
-  const usd = n => (n < 0 ? '-' : '') + '$' + Math.abs(Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  // LBP, whole pounds: "-1,250,000 LBP" (money) and "-1,250,000" (inside a grid cell).
+  const num = n => Math.round(Number(n) || 0).toLocaleString('en-US');
+  const lbp = n => num(n) + ' LBP';
   const daysIn = ym => { const [y, m] = ym.split('-').map(Number); return new Date(Date.UTC(y, m, 0)).getUTCDate(); };
   const addMonths = (ym, n) => { const [y, m] = ym.split('-').map(Number); const d = new Date(Date.UTC(y, m - 1 + n, 1)); return d.toISOString().slice(0, 7); };
   const monthLabel = ym => new Date(ym + '-01T00:00:00').toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
@@ -58,6 +62,12 @@
     S.entries = new Map(rows.data.map(r => [key(r.cashier_id, r.day), { ...r, amount: Number(r.amount) }]));
     S.locked = !!lock.data?.locked;
     S.lockInfo = lock.data || null;
+    S.recentIds = new Set();
+    if (ym === todayStr().slice(0, 7)) {
+      const { data } = await sb.from('cash_differences').select('cashier_id').eq('currency', CURRENCY)
+        .gte('day', dayStr(addMonths(ym, -1), 1)).lte('day', dayStr(ym, daysIn(ym))).limit(5000);
+      S.recentIds = new Set((data || []).map(r => r.cashier_id));
+    }
   }
   async function loadHistory() {
     const from = addMonths(S.month, -11);
@@ -73,10 +83,20 @@
     S.history = out;
   }
 
-  // Columns: active cashiers, plus inactive ones that have entries this month.
+  // Columns (owner, 2026-09-29): past months show only the cashiers who have entries in that month;
+  // the current (and a future) month shows the active cashiers too, so a new day can be typed in.
+  const isPastMonth = () => S.month < todayStr().slice(0, 7);
   function gridCashiers() {
     const used = new Set([...S.entries.values()].map(r => r.cashier_id));
-    return S.cashiers.filter(c => c.active || used.has(c.id));
+    return S.cashiers.filter(c => used.has(c.id) || (c.active && !isPastMonth()));
+  }
+  // Active cashiers who are probably no longer working here: nothing this month once a week of it has
+  // passed (from the 8th), or nothing this month or last month.
+  function idleCashiers() {
+    if (S.month !== todayStr().slice(0, 7)) return [];
+    const thisMonth = new Set([...S.entries.values()].map(r => r.cashier_id));
+    const weekIn = Number(todayStr().slice(8, 10)) >= 8;
+    return S.cashiers.filter(c => c.active && !thisMonth.has(c.id) && (weekIn || !S.recentIds.has(c.id)));
   }
   const cashierName = id => S.cashiers.find(c => c.id === id)?.name || '(removed)';
 
@@ -155,6 +175,7 @@
       return;
     }
     const n = daysIn(S.month), today = todayStr();
+    const idle = idleCashiers();
     const colTotals = cols.map(() => 0);
     let grand = 0;
     const rowsHtml = [];
@@ -165,33 +186,46 @@
         const e = S.entries.get(key(c.id, day));
         if (e) { rowTotal += e.amount; colTotals[ci] += e.amount; any = true; }
         const lv = e ? level(e.amount) : '';
-        const title = e?.source_currency ? `Imported: ${Number(e.source_amount).toLocaleString('en-US')} ${e.source_currency} at ${Number(e.source_rate).toLocaleString('en-US')}` : '';
+        const title = e?.source_currency ? 'Imported from the old sheets' : '';
         return `<td class="cash-cell ${lv ? 'lv-' + lv : ''}">
-          <input type="text" inputmode="decimal" data-c="${c.id}" data-day="${day}" data-row="${d}" data-col="${ci}"
-            value="${e ? e.amount.toFixed(2) : ''}" ${S.locked || !can('cash.enter') ? 'readonly' : ''} aria-label="${esc(c.name)}, ${day}" ${title ? `title="${esc(title)}"` : ''}>
+          <input type="text" inputmode="numeric" data-c="${c.id}" data-day="${day}" data-row="${d}" data-col="${ci}"
+            value="${e ? num(e.amount) : ''}" ${S.locked || !can('cash.enter') ? 'readonly' : ''} aria-label="${esc(c.name)}, ${day}" ${title ? `title="${esc(title)}"` : ''}>
           ${e ? `<button type="button" class="cash-note ${e.note ? 'has-note' : ''}" data-note="${esc(key(c.id, day))}" title="${e.note ? esc(e.note) : 'Add a note'}" tabindex="-1">${e.note ? '●' : '+'}</button>` : ''}
         </td>`;
       }).join('');
       grand += rowTotal;
       const isToday = day === today, weekday = new Date(day + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short' });
-      rowsHtml.push(`<tr class="${isToday ? 'is-today' : ''}"><th class="cash-day">${d} <span>${weekday}</span></th>${cells}<td class="cash-total ${any ? 'lv-' + (level(rowTotal) || 'none') : ''}">${any ? usd(rowTotal) : ''}</td></tr>`);
+      rowsHtml.push(`<tr class="${isToday ? 'is-today' : ''}"><th class="cash-day">${d} <span>${weekday}</span></th>${cells}<td class="cash-total ${any ? 'lv-' + (level(rowTotal) || 'none') : ''}">${any ? lbp(rowTotal) : ''}</td></tr>`);
     }
     body.innerHTML = `
       ${S.locked ? `<div class="cash-banner"><b>${esc(monthLabel(S.month))} is locked.</b> Differences can't be changed${can('cash.unlock') ? ' until you unlock it' : '; ask the admin if something must be corrected'}.</div>` : ''}
       ${!S.locked && !can('cash.enter') ? `<div class="cash-banner">View only: you can't enter or change differences.</div>` : ''}
+      ${idle.length && can('cash.cashiers') ? `<div class="cash-banner cash-idle"><span><b>${idle.length} cashier${idle.length === 1 ? ' has' : 's have'} no entries in ${esc(monthLabel(S.month))}:</b> ${idle.map(c => esc(c.name)).join(', ')}. Still working here? If not, mark them inactive and they leave the grid.</span>
+        <button class="btn secondary small" id="cashIdleOff">Mark them inactive</button></div>` : ''}
       <div class="cash-legend">
-        <span><i class="lv-warn"></i> ${usd(S.settings.warning_threshold)} or more over/short</span>
-        <span><i class="lv-danger"></i> ${usd(S.settings.danger_threshold)} or more</span>
-        <span class="muted-note">Negative = short, positive = over. Enter moves down, Tab moves right. Paste a block from Excel into any cell.</span>
+        <span><i class="lv-warn"></i> ${lbp(S.settings.warning_threshold)} or more over/short</span>
+        <span><i class="lv-danger"></i> ${lbp(S.settings.danger_threshold)} or more</span>
+        <span class="muted-note">In LBP. Negative = short, positive = over. Enter moves down, Tab moves right. Paste a block from Excel into any cell.</span>
       </div>
       <div class="items-scroll cash-grid-wrap">
         <table class="cash-grid">
           <thead><tr><th class="cash-day">Day</th>${cols.map(c => `<th>${esc(c.name)}${c.active ? '' : ' <span class="muted-note">(inactive)</span>'}</th>`).join('')}<th class="cash-total">Day total</th></tr></thead>
           <tbody>${rowsHtml.join('')}</tbody>
-          <tfoot><tr><th class="cash-day">Total</th>${colTotals.map(t => `<td class="cash-total">${usd(t)}</td>`).join('')}<td class="cash-total"><b>${usd(grand)}</b></td></tr></tfoot>
+          <tfoot><tr><th class="cash-day">Total</th>${colTotals.map(t => `<td class="cash-total">${lbp(t)}</td>`).join('')}<td class="cash-total"><b>${lbp(grand)}</b></td></tr></tfoot>
         </table>
       </div>`;
+    if (!cols.length) body.querySelector('.cash-grid-wrap').outerHTML = `<div class="empty-state"><p class="big">No entries in ${esc(monthLabel(S.month))}</p><p>Nobody has a difference recorded for this month.</p></div>`;
+    el('cashIdleOff')?.addEventListener('click', () => deactivateIdle(idle));
     wireGrid(body);
+  }
+  async function deactivateIdle(list) {
+    if (!(await showConfirm(`Mark ${list.length} cashier${list.length === 1 ? '' : 's'} inactive?\n\n${list.map(c => c.name).join(', ')}\n\nTheir past differences stay. They can be switched back on under Cashiers & settings.`, 'Mark inactive'))) return;
+    const { error } = await sb.from('cashiers').update({ active: false }).in('id', list.map(c => c.id));
+    if (error) return fail('Could not change the cashiers', error);
+    list.forEach(c => { c.active = false; });
+    logActivity('cash', 'deactivate_cashier', null, `Marked ${list.length} cashiers inactive (no entries for two months): ${list.map(c => c.name).join(', ')}`, { ids: list.map(c => c.id) });
+    renderGrid();
+    showToast(`${list.length} cashier${list.length === 1 ? '' : 's'} marked inactive.`);
   }
 
   function wireGrid(body) {
@@ -204,7 +238,7 @@
         const next = table.querySelector(`input[data-col="${inp.dataset.col}"][data-row="${Number(inp.dataset.row) + (e.shiftKey ? -1 : 1)}"]`);
         if (next) { next.focus(); next.select(); } else inp.blur();
       }
-      if (e.key === 'Escape') { const r = S.entries.get(key(inp.dataset.c, inp.dataset.day)); inp.value = r ? r.amount.toFixed(2) : ''; inp.blur(); }
+      if (e.key === 'Escape') { const r = S.entries.get(key(inp.dataset.c, inp.dataset.day)); inp.value = r ? num(r.amount) : ''; inp.blur(); }
     });
     table.addEventListener('focusin', e => { if (e.target.matches('input[data-c]')) e.target.select(); });
     table.addEventListener('change', e => { const inp = e.target.closest('input[data-c]'); if (inp) saveCell(inp); });
@@ -222,19 +256,19 @@
       const { error } = await sb.from('cash_differences').delete().eq('id', before.id);
       if (error) { inp.value = before.amount; return fail('Could not clear that cell', error); }
       S.entries.delete(k);
-      logActivity('cash', 'clear', { type: 'cash_difference', id: before.id }, `Cleared ${cashierName(cid)} on ${fmtDate(day)} (was ${usd(before.amount)})`, { cashier_id: cid, day, from: before.amount });
+      logActivity('cash', 'clear', { type: 'cash_difference', id: before.id }, `Cleared ${cashierName(cid)} on ${fmtDate(day)} (was ${lbp(before.amount)})`, { cashier_id: cid, day, from: before.amount });
     } else {
       const amount = parseNum(raw);
-      if (amount === null) { showToast('Numbers only, e.g. -12.50 for short or 5 for over.', true); inp.value = before ? before.amount : ''; return; }
-      const v = round2(amount);
-      if (before && before.amount === v) { inp.value = v.toFixed(2); return; }
+      if (amount === null) { showToast('Numbers only, in LBP: e.g. -250000 for short or 100000 for over.', true); inp.value = before ? num(before.amount) : ''; return; }
+      const v = Math.round(amount);
+      if (before && before.amount === v) { inp.value = num(v); return; }
       const { data, error } = await sb.from('cash_differences')
         .upsert({ cashier_id: cid, day, currency: CURRENCY, amount: v, note: before?.note ?? null }, { onConflict: 'cashier_id,day,currency' })
         .select('id, cashier_id, day, amount, note, source_amount, source_currency, source_rate').single();
       if (error) { inp.value = before ? before.amount : ''; return fail('Could not save that cell', error); }
       S.entries.set(k, { ...data, amount: Number(data.amount) });
       logActivity('cash', before ? 'edit' : 'enter', { type: 'cash_difference', id: data.id },
-        `${cashierName(cid)} ${fmtDate(day)}: ${before ? usd(before.amount) + ' → ' : ''}${usd(v)}`, { cashier_id: cid, day, from: before?.amount ?? null, to: v });
+        `${cashierName(cid)} ${fmtDate(day)}: ${before ? lbp(before.amount) + ' → ' : ''}${lbp(v)}`, { cashier_id: cid, day, from: before?.amount ?? null, to: v });
     }
     const focusRow = document.activeElement?.dataset?.row, focusCol = document.activeElement?.dataset?.col;
     renderGrid();
@@ -258,7 +292,7 @@
       const v = parseNum(cell);
       if (v === null) { bad.push(cell); return; }
       const day = dayStr(S.month, d);
-      rows.push({ cashier_id: c.id, day, currency: CURRENCY, amount: round2(v), note: S.entries.get(key(c.id, day))?.note ?? null });
+      rows.push({ cashier_id: c.id, day, currency: CURRENCY, amount: Math.round(v), note: S.entries.get(key(c.id, day))?.note ?? null });
     }));
     if (!rows.length) { showToast('Nothing to paste: no numbers found.', true); return; }
     const { error } = await sb.from('cash_differences').upsert(rows, { onConflict: 'cashier_id,day,currency' });
@@ -272,7 +306,7 @@
   async function editNote(k) {
     const e = S.entries.get(k); if (!e) return;
     if (S.locked || !can('cash.enter')) { if (e.note) showConfirm(e.note, 'OK'); return; }
-    const v = await showPrompt(`Note for ${cashierName(e.cashier_id)} on ${fmtDate(e.day)} (${usd(e.amount)}):`, { defaultValue: e.note || '', confirmLabel: 'Save note', placeholder: 'e.g. Counted twice, confirmed by manager' });
+    const v = await showPrompt(`Note for ${cashierName(e.cashier_id)} on ${fmtDate(e.day)} (${lbp(e.amount)}):`, { defaultValue: e.note || '', confirmLabel: 'Save note', placeholder: 'e.g. Counted twice, confirmed by manager' });
     if (v === null) return;
     const note = v.trim() || null;
     const { error } = await sb.from('cash_differences').update({ note }).eq('id', e.id);
@@ -303,9 +337,9 @@
   function alertsFor(st) {
     const a = [];
     const s = S.settings;
-    if (st.bigShorts >= s.alert_short_count) a.push(`${st.bigShorts} shortages of ${usd(s.warning_threshold)} or more`);
+    if (st.bigShorts >= s.alert_short_count) a.push(`${st.bigShorts} shortages of ${lbp(s.warning_threshold)} or more`);
     if (st.streak >= s.alert_short_streak) a.push(`short ${st.streak} days in a row`);
-    if (st.net <= -s.danger_threshold) a.push(`net shortage of ${usd(-st.net)} for the month`);
+    if (st.net <= -s.danger_threshold) a.push(`net shortage of ${lbp(-st.net)} for the month`);
     return a;
   }
 
@@ -323,9 +357,9 @@
             <thead><tr><th>Cashier</th><th class="num">Days entered</th><th class="num">Total over</th><th class="num">Total short</th><th class="num">Net</th><th class="num">Short days</th><th class="num">Biggest single</th></tr></thead>
             <tbody>${stats.map(({ c, st }) => `<tr class="${alertsFor(st).length ? 'has-alert' : ''}">
               <td><b>${esc(c.name)}</b></td><td class="num">${st.entries}</td>
-              <td class="num">${usd(st.over)}</td><td class="num">${usd(st.short)}</td>
-              <td class="num"><b>${usd(st.net)}</b></td><td class="num">${st.shortDays}</td>
-              <td class="num">${st.biggest ? `${usd(st.biggest.amount)} <span class="muted-note">${fmtDate(st.biggest.day)}</span>` : '—'}</td></tr>`).join('')
+              <td class="num">${lbp(st.over)}</td><td class="num">${lbp(st.short)}</td>
+              <td class="num"><b>${lbp(st.net)}</b></td><td class="num">${st.shortDays}</td>
+              <td class="num">${st.biggest ? `${lbp(st.biggest.amount)} <span class="muted-note">${fmtDate(st.biggest.day)}</span>` : '—'}</td></tr>`).join('')
               || '<tr><td colspan="7" class="empty-note">No cashiers yet.</td></tr>'}</tbody>
           </table>
         </div>
@@ -334,7 +368,7 @@
         <h3>Pattern alerts</h3>
         ${alerts.length ? `<ul class="cash-alerts">${alerts.map(a => `<li><span class="cash-alert-icon" aria-hidden="true">!</span><span class="badge danger">Check</span><span><b>${esc(a.c.name)}</b>: ${esc(a.t)}</span></li>`).join('')}</ul>`
           : '<p class="empty-note" style="margin:0;">No alerts this month.</p>'}
-        <p class="muted-note" style="margin:10px 0 0;">Rules (change them under Cashiers &amp; settings): ${S.settings.alert_short_count}+ shortages of ${usd(S.settings.warning_threshold)} or more · short ${S.settings.alert_short_streak} days in a row · net monthly shortage of ${usd(S.settings.danger_threshold)} or more.</p>
+        <p class="muted-note" style="margin:10px 0 0;">Rules (change them under Cashiers &amp; settings): ${S.settings.alert_short_count}+ shortages of ${lbp(S.settings.warning_threshold)} or more · short ${S.settings.alert_short_streak} days in a row · net monthly shortage of ${lbp(S.settings.danger_threshold)} or more.</p>
       </div>
       <div class="card">
         <div class="cash-trend-head">
@@ -364,7 +398,7 @@
     if (S.trendAsTable) {
       box.innerHTML = `<div class="items-scroll" style="margin:14px 0 0;"><table class="items cash-summary">
         <thead><tr><th>Cashier</th>${months.map(m => `<th class="num">${monthShort(m)} ${m.slice(2, 4)}</th>`).join('')}</tr></thead>
-        <tbody>${series.map(s => `<tr><td><b>${esc(s.c.name)}</b></td>${s.vals.map(v => `<td class="num">${v === null ? '—' : usd(v)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+        <tbody>${series.map(s => `<tr><td><b>${esc(s.c.name)}</b></td>${s.vals.map(v => `<td class="num">${v === null ? '—' : lbp(v)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
       return;
     }
     // One shared scale so cashiers can be compared at a glance.
@@ -383,7 +417,7 @@
     box.innerHTML = `<div class="cash-trend-grid">${series.map(s => {
       const total = round2(s.vals.reduce((a, v) => a + (v || 0), 0));
       return `<figure class="cash-trend" data-cashier="${esc(s.c.id)}">
-        <figcaption><b>${esc(s.c.name)}</b><span>net ${usd(total)} · 12 months</span></figcaption>
+        <figcaption><b>${esc(s.c.name)}</b><span>net ${lbp(total)} · 12 months</span></figcaption>
         <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(s.c.name)}: monthly net difference, last 12 months">
           <line class="zero" x1="0" x2="${W}" y1="${mid}" y2="${mid}"/>
           ${s.vals.map(bar).join('')}
@@ -398,7 +432,7 @@
       fig.querySelectorAll('.hit').forEach(h => {
         h.addEventListener('mouseenter', () => {
           const i = Number(h.dataset.i), v = s.vals[i];
-          tip.innerHTML = `<b>${esc(s.c.name)}</b><br>${esc(monthLabel(months[i]))}: ${v === null ? 'no entries' : `${usd(v)} ${v < 0 ? 'short' : v > 0 ? 'over' : ''}`}`;
+          tip.innerHTML = `<b>${esc(s.c.name)}</b><br>${esc(monthLabel(months[i]))}: ${v === null ? 'no entries' : `${lbp(v)} ${v < 0 ? 'short' : v > 0 ? 'over' : ''}`}`;
           tip.hidden = false;
           const rb = h.getBoundingClientRect(), pb = box.getBoundingClientRect();
           tip.style.left = `${rb.left - pb.left + rb.width / 2}px`;
@@ -455,8 +489,8 @@
         <h3>Colours, alerts and reminder</h3>
         <form id="cashSettingsForm">
           <div class="form-grid cash-settings-grid">
-            <div><label for="csWarn">Orange from (USD, over or short)</label><input type="text" inputmode="decimal" id="csWarn" value="${s.warning_threshold}"></div>
-            <div><label for="csDanger">Red from (USD)</label><input type="text" inputmode="decimal" id="csDanger" value="${s.danger_threshold}"></div>
+            <div><label for="csWarn">Orange from (LBP, over or short)</label><input type="text" inputmode="numeric" id="csWarn" value="${num(s.warning_threshold)}"></div>
+            <div><label for="csDanger">Red from (LBP)</label><input type="text" inputmode="numeric" id="csDanger" value="${num(s.danger_threshold)}"></div>
             <div><label for="csCount">Alert: shortages of the orange amount or more, per month</label><input type="text" inputmode="numeric" id="csCount" value="${s.alert_short_count}"></div>
             <div><label for="csStreak">Alert: short this many days in a row</label><input type="text" inputmode="numeric" id="csStreak" value="${s.alert_short_streak}"></div>
             <div><label for="csHour">Remind me if yesterday is still empty at (hour, Beirut)</label><input type="text" inputmode="numeric" id="csHour" value="${s.reminder_hour}"></div>
@@ -554,7 +588,7 @@
     showToast('Settings saved.');
   }
 
-  /* ---------------- import old monthly sheets (LBP -> USD) ---------------- */
+  /* ---------------- import old monthly sheets (LBP) ---------------- */
   const MONTHS = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, sept: 9, oct: 10, nov: 11, dec: 12,
     january: 1, february: 2, march: 3, april: 4, june: 6, july: 7, august: 8, september: 9, october: 10, november: 11, december: 12 };
   function monthFromSheetName(name) {
@@ -599,10 +633,9 @@
     body.innerHTML = `
       <div class="card">
         <h3>Import the old monthly sheets</h3>
-        <p style="margin:0 0 12px;">Download the Google Sheet as Excel (File → Download → .xlsx) and choose it here. Each tab is one month (e.g. <code>AUG-2026</code>); the header row has <b>Day of the month</b> and the cashiers' names. The sheets are in LBP and are converted to USD at the rate below; each imported value keeps its original LBP amount and the rate.</p>
+        <p style="margin:0 0 12px;">Download the Google Sheet as Excel (File → Download → .xlsx) and choose it here. Each tab is one month (e.g. <code>AUG-2026</code>); the header row has <b>Day of the month</b> and the cashiers' names. The amounts are in LBP, like the app.</p>
         <div class="form-grid">
           <div><label for="cashImportFile">Excel file</label><input type="file" id="cashImportFile" accept=".xlsx,.xls"></div>
-          <div><label for="cashImportRate">LBP per 1 USD</label><input type="text" inputmode="numeric" id="cashImportRate" value="${p?.rate ?? 89500}"></div>
         </div>
       </div>
       <div id="cashImportPreview"></div>`;
@@ -610,11 +643,10 @@
       const f = e.target.files[0]; if (!f) return;
       try {
         const wb = XLSX.read(await f.arrayBuffer(), { type: 'array' });
-        S.importPlan = { file: f.name, rate: parseNum(el('cashImportRate').value) || 89500, sheets: wb.SheetNames.map(n => parseSheet(wb.Sheets[n], n)), skipExisting: true };
+        S.importPlan = { file: f.name, sheets: wb.SheetNames.map(n => parseSheet(wb.Sheets[n], n)), skipExisting: true };
       } catch (err) { showToast('Could not read that file as Excel.', true); return; }
       renderImportPreview();
     };
-    el('cashImportRate').oninput = e => { if (S.importPlan) { S.importPlan.rate = parseNum(e.target.value); renderImportPreview(); } };
     if (p) renderImportPreview();
   }
 
@@ -624,7 +656,6 @@
     const sheets = p.sheets.filter(s => !s.skip);
     const newNames = [...new Set(sheets.flatMap(s => s.cashierCols.map(c => c.name)).filter(n => !known.has(n.trim().toLowerCase())))];
     p.createNames = p.createNames || new Set(newNames);
-    const rateOk = p.rate > 0;
     box.innerHTML = `
       <div class="card">
         <h3>Preview — ${esc(p.file)}</h3>
@@ -632,7 +663,7 @@
           <div class="cash-newnames">${newNames.map(n => `<label><input type="checkbox" data-newname="${esc(n)}" ${p.createNames.has(n) ? 'checked' : ''}> ${esc(n)}</label>`).join('')}</div></div>` : ''}
         <div class="items-scroll" style="margin-bottom:12px;">
           <table class="items">
-            <thead><tr><th>Tab</th><th>Month</th><th>Cashiers</th><th class="num">Values</th><th class="num">Total (LBP)</th><th class="num">Total (USD)</th><th>Problems</th></tr></thead>
+            <thead><tr><th>Tab</th><th>Month</th><th>Cashiers</th><th class="num">Values</th><th class="num">Total (LBP)</th><th>Problems</th></tr></thead>
             <tbody>${p.sheets.map((s, i) => {
               const total = s.cells.reduce((a, c) => a + c.lbp, 0);
               return `<tr class="${s.skip ? 'is-skipped' : ''}">
@@ -640,8 +671,7 @@
                 <td>${s.skip ? '—' : `<input type="month" data-month="${i}" value="${s.month || ''}" class="cash-import-month">${!s.month ? ' <span class="badge warn">Pick the month</span>' : ''}`}</td>
                 <td style="white-space:normal;">${s.cashierCols.map(c => esc(c.name)).join(', ') || '—'}</td>
                 <td class="num">${s.cells.length}</td>
-                <td class="num">${total.toLocaleString('en-US')}</td>
-                <td class="num">${rateOk ? usd(total / p.rate) : '—'}</td>
+                <td class="num">${num(total)}</td>
                 <td style="white-space:normal;">${s.problems.length ? `<details><summary>${s.problems.length} to check</summary><ul class="cash-problems">${s.problems.map(x => `<li>${esc(x)}</li>`).join('')}</ul></details>` : '<span class="muted-note">None</span>'}</td>
               </tr>`;
             }).join('')}</tbody>
@@ -650,7 +680,7 @@
         <label style="display:flex;gap:8px;align-items:center;font-size:13px;color:var(--ink);"><input type="checkbox" id="cashSkipExisting" ${p.skipExisting ? 'checked' : ''} style="width:auto;"> Keep values already in the app (only fill empty cells)</label>
         <div class="actions-row">
           <button class="btn ghost small" id="cashImportCancel">Cancel</button>
-          <button class="btn small" id="cashImportGo" ${rateOk ? '' : 'disabled'}>Import</button>
+          <button class="btn small" id="cashImportGo">Import</button>
         </div>
       </div>`;
     box.querySelectorAll('[data-month]').forEach(inp => inp.onchange = () => { p.sheets[inp.dataset.month].month = /^\d{4}-\d{2}$/.test(inp.value) ? inp.value : null; renderImportPreview(); });
@@ -690,16 +720,16 @@
           const cashier = known.get(c.name.trim().toLowerCase());
           if (!cashier) { skippedNames++; return; }
           if (c.day > daysIn(s.month)) { skippedDays++; return; }
-          rows.push({ cashier_id: cashier.id, day: dayStr(s.month, c.day), currency: CURRENCY, amount: round2(c.lbp / p.rate),
-            source_amount: c.lbp, source_currency: 'LBP', source_rate: p.rate });
+          rows.push({ cashier_id: cashier.id, day: dayStr(s.month, c.day), currency: CURRENCY, amount: Math.round(c.lbp),
+            source_amount: c.lbp, source_currency: 'LBP', source_rate: null });
         });
       });
       for (let i = 0; i < rows.length; i += 500) {
         const { error } = await sb.from('cash_differences').upsert(rows.slice(i, i + 500), { onConflict: 'cashier_id,day,currency', ignoreDuplicates: p.skipExisting });
         if (error) throw error;
       }
-      logActivity('cash', 'import', null, `Imported ${rows.length} cash differences from ${p.file} (${months.length} month${months.length === 1 ? '' : 's'}, ${p.rate.toLocaleString('en-US')} LBP/USD)`,
-        { file: p.file, rate: p.rate, months, values: rows.length, skippedLocked, skippedNames, skippedDays, created_cashiers: [...p.createNames] });
+      logActivity('cash', 'import', null, `Imported ${rows.length} cash differences from ${p.file} (${months.length} month${months.length === 1 ? '' : 's'}, LBP)`,
+        { file: p.file, months, values: rows.length, skippedLocked, skippedNames, skippedDays, created_cashiers: [...p.createNames] });
       S.importPlan = null;
       const notes = [skippedLocked && `${skippedLocked} in locked months`, skippedNames && `${skippedNames} for unticked names`, skippedDays && `${skippedDays} on days the month doesn't have`].filter(Boolean);
       await showConfirm(`Imported ${rows.length} values.${notes.length ? '\n\nSkipped: ' + notes.join(', ') + '.' : ''}`, 'OK');

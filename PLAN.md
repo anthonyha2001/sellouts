@@ -438,7 +438,7 @@ admin only by default (give it per user in Users → Permissions).
 | # | Question | Default until answered |
 |---|---|---|
 | 1 | Are "side gondola" (yearly) and "basket side" (other) the same equipment? | **Answered 2026-09-29:** different. Gondola, side gondola, basket side and pillar can each be yearly or monthly; screens are monthly only |
-| 2 | Cash differences: LBP only, or USD too? | **Answered 2026-09-29:** USD only. Old sheets are LBP and are converted on import at a rate entered then (original LBP amount and rate kept) |
+| 2 | Cash differences: LBP only, or USD too? | **Changed 2026-09-29: LBP.** (First answer was USD only.) Migration 015 put every amount back to its original LBP value (all rows came from the LBP sheets) and converted the levels at 89,500 (895,000 / 1,790,000 LBP); the grid, analysis, import and cashier page are in LBP, whole pounds. Grid columns: past months show only cashiers with entries; the current month also shows active cashiers, with a banner to mark inactive those with no entries this month (from the 8th) |
 | 3 | Cash colour thresholds | **Answered 2026-09-29:** ±$10 warning, ±$20 danger (editable in Cash settings) |
 | 4 | How does the catalog export list multiple barcodes per item? | Support both formats |
 | 5 | Does the catalog export already include a barcode column? | Owner, 2026-09-29: barcodes will be added to the sell-out and promotion files from now on. Catalog: detect a barcode column when present |
