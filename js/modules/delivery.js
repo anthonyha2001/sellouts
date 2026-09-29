@@ -642,7 +642,14 @@ function stats(list){
 }
 const pct = (a,b) => b ? (a/b*100).toFixed(1)+'%' : '0%';
 
+let reportMode = 'sales';     // 'sales' | 'customers'
+$('#rMode').addEventListener('click', e => { const b = e.target.closest('[data-mode]'); if(!b) return; reportMode = b.dataset.mode; renderReports(); });
 function renderReports(){
+  $('#rMode').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.mode === reportMode));
+  panel.querySelectorAll('.r-sales-only').forEach(x => x.hidden = reportMode !== 'sales');
+  $('#reportBody').hidden = reportMode !== 'sales';
+  $('#custReport').hidden = reportMode !== 'customers';
+  if(reportMode === 'customers') return renderCustReport();
   $('#rDriver').innerHTML = options(db.drivers.map(d => [d.id,d.name]), $('#rDriver').value, 'All drivers');
   const [from,to,title] = reportRange(), drv = $('#rDriver').value;
   const list = db.orders.filter(o => (!from || o.date >= from) && (!to || o.date <= to) && (!drv || o.driverId === drv));
@@ -675,6 +682,155 @@ function renderReports(){
       <div class="card table-wrap"><h3 style="padding:14px 14px 0">By area</h3>${table(['Area','Orders','Total','AOV'], areaRows)}</div>
       ${dayRows.length > 1 ? `<div class="card table-wrap"><h3 style="padding:14px 14px 0">Day by day</h3>${table(['Date','Orders','Total','AOV'], dayRows)}</div>` : ''}
     </div>`;
+}
+
+/* ================= REPORTS › CUSTOMERS =================
+   How often each customer orders, who has not ordered for too long, and a statement of account.
+   Owner, 2026-09-30: only On Account orders that are not marked paid are owed by the customer;
+   cash / card / online orders are settled at delivery.
+   Ordering pattern: "usually every N days" = time between the first and the last order / (orders − 1).
+   Not ordering lately: more than max(lapse days, 3 × their usual gap) since the last order → lapsed;
+   more than max(7, 2 × their usual gap) → late. One order only: lapsed after the lapse days. */
+const CR_LAPSE_KEY = 'dt_lapse_days';
+let crFilter = 'all';
+const daysSince = d => Math.round((new Date(today()+'T00:00:00') - new Date(d+'T00:00:00')) / 86400000);
+const isOwed = o => o.payment === 'On Account' && !o.paid;
+function crLapse(){ const v = +($('#crLapse').value || localStorage.getItem(CR_LAPSE_KEY) || 30); return v >= 3 ? v : 30; }
+function customerStats(){
+  const byCust = new Map();
+  db.orders.forEach(o => {
+    const k = o.customerId || ('~' + (normPhone(o.cPhone) || o.cName.trim().toLowerCase()));
+    if(!byCust.has(k)) byCust.set(k, []);
+    byCust.get(k).push(o);
+  });
+  const lapse = crLapse();
+  return [...byCust.entries()].map(([k, orders]) => {
+    orders.sort((a,b) => a.date.localeCompare(b.date) || (a.created||0) - (b.created||0));
+    const c = db.customers.find(x => x.id === k);
+    const last = orders[orders.length-1], first = orders[0];
+    const n = orders.length, days = new Set(orders.map(o => o.date)).size;
+    const gap = days > 1 ? daysSince(first.date) - daysSince(last.date) : null;
+    const every = gap !== null ? Math.max(1, Math.round(gap / (days - 1))) : null;
+    const since = daysSince(last.date);
+    let status;
+    if(every === null) status = since > lapse ? 'lapsed' : 'new';
+    else if(since > Math.max(lapse, every * 3)) status = 'lapsed';
+    else if(since > Math.max(7, every * 2)) status = 'late';
+    else status = 'regular';
+    const total = orders.reduce((s,o) => s + (+o.amount||0), 0);
+    const owed = orders.filter(isOwed).reduce((s,o) => s + (+o.amount||0), 0);
+    return { key:k, c, name: c?.name || last.cName || 'Unknown', phone: c?.phone || last.cPhone, area: c?.area || last.cArea, address: c?.address || last.cAddress,
+      orders, n, first:first.date, last:last.date, every, since, status, total, owed };
+  });
+}
+const CR_STATUS = { regular:['Regular','paid'], late:['Late','warn'], lapsed:['Not ordering','unpaid'], new:['One order','muted'] };
+function crFiltered(){
+  const q = $('#crSearch').value.trim().toLowerCase(), qd = normPhone(q);
+  return customerStats().filter(s =>
+      (crFilter === 'all' || (crFilter === 'late' ? (s.status === 'late' || s.status === 'lapsed') : crFilter === 'owed' ? s.owed > 0 : s.status === crFilter))
+      && (!q || [s.name, s.area, s.address].join(' ').toLowerCase().includes(q) || (qd.length >= 3 && normPhone(s.phone).includes(qd))))
+    .sort((a,b) => crFilter === 'late' ? b.since - a.since : (b.owed - a.owed) || (a.since - b.since) || a.name.localeCompare(b.name));
+}
+function renderCustReport(){
+  if(!$('#crLapse').value) $('#crLapse').value = localStorage.getItem(CR_LAPSE_KEY) || 30;
+  $('#crFilter').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.f === crFilter));
+  const all = customerStats(), list = crFiltered();
+  const late = all.filter(s => s.status === 'late' || s.status === 'lapsed').length;
+  const owed = all.reduce((t,s) => t + s.owed, 0);
+  const active30 = all.filter(s => s.since <= 30).length;
+  const tag = st => `<span class="status ${CR_STATUS[st][1]}">${CR_STATUS[st][0]}</span>`;
+  $('#crBody').innerHTML = `
+    <div class="kpis">
+      <div class="kpi"><span>Customers who ordered</span><b>${all.length}</b></div>
+      <div class="kpi"><span>Ordered in the last 30 days</span><b>${active30}</b></div>
+      <div class="kpi"><span>Not ordering lately</span><b style="color:${late?'var(--red)':'inherit'}">${late}</b></div>
+      <div class="kpi"><span>Owed on account</span><b style="color:${owed?'var(--red)':'inherit'}">${money(owed)}</b></div>
+    </div>
+    <div class="card table-wrap"><table class="tbl cr-table">
+      <thead><tr><th>Customer</th><th class="num">Orders</th><th>First order</th><th>Last order</th><th>Usually orders</th><th class="num">Days since</th><th>Status</th><th class="num">Total spent</th><th class="num">Owes</th><th></th></tr></thead>
+      <tbody>${list.slice(0, 500).map(s => `<tr data-key="${esc(s.key)}">
+        <td><b>${esc(s.name)}</b><div class="muted">${esc([s.phone, s.area].filter(Boolean).join(' · '))}</div></td>
+        <td class="num">${s.n}</td><td>${fmtDate(s.first)}</td><td>${fmtDate(s.last)}</td>
+        <td>${s.every ? (s.every === 1 ? 'every day' : `every ${s.every} days`) : '<span class="muted">—</span>'}</td>
+        <td class="num">${s.since}</td><td>${tag(s.status)}</td>
+        <td class="num">${money(s.total)}</td>
+        <td class="num" style="color:${s.owed?'var(--red)':'inherit'}">${s.owed ? money(s.owed) : '—'}</td>
+        <td class="actions"><button class="btn sm" data-act="statement">Statement</button></td></tr>`).join('')
+        || `<tr><td colspan="10" class="empty">${all.length ? 'No customer matches.' : 'No orders yet.'}</td></tr>`}
+        ${list.length > 500 ? '<tr><td colspan="10" class="empty">Showing the first 500 — use search to narrow down.</td></tr>' : ''}</tbody>
+    </table></div>
+    <p class="muted">“Usually orders” is the average time between their orders. <b>Late</b>: more than twice that since the last order; <b>Not ordering</b>: more than three times that, or more than ${crLapse()} days (one-order customers after ${crLapse()} days). Only unpaid <b>On Account</b> orders count as owed.</p>`;
+}
+$('#crSearch').addEventListener('input', renderCustReport);
+$('#crFilter').addEventListener('click', e => { const b = e.target.closest('[data-f]'); if(b){ crFilter = b.dataset.f; renderCustReport(); } });
+$('#crLapse').addEventListener('change', e => { const v = Math.max(3, Math.min(365, +e.target.value || 30)); e.target.value = v; try{ localStorage.setItem(CR_LAPSE_KEY, v); }catch(err){} renderCustReport(); });
+$('#crBody').addEventListener('click', e => {
+  const b = e.target.closest('[data-act="statement"]'); if(!b) return;
+  const s = customerStats().find(x => x.key === b.closest('tr').dataset.key);
+  if(s) openStatement([s]);
+});
+$('#crStatements').addEventListener('click', async () => {
+  const list = crFiltered();
+  if(!list.length) return toast('No customers in the list.', 'alert');
+  if(list.length > 40 && !(await uiConfirm(`Print ${list.length} statements (one page each)?`, {title:'Statements', ok:'Print'}))) return;
+  openStatement(list);
+});
+$('#crExport').addEventListener('click', () => {
+  const list = crFiltered();
+  const aoa = [['Customer','Phone','Area','Orders','First order','Last order','Usually every (days)','Days since last order','Status','Total spent','Owed on account']]
+    .concat(list.map(s => [s.name, s.phone || '', s.area || '', s.n, s.first, s.last, s.every ?? '', s.since, CR_STATUS[s.status][0], +s.total.toFixed(2), +s.owed.toFixed(2)]));
+  const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), 'Customers');
+  XLSX.writeFile(wb, `customers-${today()}.xlsx`);
+});
+
+// Statement of account: every order of the customer, what was settled at delivery, what is owed
+// (unpaid On Account) with a running balance. Printed from its own window, one page per customer.
+function statementHtml(s){
+  let bal = 0;
+  const rows = s.orders.map(o => {
+    const owedNow = isOwed(o);
+    if(owedNow) bal += +o.amount || 0;
+    const st = o.payment === 'On Account' ? (o.paid ? `On account · paid${o.paidAt ? ' ' + fmtDate(o.paidAt) : ''}` : 'On account · <b>due</b>') : `Paid at delivery (${esc(o.payment)})`;
+    return `<tr><td>${fmtDate(o.date)}</td><td>${esc(String(o.id).slice(-6).toUpperCase())}</td><td>${esc(o.platform || '')}</td><td>${st}</td>
+      <td class="n">${money(o.amount)}</td><td class="n">${owedNow ? money(o.amount) : '—'}</td><td class="n">${money(bal)}</td></tr>`;
+  }).join('');
+  const onAccount = s.orders.filter(o => o.payment === 'On Account').reduce((t,o) => t + (+o.amount||0), 0);
+  return `<section class="st">
+    <header><div><div class="brand">LA VALEUR <span>supermarché</span></div><div class="muted">Ajaltoun · Delivery</div></div>
+      <div class="r"><h1>Statement of account</h1><div class="muted">Date: ${fmtDate(today())}</div></div></header>
+    <div class="who"><b>${esc(s.name)}</b><br>${esc(s.phone || '')}${s.area ? ' · ' + esc(s.area) : ''}${s.address ? '<br>' + esc(s.address) : ''}</div>
+    <div class="sum">
+      <div><span>Orders</span><b>${s.n}</b></div><div><span>Period</span><b>${fmtDate(s.first)} → ${fmtDate(s.last)}</b></div>
+      <div><span>Total purchases</span><b>${money(s.total)}</b></div><div><span>On account</span><b>${money(onAccount)}</b></div>
+      <div class="due"><span>Balance due</span><b>${money(s.owed)}</b></div></div>
+    <table><thead><tr><th>Date</th><th>Order</th><th>Platform</th><th>Payment</th><th class="n">Amount</th><th class="n">Due</th><th class="n">Balance</th></tr></thead>
+      <tbody>${rows}</tbody>
+      <tfoot><tr><td colspan="4">Total</td><td class="n">${money(s.total)}</td><td class="n">${money(s.owed)}</td><td class="n">${money(s.owed)}</td></tr></tfoot></table>
+    <p class="foot">${s.owed ? `Amount to pay: <b>${money(s.owed)}</b>. Thank you.` : 'Nothing is due. Thank you for your orders.'}</p>
+  </section>`;
+}
+function openStatement(list){
+  const w = window.open('', '_blank');
+  if(!w) return uiAlert('Allow pop-ups for this site to print statements.', {title:'Statement'});
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Statement${list.length === 1 ? ' — ' + esc(list[0].name) : 's'}</title><style>
+    body{font:13px/1.45 Arial,Helvetica,sans-serif;color:#111;margin:0;background:#eef0f7}
+    .bar{position:sticky;top:0;background:#1f3fd1;color:#fff;padding:10px 18px;display:flex;gap:10px;align-items:center}
+    .bar button{font:inherit;padding:7px 14px;border-radius:7px;border:0;cursor:pointer;background:#fff;color:#1f3fd1;font-weight:700}
+    .st{background:#fff;max-width:760px;margin:18px auto;padding:34px 38px;box-shadow:0 2px 12px rgba(0,0,0,.08);page-break-after:always}
+    .st:last-child{page-break-after:auto}
+    header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #1f3fd1;padding-bottom:12px;margin-bottom:16px}
+    .brand{font-weight:800;font-size:20px;color:#1f3fd1;letter-spacing:.04em}.brand span{font-weight:400;font-size:13px;letter-spacing:0;display:block}
+    h1{margin:0;font-size:18px}.r{text-align:right}.muted{color:#666;font-size:12px}
+    .who{margin-bottom:14px}.sum{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
+    .sum div{border:1px solid #d9dcec;border-radius:8px;padding:7px 11px;min-width:110px}.sum span{display:block;font-size:11px;color:#666}
+    .sum .due{border-color:#1f3fd1;background:#eef1ff}.sum .due b{color:#1f3fd1}
+    table{width:100%;border-collapse:collapse}th,td{padding:6px 7px;border-bottom:1px solid #e3e5ef;text-align:left}th{font-size:11px;text-transform:uppercase;color:#555;border-bottom:2px solid #333}
+    .n{text-align:right;white-space:nowrap}tfoot td{font-weight:700;border-top:2px solid #333;border-bottom:0}.foot{margin-top:18px}
+    @media print{body{background:#fff}.bar{display:none}.st{box-shadow:none;margin:0;max-width:none;padding:10mm}}
+  </style></head><body><div class="bar"><b>${list.length} statement${list.length === 1 ? '' : 's'}</b><span style="flex:1"></span><button onclick="print()">Print / Save as PDF</button></div>
+  ${list.map(statementHtml).join('')}</body></html>`);
+  w.document.close();
+  logActivity('delivery', 'statement', null, list.length === 1 ? `Statement of account for ${list[0].name}` : `${list.length} statements of account`);
 }
 
 /* ================= CUSTOMERS ================= */

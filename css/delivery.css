@@ -203,3 +203,9 @@
   body.printing-delivery{background:#fff;color:#111}
   body.printing-delivery #panel-delivery .card,body.printing-delivery #panel-delivery .kpi{break-inside:avoid;border-color:#ccc}
 }
+
+/* Reports › Customers */
+#panel-delivery .status.warn{background:var(--gold-tint, #fbecc8);color:var(--gold, #8a5a00)}
+#panel-delivery .status.muted{background:var(--soft);color:var(--muted)}
+#panel-delivery .cr-table .status{cursor:default}
+#panel-delivery .cr-table td{vertical-align:middle}

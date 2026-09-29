@@ -578,7 +578,10 @@
     <!-- REPORTS -->
     <section class="page" id="page-reports" hidden>
       <div class="toolbar no-print">
-        <h2>Reports</h2><div class="spacer"></div>
+        <h2>Reports</h2>
+        <div class="seg" id="rMode"><button type="button" data-mode="sales" class="on">Sales report</button><button type="button" data-mode="customers">Customers</button></div>
+        <div class="spacer"></div>
+        <span class="r-sales-only" style="display:contents">
         <select id="rPeriod">
           <option value="today">Today</option>
           <option value="yesterday">Yesterday</option>
@@ -592,8 +595,27 @@
         <input type="date" id="rTo" hidden>
         <select id="rDriver"></select>
         <button class="btn" id="printReport"><i data-ic="print"></i> Print</button>
+        </span>
       </div>
       <div id="reportBody"></div>
+      <!-- Customers: how often each one orders, who stopped ordering, statement of account (js/modules/delivery.js) -->
+      <div id="custReport" hidden>
+        <div class="toolbar no-print" style="flex-wrap:wrap;gap:8px">
+          <input id="crSearch" placeholder="Search name, phone, area…" style="min-width:220px">
+          <div class="seg" id="crFilter">
+            <button type="button" data-f="all" class="on">All</button>
+            <button type="button" data-f="late">Not ordering lately</button>
+            <button type="button" data-f="regular">Regular</button>
+            <button type="button" data-f="new">One order</button>
+            <button type="button" data-f="owed">Owes money</button>
+          </div>
+          <label class="inline" style="display:flex;align-items:center;gap:6px;margin:0;white-space:nowrap" title="A customer with one order, or who ordered rarely, counts as not ordering lately after this many days">Lapsed after <input id="crLapse" type="number" min="3" max="365" style="width:64px"> days</label>
+          <div class="spacer"></div>
+          <button class="btn" id="crExport"><i data-ic="download"></i> Excel</button>
+          <button class="btn" id="crStatements" title="One statement per customer shown in the list">Statements for this list</button>
+        </div>
+        <div id="crBody"></div>
+      </div>
     </section>
   
     <!-- CUSTOMERS -->
