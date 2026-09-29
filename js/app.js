@@ -1,9 +1,7 @@
 /* ============================================================
-   Storage - Supabase (so data is shared across every PC you use)
+   Storage - Supabase (so data is shared across every PC you use).
+   The client `sb` is created in js/core/config.js.
    ============================================================ */
-const SUPABASE_URL = 'https://sezjqcbkiydckhirycjb.supabase.co';
-const SUPABASE_KEY = 'sb_publishable_LRI-MmDPYE_IjrHG-LZ7Xg_mQovg24F';
-const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 function blobToBase64(blob) {
   return new Promise((resolve, reject) => {
@@ -87,9 +85,9 @@ async function idbDelete(store, id) {
 /* ============================================================
    Promotions - catalog, settings, promotions, promotion rows
    ============================================================ */
+// RLS denials become "You don't have permission to do that." (see friendlyError in js/core/config.js).
 function sbErrText(error) {
-  if (!error) return 'Unknown error';
-  return error.message || error.details || error.hint || JSON.stringify(error);
+  return friendlyError(error);
 }
 
 // Each promotion has its own catalog file, so every catalog row is tagged
@@ -805,8 +803,8 @@ document.getElementById('soundToggle').checked = soundEnabled;
    Load
    ============================================================ */
 async function loadAll() {
-  sellouts = await idbAll('sellouts');
-  creditNotes = await idbAll('creditnotes');
+  sellouts = canSee('sellouts') ? await idbAll('sellouts') : [];
+  creditNotes = canSee('creditnotes') ? await idbAll('creditnotes') : [];
   sellouts.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
   creditNotes.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
   renderSellouts();
@@ -1194,9 +1192,18 @@ const PAGES = {
   creditnotes: { eyebrow: 'Tracker', title: 'Credit notes', sub: 'Every credit note logged against your suppliers, issued or signed.' },
   promotions:  { eyebrow: 'Builder', title: 'Promotions', sub: 'Look up items by code, build a flyer, and export it when it’s ready.' },
   vendors:     { eyebrow: 'Directory', title: 'Vendors', sub: 'Salesman contacts, delivery schedule, and placing orders.' },
-  rentals:     { eyebrow: 'Gondolas', title: 'Rentals', sub: 'Gondola and shelf-space rentals by supplier, tracked year over year.' }
+  rentals:     { eyebrow: 'Gondolas', title: 'Rentals', sub: 'Gondola and shelf-space rentals by supplier, tracked year over year.' },
+  delivery:    { eyebrow: 'Deliveries', title: 'Delivery', sub: 'Home-delivery orders, driver payments and customers.' },
+  cash:        { eyebrow: 'Cashiers', title: 'Cash differences', sub: 'Daily over and short amounts per cashier.' },
+  floorcheck:  { eyebrow: 'Store floor', title: 'Floor check', sub: 'Check that every sell-out item on the floor has the right price.' },
+  users:       { eyebrow: 'Settings', title: 'Users', sub: 'Who can sign in, and what each person can do.' },
+  activity:    { eyebrow: 'Settings', title: 'Activity log', sub: 'Everything that was changed, by whom and when.' }
 };
-function switchTab(name) {
+// Sections the signed-in role cannot see fall back to the role's home page (roles.js).
+// The address bar mirrors the section (#promotions, #delivery/settle) so reloads and links work.
+function switchTab(name, sub) {
+  if (!canSee(name)) name = roleInfo().home;
+  if (!name) return;
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
   document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + name));
   const meta = PAGES[name];
@@ -1204,7 +1211,16 @@ function switchTab(name) {
   document.getElementById('pageTitle').textContent = meta.title;
   document.getElementById('pageSub').textContent = meta.sub;
   document.getElementById('sidenav').classList.remove('open');
+  if (name === 'delivery' && window.Delivery) Delivery.show(sub);   // sets its own #delivery/<page> hash
+  else if (location.hash !== '#' + name) history.replaceState(null, '', '#' + name);
+  if (name === 'users' && window.UsersPage) UsersPage.show();
+  if (name === 'activity' && window.ActivityPage) ActivityPage.show();
 }
+function routeFromHash() {
+  const [name, sub] = location.hash.replace(/^#/, '').split('/');
+  switchTab(name || roleInfo().home, sub);
+}
+window.addEventListener('hashchange', () => { if (Session.role) routeFromHash(); });
 document.querySelectorAll('.nav-btn').forEach(b => b.addEventListener('click', () => switchTab(b.dataset.tab)));
 document.getElementById('menuToggle').addEventListener('click', () => document.getElementById('sidenav').classList.toggle('open'));
 
@@ -4442,6 +4458,10 @@ async function initVendors() {
   renderRentalsPage();
 }
 
-loadAll();
-initPromotions();
-initVendors();
+// Called by auth.js after sign-in, once the role is known. Each module only
+// starts if the role can see it (the database refuses the rest anyway).
+function startMainModules() {
+  if (canSee('sellouts') || canSee('creditnotes')) loadAll();
+  if (canSee('promotions')) initPromotions();
+  if (canSee('vendors') || canSee('rentals')) initVendors();
+}

@@ -38,7 +38,8 @@ const ctx = await browser.newContext({
 });
 const page = await ctx.newPage();
 const problems = [];
-page.on('console', m => { if (m.type() === 'error') problems.push('console: ' + m.text()); });
+// 403s are our own blocked writes (listed under BLOCKED), not app errors.
+page.on('console', m => { if (m.type() === 'error' && !/status of 403/.test(m.text())) problems.push('console: ' + m.text()); });
 page.on('pageerror', e => problems.push('pageerror: ' + e.message));
 page.on('requestfailed', r => { if (!r.failure()?.errorText.includes('ERR_ABORTED')) problems.push(`requestfailed: ${r.method()} ${r.url()} ${r.failure()?.errorText}`); });
 const blocked = [];
@@ -74,7 +75,8 @@ if (shot) await page.screenshot({ path: shot, fullPage: flag('full') });
 
 const summary = await page.evaluate(() => ({
   title: document.title,
-  heading: document.getElementById('pageTitle')?.textContent,
+  heading: document.body.classList.contains('locked') ? '(login screen) ' + (document.getElementById('loginErr')?.textContent || '') : document.getElementById('pageTitle')?.textContent,
+  hash: location.hash,
   visibleNav: [...document.querySelectorAll('.sidenav .nav-btn')].filter(b => b.offsetParent).map(b => b.dataset.tab),
 }));
 console.log('PAGE   ', JSON.stringify(summary));
