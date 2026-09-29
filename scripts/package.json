@@ -4,6 +4,7 @@
   "type": "module",
   "description": "Dev-only tools (backup, migrations). Never loaded by the app.",
   "dependencies": {
-    "pg": "^8.23.0"
+    "pg": "^8.23.0",
+    "playwright-core": "^1.63.0"
   }
 }
