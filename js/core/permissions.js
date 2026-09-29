@@ -39,6 +39,7 @@ const PERMISSIONS = [
   ['labels.scan',        'Labels',        'Scan items for labels',                              ['shelf']],
   ['labels.print',       'Labels',        'Print labels (export to Excel)',                     ['accountant']],
   ['activity.view',      'Activity log',  'See the activity log',                               []],
+  ['tools.convert',      'Tools',         'PDF / photo to Excel',                               []],
 ];
 const PERMISSION_KEYS = PERMISSIONS.map(p => p[0]);
 
@@ -48,7 +49,7 @@ const SECTION_PERMS = {
   vendors: ['vendors.manage'], rentals: ['rentals.view'],
   delivery: ['delivery.orders', 'delivery.settle', 'delivery.customers', 'delivery.reports', 'delivery.manage'],
   cash: ['cash.view'], floorcheck: ['floorcheck.do', 'floorcheck.manage'],
-  labels: ['labels.scan', 'labels.print'], activity: ['activity.view'],
+  labels: ['labels.scan', 'labels.print'], activity: ['activity.view'], tools: ['tools.convert'],
 };
 // Within a group, the first permission ("view") is needed by the others (the Users editor keeps that true).
 const PERMISSION_GROUPS = [...new Set(PERMISSIONS.map(p => p[1]))];

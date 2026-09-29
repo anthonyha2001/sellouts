@@ -414,6 +414,25 @@ add or remove single permissions for one user. Admins always have everything; on
 
 ---
 
+## 10d. Tools: PDF / photo to Excel (added 2026-09-29)
+
+Owner decisions (2026-09-29): free, in the browser (no AI, nothing uploaded); permission `tools.convert`,
+admin only by default (give it per user in Users → Permissions).
+
+- [x] Tools page (`js/modules/tools.js`): choose or drop PDFs / photos (several photos = several pages).
+- [x] Digital PDFs: text + positions from pdf.js (exact). Pages with no text layer, photos, and PDFs with
+  "Read PDFs as images": OCR with Tesseract.js (English / English + French / Arabic + English), page read as
+  one block, photo tilt corrected from the text lines. Libraries from jsDelivr, loaded on first use.
+- [x] Rows and columns rebuilt from word positions (lines → cells → columns where cells line up; a
+  right-aligned column's heading is joined to its numbers; two full columns such as Debit / Credit stay apart).
+- [x] Preview: edit any cell, remove a row / column, join a row to the one above; OCR words the reader was
+  unsure of are highlighted; "Rotate & re-read" for sideways photos.
+- [x] Download .xlsx: pages in one sheet (the title / header repeated on each page kept once) or one sheet per
+  page; amounts become numbers ("1,234.50", "(12.00)" → −12, "$9.60"), codes with leading zeros stay text.
+  Copy (tab-separated) for pasting into Excel. Converting and downloading are logged.
+
+---
+
 ## 11. Open questions (ask the owner when you reach the phase)
 
 | # | Question | Default until answered |

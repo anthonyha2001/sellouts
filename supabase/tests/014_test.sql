@@ -43,8 +43,8 @@ select pg_temp.t('delivery defaults', '00000000-0000-0000-0000-00000000000d',
   $q$select pg_temp.expect_text('select array_to_string(public.my_permissions(), '','')', 'delivery.orders,delivery.settle,delivery.customers')$q$, 'ok');
 select pg_temp.t('shelf defaults', '00000000-0000-0000-0000-0000000000a1',
   $q$select pg_temp.expect_text('select array_to_string(public.my_permissions(), '','')', 'labels.scan')$q$, 'ok');
-select pg_temp.t('admin has all 31', '00000000-0000-0000-0000-00000000000a',
-  $q$select pg_temp.expect('select cardinality(public.my_permissions())', 31)$q$, 'ok');
+select pg_temp.t('admin has all 32', '00000000-0000-0000-0000-00000000000a',
+  $q$select pg_temp.expect('select cardinality(public.my_permissions())', 32)$q$, 'ok');
 
 -- ---------- who may set permissions ----------
 select pg_temp.t('accountant gives itself cash.unlock', '00000000-0000-0000-0000-0000000000ac',

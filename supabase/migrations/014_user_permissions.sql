@@ -61,7 +61,8 @@ insert into public.permissions (key, grp, label, sort) values
   ('floorcheck.manage',  'Floor check',  'All results, repeat problems, resolve, reopen',       28),
   ('labels.scan',        'Labels',       'Scan items for labels',                               29),
   ('labels.print',       'Labels',       'Print labels (export to Excel)',                      30),
-  ('activity.view',      'Activity log', 'See the activity log',                                31)
+  ('activity.view',      'Activity log', 'See the activity log',                                31),
+  ('tools.convert',      'Tools',        'PDF / photo to Excel',                                32)
 on conflict (key) do update set grp = excluded.grp, label = excluded.label, sort = excluded.sort;
 
 -- Role templates (admin needs none: it always has everything).

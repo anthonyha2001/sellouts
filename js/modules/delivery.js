@@ -132,7 +132,7 @@ async function reloadFromServer(){
   try{
     await loadAll();
     setSync('saved');
-    refreshLists(); renderers[currentPage]();
+    refreshLists(); renderers[currentPage]?.();   // no page yet when Delivery was never opened
   }catch(err){
     console.error(err); setSync('error', friendlyError(err));
   }
@@ -143,7 +143,7 @@ function scheduleRender(){
   clearTimeout(renderTimer);
   renderTimer = setTimeout(() => {
     if(document.querySelector('dialog[open]')) return scheduleRender();
-    refreshLists(); renderers[currentPage]();
+    refreshLists(); renderers[currentPage]?.();
   }, 250);
 }
 function applyRemote(k, p){
@@ -212,7 +212,7 @@ async function offerLocalUpload(){
   if(local.areas) db.areas = local.areas; if(local.currency) db.currency = local.currency;
   clearTimeout(syncTimer); await sync();
   if(syncState === 'saved'){ localStorage.setItem(OLD_LOCAL_KEY + '_uploaded', localStorage.getItem(OLD_LOCAL_KEY)); localStorage.removeItem(OLD_LOCAL_KEY); toast('Data uploaded', 'check'); }
-  renderers[currentPage]();
+  renderers[currentPage]?.();
 }
 
 /* ---------- icons (inline SVG, work offline) ---------- */
