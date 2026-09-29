@@ -165,7 +165,7 @@ async function deletePromotionRemote(id) {
 }
 
 async function loadPromoRows(promoId) {
-  const { data, error } = await sb.from('promotion_rows').select('*').eq('promotion_id', promoId).order('sort_order', { ascending: true });
+  const { data, error } = await sb.from('promotion_rows').select('*').eq('promotion_id', promoId).order('sort_order', { ascending: true }).order('created_at', { ascending: true });
   if (error) { console.error(error); showToast('Could not load this promotion’s items — ' + sbErrText(error), true); return []; }
   return (data || []).map(r => ({
     id: r.id, promotionId: r.promotion_id || promoId, code: r.code || '', description: r.description || '',
@@ -182,8 +182,11 @@ async function loadPromoRows(promoId) {
     country: r.country || '',
     outYtd: r.out_ytd === undefined ? null : r.out_ytd,
     note: r.note || '',
-    sortOrder: r.sort_order || 0, _lastLookupCode: r.code || ''
+    sortOrder: r.sort_order || 0, _savedSortOrder: r.sort_order ?? null, _lastLookupCode: r.code || ''
   }));
+  // Older data may have several rows on one position (see renumberRows); the save time
+  // keeps each batch together until the next save renumbers them.
+
 }
 function numOrNull(v) {
   if (v === '' || v === null || v === undefined) return null;
@@ -239,6 +242,7 @@ async function savePromoRow(row) {
     ({ error } = await sb.from('promotion_rows').upsert(promoRowPayload(row)));
   }
   if (error) { console.error(error); showToast('Could not save that row — ' + sbErrText(error), true); }
+  else row._savedSortOrder = row.sortOrder;
 }
 async function persistRowsBulk(rows) {
   if (!rows.length) return;
@@ -251,6 +255,7 @@ async function persistRowsBulk(rows) {
       ({ error } = await sb.from('promotion_rows').upsert(chunk));
     }
     if (error) { console.error(error); showToast('Could not save some of the rows — ' + sbErrText(error), true); return; }
+    rows.slice(i, i + chunkSize).forEach(r => { r._savedSortOrder = r.sortOrder; });
   }
 }
 async function deletePromoRow(id) {
@@ -272,9 +277,16 @@ async function replaceAllPromoRows(promoId, rows) {
   await persistRowsBulk(rows);
   return true;
 }
+// Renumbers every row to its place on screen and returns the rows whose saved position is
+// now out of date. Callers MUST save those too: saving only the new/pasted rows left the
+// rows below them on their old numbers, two rows shared a position, and the list came back
+// interleaved on reload (e.g. two pasted batches mixed row by row).
 function renumberRows() {
   currentRows.forEach((r, i) => { r.sortOrder = i; });
+  return currentRows.filter(r => r.sortOrder !== r._savedSortOrder);
 }
+// Rows to save after an edit: the edited ones plus every row that changed position.
+const withMoved = (rows, moved) => [...new Set([...rows, ...moved])];
 function blankPromoRow() {
   return { id: uid(), promotionId: currentPromoId, code: '', description: '', promoPrice: null, discount: null, beforePrice: null, salePrice: null, balance: null, priceType: '', supplier: '', flagged: false, reviewed: false, cost: null, country: '', outYtd: null, note: '', sortOrder: currentRows.length, _lastLookupCode: '' };
 }
@@ -2603,9 +2615,9 @@ function wirePromoRowElement(tr) {
         currentRows.splice(idx + 1 + i, 0, newRow);
         newRows.push(newRow);
       }
-      renumberRows();
+      const moved = renumberRows();
       await renderPromoWorkspace();
-      await persistRowsBulk(newRows);
+      await persistRowsBulk(withMoved(newRows, moved));
       showToast(`${n} row${n === 1 ? '' : 's'} inserted${pct !== null ? ` with a ${pct}% discount` : ''}.`);
     });
 
@@ -2614,9 +2626,10 @@ function wirePromoRowElement(tr) {
       if (!ok) return;
       currentRows = currentRows.filter(r => r.id !== rowId);
       selectedRowIds.delete(rowId);
-      renumberRows();
+      const moved = renumberRows();
       await deletePromoRow(rowId);
       await renderPromoWorkspace();
+      await persistRowsBulk(moved);
     });
 }
 
@@ -3006,9 +3019,9 @@ function wirePromoWorkspaceEvents(promo) {
       target.value = (v === null || v === undefined) ? '' : String(v);
     }
 
-    renumberRows();
+    const moved = renumberRows();
     await renderPromoWorkspace();
-    await persistRowsBulk(touchedRows);
+    await persistRowsBulk(withMoved(touchedRows, moved));
     showToast(`Pasted ${grid.length} row${grid.length === 1 ? '' : 's'}.`);
   });
 }
