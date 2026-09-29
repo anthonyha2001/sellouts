@@ -1,23 +1,24 @@
 /* ============================================================
-   Rentals (PLAN §7): yearly contracts (gondola / side gondola, one
-   annual amount billed once) and other rentals (gondola, basket side,
-   screens wall/island) tracked month by month, year over year.
+   Rentals (PLAN §7): yearly contracts (one annual amount, billed once)
+   and other rentals tracked month by month, year over year.
+   Gondola, side gondola, basket side and pillar can be either;
+   screens (wall / island) are monthly only (owner, 2026-09-29).
    Shared state (rentalsList, editingRentalId, expandedRentalIds) is
    declared in app.js; initVendors() loads and renders this page.
    ============================================================ */
 
 const EQUIPMENT_LABELS = {
-  gondola: 'Gondola', side_gondola: 'Side gondola', basket_side: 'Basket side',
+  gondola: 'Gondola', side_gondola: 'Side gondola', basket_side: 'Basket side', pillar: 'Pillar',
   screen_wall: 'Screen · wall', screen_island: 'Screen · island',
 };
 const TERM_EQUIPMENT = {
-  yearly: ['gondola', 'side_gondola'],
-  other: ['gondola', 'basket_side', 'screen_wall', 'screen_island'],
+  yearly: ['gondola', 'side_gondola', 'basket_side', 'pillar'],
+  other: ['gondola', 'side_gondola', 'basket_side', 'pillar', 'screen_wall', 'screen_island'],
 };
 const RENEWAL_WARNING_DAYS = 30;
 const RENTAL_NOTIFY_LOG_KEY = 'lv:rentalNotifyLog';
 
-const rentalView = { term: 'yearly', type: 'gondola', screen: '' };
+const rentalView = { term: 'yearly', type: 'all', screen: '' };   // type: 'all' | equipment | 'screens'
 
 const RENTAL_MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const MONTH_NAME_TO_IDX = {
@@ -119,14 +120,15 @@ setInterval(() => { if (canSee('rentals')) runRentalNotificationCheck(); }, 60 *
 
 /* ---------------- tabs ---------------- */
 function visibleRentals() {
-  if (rentalView.term === 'yearly') return rentalsList.filter(r => r.term === 'yearly');
-  const other = rentalsList.filter(r => r.term === 'other');
-  if (rentalView.type === 'screens') return other.filter(r => r.equipment.startsWith('screen_') && (!rentalView.screen || r.equipment === rentalView.screen));
-  return other.filter(r => r.equipment === rentalView.type);
+  const list = rentalsList.filter(r => r.term === rentalView.term);
+  if (rentalView.type === 'all') return list;
+  if (rentalView.type === 'screens') return list.filter(r => r.equipment.startsWith('screen_') && (!rentalView.screen || r.equipment === rentalView.screen));
+  return list.filter(r => r.equipment === rentalView.type);
 }
 document.getElementById('rentalTermTabs').addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
   rentalView.term = b.dataset.term;
+  if (rentalView.term === 'yearly' && rentalView.type === 'screens') rentalView.type = 'all';
   renderRentalsPage();
 });
 document.getElementById('rentalTypeTabs').addEventListener('click', e => {
@@ -225,7 +227,8 @@ function otherCardHtml(r) {
       <thead><tr><th>${y}</th>${RENTAL_MONTH_NAMES.map(m => `<th>${m}</th>`).join('')}<th>Total</th></tr></thead>
       <tbody><tr><td>Amount</td>${RENTAL_MONTH_NAMES.map((m, i) => `<td>${money2(r.monthly[monthlyKey(y, i)])}</td>`).join('')}<td><strong>${money2(rentalYearTotal(r, y))}</strong></td></tr></tbody>
     </table>`;
-  const screenBadge = r.equipment === 'screen_wall' ? '<span class="badge inactive">Wall</span>' : r.equipment === 'screen_island' ? '<span class="badge inactive">Island</span>' : '';
+  const screenBadge = r.equipment === 'screen_wall' ? '<span class="badge inactive">Wall</span>' : r.equipment === 'screen_island' ? '<span class="badge inactive">Island</span>'
+    : `<span class="badge inactive">${EQUIPMENT_LABELS[r.equipment]}</span>`;
   return `
     <div class="sellout ${open ? 'open' : ''}" data-rental-id="${escapeHtml(r.id)}">
       <div class="sellout-head" data-role="toggle-rental">
@@ -256,7 +259,7 @@ function otherCardHtml(r) {
 function renderRentalsPage() {
   document.querySelectorAll('#rentalTermTabs button').forEach(b => b.classList.toggle('active', b.dataset.term === rentalView.term));
   document.querySelectorAll('#rentalTypeTabs button[data-type]').forEach(b => b.classList.toggle('active', b.dataset.type === rentalView.type));
-  document.getElementById('rentalTypeTabs').hidden = rentalView.term !== 'other';
+  document.querySelectorAll('#rentalTypeTabs [data-only-term]').forEach(b => { b.hidden = b.dataset.onlyTerm !== rentalView.term; });
   document.getElementById('rentalScreenFilter').hidden = !(rentalView.term === 'other' && rentalView.type === 'screens');
   document.getElementById('rentalScreenSelect').value = rentalView.screen;
 
@@ -330,7 +333,7 @@ function openRentalForm(id) {
   el('rentalTerm').value = r ? r.term : rentalView.term;
   el('rentalEquipment').innerHTML = '';
   syncRentalFormTerm();
-  const defaultType = rentalView.term === 'other' ? (rentalView.type === 'screens' ? (rentalView.screen || 'screen_wall') : rentalView.type) : 'gondola';
+  const defaultType = rentalView.type === 'screens' ? (rentalView.screen || 'screen_wall') : rentalView.type === 'all' ? 'gondola' : rentalView.type;
   el('rentalEquipment').value = r ? r.equipment : (TERM_EQUIPMENT[el('rentalTerm').value].includes(defaultType) ? defaultType : TERM_EQUIPMENT[el('rentalTerm').value][0]);
   el('rentalSupplier').value = r ? r.supplier : '';
   el('rentalGondola').value = r ? r.gondola : '';
@@ -408,7 +411,7 @@ document.getElementById('saveRentalBtn').addEventListener('click', async () => {
   }
   // Show the tab the rental lives in.
   rentalView.term = term;
-  if (term === 'other') rentalView.type = rental.equipment.startsWith('screen_') ? 'screens' : rental.equipment;
+  if (rentalView.type !== 'all') rentalView.type = rental.equipment.startsWith('screen_') ? 'screens' : rental.equipment;
   closeRentalForm();
   renderRentalsPage();
   showToast(wasEditing ? 'Rental updated.' : 'Rental added.');
@@ -426,7 +429,8 @@ function parseRentalType(v, term) {
   if (/island/.test(s)) t = 'screen_island';
   else if (/wall|screen/.test(s)) t = 'screen_wall';
   else if (/basket/.test(s)) t = 'basket_side';
-  else if (/side/.test(s)) t = term === 'yearly' ? 'side_gondola' : 'basket_side';
+  else if (/pillar/.test(s)) t = 'pillar';
+  else if (/side/.test(s)) t = 'side_gondola';
   return TERM_EQUIPMENT[term].includes(t) ? t : 'gondola';
 }
 

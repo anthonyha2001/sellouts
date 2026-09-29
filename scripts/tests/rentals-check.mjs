@@ -22,12 +22,15 @@ export default async function (page, { log }) {
   log('rentals:', JSON.stringify(counts));
   log('yearly totals:', await page.$eval('#rentalTotals', e => e.textContent.replace(/\s+/g, ' ').trim()));
   await page.screenshot({ path: join(dir, 'rent_yearly.png') });
-  await page.click('#rentalTermTabs [data-term="other"]');
-  for (const t of ['gondola', 'basket_side', 'screens']) {
-    await page.click(`#rentalTypeTabs [data-type="${t}"]`);
-    log(`other/${t}:`, await page.$$eval('#rentalList [data-rental-id]', x => x.length), 'rows |', await page.$eval('#rentalTotals', e => e.textContent.replace(/\s+/g, ' ').trim()));
+  for (const term of ['yearly', 'other']) {
+    await page.click(`#rentalTermTabs [data-term="${term}"]`);
+    const tabs = await page.$$eval('#rentalTypeTabs button[data-type]', bs => bs.filter(b => !b.hidden).map(b => b.dataset.type));
+    for (const t of tabs) {
+      await page.click(`#rentalTypeTabs [data-type="${t}"]`);
+      log(`${term}/${t}:`, await page.$$eval('#rentalList [data-rental-id]', x => x.length), 'rows |', await page.$eval('#rentalTotals', e => e.textContent.replace(/s+/g, ' ').trim()));
+    }
   }
-  await page.click('#rentalTypeTabs [data-type="gondola"]');
+  await page.click('#rentalTypeTabs [data-type="all"]');
   await page.screenshot({ path: join(dir, 'rent_other.png') });
   // Form adapts to the term
   await page.click('#addRentalBtn');
@@ -39,5 +42,5 @@ export default async function (page, { log }) {
     return r;
   });
   log('form:', JSON.stringify(f));
-  log('import parse:', await page.evaluate(() => JSON.stringify(['Yearly|Side gondola', 'yearly|side', 'Other|Basket side', 'other|side', '|Screen wall', '|island', 'Annual|basket'].map(x => { const [t, y] = x.split('|'); const term = parseRentalTerm(t); return `${x} -> ${term}/${parseRentalType(y, term)}`; }))));
+  log('import parse:', await page.evaluate(() => JSON.stringify(['Yearly|Side gondola', 'yearly|pillar', 'Yearly|basket side', 'other|side', 'Other|2 Pillars', '|Screen wall', '|island', 'Annual|screen'].map(x => { const [t, y] = x.split('|'); const term = parseRentalTerm(t); return `${x} -> ${term}/${parseRentalType(y, term)}`; }))));
 }

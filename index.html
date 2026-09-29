@@ -474,10 +474,13 @@
         </div>
       </div>
 
-      <div class="filter-row" id="rentalTypeTabs" style="flex-wrap:wrap;" hidden>
-        <button class="active" data-type="gondola">Gondola</button>
+      <div class="filter-row" id="rentalTypeTabs" style="flex-wrap:wrap;">
+        <button class="active" data-type="all">All</button>
+        <button data-type="gondola">Gondola</button>
+        <button data-type="side_gondola">Side gondola</button>
         <button data-type="basket_side">Basket side</button>
-        <button data-type="screens">Screens</button>
+        <button data-type="pillar">Pillar</button>
+        <button data-type="screens" data-only-term="other">Screens</button>
         <span class="rental-screen-filter" id="rentalScreenFilter" hidden>
           <select id="rentalScreenSelect" aria-label="Screen type">
             <option value="">Wall and island</option>

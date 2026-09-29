@@ -14,9 +14,10 @@ alter table public.vendor_rentals drop constraint if exists vendor_rentals_term_
 alter table public.vendor_rentals add constraint vendor_rentals_term_check
   check (rental_term in ('yearly', 'other'));
 
--- Yearly contracts are for gondolas or side gondolas; other rentals are gondola, basket side or screens.
+-- Gondola, side gondola, basket side and pillar can be yearly or monthly ("other");
+-- screens (wall / island) are monthly only (owner, 2026-09-29).
 alter table public.vendor_rentals drop constraint if exists vendor_rentals_equipment_check;
 alter table public.vendor_rentals add constraint vendor_rentals_equipment_check check (
-  (rental_term = 'yearly' and equipment_type in ('gondola', 'side_gondola'))
-  or (rental_term = 'other' and equipment_type in ('gondola', 'basket_side', 'screen_wall', 'screen_island'))
+  equipment_type in ('gondola', 'side_gondola', 'basket_side', 'pillar', 'screen_wall', 'screen_island')
+  and (rental_term = 'other' or equipment_type not in ('screen_wall', 'screen_island'))
 );
