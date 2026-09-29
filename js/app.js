@@ -968,7 +968,7 @@ const PAGES = {
   creditnotes: { eyebrow: 'Tracker', title: 'Credit notes', sub: 'Every credit note logged against your suppliers, issued or signed.' },
   promotions:  { eyebrow: 'Builder', title: 'Promotions', sub: 'Look up items by code, build a flyer, and export it when it’s ready.' },
   vendors:     { eyebrow: 'Directory', title: 'Vendors', sub: 'Salesman contacts, delivery schedule, and placing orders.' },
-  rentals:     { eyebrow: 'Gondolas', title: 'Rentals', sub: 'Gondola and shelf-space rentals by supplier, tracked year over year.' },
+  rentals:     { eyebrow: 'Store map', title: 'Rentals', sub: 'Every rented spot on the store map: its contract, billing, renewal and the supplier’s sales.' },
   delivery:    { eyebrow: 'Deliveries', title: 'Delivery', sub: 'Home-delivery orders, driver payments and customers.' },
   cash:        { eyebrow: 'Cashiers', title: 'Cash differences', sub: 'Daily over and short amounts per cashier.' },
   floorcheck:  { eyebrow: 'Store floor', title: 'Floor check', sub: 'Check that every sell-out and promotion item on the floor has the right price.' },
@@ -994,6 +994,7 @@ function switchTab(name, sub) {
   if (name === 'cash' && window.Cash) Cash.show();
   if (name === 'floorcheck' && window.FloorCheck) FloorCheck.show();
   if (name === 'labels' && window.Labels) Labels.show();
+  if (name === 'rentals' && typeof Rentals !== 'undefined') Rentals.show();
   if (name !== 'floorcheck' && name !== 'labels' && window.Scanner) Scanner.close();
   if (name === 'activity' && window.ActivityPage) ActivityPage.show();
 }
@@ -3112,12 +3113,9 @@ let vendorSubTab = 'directory';
 // Orders / no-order weeks / rentals
 let ordersList = [];
 let skipsList = [];
-let rentalsList = [];
 let ordersViewDate = todayStr();
 let orderHistoryFilter = 'all';
 let ordersSearchTerm = ''; // Filters Due/Awaiting/No-order/History by vendor name, across the whole Orders sub-tab
-let editingRentalId = null;
-let expandedRentalIds = new Set();
 let ordersDueSelection = new Set(); // Vendor ids checked in the "Due" bulk-action list; cleared whenever the date/search changes what's shown.
 
 const VENDOR_DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -4067,9 +4065,6 @@ async function initVendors() {
   await loadSkipsData();
   renderOrdersView();
   runVendorNotificationCheck();
-  await loadRentalsData();
-  renderRentalsPage();
-  runRentalNotificationCheck();   // yearly contracts ending within 30 days (js/modules/rentals.js)
 }
 
 // Called by auth.js after sign-in, once the role is known. Each module only
@@ -4077,7 +4072,8 @@ async function initVendors() {
 function startMainModules() {
   if (canSee('sellouts') || canSee('creditnotes')) loadAll();
   if (canSee('promotions')) initPromotions();
-  if (canSee('vendors') || canSee('rentals')) initVendors();
+  if (canSee('vendors')) initVendors();
+  if (canSee('rentals') && typeof Rentals !== 'undefined') Rentals.start();          // contracts + renewal reminders (js/modules/rentals.js)
   if (canSee('cash') && window.Cash) Cash.start();
   if (canSee('floorcheck') && window.FloorCheck) FloorCheck.start();   // admin: finished-check notifications
 }

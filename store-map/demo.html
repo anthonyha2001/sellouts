@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Store Map Demo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,600&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="store-map.css">
+<style>
+  /* The same design tokens as the main LV Ajaltoun app, so the map looks identical once moved in. */
+  :root{
+    --paper:#F7F7F3; --paper-raised:#FFFFFF; --ink:#1A2420; --ink-soft:#69746C; --ink-faint:#9AA39C;
+    --line:#E1E3DA; --line-strong:#CBCFC3; --pine:#1F4E79; --pine-deep:#11314D; --pine-tint:#E3EBF4;
+    --font-head:"Source Serif 4", Georgia, serif; --font-body:"IBM Plex Sans", system-ui, sans-serif; --font-mono:"IBM Plex Mono", monospace;
+    --radius:10px;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --paper:#14170F; --paper-raised:#1C2117; --ink:#EAEFE6; --ink-soft:#9BAA9C; --ink-faint:#6E7D6F;
+      --line:#2C332A; --line-strong:#3B4437; --pine:#6FA8DC; --pine-deep:#0C2740; --pine-tint:#182936;
+    }
+  }
+  :root[data-theme="dark"]{
+    --paper:#14170F; --paper-raised:#1C2117; --ink:#EAEFE6; --ink-soft:#9BAA9C; --ink-faint:#6E7D6F;
+    --line:#2C332A; --line-strong:#3B4437; --pine:#6FA8DC; --pine-deep:#0C2740; --pine-tint:#182936;
+  }
+  *{ box-sizing:border-box; }
+  body{ margin:0; background:var(--paper); color:var(--ink); font-family:var(--font-body); font-size:15px; }
+  .page{ padding:22px 24px 30px; display:flex; flex-direction:column; gap:14px; min-height:100vh; }
+  header{ display:flex; align-items:flex-end; justify-content:space-between; gap:16px; flex-wrap:wrap; }
+  header .eyebrow{ font-family:var(--font-mono); font-size:11.5px; color:var(--ink-faint); letter-spacing:.04em; margin:0 0 4px; }
+  header h1{ font-family:var(--font-head); font-size:26px; font-weight:600; margin:0; }
+  header p.sub{ margin:4px 0 0; color:var(--ink-soft); font-size:14px; max-width:62ch; }
+  .demo-tools{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; font-size:13px; color:var(--ink-soft); }
+  .demo-tools select, .demo-tools button{ font:inherit; font-size:13px; padding:7px 10px; border-radius:8px; border:1px solid var(--line-strong); background:var(--paper-raised); color:var(--ink); cursor:pointer; }
+  #map{ flex:1 1 auto; display:flex; flex-direction:column; }
+  #map > .sm{ flex:1 1 auto; }
+  @media (max-width:640px){ .page{ padding:14px 12px 20px; } header h1{ font-size:22px; } }
+</style>
+</head>
+<body>
+<div class="page">
+  <header>
+    <div>
+      <p class="eyebrow">Rentals · demo</p>
+      <h1>Store map</h1>
+      <p class="sub">Ground floor traced from the PDF. The contracts here are samples with made-up amounts, only to show the colours. Everything is saved in this browser only.</p>
+    </div>
+    <div class="demo-tools">
+      <label>View as <select id="role"><option value="admin">Admin</option><option value="viewer">Viewer (read only)</option></select></label>
+      <button id="reset">Reset demo</button>
+    </div>
+  </header>
+  <div id="map"></div>
+</div>
+
+<script src="seed-ground-floor.js"></script>
+<script src="local-adapter.js"></script>
+<script src="store-map.js"></script>
+<script>
+  const { localDate, addDays, addYears } = StoreMap.utils;
+  const t = localDate(new Date());
+  const y = t.slice(0, 4);
+  // Sample contracts, clearly fake, only so every status colour shows up in the demo.
+  const sample = [
+    { id: 's1', spotId: 'g1-r',   supplier: 'Najjar',      term: 'yearly',  start: `${y}-01-01`, end: `${y}-12-31`, amount: 6000, billed: true,  billedAt: `${y}-01-05`, paid: true, paidAt: `${y}-01-20`, note: 'Sample' },
+    { id: 's2', spotId: 'g4-l',   supplier: 'Hanilor',     term: 'yearly',  start: addDays(addYears(t, -1), 20), end: addDays(t, 20), amount: 4800, billed: true, billedAt: addDays(addYears(t, -1), 22), paid: true, note: 'Sample — ends soon' },
+    { id: 's3', spotId: 'r1-r',   supplier: 'Rifai',       term: 'yearly',  start: addYears(addDays(t, -40), -1), end: addDays(t, -40), amount: 5200, billed: true, paid: true, note: 'Sample — expired' },
+    { id: 's4', spotId: 'd-kazzi', supplier: 'Kazzi',      term: 'monthly', start: `${y}-03-01`, end: `${y}-12-31`, amount: 350, billed: false, paid: false, note: 'Sample — not billed' },
+    { id: 's5', spotId: 'm3-r',   supplier: 'Nestle',      term: 'yearly',  start: `${y}-01-01`, end: `${y}-12-31`, amount: 7500, billed: true, paid: false, note: 'Sample' },
+    { id: 's6', spotId: 'd-kallassi', supplier: 'Kallassi', term: 'monthly', start: `${y}-01-01`, end: `${y}-12-31`, amount: 400, billed: true, paid: true, note: 'Sample' },
+    { id: 's7', spotId: 'promo-zone', supplier: 'Nestle',  term: 'monthly', start: addDays(t, 10), end: addDays(t, 40), amount: 900, billed: false, paid: false, note: 'Sample — starts soon' },
+    { id: 's8', spotId: 'bg2-l',  supplier: 'Johnnie Walker', term: 'yearly', start: `${y}-02-01`, end: addDays(addYears(`${y}-02-01`, 1), -1), amount: 8000, billed: true, paid: true, note: 'Sample' },
+    { id: 's9', spotId: 'old-gondola-7', supplier: 'Golden Food', term: 'yearly', start: `${y}-01-01`, end: `${y}-12-31`, amount: 3000, billed: true, paid: true, note: 'Sample — imported from the old rentals list', legacyLabel: 'Gondola + freezer cap' }
+  ];
+  const adapter = StoreMapLocalAdapter({
+    storageKey: 'lv-store-map-demo-v3',
+    sampleContracts: sample,
+    extraFloors: [{ id: 'mezzanine', name: 'Mezzanine', width: 3000, height: 2000, sort: 2 }],
+    userName: 'Demo admin'
+  });
+  let map;
+  function start(role) {
+    if (map) map.destroy();
+    map = StoreMap.mount(document.getElementById('map'), {
+      adapter, canEdit: role === 'admin', canManageRentals: role === 'admin', currency: '$',
+      onActivity: (action, summary) => console.info('[activity]', action, summary)
+    });
+  }
+  document.getElementById('role').onchange = (e) => start(e.target.value);
+  document.getElementById('reset').onclick = () => { adapter.reset(); start(document.getElementById('role').value); };
+  start('admin');
+</script>
+</body>
+</html>

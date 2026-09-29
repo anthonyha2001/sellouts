@@ -1,495 +1,266 @@
 /* ============================================================
-   Rentals (PLAN §7): yearly contracts (one annual amount, billed once)
-   and other rentals tracked month by month, year over year.
-   Gondola, side gondola, basket side and pillar can be either;
-   screens (wall / island) are monthly only (owner, 2026-09-29).
-   Shared state (rentalsList, editingRentalId, expandedRentalIds) is
-   declared in app.js; initVendors() loads and renders this page.
+   Rentals (store-map/WIRING.md, replaces the list-only PLAN §7):
+   the store map is the place where rentals live. Every contract sits
+   on a spot of the map (gondola, end cap, basket side, pillar, screen…);
+   the List view shows the same contracts as a list, read from the map.
+   - Map view: store-map/store-map.js, data through the Supabase adapter.
+   - List view: filters by billing term and spot type, sales history with
+     the renew / review signal (old rentals' monthly figures are the
+     supplier's sales, owner 2026-09-29), "Show on map" / "Place on map".
+   - Renewal reminders on the bell, once a day per contract.
+   Admin only (RLS in supabase/migrations/012_store_map.sql).
    ============================================================ */
+const Rentals = (function () {
+  const RENEWAL_WARNING_DAYS = 30;
+  const NOTIFY_LOG_KEY = 'lv:rentalNotifyLog';
+  const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const S = { adapter: null, map: null, view: 'map', term: 'all', type: 'all', q: '', expanded: new Set(), contracts: [] };
+  const el = id => document.getElementById(id);
+  const esc = escapeHtml;
+  const money = n => '$' + Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
+  const today = () => beirutToday();
 
-const EQUIPMENT_LABELS = {
-  gondola: 'Gondola', side_gondola: 'Side gondola', basket_side: 'Basket side', pillar: 'Pillar',
-  screen_wall: 'Screen · wall', screen_island: 'Screen · island',
-};
-const TERM_EQUIPMENT = {
-  yearly: ['gondola', 'side_gondola', 'basket_side', 'pillar'],
-  other: ['gondola', 'side_gondola', 'basket_side', 'pillar', 'screen_wall', 'screen_island'],
-};
-const RENEWAL_WARNING_DAYS = 30;
-const RENTAL_NOTIFY_LOG_KEY = 'lv:rentalNotifyLog';
-
-const rentalView = { term: 'yearly', type: 'all', screen: '' };   // type: 'all' | equipment | 'screens'
-
-const RENTAL_MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const MONTH_NAME_TO_IDX = {
-  jan: 0, january: 0, feb: 1, february: 1, mar: 2, march: 2, apr: 3, april: 3, may: 4,
-  jun: 5, june: 5, jul: 6, july: 6, aug: 7, august: 7, sep: 8, sept: 8, september: 8,
-  oct: 9, october: 9, nov: 10, november: 10, dec: 11, december: 11
-};
-function monthlyKey(year, monthIdx) { return year + '-' + String(monthIdx + 1).padStart(2, '0'); }
-function parseMonthYearHeader(h) {
-  const s = String(h).trim().toLowerCase();
-  const m = s.match(/^([a-z]+)\s+(\d{4})$/);
-  if (!m) return null;
-  const monIdx = MONTH_NAME_TO_IDX[m[1]];
-  if (monIdx === undefined) return null;
-  return monthlyKey(Number(m[2]), monIdx);
-}
-function buildMonthGridHtml(year) {
-  return RENTAL_MONTH_NAMES.map((m, i) => `
-    <div class="rm-cell">
-      <label>${m} ${year}</label>
-      <input type="text" inputmode="decimal" class="rental-month-input" data-mkey="${monthlyKey(year, i)}" placeholder="0">
-    </div>
-  `).join('');
-}
-function rentalYearTotal(rental, year) {
-  let sum = 0;
-  for (let i = 0; i < 12; i++) sum += Number(rental.monthly[monthlyKey(year, i)] || 0);
-  return sum;
-}
-function rentalSignal(prevTotal, curTotal) {
-  if (!prevTotal) return curTotal > 0 ? { label: 'New', cls: 'warn' } : { label: 'No activity', cls: '' };
-  const pct = Math.round(((curTotal - prevTotal) / prevTotal) * 100);
-  if (pct >= 0) return { label: `+${pct}% · Recommend renewal`, cls: 'active' };
-  if (pct <= -15) return { label: `${pct}% · Review`, cls: 'danger' };
-  return { label: `${pct}%`, cls: 'warn' };
-}
-const rentalYear = () => Number(todayStr().slice(0, 4));
-const money2 = n => Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
-
-/* ---------------- data ---------------- */
-async function loadRentalsData() {
-  const { data, error } = await sb.from('vendor_rentals').select('*').order('supplier', { ascending: true });
-  if (error) { console.error(error); showToast('Could not load rentals — ' + sbErrText(error), true); return; }
-  rentalsList = (data || []).map(r => ({
-    id: r.id, supplier: r.supplier || '', gondola: r.gondola || '',
-    dateFrom: r.date_from || '', dateTo: r.date_to || '', monthly: r.monthly || {},
-    term: r.rental_term || 'other', equipment: r.equipment_type || 'gondola',
-    annual: r.annual_amount === null || r.annual_amount === undefined ? null : Number(r.annual_amount),
-    billed: !!r.billed, billedAt: r.billed_at || '', note: r.note || '',
-  }));
-}
-function rentalRow(r) {
-  return {
-    id: r.id, supplier: r.supplier, gondola: r.gondola || null,
-    date_from: r.dateFrom || null, date_to: r.dateTo || null, monthly: r.monthly || {},
-    rental_term: r.term, equipment_type: r.equipment,
-    annual_amount: r.term === 'yearly' ? r.annual : null,
-    billed: r.term === 'yearly' ? !!r.billed : false,
-    billed_at: r.term === 'yearly' && r.billed ? (r.billedAt || null) : null,
-    note: r.note || null,
-  };
-}
-async function saveRentalRemote(r) {
-  const { error } = await sb.from('vendor_rentals').upsert(rentalRow(r));
-  if (error) { console.error(error); showToast('Could not save that rental — ' + sbErrText(error), true); return false; }
-  return true;
-}
-async function deleteRentalRemote(id) {
-  const { error } = await sb.from('vendor_rentals').delete().eq('id', id);
-  if (error) { console.error(error); showToast('Could not delete that rental — ' + sbErrText(error), true); return false; }
-  return true;
-}
-
-/* ---------------- yearly helpers ---------------- */
-function daysToEnd(r) { return r.dateTo ? daysBetween(todayStr(), r.dateTo) : null; }
-function endingSoon(r) { const d = daysToEnd(r); return r.term === 'yearly' && d !== null && d >= 0 && d <= RENEWAL_WARNING_DAYS; }
-// The same supplier's previous yearly contract for the same equipment (latest one that started earlier).
-function previousContract(r) {
-  const key = x => x.supplier.trim().toLowerCase();
-  return rentalsList
-    .filter(x => x.id !== r.id && x.term === 'yearly' && x.equipment === r.equipment && key(x) === key(r) && x.dateFrom && r.dateFrom && x.dateFrom < r.dateFrom)
-    .sort((a, b) => b.dateFrom.localeCompare(a.dateFrom))[0] || null;
-}
-
-function runRentalNotificationCheck() {
-  let log = {};
-  try { log = JSON.parse(localStorage.getItem(RENTAL_NOTIFY_LOG_KEY)) || {}; } catch (e) { /* storage blocked */ }
-  const today = todayStr();
-  let changed = false;
-  rentalsList.filter(endingSoon).forEach(r => {
-    if (log[r.id] === today) return;             // at most once per rental per day
-    log[r.id] = today; changed = true;
-    const d = daysToEnd(r);
-    pushNotification(`Rental contract "${r.supplier}" (${EQUIPMENT_LABELS[r.equipment]}) ends ${d === 0 ? 'today' : `in ${d} day${d === 1 ? '' : 's'}`} (${fmtDate(r.dateTo)}) — time to review the renewal.`);
-  });
-  if (changed) try { localStorage.setItem(RENTAL_NOTIFY_LOG_KEY, JSON.stringify(log)); } catch (e) { /* ignore */ }
-}
-setInterval(() => { if (canSee('rentals')) runRentalNotificationCheck(); }, 60 * 60 * 1000);
-
-/* ---------------- tabs ---------------- */
-function visibleRentals() {
-  const list = rentalsList.filter(r => r.term === rentalView.term);
-  if (rentalView.type === 'all') return list;
-  if (rentalView.type === 'screens') return list.filter(r => r.equipment.startsWith('screen_') && (!rentalView.screen || r.equipment === rentalView.screen));
-  return list.filter(r => r.equipment === rentalView.type);
-}
-document.getElementById('rentalTermTabs').addEventListener('click', e => {
-  const b = e.target.closest('button'); if (!b) return;
-  rentalView.term = b.dataset.term;
-  if (rentalView.term === 'yearly' && rentalView.type === 'screens') rentalView.type = 'all';
-  renderRentalsPage();
-});
-document.getElementById('rentalTypeTabs').addEventListener('click', e => {
-  const b = e.target.closest('button[data-type]'); if (!b) return;
-  rentalView.type = b.dataset.type;
-  renderRentalsPage();
-});
-document.getElementById('rentalScreenSelect').addEventListener('change', e => { rentalView.screen = e.target.value; renderRentalsPage(); });
-
-/* ---------------- render ---------------- */
-function renderRentalTotals(list) {
-  const box = document.getElementById('rentalTotals');
-  const cur = rentalYear();
-  if (rentalView.term === 'yearly') {
-    const thisYear = list.filter(r => r.dateFrom && Number(r.dateFrom.slice(0, 4)) === cur);
-    const sum = xs => xs.reduce((s, r) => s + (r.annual || 0), 0);
-    const billed = thisYear.filter(r => r.billed), notBilled = thisYear.filter(r => !r.billed);
-    const soon = list.filter(endingSoon).length;
-    box.innerHTML = `<div class="rental-summary">
-      <span class="rs-item">Contracts starting in ${cur}: <strong>${thisYear.length}</strong> · <strong>${money2(sum(thisYear))}</strong></span>
-      <span class="rs-item">Billed: <strong>${billed.length}</strong> · <strong>${money2(sum(billed))}</strong></span>
-      <span class="rs-item">Not billed: <strong style="color:${notBilled.length ? 'var(--brick)' : 'inherit'}">${notBilled.length}</strong> · <strong>${money2(sum(notBilled))}</strong></span>
-      ${soon ? `<span class="badge warn">${soon} ending within ${RENEWAL_WARNING_DAYS} days</span>` : ''}
-    </div>`;
-  } else {
-    const prevT = list.reduce((s, r) => s + rentalYearTotal(r, cur - 1), 0);
-    const curT = list.reduce((s, r) => s + rentalYearTotal(r, cur), 0);
-    const sig = rentalSignal(prevT, curT);
-    box.innerHTML = `<div class="rental-summary">
-      <span class="rs-item">${list.length} rental${list.length === 1 ? '' : 's'}</span>
-      <span class="rs-item">${cur - 1}: <strong>${money2(prevT)}</strong></span>
-      <span class="rs-item">${cur}: <strong>${money2(curT)}</strong></span>
-      <span class="badge ${sig.cls}">${sig.label}</span>
-    </div>`;
+  function adapter() {
+    if (!S.adapter) S.adapter = StoreMapSupabaseAdapter(sb, { userName: Session.profile?.display_name || Session.profile?.username || null, bucket: 'store-maps' });
+    return S.adapter;
   }
-}
 
-const RENTAL_ICON = {
-  edit: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>',
-  del: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>',
-  chev: '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>',
-};
+  /* ---------------- start (after sign-in) and show ---------------- */
+  // Reminders need only the contracts, so they run without opening the page.
+  async function start() {
+    try { S.contracts = await adapter().listContracts(); }
+    catch (e) { console.error('Rentals: could not load contracts', e); return; }
+    runReminders();
+    setInterval(async () => {
+      try { if (!S.map) S.contracts = await adapter().listContracts(); runReminders(); } catch (e) { /* next time */ }
+    }, 60 * 60 * 1000);
+  }
 
-function yearlyCardHtml(r) {
-  const open = expandedRentalIds.has(r.id);
-  const prev = previousContract(r);
-  const sig = prev ? rentalSignal(prev.annual || 0, r.annual || 0) : null;
-  const d = daysToEnd(r);
-  const status = endingSoon(r) ? `<span class="badge warn">Ending soon</span>` : (d !== null && d < 0 ? '<span class="badge inactive">Ended</span>' : '');
-  return `
-    <div class="sellout ${open ? 'open' : ''} ${endingSoon(r) ? 'needs-action flag-warn' : ''}" data-rental-id="${escapeHtml(r.id)}">
-      <div class="sellout-head" data-role="toggle-rental">
-        <span class="chev">${RENTAL_ICON.chev}</span>
+  async function show() {
+    renderTabs();
+    if (!S.map) await mountMap();
+    renderList();
+  }
+
+  async function mountMap() {
+    const box = el('rentalsMap');
+    try {
+      await adapter().seedIfEmpty(window.STORE_MAP_SEED, [{ id: 'mezzanine', name: 'Mezzanine', width: 3000, height: 2000, sort: 2 }]);
+    } catch (e) {
+      console.error(e);
+      box.innerHTML = `<div class="empty-state"><p class="big">The store map is not set up yet</p><p>${esc(friendlyError(e))}</p></div>`;
+      return;
+    }
+    S.map = StoreMap.mount(box, {
+      adapter: adapter(),
+      canEdit: isAdmin(),
+      canManageRentals: isAdmin(),
+      currency: '$',
+      today,
+      toast: (msg, isError) => showToast(msg, isError),
+      confirm: (msg, okLabel) => showConfirm(msg, okLabel),
+      onActivity: (action, summary, details) => {
+        const { sales, ...rest } = details || {};                 // keep the log light
+        logActivity('rentals', action, { type: 'rental', id: rest.id || null }, summary, rest);
+        S.contracts = S.map.contracts;
+        renderList();
+      },
+      onLoad: () => { S.contracts = S.map.contracts; renderList(); },
+    });
+    await S.map.ready;
+  }
+
+  /* ---------------- tabs ---------------- */
+  function renderTabs() {
+    document.querySelectorAll('#rentalViewTabs [data-view]').forEach(b => b.classList.toggle('active', b.dataset.view === S.view));
+    el('rentalMapView').hidden = S.view !== 'map';
+    el('rentalListView').hidden = S.view !== 'list';
+  }
+  el('rentalViewTabs').addEventListener('click', e => {
+    const b = e.target.closest('[data-view]'); if (!b) return;
+    S.view = b.dataset.view;
+    renderTabs();
+    if (S.view === 'list') renderList();
+  });
+  el('rentalTermTabs').addEventListener('click', e => { const b = e.target.closest('[data-term]'); if (b) { S.term = b.dataset.term; renderList(); } });
+  el('rentalTypeTabs').addEventListener('click', e => { const b = e.target.closest('[data-type]'); if (b) { S.type = b.dataset.type; renderList(); } });
+  el('rentalSearch').addEventListener('input', e => { S.q = e.target.value.trim().toLowerCase(); renderList(); });
+
+  /* ---------------- contract facts ---------------- */
+  function spotOf(c) {
+    if (!S.map || !c.spotId) return null;
+    const f = S.map.findObject(c.spotId);
+    if (!f) return null;
+    const floor = S.map.floors.find(x => x.id === f.floorId);
+    return { o: f.o, type: S.map.typeOf(f.o), floor, near: S.map.nearLabel(Object.assign({ _floor: f.floorId }, f.o)) };
+  }
+  // A later contract on the same spot (or, when not placed, for the same supplier) = already renewed.
+  function renewed(c) {
+    return S.contracts.some(x => x.id !== c.id && x.start > c.end &&
+      (c.spotId ? x.spotId === c.spotId : x.supplier.trim().toLowerCase() === c.supplier.trim().toLowerCase()));
+  }
+  function statusOf(c) {
+    const t = today();
+    if (c.end < t) return renewed(c) ? 'renewed' : 'expired';
+    if (c.start > t) return 'upcoming';
+    if (daysBetween(t, c.end) <= RENEWAL_WARNING_DAYS && !renewed(c)) return 'ending';
+    if (!c.billed) return 'unbilled';
+    return 'rented';
+  }
+  const STATUS = {
+    ending: { label: 'Ending soon', cls: 'warn' }, unbilled: { label: 'Not billed', cls: 'danger' }, rented: { label: 'Active', cls: 'active' },
+    upcoming: { label: 'Starts later', cls: 'inactive' }, expired: { label: 'Ended, not renewed', cls: 'danger' }, renewed: { label: 'Ended · renewed', cls: 'inactive' },
+  };
+  const salesTotal = (c, year) => { let s = 0; for (let i = 0; i < 12; i++) s += Number((c.sales || {})[`${year}-${String(i + 1).padStart(2, '0')}`] || 0); return s; };
+  const hasSales = c => c.sales && Object.values(c.sales).some(v => Number(v));
+  function salesSignal(prev, cur) {
+    if (!prev) return cur > 0 ? { label: 'New', cls: 'warn' } : null;
+    const pct = Math.round(((cur - prev) / prev) * 100);
+    if (pct >= 0) return { label: `Sales +${pct}% · Recommend renewal`, cls: 'active' };
+    if (pct <= -15) return { label: `Sales ${pct}% · Review`, cls: 'danger' };
+    return { label: `Sales ${pct}%`, cls: 'warn' };
+  }
+
+  /* ---------------- list ---------------- */
+  function typeKeyOf(c) { const s = spotOf(c); return s ? s.o.type : 'unplaced'; }
+  function renderList() {
+    if (el('rentalListView').hidden && S.view !== 'list') return;
+    const all = S.contracts.slice();
+    const cur = Number(today().slice(0, 4));
+    // Type chips: the spot types that have contracts, plus "Not placed".
+    const counts = {};
+    all.forEach(c => { const k = typeKeyOf(c); counts[k] = (counts[k] || 0) + 1; });
+    const typeName = k => k === 'unplaced' ? 'Not placed on the map' : (S.map?.types[k]?.name || k);
+    if (S.type !== 'all' && !counts[S.type]) S.type = 'all';
+    el('rentalTypeTabs').innerHTML = `<button data-type="all" class="${S.type === 'all' ? 'active' : ''}">All types <span class="muted-note">${all.length}</span></button>` +
+      Object.keys(counts).sort((a, b) => (a === 'unplaced') - (b === 'unplaced') || typeName(a).localeCompare(typeName(b)))
+        .map(k => `<button data-type="${esc(k)}" class="${S.type === k ? 'active' : ''}">${esc(typeName(k))} <span class="muted-note">${counts[k]}</span></button>`).join('');
+    document.querySelectorAll('#rentalTermTabs [data-term]').forEach(b => b.classList.toggle('active', b.dataset.term === S.term));
+
+    const list = all.filter(c => (S.term === 'all' || c.term === S.term) && (S.type === 'all' || typeKeyOf(c) === S.type)
+      && (!S.q || [c.supplier, c.legacyLabel, c.note, spotOf(c)?.o.label].join(' ').toLowerCase().includes(S.q)));
+    const rank = { ending: 0, unbilled: 1, expired: 2, rented: 3, upcoming: 4, renewed: 5 };
+    list.sort((a, b) => rank[statusOf(a)] - rank[statusOf(b)] || a.supplier.localeCompare(b.supplier) || (b.start || '').localeCompare(a.start || ''));
+
+    // Totals for what is shown.
+    const t = today();
+    const active = list.filter(c => c.start <= t && c.end >= t);
+    const income = y => list.reduce((s, c) => s + (S.map ? S.map.revenueInYear(c, y) : 0), 0);
+    const unplaced = list.filter(c => !spotOf(c) && c.end >= t).length;
+    el('rentalTotals').innerHTML = `<div class="rental-summary">
+      <span class="rs-item">Active contracts: <strong>${active.length}</strong></span>
+      <span class="rs-item">Rental income ${cur}: <strong>${money(income(cur))}</strong></span>
+      <span class="rs-item">${cur - 1}: <strong>${money(income(cur - 1))}</strong></span>
+      <span class="rs-item">Not billed: <strong style="color:${active.some(c => !c.billed) ? 'var(--brick)' : 'inherit'}">${active.filter(c => !c.billed).length}</strong></span>
+      ${list.some(c => statusOf(c) === 'ending') ? `<span class="badge warn">${list.filter(c => statusOf(c) === 'ending').length} ending within ${RENEWAL_WARNING_DAYS} days</span>` : ''}
+      ${unplaced ? `<span class="badge inactive">${unplaced} not placed on the map</span>` : ''}
+    </div>`;
+
+    el('rentalList').innerHTML = list.map(cardHtml).join('');
+    el('rentalEmpty').style.display = list.length ? 'none' : 'block';
+    el('rentalEmptyTitle').textContent = all.length ? 'No contracts match' : 'No rental contracts yet';
+  }
+
+  function cardHtml(c) {
+    const open = S.expanded.has(c.id);
+    const spot = spotOf(c), st = statusOf(c), cur = Number(today().slice(0, 4));
+    const where = spot
+      ? `${esc(spot.type.name)}${spot.o.label ? ' · ' + esc(spot.o.label) : ''}${spot.near ? ' · by ' + esc(spot.near) : ''} · ${esc(spot.floor?.name || '')}`
+      : `<span style="color:var(--brick)">Not placed on the map</span>${c.legacyLabel ? ' · ' + esc(c.legacyLabel) : ''}`;
+    const sig = hasSales(c) ? salesSignal(salesTotal(c, cur - 1), salesTotal(c, cur)) : null;
+    const left = daysBetween(today(), c.end);
+    const salesYears = [cur - 1, cur];
+    return `
+    <div class="sellout ${open ? 'open' : ''} ${st === 'ending' ? 'needs-action flag-warn' : ''}" data-contract="${esc(c.id)}">
+      <div class="sellout-head" data-role="toggle">
+        <span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></span>
         <div class="who">
-          <div class="name">${escapeHtml(r.supplier)}${r.gondola ? ' — ' + escapeHtml(r.gondola) : ''}</div>
-          <div class="dates">${r.dateFrom ? fmtDate(r.dateFrom) : '—'} → ${r.dateTo ? fmtDate(r.dateTo) : '—'}</div>
+          <div class="name">${esc(c.supplier)}</div>
+          <div class="dates">${where}</div>
         </div>
         <div class="rental-summary">
-          <span class="badge inactive">${EQUIPMENT_LABELS[r.equipment]}</span>
-          ${status}
-          <span class="rs-item">Annual: <strong>${r.annual === null ? '—' : money2(r.annual)}</strong></span>
-          ${sig ? `<span class="badge ${sig.cls}" title="Compared with the ${fmtDate(prev.dateFrom)} contract (${money2(prev.annual)})">${sig.label}</span>` : ''}
+          <span class="badge ${STATUS[st].cls}">${STATUS[st].label}</span>
+          <span class="rs-item">${fmtDate(c.start)} → ${fmtDate(c.end)}</span>
+          <span class="rs-item"><strong>${money(c.amount)}</strong>${c.term === 'monthly' ? '/mo' : '/yr'}</span>
+          ${sig ? `<span class="badge ${sig.cls}" title="Supplier sales ${cur - 1}: ${money2s(salesTotal(c, cur - 1))} · ${cur}: ${money2s(salesTotal(c, cur))}">${sig.label}</span>` : ''}
         </div>
-        <label class="switch" title="${r.billed ? 'Billed' + (r.billedAt ? ' on ' + fmtDate(r.billedAt) : '') : 'Not billed yet'}">
-          <input type="checkbox" data-role="billed-toggle" ${r.billed ? 'checked' : ''}>
-          <span class="track"></span>
-        </label>
-        <span class="rental-billed-label ${r.billed ? 'is-billed' : ''}">${r.billed ? 'Billed' : 'Not billed'}</span>
         <div class="icon-actions">
-          <button class="icon-btn" data-role="edit-rental" title="Edit" aria-label="Edit">${RENTAL_ICON.edit}</button>
-          <button class="icon-btn danger" data-role="delete-rental" title="Delete" aria-label="Delete">${RENTAL_ICON.del}</button>
+          ${spot ? `<button class="btn ghost small" data-role="show">Show on map</button>`
+            : isAdmin() && c.end >= today() ? `<button class="btn small" data-role="place">Place on map</button>` : ''}
         </div>
       </div>
       <div class="sellout-body">
-        <table class="rental-year-table rental-details">
-          <tbody>
-            <tr><td>Equipment</td><td>${EQUIPMENT_LABELS[r.equipment]}</td></tr>
-            <tr><td>Contract</td><td>${r.dateFrom ? fmtDate(r.dateFrom) : '—'} → ${r.dateTo ? fmtDate(r.dateTo) : '—'}${d !== null && d >= 0 ? ` (${d} day${d === 1 ? '' : 's'} left)` : ''}</td></tr>
-            <tr><td>Annual amount</td><td>${r.annual === null ? '—' : money2(r.annual)}</td></tr>
-            <tr><td>Billed</td><td>${r.billed ? 'Yes' + (r.billedAt ? ', on ' + fmtDate(r.billedAt) : '') : 'Not yet'}</td></tr>
-            <tr><td>Previous contract</td><td>${prev ? `${fmtDate(prev.dateFrom)} → ${prev.dateTo ? fmtDate(prev.dateTo) : '—'} · ${money2(prev.annual)}` : 'None on record'}</td></tr>
-          </tbody>
-        </table>
-        ${r.note ? `<p class="rental-note">${escapeHtml(r.note)}</p>` : ''}
+        <table class="rental-year-table rental-details"><tbody>
+          <tr><td>Spot</td><td>${where}</td></tr>
+          <tr><td>Billing</td><td>${c.term === 'yearly' ? 'Yearly — one amount, billed once' : 'Monthly — amount each month'}: <strong>${money(c.amount)}</strong>${c.amount ? '' : ' <span style="color:var(--brick)">(amount not set yet)</span>'}</td></tr>
+          <tr><td>Period</td><td>${fmtDate(c.start)} → ${fmtDate(c.end)}${left >= 0 && c.start <= today() ? ` (${left} day${left === 1 ? '' : 's'} left)` : ''}</td></tr>
+          <tr><td>Billed / paid</td><td>${c.billed ? 'Billed' + (c.billedAt ? ' ' + fmtDate(c.billedAt) : '') : 'Not billed'} · ${c.paid ? 'Paid' + (c.paidAt ? ' ' + fmtDate(c.paidAt) : '') : 'Not paid'}</td></tr>
+          ${c.note ? `<tr><td>Note</td><td>${esc(c.note)}</td></tr>` : ''}
+        </tbody></table>
+        <p class="muted-note" style="margin:10px 0 6px;">Supplier sales (for the renew / review decision)${isAdmin() ? ' — type the figures, then Save sales' : ''}. Edit the contract itself on the map.</p>
+        ${salesYears.map(y => `
+          <table class="rental-year-table">
+            <thead><tr><th>${y}</th>${MONTHS.map(m => `<th>${m}</th>`).join('')}<th>Total</th></tr></thead>
+            <tbody><tr><td>Sales</td>${MONTHS.map((m, i) => {
+              const k = `${y}-${String(i + 1).padStart(2, '0')}`, v = (c.sales || {})[k];
+              return `<td>${isAdmin() ? `<input type="text" inputmode="decimal" class="rental-sales-input" data-mkey="${k}" value="${v ? esc(String(v)) : ''}" placeholder="0">` : money2s(v)}</td>`;
+            }).join('')}<td><strong>${money2s(salesTotal(c, y))}</strong></td></tr></tbody>
+          </table>`).join('')}
+        ${isAdmin() ? `<div class="actions-row" style="justify-content:flex-start;"><button class="btn small secondary" data-role="save-sales">Save sales</button></div>` : ''}
       </div>
     </div>`;
-}
+  }
+  const money2s = n => Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
 
-function otherCardHtml(r) {
-  const open = expandedRentalIds.has(r.id);
-  const cur = rentalYear(), prevYear = cur - 1;
-  const prevTotal = rentalYearTotal(r, prevYear), curTotal = rentalYearTotal(r, cur);
-  const signal = rentalSignal(prevTotal, curTotal);
-  const yearTable = y => `
-    <table class="rental-year-table">
-      <thead><tr><th>${y}</th>${RENTAL_MONTH_NAMES.map(m => `<th>${m}</th>`).join('')}<th>Total</th></tr></thead>
-      <tbody><tr><td>Amount</td>${RENTAL_MONTH_NAMES.map((m, i) => `<td>${money2(r.monthly[monthlyKey(y, i)])}</td>`).join('')}<td><strong>${money2(rentalYearTotal(r, y))}</strong></td></tr></tbody>
-    </table>`;
-  const screenBadge = r.equipment === 'screen_wall' ? '<span class="badge inactive">Wall</span>' : r.equipment === 'screen_island' ? '<span class="badge inactive">Island</span>'
-    : `<span class="badge inactive">${EQUIPMENT_LABELS[r.equipment]}</span>`;
-  return `
-    <div class="sellout ${open ? 'open' : ''}" data-rental-id="${escapeHtml(r.id)}">
-      <div class="sellout-head" data-role="toggle-rental">
-        <span class="chev">${RENTAL_ICON.chev}</span>
-        <div class="who">
-          <div class="name">${escapeHtml(r.supplier)}${r.gondola ? ' — ' + escapeHtml(r.gondola) : ''}</div>
-          <div class="dates">${r.dateFrom ? fmtDate(r.dateFrom) : '—'} → ${r.dateTo ? fmtDate(r.dateTo) : '—'}</div>
-        </div>
-        <div class="rental-summary">
-          ${screenBadge}
-          <span class="rs-item">${prevYear}: <strong>${money2(prevTotal)}</strong></span>
-          <span class="rs-item">${cur}: <strong>${money2(curTotal)}</strong></span>
-          <span class="badge ${signal.cls}">${signal.label}</span>
-        </div>
-        <div class="icon-actions">
-          <button class="icon-btn" data-role="edit-rental" title="Edit" aria-label="Edit">${RENTAL_ICON.edit}</button>
-          <button class="icon-btn danger" data-role="delete-rental" title="Delete" aria-label="Delete">${RENTAL_ICON.del}</button>
-        </div>
-      </div>
-      <div class="sellout-body">
-        ${yearTable(prevYear)}
-        ${yearTable(cur)}
-        ${r.note ? `<p class="rental-note">${escapeHtml(r.note)}</p>` : ''}
-      </div>
-    </div>`;
-}
-
-function renderRentalsPage() {
-  document.querySelectorAll('#rentalTermTabs button').forEach(b => b.classList.toggle('active', b.dataset.term === rentalView.term));
-  document.querySelectorAll('#rentalTypeTabs button[data-type]').forEach(b => b.classList.toggle('active', b.dataset.type === rentalView.type));
-  document.querySelectorAll('#rentalTypeTabs [data-only-term]').forEach(b => { b.hidden = b.dataset.onlyTerm !== rentalView.term; });
-  document.getElementById('rentalScreenFilter').hidden = !(rentalView.term === 'other' && rentalView.type === 'screens');
-  document.getElementById('rentalScreenSelect').value = rentalView.screen;
-
-  const list = visibleRentals().slice().sort((a, b) =>
-    (rentalView.term === 'yearly' ? (endingSoon(b) - endingSoon(a)) : 0) || a.supplier.localeCompare(b.supplier) || (b.dateFrom || '').localeCompare(a.dateFrom || ''));
-  renderRentalTotals(list);
-
-  const container = document.getElementById('rentalList');
-  container.innerHTML = list.map(r => rentalView.term === 'yearly' ? yearlyCardHtml(r) : otherCardHtml(r)).join('');
-  document.getElementById('rentalEmpty').style.display = list.length ? 'none' : 'block';
-  document.getElementById('rentalEmptyTitle').textContent = rentalsList.length ? 'No rentals in this tab' : 'No rentals yet';
-
-  container.querySelectorAll('[data-rental-id]').forEach(el => {
-    const id = el.dataset.rentalId;
-    const r = rentalsList.find(x => x.id === id);
-    el.querySelector('[data-role="toggle-rental"]').addEventListener('click', ev => {
-      if (ev.target.closest('.icon-actions') || ev.target.closest('.switch')) return;
-      if (expandedRentalIds.has(id)) expandedRentalIds.delete(id); else expandedRentalIds.add(id);
-      renderRentalsPage();
-    });
-    el.querySelector('[data-role="edit-rental"]').addEventListener('click', ev => { ev.stopPropagation(); openRentalForm(id); });
-    el.querySelector('[data-role="delete-rental"]').addEventListener('click', async ev => {
-      ev.stopPropagation();
-      if (!(await showConfirm(`Delete the rental for "${r.supplier}"?`, 'Delete'))) return;
-      if (!(await deleteRentalRemote(id))) return;
-      rentalsList = rentalsList.filter(x => x.id !== id);
-      logActivity('rentals', 'delete', { type: 'rental', id }, `Deleted ${r.term} rental "${r.supplier}"${r.gondola ? ' — ' + r.gondola : ''}`, rentalRow(r));
-      renderRentalsPage();
-      showToast('Rental deleted.');
-    });
-    el.querySelector('[data-role="billed-toggle"]')?.addEventListener('change', async ev => {
-      ev.stopPropagation();
-      const on = ev.target.checked;
-      const before = { billed: r.billed, billedAt: r.billedAt };
-      r.billed = on;
-      r.billedAt = on ? (r.billedAt || todayStr()) : '';
-      if (!(await saveRentalRemote(r))) { Object.assign(r, before); renderRentalsPage(); return; }
-      logActivity('rentals', on ? 'billed' : 'unbilled', { type: 'rental', id }, `${r.supplier} (${EQUIPMENT_LABELS[r.equipment]}) marked ${on ? 'billed' : 'not billed'}`, { annual: r.annual, billed_at: r.billedAt || null });
-      renderRentalsPage();
-      showToast(on ? `Marked billed on ${fmtDate(r.billedAt)}.` : 'Marked not billed.');
-    });
+  el('rentalList').addEventListener('click', async e => {
+    const card = e.target.closest('[data-contract]'); if (!card) return;
+    const c = S.contracts.find(x => x.id === card.dataset.contract); if (!c) return;
+    if (e.target.closest('[data-role="show"]')) { e.stopPropagation(); return goToMap(() => S.map.focusSpot(c.spotId)); }
+    if (e.target.closest('[data-role="place"]')) { e.stopPropagation(); return goToMap(() => S.map.startAssign(c.id)); }
+    if (e.target.closest('[data-role="save-sales"]')) return saveSales(c, card);
+    if (e.target.closest('[data-role="toggle"]') && !e.target.closest('.icon-actions')) {
+      S.expanded.has(c.id) ? S.expanded.delete(c.id) : S.expanded.add(c.id);
+      renderList();
+    }
   });
-}
-
-/* ---------------- form ---------------- */
-function syncRentalFormTerm() {
-  const term = document.getElementById('rentalTerm').value;
-  const eq = document.getElementById('rentalEquipment');
-  const keep = eq.value;
-  eq.innerHTML = TERM_EQUIPMENT[term].map(v => `<option value="${v}">${EQUIPMENT_LABELS[v]}</option>`).join('');
-  eq.value = TERM_EQUIPMENT[term].includes(keep) ? keep : TERM_EQUIPMENT[term][0];
-  document.querySelectorAll('#rentalFormCard [data-term-only]').forEach(x => { x.hidden = x.dataset.termOnly !== term; });
-  document.getElementById('rentalDateFromLabel').textContent = term === 'yearly' ? 'Contract start' : 'Date from';
-  document.getElementById('rentalDateToLabel').textContent = term === 'yearly' ? 'Contract end' : 'Date to';
-  document.getElementById('rentalBilledAt').disabled = !document.getElementById('rentalBilled').checked;
-}
-document.getElementById('rentalTerm').addEventListener('change', syncRentalFormTerm);
-document.getElementById('rentalBilled').addEventListener('change', e => {
-  const at = document.getElementById('rentalBilledAt');
-  if (e.target.checked && !at.value) at.value = todayStr();
-  syncRentalFormTerm();
-});
-
-function openRentalForm(id) {
-  editingRentalId = id || null;
-  const r = id ? rentalsList.find(x => x.id === id) : null;
-  const cur = rentalYear(), prevYear = cur - 1;
-  const el = x => document.getElementById(x);
-  el('rentalFormTitle').textContent = r ? 'Edit rental' : 'Add rental';
-  el('saveRentalBtn').textContent = r ? 'Save changes' : 'Add rental';
-  el('rentalTerm').value = r ? r.term : rentalView.term;
-  el('rentalEquipment').innerHTML = '';
-  syncRentalFormTerm();
-  const defaultType = rentalView.type === 'screens' ? (rentalView.screen || 'screen_wall') : rentalView.type === 'all' ? 'gondola' : rentalView.type;
-  el('rentalEquipment').value = r ? r.equipment : (TERM_EQUIPMENT[el('rentalTerm').value].includes(defaultType) ? defaultType : TERM_EQUIPMENT[el('rentalTerm').value][0]);
-  el('rentalSupplier').value = r ? r.supplier : '';
-  el('rentalGondola').value = r ? r.gondola : '';
-  el('rentalDateFrom').value = r ? r.dateFrom : '';
-  el('rentalDateTo').value = r ? r.dateTo : '';
-  el('rentalAnnual').value = r && r.annual !== null ? String(r.annual) : '';
-  el('rentalBilled').checked = r ? r.billed : false;
-  el('rentalBilledAt').value = r ? r.billedAt : '';
-  el('rentalNote').value = r ? r.note : '';
-  el('rentalPrevYearLabel').textContent = 'Monthly amount — ' + prevYear;
-  el('rentalCurYearLabel').textContent = 'Monthly amount — ' + cur;
-  el('rentalPrevYearGrid').innerHTML = buildMonthGridHtml(prevYear);
-  el('rentalCurYearGrid').innerHTML = buildMonthGridHtml(cur);
-  if (r) {
-    document.querySelectorAll('#rentalPrevYearGrid .rental-month-input, #rentalCurYearGrid .rental-month-input').forEach(inp => {
-      const v = r.monthly[inp.dataset.mkey];
-      inp.value = v ? String(v) : '';
-    });
+  function goToMap(then) {
+    S.view = 'map';
+    renderTabs();
+    requestAnimationFrame(() => { then(); el('rentalMapView').scrollIntoView({ behavior: 'smooth', block: 'start' }); });
   }
-  syncRentalFormTerm();
-  el('rentalFormCard').style.display = 'block';
-  el('rentalFormCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
-  el('rentalSupplier').focus();
-}
-function closeRentalForm() {
-  editingRentalId = null;
-  document.getElementById('rentalFormCard').style.display = 'none';
-}
-document.getElementById('addRentalBtn').addEventListener('click', () => openRentalForm(null));
-document.getElementById('cancelRentalFormBtn').addEventListener('click', closeRentalForm);
 
-document.getElementById('saveRentalBtn').addEventListener('click', async () => {
-  const el = x => document.getElementById(x);
-  const supplier = el('rentalSupplier').value.trim();
-  if (!supplier) { showToast('Enter a supplier name.', true); return; }
-  const term = el('rentalTerm').value;
-  const dateFrom = el('rentalDateFrom').value || '';
-  const dateTo = el('rentalDateTo').value || '';
-  if (dateFrom && dateTo && dateTo < dateFrom) { showToast('The end date is before the start date.', true); return; }
-  const existing = editingRentalId ? rentalsList.find(x => x.id === editingRentalId) : null;
-  const monthly = existing ? Object.assign({}, existing.monthly) : {};
-  let annual = null;
-  if (term === 'yearly') {
-    if (!dateFrom || !dateTo) { showToast('A yearly contract needs a start and an end date.', true); return; }
-    annual = parseNum(el('rentalAnnual').value);
-    if (annual === null || annual < 0) { showToast('Enter the annual amount.', true); return; }
-  } else {
-    document.querySelectorAll('#rentalPrevYearGrid .rental-month-input, #rentalCurYearGrid .rental-month-input').forEach(inp => {
-      monthly[inp.dataset.mkey] = parseNum(inp.value) ?? 0;
-    });
+  async function saveSales(c, card) {
+    const sales = Object.assign({}, c.sales || {});
+    for (const inp of card.querySelectorAll('.rental-sales-input')) {
+      const raw = inp.value.trim();
+      const n = raw === '' ? 0 : parseNum(raw);
+      if (n === null || n < 0) { showToast('Sales must be numbers.', true); inp.focus(); return; }
+      if (n) sales[inp.dataset.mkey] = n; else delete sales[inp.dataset.mkey];
+    }
+    const { error } = await sb.from('rental_contracts').update({ monthly_sales: Object.keys(sales).length ? sales : null, updated_at: new Date().toISOString() }).eq('id', c.id);
+    if (error) { console.error(error); showToast('Could not save the sales — ' + friendlyError(error), true); return; }
+    c.sales = Object.keys(sales).length ? sales : null;
+    logActivity('rentals', 'sales', { type: 'rental', id: c.id }, `Updated sales figures for ${c.supplier}`);
+    renderList();
+    showToast('Sales saved.');
   }
-  const billed = term === 'yearly' && el('rentalBilled').checked;
-  const rental = {
-    id: editingRentalId || uid(), supplier, term,
-    equipment: el('rentalEquipment').value,
-    gondola: el('rentalGondola').value.trim(),
-    dateFrom, dateTo, monthly, annual,
-    billed, billedAt: billed ? (el('rentalBilledAt').value || todayStr()) : '',
-    note: el('rentalNote').value.trim(),
-  };
-  const wasEditing = editingRentalId;
-  if (!(await saveRentalRemote(rental))) return;
-  if (wasEditing) {
-    const changed = {};
-    ['supplier', 'term', 'equipment', 'gondola', 'dateFrom', 'dateTo', 'annual', 'billed', 'billedAt', 'note'].forEach(k => {
-      if (String(existing[k] ?? '') !== String(rental[k] ?? '')) changed[k] = { from: existing[k] ?? null, to: rental[k] ?? null };
+
+  /* ---------------- renewal reminders (bell) ---------------- */
+  function runReminders() {
+    let log = {};
+    try { log = JSON.parse(localStorage.getItem(NOTIFY_LOG_KEY)) || {}; } catch (e) { /* storage blocked */ }
+    const t = today();
+    let changed = false;
+    S.contracts.forEach(c => {
+      const d = daysBetween(t, c.end);
+      if (c.start > t || d < 0 || d > RENEWAL_WARNING_DAYS || renewed(c)) return;
+      if (log[c.id] === t) return;                 // at most once per contract per day
+      log[c.id] = t; changed = true;
+      const spot = spotOf(c);
+      pushNotification(`Contract for ${c.supplier}${spot ? ` on ${spot.type.name}${spot.o.label ? ' ' + spot.o.label : ''}` : ''} ends ${d === 0 ? 'today' : `in ${d} day${d === 1 ? '' : 's'}`} (${fmtDate(c.end)}) — time to review the renewal.`);
     });
-    if (term === 'other' && JSON.stringify(existing.monthly) !== JSON.stringify(rental.monthly)) changed.monthly = true;
-    if (Object.keys(changed).length) logActivity('rentals', 'edit', { type: 'rental', id: rental.id }, `Edited rental "${supplier}"`, { changed });
-    const idx = rentalsList.findIndex(x => x.id === wasEditing);
-    if (idx > -1) rentalsList[idx] = rental; else rentalsList.push(rental);
-  } else {
-    rentalsList.push(rental);
-    logActivity('rentals', 'create', { type: 'rental', id: rental.id }, `Added ${term} rental "${supplier}" (${EQUIPMENT_LABELS[rental.equipment]})`, rentalRow(rental));
+    if (changed) try { localStorage.setItem(NOTIFY_LOG_KEY, JSON.stringify(log)); } catch (e) { /* ignore */ }
   }
-  // Show the tab the rental lives in.
-  rentalView.term = term;
-  if (rentalView.type !== 'all') rentalView.type = rental.equipment.startsWith('screen_') ? 'screens' : rental.equipment;
-  closeRentalForm();
-  renderRentalsPage();
-  showToast(wasEditing ? 'Rental updated.' : 'Rental added.');
-});
 
-/* ---------------- Excel import ---------------- */
-// Optional "Term" and "Type" columns; anything missing or unknown -> other + gondola (PLAN §7.2).
-function parseRentalTerm(v) {
-  const s = String(v ?? '').trim().toLowerCase();
-  return /year|annual|annuel/.test(s) ? 'yearly' : 'other';
-}
-function parseRentalType(v, term) {
-  const s = String(v ?? '').trim().toLowerCase();
-  let t = 'gondola';
-  if (/island/.test(s)) t = 'screen_island';
-  else if (/wall|screen/.test(s)) t = 'screen_wall';
-  else if (/basket/.test(s)) t = 'basket_side';
-  else if (/pillar/.test(s)) t = 'pillar';
-  else if (/side/.test(s)) t = 'side_gondola';
-  return TERM_EQUIPMENT[term].includes(t) ? t : 'gondola';
-}
-
-document.getElementById('importRentalsBtn').addEventListener('click', () => document.getElementById('rentalFileInput').click());
-document.getElementById('rentalFileInput').addEventListener('change', async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-  const buf = await file.arrayBuffer();
-  let wb;
-  try { wb = XLSX.read(buf, { type: 'array' }); }
-  catch (err) { showToast('Could not read that file — check the format.', true); e.target.value = ''; return; }
-
-  const sheetName = wb.SheetNames.find(n => n.trim().toLowerCase() === 'rentals') || wb.SheetNames[0];
-  const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { defval: '' });
-  if (!rows.length) { showToast('That sheet has no rows.', true); e.target.value = ''; return; }
-
-  const headerKeys = Object.keys(rows[0]);
-  const supplierKey = findVendorHeaderKey(headerKeys, ['supplier', 'vendor', 'name']);
-  const gondolaKey = findVendorHeaderKey(headerKeys, ['gondola', 'description', 'item']);
-  const fromKey = findVendorHeaderKey(headerKeys, ['date from', 'from', 'start date', 'contract start', 'start']);
-  const toKey = findVendorHeaderKey(headerKeys, ['date to', 'to', 'end date', 'contract end', 'end']);
-  const termKey = findVendorHeaderKey(headerKeys, ['term', 'rental term']);
-  const typeKey = findVendorHeaderKey(headerKeys, ['type', 'equipment']);
-  const annualKey = findVendorHeaderKey(headerKeys, ['annual amount', 'annual', 'yearly amount']);
-  const noteKey = findVendorHeaderKey(headerKeys, ['note', 'notes', 'remark']);
-  if (!supplierKey) { showToast('Could not find a supplier column in that file.', true); e.target.value = ''; return; }
-
-  const monthKeysByHeader = {};
-  headerKeys.forEach(h => { const mk = parseMonthYearHeader(h); if (mk) monthKeysByHeader[h] = mk; });
-  const toDate = raw => (raw && !isNaN(Date.parse(raw))) ? localDateStr(new Date(raw)) : '';
-
-  const parsed = [];
-  rows.forEach(row => {
-    const supplier = String(row[supplierKey] ?? '').trim();
-    if (!supplier) return;
-    const term = termKey ? parseRentalTerm(row[termKey]) : 'other';
-    const monthly = {};
-    Object.keys(monthKeysByHeader).forEach(h => { monthly[monthKeysByHeader[h]] = parseNum(row[h]) ?? 0; });
-    parsed.push({
-      id: uid(), supplier, term,
-      equipment: typeKey ? parseRentalType(row[typeKey], term) : 'gondola',
-      gondola: gondolaKey ? String(row[gondolaKey] ?? '').trim() : '',
-      dateFrom: fromKey ? toDate(String(row[fromKey] ?? '').trim()) : '',
-      dateTo: toKey ? toDate(String(row[toKey] ?? '').trim()) : '',
-      monthly, annual: term === 'yearly' && annualKey ? parseNum(row[annualKey]) : null,
-      billed: false, billedAt: '', note: noteKey ? String(row[noteKey] ?? '').trim() : '',
-    });
-  });
-
-  if (!parsed.length) { showToast('No rental rows found to import.', true); e.target.value = ''; return; }
-
-  for (let i = 0; i < parsed.length; i += 500) {
-    const { error } = await sb.from('vendor_rentals').insert(parsed.slice(i, i + 500).map(rentalRow));
-    if (error) { console.error(error); showToast('Rental import failed partway — ' + sbErrText(error), true); e.target.value = ''; await loadRentalsData(); renderRentalsPage(); return; }
-  }
-  const yearly = parsed.filter(r => r.term === 'yearly').length;
-  logActivity('rentals', 'import', { type: 'rental', id: null }, `Imported ${parsed.length} rentals from ${file.name}`, { yearly, other: parsed.length - yearly });
-  e.target.value = '';
-  await loadRentalsData();
-  renderRentalsPage();
-  showToast(`Imported ${parsed.length} rental${parsed.length === 1 ? '' : 's'}` + (yearly ? ` (${yearly} yearly).` : '.'));
-});
+  return { start, show, get map() { return S.map; }, _state: S };
+})();

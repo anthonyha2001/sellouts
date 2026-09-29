@@ -206,6 +206,14 @@ Create, edit, delete, activate, deactivate, apply pricing (with mode and value),
 
 ## 7. Phase 3: Rentals
 
+> **Replaced by the store map (2026-09-29).** Rentals now live on the store map: see `store-map/WIRING.md`.
+> The page has a **Map** view (store-map/store-map.js, admin only) and a **List** view of the same contracts
+> (`rental_contracts`, filters by term and spot type, "Show on map" / "Place on map", supplier sales grid with the
+> renew / review signal, renewal reminders on the bell). Migrations `012_store_map.sql` (tables, RLS, bucket) and
+> `013_migrate_vendor_rentals.sql` (the 46 old rentals → yearly contracts, amount 0, not placed; their monthly
+> figures are supplier **sales**, kept in `monthly_sales`). `vendor_rentals` is kept untouched until the owner
+> confirms. Gondolas are rentable fixtures and there is a Pillar spot type. The list-only design below is history.
+
 ### 7.1 Database (`vendor_rentals`, additive)
 
 - `rental_term text check in ('yearly','other') default 'other'`

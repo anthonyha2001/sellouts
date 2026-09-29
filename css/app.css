@@ -888,3 +888,9 @@ body.ro-promotions #panel-promotions input[data-field]:read-only,
 body.ro-promotions #panel-promotions .audit-note-input:read-only { background: transparent; border-color: transparent; box-shadow: none; cursor: default; }
 body.ro-promotions #panel-promotions [data-role="audit-type-btn"]:disabled,
 body.ro-promotions #panel-promotions [data-role="toggle-flag"]:disabled { cursor: default; }
+
+/* Rentals: the store map fills the page (store-map/store-map.css styles its inside). */
+.rentals-map{ display:flex; flex-direction:column; height:calc(100vh - 230px); min-height:620px; }
+.rentals-map > .sm{ flex:1 1 auto; }
+@media (max-width:760px){ .rentals-map{ height:auto; min-height:0; } }
+.rental-sales-input{ width:100%; min-width:76px; padding:4px 6px; font-size:12.5px; text-align:right; }
