@@ -72,6 +72,13 @@ export default async function (page, { log }) {
   // Edit the contract on the map (amount), the sales must survive.
   await page.evaluate(() => { const c = Rentals.map.contracts.find(x => x.id === 'rc-legacy-id-mug4x0q3-3opbut'); Rentals.map.contractAction('edit', c.id, Rentals.map.objects.find(o => o.id === c.spotId)); });
   await page.waitForTimeout(300);
+  // Supplier dropdown = the Vendors list; a name not in it shows a warning.
+  const dl = await page.evaluate(() => ({ n: document.querySelectorAll('#sm-suppliers option').length, first: [...document.querySelectorAll('#sm-suppliers option')].slice(0, 3).map(o => o.value).join(', ') }));
+  const warnBefore = await page.isVisible('#rentalsMap [data-role="supwarn"]');
+  await page.fill('#rentalsMap [data-role="cform"] [name="supplier"]', 'Zzz Unknown Co');
+  const warnUnknown = await page.isVisible('#rentalsMap [data-role="supwarn"]');
+  await page.fill('#rentalsMap [data-role="cform"] [name="supplier"]', 'Abboud trading');
+  log('supplier dropdown:', dl.n, 'vendors (', dl.first, '…) | warning for "Abboud trading":', warnBefore, '| for an unknown name:', warnUnknown);
   await page.fill('#rentalsMap [data-role="cform"] [name="amount"]', '1200');
   await page.click('#rentalsMap [data-role="cform"] button.primary'); await page.waitForTimeout(600);
   log('after edit: amount', saved.amount, '| sales still there:', saved.monthly_sales && saved.monthly_sales['2026-07']);

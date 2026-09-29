@@ -14,7 +14,7 @@ const Rentals = (function () {
   const RENEWAL_WARNING_DAYS = 30;
   const NOTIFY_LOG_KEY = 'lv:rentalNotifyLog';
   const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  const S = { adapter: null, map: null, view: 'map', term: 'all', type: 'all', q: '', expanded: new Set(), contracts: [] };
+  const S = { adapter: null, map: null, view: 'map', term: 'all', type: 'all', q: '', expanded: new Set(), contracts: [], vendorNames: [] };
   const el = id => document.getElementById(id);
   const esc = escapeHtml;
   const money = n => '$' + Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
@@ -42,8 +42,19 @@ const Rentals = (function () {
     renderList();
   }
 
+  // Supplier names offered in the contract form: the Vendors list (owner, 2026-09-29).
+  async function loadVendorNames() {
+    const { data, error } = await sb.from('vendors').select('name').order('name');
+    if (error) { console.warn('Rentals: vendors list not available', error.message); return; }
+    const seen = new Set();
+    S.vendorNames = (data || []).map(v => String(v.name || '').trim())
+      .filter(n => n && !seen.has(n.toLowerCase()) && seen.add(n.toLowerCase()))
+      .sort((a, b) => a.localeCompare(b));
+  }
+
   async function mountMap() {
     const box = el('rentalsMap');
+    await loadVendorNames();
     try {
       // Only someone who may edit the layout fills an empty map from the traced plan.
       if (can('rentals.layout')) await adapter().seedIfEmpty(window.STORE_MAP_SEED, [{ id: 'mezzanine', name: 'Mezzanine', width: 3000, height: 2000, sort: 2 }]);
@@ -67,6 +78,7 @@ const Rentals = (function () {
         renderList();
       },
       onLoad: () => { S.contracts = S.map.contracts; renderList(); },
+      suppliers: () => S.vendorNames,
     });
     await S.map.ready;
   }

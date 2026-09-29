@@ -13,7 +13,8 @@
        toast: (msg, isError) => {}, // optional; defaults to a built-in toast
        confirm: (msg, okLabel) => Promise<boolean>, // optional
        onActivity: (action, summary, details) => {}, // optional; hook for activity_log
-       onLoad: () => {}             // optional; after every (re)load from the adapter
+       onLoad: () => {},            // optional; after every (re)load from the adapter
+       suppliers: () => ['…']       // optional; names offered in the contract form (e.g. the Vendors list)
      });
      await map.ready;        // first load finished
      map.refresh();          // reload everything from the adapter
@@ -1106,11 +1107,14 @@
     /* ---------------- contracts ---------------- */
     contractFormHtml() {
       const c = this.contractForm;
-      const suppliers = [...new Set([...this.contracts.map(x => x.supplier), ...this.allObjects().map(o => o.occupant)].filter(Boolean))].sort();
+      // opts.suppliers (e.g. the app's Vendors list) wins; otherwise the names already on the map.
+      const fromOpts = this.supplierList();
+      const suppliers = fromOpts || [...new Set([...this.contracts.map(x => x.supplier), ...this.allObjects().map(o => o.occupant)].filter(Boolean))].sort();
       return `<div class="sm-p-sec"><h4>${c.id ? 'Edit contract' : 'New contract'}</h4>
         <form class="sm-form" data-role="cform">
-          <label class="full">Supplier<input class="sm-input" name="supplier" list="sm-suppliers" required value="${esc(c.supplier || '')}"></label>
+          <label class="full">Supplier${fromOpts ? ' <span class="sm-hint">(from Vendors — type to search)</span>' : ''}<input class="sm-input" name="supplier" list="sm-suppliers" required autocomplete="off" value="${esc(c.supplier || '')}" placeholder="${fromOpts ? 'Choose a vendor…' : ''}"></label>
           <datalist id="sm-suppliers">${suppliers.map(s => `<option value="${esc(s)}">`).join('')}</datalist>
+          <p class="sm-hint full" data-role="supwarn" hidden style="margin:-4px 0 0;color:var(--st-ending-s)">Not in the Vendors list. Pick a vendor, or keep this name if it is right.</p>
           <label class="full">Billing
             <select class="sm-select" name="term"><option value="yearly" ${c.term === 'yearly' ? 'selected' : ''}>Yearly — one amount, billed once</option><option value="monthly" ${c.term === 'monthly' ? 'selected' : ''}>Monthly — amount each month</option></select></label>
           <label>Start<input class="sm-input" type="date" name="start" required value="${esc(c.start || '')}"></label>
@@ -1124,8 +1128,19 @@
             <button class="sm-btn primary">Save contract</button></div>
         </form></div>`;
     }
+    supplierList() {
+      try { const l = this.opts.suppliers && this.opts.suppliers(); return Array.isArray(l) && l.length ? l : null; }
+      catch (e) { return null; }
+    }
     bindContractForm(o) {
       const f = this.panel.querySelector('[data-role="cform"]');
+      const list = this.supplierList();
+      if (list) {
+        const known = new Set(list.map(s => s.trim().toLowerCase()));
+        const warn = f.querySelector('[data-role="supwarn"]');
+        const check = () => { const v = f.supplier.value.trim(); warn.hidden = !v || known.has(v.toLowerCase()); };
+        f.supplier.addEventListener('input', check); f.supplier.addEventListener('change', check); check();
+      }
       f.term.onchange = () => { f.querySelector('[data-role="amountlbl"]').firstChild.textContent = f.term.value === 'monthly' ? 'Amount per month' : 'Amount for the year'; };
       f.start.onchange = () => { if (f.start.value && (!f.end.value || f.end.value < f.start.value)) f.end.value = addDays(addYears(f.start.value, 1), -1); };
       f.querySelector('[data-role="cancelc"]').onclick = () => { this.contractForm = null; this.renderPanel(); };
