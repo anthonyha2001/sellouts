@@ -475,6 +475,18 @@ admin only by default (give it per user in Users → Permissions).
 
 ---
 
+## 10f. Promo ladies (added 2026-09-30)
+
+- [x] Section "Promo ladies" (`js/modules/promoladies.js`, migration `018_promo_ladies.sql`), permission
+  `promoladies.manage`: admin and floor manager by default. A booking: supplier (from Vendors, searchable; warns on
+  other names), Paid / Free, amount in USD when paid (required), item promoted, from / to dates, note.
+- [x] Calendar tab: month grid (Monday first), paid / free chips per day, the selected day's list with Edit and
+  "+ Add on this day"; month total of bookings and paid amount. Phone: counts per day, the day's list below.
+- [x] List tab: now and upcoming / past / all, search, totals (paid amount, free, in the store today), status.
+- [x] Every add / edit / delete is logged.
+
+---
+
 ## 11. Open questions (ask the owner when you reach the phase)
 
 | # | Question | Default until answered |

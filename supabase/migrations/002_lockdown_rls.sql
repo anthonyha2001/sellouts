@@ -179,7 +179,7 @@ create policy credit_notes_write on public.credit_notes for all to authenticated
   using (public.has_perm('creditnotes.edit')) with check (public.has_perm('creditnotes.edit'));
 create policy vendors_all        on public.vendors        for all to authenticated using (public.has_perm('vendors.manage')) with check (public.has_perm('vendors.manage'));
 -- Rentals picks the supplier of a contract from the Vendors list (read only).
-create policy vendors_rentals_read on public.vendors      for select to authenticated using (public.has_perm('rentals.contracts'));
+create policy vendors_rentals_read on public.vendors      for select to authenticated using (public.has_perm('rentals.contracts', 'promoladies.manage'));   -- supplier pickers (rentals, promo ladies)
 create policy vendor_orders_all  on public.vendor_orders  for all to authenticated using (public.has_perm('vendors.manage')) with check (public.has_perm('vendors.manage'));
 create policy vendor_skips_all   on public.vendor_skips   for all to authenticated using (public.has_perm('vendors.manage')) with check (public.has_perm('vendors.manage'));
 create policy vendor_rentals_read  on public.vendor_rentals for select to authenticated using (public.has_perm('rentals.view'));
