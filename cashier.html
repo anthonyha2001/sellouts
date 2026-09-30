@@ -31,6 +31,7 @@
     <select id="cpName"><option value="">Choose…</option></select>
     <label for="cpPin" style="margin-top:14px;">4-digit PIN</label>
     <input type="password" id="cpPin" inputmode="numeric" pattern="\d{4}" maxlength="4" autocomplete="off" placeholder="••••">
+    <label class="cp-remember"><input type="checkbox" id="cpRemember" checked> Remember me on this phone</label>
     <p class="login-err" id="cpErr" role="alert"></p>
     <button class="btn" id="cpGo" type="submit">Open</button>
   </form>
@@ -39,7 +40,7 @@
   <section id="cpView" hidden>
     <div class="cp-head">
       <div><h2 id="cpWho"></h2><p class="muted-note" id="cpMonthLabel"></p></div>
-      <button class="btn ghost small" id="cpDone" type="button">Done</button>
+      <button class="btn ghost small" id="cpDone" type="button">Log out</button>
     </div>
     <div id="cpSchedule"></div>
     <div id="cpCash">

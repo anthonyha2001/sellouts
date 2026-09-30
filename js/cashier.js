@@ -2,8 +2,10 @@
    Public cashier page (PLAN §8.5). No login, no database access:
    everything goes through the cashier-view edge function, which
    checks the PIN and returns only this cashier's data.
-   The PIN is kept in memory only while the page shows the data,
-   and forgotten after 2 minutes without activity.
+   With "Remember me on this phone" (owner, 2026-09-30) the name and
+   PIN are kept in this browser, so the page opens straight on the
+   person's schedule, until they press Log out. Without it the PIN is
+   kept in memory only, and forgotten after 2 minutes without activity.
    ============================================================ */
 (function () {
   const FN_URL = 'https://sezjqcbkiydckhirycjb.supabase.co/functions/v1/cashier-view';
@@ -20,7 +22,10 @@
   const SHIFTS = { am: ['AM', '07:30 – 14:30'], pm: ['PM', '14:30 – 22:00'], full: ['Full day', '07:30 – 22:00'] };
   const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   const addDays = (s, n) => { const d = new Date(s + 'T00:00:00'); d.setDate(d.getDate() + n); return d; };
-  let session = null, idleTimer = null;   // { cashier_id, pin, name, data }
+  let session = null, idleTimer = null;
+  const SAVED = 'lv:cashierLogin';
+  const saved = () => { try { const v = JSON.parse(localStorage.getItem(SAVED)); return v && v.cashier_id && v.pin ? v : null; } catch (e) { return null; } };
+  const setSaved = v => { try { v ? localStorage.setItem(SAVED, JSON.stringify(v)) : localStorage.removeItem(SAVED); } catch (e) { /* storage blocked */ } };   // { cashier_id, pin, name, data }
 
   async function call(body) {
     const res = await fetch(FN_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: PUBLISHABLE_KEY }, body: JSON.stringify(body) });
@@ -38,7 +43,7 @@
     $('cpLogin').hidden = false;
     $('cpPin').focus();
   }
-  function touch() { clearTimeout(idleTimer); if (session) idleTimer = setTimeout(forget, IDLE_MS); }
+  function touch() { clearTimeout(idleTimer); if (session && !saved()) idleTimer = setTimeout(forget, IDLE_MS); }
   ['click', 'keydown', 'touchstart'].forEach(ev => document.addEventListener(ev, touch, { passive: true }));
 
   // The person's shifts for this week and next (published weeks only).
@@ -96,6 +101,8 @@
     session = { cashier_id, pin };
     try {
       await load();
+      setSaved($('cpRemember').checked ? { cashier_id, pin } : null);
+      touch();
     } catch (err) {
       session = null;
       $('cpPin').value = '';
@@ -114,13 +121,33 @@
     if (!b || !session || b.dataset.m === session.data.month) return;
     try { await load(b.dataset.m); } catch (err) { forget(); $('cpErr').textContent = err.message; }
   });
-  $('cpDone').addEventListener('click', forget);
+  $('cpDone').addEventListener('click', () => { setSaved(null); forget(); });
+  // Remembered: refresh when the page comes back to the screen (new week published, new entries).
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && session && session.data && saved()) load(session.data.month).catch(() => {});
+  });
+
+  // Opens straight on the remembered person; a changed PIN or removed name goes back to the login.
+  async function autoLogin(cashiers) {
+    const s = saved();
+    if (!s) return false;
+    if (!cashiers.some(c => c.id === s.cashier_id)) { setSaved(null); return false; }
+    session = { cashier_id: s.cashier_id, pin: s.pin };
+    try { await load(); return true; }
+    catch (err) {
+      session = null;
+      if ([401, 403, 404, 423].includes(err.status)) { setSaved(null); $('cpErr').textContent = 'Please log in again.'; }
+      else $('cpErr').textContent = err.message;
+      return false;
+    }
+  }
 
   (async function boot() {
     try {
       const { cashiers } = await call({ action: 'cashiers' });
       $('cpName').innerHTML = '<option value="">Choose…</option>' + cashiers.map(c => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('');
       $('cpBoot').hidden = true;
+      if (await autoLogin(cashiers)) return;
       $('cpLogin').hidden = false;
       try { const last = localStorage.getItem('lv:cashierName'); if (last && cashiers.some(c => c.id === last)) $('cpName').value = last; } catch (e) { /* storage blocked */ }
     } catch (err) {

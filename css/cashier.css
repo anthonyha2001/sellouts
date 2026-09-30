@@ -39,3 +39,5 @@ body.cashier-page{display:block;min-height:100vh;}
 .cp-day.cp-off b{color:var(--ink-faint);}
 .cp-day.today{background:var(--pine-tint);}
 .cp-day.past{opacity:.55;}
+.cp-remember{display:flex;align-items:center;gap:8px;margin:12px 0 0;font-weight:400;font-size:14px;color:var(--ink-soft);cursor:pointer;}
+.cp-remember input{width:18px;height:18px;margin:0;accent-color:var(--pine);}
