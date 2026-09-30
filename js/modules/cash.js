@@ -42,9 +42,11 @@
 
   /* ---------------- data ---------------- */
   async function loadCashiers() {
-    const { data, error } = await sb.from('cashiers').select(CASHIER_COLS).order('sort_order').order('name');
+    let { data, error } = await sb.from('cashiers').select(CASHIER_COLS + ', position').order('sort_order').order('name');
+    if (error && /position/.test(error.message)) ({ data, error } = await sb.from('cashiers').select(CASHIER_COLS).order('sort_order').order('name'));   // before migration 020
     if (error) return fail('Could not load cashiers', error);
-    S.cashiers = data;
+    // Supervisors are on the staff list (Staff schedule) but have no cash differences.
+    S.cashiers = data.filter(c => c.position !== 'supervisor');
   }
   async function loadSettings() {
     const { data, error } = await sb.from('cash_settings').select('*').eq('id', 'app').maybeSingle();

@@ -16,7 +16,7 @@ const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 // LV_SECRET_KEY (optional secret, sb_secret_...) wins over the built-in legacy service role key.
 const SERVICE_KEY = Deno.env.get('LV_SECRET_KEY') ?? Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const LOGIN_DOMAIN = 'lvajaltoun.local';
-const ROLES = ['admin', 'accountant', 'delivery', 'floor_manager', 'shelf'];
+const ROLES = ['admin', 'accountant', 'delivery', 'floor_manager', 'shelf', 'hr'];
 const USERNAME_RE = /^[a-z0-9._-]{2,32}$/;
 const MIN_PASSWORD = 8;
 

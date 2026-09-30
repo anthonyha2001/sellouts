@@ -8,7 +8,7 @@
 const ROLES = {
   admin: {
     label: 'Admin',
-    sections: ['sellouts', 'creditnotes', 'promotions', 'vendors', 'rentals', 'delivery', 'cash', 'floorcheck', 'promoladies', 'labels', 'tools', 'users', 'activity'],
+    sections: ['sellouts', 'creditnotes', 'promotions', 'vendors', 'rentals', 'delivery', 'cash', 'floorcheck', 'promoladies', 'schedule', 'labels', 'tools', 'users', 'activity'],
     delivery: ['orders', 'settle', 'reports', 'customers', 'drivers', 'settings'],
     home: 'sellouts',
   },
@@ -30,6 +30,13 @@ const ROLES = {
     delivery: [],
     home: 'floorcheck',
   },
+  // HR makes the weekly schedule of cashiers and supervisors (owner, 2026-09-30).
+  hr: {
+    label: 'HR',
+    sections: ['schedule'],
+    delivery: [],
+    home: 'schedule',
+  },
   // Shelf workers scan items that need a new shelf label (Phase 7).
   shelf: {
     label: 'Shelf worker',
@@ -42,7 +49,7 @@ const ROLES = {
 // Set by auth.js once the profile is loaded.
 const Session = { user: null, profile: null, role: null, perms: null };
 
-const SECTION_ORDER = ['sellouts', 'creditnotes', 'promotions', 'vendors', 'rentals', 'delivery', 'cash', 'floorcheck', 'promoladies', 'labels', 'tools', 'users', 'activity'];
+const SECTION_ORDER = ['sellouts', 'creditnotes', 'promotions', 'vendors', 'rentals', 'delivery', 'cash', 'floorcheck', 'promoladies', 'schedule', 'labels', 'tools', 'users', 'activity'];
 function roleInfo() {
   const r = ROLES[Session.role] || { label: '', sections: [], delivery: [], home: null };
   // Landing page: the role's usual one, or the first section this user can open.

@@ -17,6 +17,9 @@
     ? (n < 0 ? '-' : '') + '$' + Math.abs(Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
     : Math.round(Number(n) || 0).toLocaleString('en-US') + ' LBP';
   const monthLabel = ym => new Date(ym + '-01T00:00:00').toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+  const SHIFTS = { am: ['AM', '07:30 – 14:30'], pm: ['PM', '14:30 – 22:00'], full: ['Full day', '07:30 – 22:00'] };
+  const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const addDays = (s, n) => { const d = new Date(s + 'T00:00:00'); d.setDate(d.getDate() + n); return d; };
   let session = null, idleTimer = null;   // { cashier_id, pin, name, data }
 
   async function call(body) {
@@ -38,8 +41,26 @@
   function touch() { clearTimeout(idleTimer); if (session) idleTimer = setTimeout(forget, IDLE_MS); }
   ['click', 'keydown', 'touchstart'].forEach(ev => document.addEventListener(ev, touch, { passive: true }));
 
+  // The person's shifts for this week and next (published weeks only).
+  function renderSchedule(weeks) {
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Beirut' });
+    const cell = (code, date) => {
+      const [shift, station] = String(code || '').split(':');
+      const iso = date.toLocaleDateString('en-CA'), day = date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+      const what = shift === 'off' ? '<b>Off</b>' : SHIFTS[shift] ? `<b>${SHIFTS[shift][0]}${station ? ' · ' + (station === 'front' ? 'Front' : 'Back') : ''}</b><small>${SHIFTS[shift][1]}</small>` : '<span class="muted-note">—</span>';
+      return `<li class="cp-day cp-${shift || 'none'}${iso === today ? ' today' : ''}${iso < today ? ' past' : ''}"><span>${DAYS[(date.getDay() + 6) % 7]}<small>${day}</small></span><div>${what}</div></li>`;
+    };
+    $('cpSchedule').innerHTML = '<h3 class="cp-sec">My schedule</h3>' + (weeks && weeks.length
+      ? weeks.map((w, i) => `<div class="card cp-week"><p class="cp-week-t">${w.week_start <= today ? 'This week' : 'Next week'} · from ${addDays(w.week_start, 0).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</p>
+          <ul>${DAYS.map((_, d) => cell(w.days[d], addDays(w.week_start, d))).join('')}</ul></div>`).join('')
+      : '<div class="card"><p class="empty-note" style="margin:0;">No schedule published yet.</p></div>');
+  }
+
   function render() {
     const d = session.data, lv = d.levels;
+    renderSchedule(d.schedule);
+    // Supervisors have no cash differences.
+    $('cpCash').hidden = d.cashier.position === 'supervisor';
     currency = lv.currency || 'LBP';
     const level = a => Math.abs(a) >= lv.danger ? 'lv-danger' : Math.abs(a) >= lv.warning ? 'lv-warn' : '';
     $('cpWho').textContent = d.cashier.name;

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>My cash differences — La Valeur</title>
+<title>My page — La Valeur</title>
 <meta name="robots" content="noindex">
 <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
 <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
@@ -22,7 +22,7 @@
 <main class="cp-wrap">
   <div class="login-brand">
     <div class="mark"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/></svg></div>
-    <div><h1>My cash differences</h1><p>LV Ajaltoun</p></div>
+    <div><h1>My schedule &amp; cash</h1><p>LV Ajaltoun</p></div>
   </div>
 
   <!-- Step 1: who + PIN -->
@@ -32,7 +32,7 @@
     <label for="cpPin" style="margin-top:14px;">4-digit PIN</label>
     <input type="password" id="cpPin" inputmode="numeric" pattern="\d{4}" maxlength="4" autocomplete="off" placeholder="••••">
     <p class="login-err" id="cpErr" role="alert"></p>
-    <button class="btn" id="cpGo" type="submit">Show my differences</button>
+    <button class="btn" id="cpGo" type="submit">Open</button>
   </form>
 
   <!-- Step 2: the cashier's own month -->
@@ -41,10 +41,14 @@
       <div><h2 id="cpWho"></h2><p class="muted-note" id="cpMonthLabel"></p></div>
       <button class="btn ghost small" id="cpDone" type="button">Done</button>
     </div>
-    <div class="filter-row" id="cpMonths"></div>
-    <div class="card cp-total" id="cpTotal"></div>
-    <div class="card cp-list-card"><table class="cp-list"><tbody id="cpList"></tbody></table></div>
-    <p class="muted-note cp-foot">Negative = short, positive = over. Questions? Ask the accountant.</p>
+    <div id="cpSchedule"></div>
+    <div id="cpCash">
+      <h3 class="cp-sec">My cash differences</h3>
+      <div class="filter-row" id="cpMonths"></div>
+      <div class="card cp-total" id="cpTotal"></div>
+      <div class="card cp-list-card"><table class="cp-list"><tbody id="cpList"></tbody></table></div>
+      <p class="muted-note cp-foot">Negative = short, positive = over. Questions? Ask the accountant.</p>
+    </div>
   </section>
 
   <p class="muted-note" id="cpBoot">Loading…</p>

@@ -501,6 +501,16 @@ Owner: both, without photos. Migration `019_spot_checks_attendance.sql`.
 
 ---
 
+## 10h. Staff schedule (added 2026-09-30)
+
+The weekly program of cashiers and supervisors. New role **HR** (permission `schedule.manage`; admin has it too). Migration 020, page `js/modules/schedule.js`.
+
+- **Shifts:** AM 07:30–14:30 (7h), PM 14:30–22:00 (7.5h), Full 07:30–22:00 (14.5h), Off. Cashiers work **Front** or **Back**; supervisors only have a shift.
+- **Week tab:** weeks start on Monday. To create a week, HR enters how many people are needed each day (front / back / supervisors × AM / PM; a full day counts for both), then starts from a copy of last week (active staff only) or from an empty week. The grid shows one select per person per day, the hours per week, and a coverage footer per day (red when short). The gaps are listed above the grid. Changes save automatically. **Publish** makes the week visible to staff. There is also Print.
+- **Staff tab:** the `cashiers` table is the staff list. New columns: `position` (cashier | supervisor) and `default_station`. Here HR can add people, change position and station, set PINs (`set_cashier_pin`) and activate/deactivate people. Supervisors are hidden from the cash grid.
+- **Cashier page:** after the PIN, `cashier-view` also returns this week's and next week's shifts, published weeks only. Supervisors see only their schedule; cashiers also see their cash differences.
+- **Table:** `schedule_weeks` (week_start PK Monday, needs jsonb, assignments jsonb `{staff id: [7 codes]}`, published). RLS: schedule.manage only.
+
 ## 11. Open questions (ask the owner when you reach the phase)
 
 | # | Question | Default until answered |

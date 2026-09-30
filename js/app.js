@@ -983,6 +983,7 @@ const PAGES = {
   cash:        { eyebrow: 'Cashiers', title: 'Cash differences', sub: 'Daily over and short amounts per cashier.' },
   floorcheck:  { eyebrow: 'Store floor', title: 'Floor check', sub: 'Check that every sell-out and promotion item on the floor has the right price.' },
   labels:      { eyebrow: 'Shelves', title: 'Shelf labels', sub: 'Items that need a new shelf label: scanned on the floor, printed by the accountant.' },
+  schedule:    { eyebrow: 'Staff', title: 'Staff schedule', sub: 'The weekly program of cashiers and supervisors: AM, PM, full day or off, front or back.' },
   promoladies: { eyebrow: 'In store', title: 'Promo ladies', sub: 'Promoters booked by suppliers: who, which item, which days, paid or free.' },
   tools:       { eyebrow: 'Tools', title: 'PDF / photo to Excel', sub: 'Turn a table in a PDF or a photo into an Excel file, right on this device.' },
   users:       { eyebrow: 'Settings', title: 'Users', sub: 'Who can sign in, and what each person can do.' },
@@ -1008,6 +1009,7 @@ function switchTab(name, sub) {
   if (name === 'labels' && window.Labels) Labels.show();
   if (name === 'tools' && window.Tools) Tools.show();
   if (name === 'promoladies' && window.PromoLadies) PromoLadies.show();
+  if (name === 'schedule' && window.Schedule) Schedule.show();
   if (name === 'rentals' && typeof Rentals !== 'undefined') Rentals.show();
   if (name !== 'floorcheck' && name !== 'labels' && window.Scanner) Scanner.close();
   if (name === 'activity' && window.ActivityPage) ActivityPage.show();

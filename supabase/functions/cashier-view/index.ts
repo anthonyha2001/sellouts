@@ -4,7 +4,9 @@
 // differences for the current or previous month are returned. Read-only.
 //
 // POST { action: 'cashiers' }                              -> { cashiers: [{ id, name, has_pin }] }
-// POST { action: 'view', cashier_id, pin, month? }         -> { cashier, month, months, entries, total, levels }
+// POST { action: 'view', cashier_id, pin, month? }         -> { cashier, month, months, entries, total, levels, schedule }
+//   schedule: this week and next week of the staff schedule (migration 020), published weeks only:
+//   [{ week_start, days: ['am:front' | 'pm:back' | 'full' | 'off' | '', … Mon→Sun] }]
 //
 // Deploy with JWT verification OFF (the page has no user session).
 import { createClient } from 'npm:@supabase/supabase-js@2';
@@ -28,6 +30,20 @@ function beirutMonths() {
   const cur = `${y}-${String(m).padStart(2, '0')}`;
   const prev = m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`;
   return [cur, prev];
+}
+// Monday of this week and of next week in Beirut time.
+function beirutWeeks() {
+  const d = new Date(new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Beirut' }) + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+  const next = new Date(d); next.setUTCDate(d.getUTCDate() + 7);
+  return [d.toISOString().slice(0, 10), next.toISOString().slice(0, 10)];
+}
+// The person's published shifts; an empty list before migration 020 or when nothing is published.
+async function scheduleOf(id: string) {
+  const { data, error } = await db.from('schedule_weeks').select('week_start, assignments')
+    .in('week_start', beirutWeeks()).eq('published', true).order('week_start');
+  if (error) { console.error(error); return []; }
+  return (data ?? []).map(w => ({ week_start: w.week_start, days: ((w.assignments ?? {})[id] ?? []).slice(0, 7) }));
 }
 function monthEnd(ym: string) {
   const [y, m] = ym.split('-').map(Number);
@@ -59,7 +75,7 @@ Deno.serve(async req => {
       const result = Array.isArray(check) ? check[0] : check;
       if (result.status === 'locked') return json({ error: 'Too many wrong PINs. Try again later.', locked_until: result.locked_until }, 423);
       if (result.status === 'wrong') return json({ error: 'Wrong PIN.', attempts_left: result.attempts_left }, 401);
-      if (result.status === 'no_pin') return json({ error: 'No PIN has been set for you yet. Ask the accountant.' }, 403);
+      if (result.status === 'no_pin') return json({ error: 'No PIN has been set for you yet. Ask your manager.' }, 403);
       if (result.status !== 'ok') return json({ error: 'Choose your name.' }, 404);
 
       const months = beirutMonths();
@@ -67,17 +83,19 @@ Deno.serve(async req => {
       // The amounts are in the app's cash currency (cash_settings.currency; LBP since migration 015).
       const { data: settings } = await db.from('cash_settings').select('warning_threshold, danger_threshold, currency').eq('id', 'app').single();
       const currency = settings?.currency ?? 'LBP';
-      const [{ data: cashier }, { data: rows, error: rowsErr }] = await Promise.all([
+      const [{ data: cashier }, { data: rows, error: rowsErr }, schedule, { data: pos }] = await Promise.all([
         db.from('cashiers').select('name').eq('id', cashierId).single(),
         db.from('cash_differences').select('day, amount, note')
           .eq('cashier_id', cashierId).eq('currency', currency)
           .gte('day', `${month}-01`).lte('day', monthEnd(month)).order('day'),
+        scheduleOf(cashierId),
+        db.from('cashiers').select('position').eq('id', cashierId).maybeSingle(),   // null before migration 020
       ]);
       if (rowsErr) throw rowsErr;
       const entries = (rows ?? []).map(r => ({ day: r.day, amount: Number(r.amount), note: r.note }));
       const total = Math.round(entries.reduce((s, r) => s + r.amount, 0) * 100) / 100;
       return json({
-        cashier: { name: cashier?.name ?? '' }, month, months, entries, total,
+        cashier: { name: cashier?.name ?? '', position: pos?.position ?? 'cashier' }, schedule, month, months, entries, total,
         levels: { warning: Number(settings?.warning_threshold ?? 0), danger: Number(settings?.danger_threshold ?? 0), currency },
       });
     }
