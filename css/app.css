@@ -264,6 +264,7 @@ button:focus-visible{outline:2px solid var(--pine);outline-offset:2px;}
   padding:6px 12px;border-radius:20px;border:1px solid transparent;white-space:nowrap;
 }
 .action-flag.warn{background:var(--gold-tint);color:var(--gold);border-color:var(--gold);}
+.action-flag.info{background:var(--pine-tint);color:var(--pine);border-color:var(--pine);}
 .action-flag.danger{background:var(--brick-tint);color:var(--brick);border-color:var(--brick);}
 .action-flag .pulse{position:relative;width:7px;height:7px;border-radius:50%;background:currentColor;flex:0 0 auto;}
 .action-flag .pulse:after{

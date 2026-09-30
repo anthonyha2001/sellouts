@@ -1122,9 +1122,10 @@ async function runNotificationCheck() {
       if (daysToStart < 0 && daysToEnd >= 0) fire('startOverdue', `"${so.name}" was due to start on ${fmtDate(so.from)} and has still not been activated.`);
     }
     if (so.active) {
-      if (daysToEnd === 1) fire('endSoon', `"${so.name}" ends tomorrow (${fmtDate(so.to)}) \u2014 remember to deactivate it.`);
-      if (daysToEnd === 0) fire('endDay', `"${so.name}" ends today \u2014 deactivate it.`);
-      if (daysToEnd < 0) fire('endOverdue', `"${so.name}" ended on ${fmtDate(so.to)} and is still active \u2014 deactivate it.`);
+      // The To date is included: the last day is To, it is switched off the next morning (owner, 2026-09-30).
+      if (daysToEnd === 0) fire('lastDay', `"${so.name}": today (${fmtDate(so.to)}) is its last day \u2014 deactivate it tomorrow (${fmtDate(addDaysStr(so.to, 1))}).`);
+      if (daysToEnd === -1) fire('endDay', `"${so.name}" ended yesterday (${fmtDate(so.to)}) \u2014 deactivate it today.`);
+      if (daysToEnd < -1) fire('endOverdue', `"${so.name}" ended on ${fmtDate(so.to)} and is still active \u2014 deactivate it.`);
     }
   }
   // Only the flags are saved (not the whole row with its file).

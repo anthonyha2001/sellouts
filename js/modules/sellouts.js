@@ -107,8 +107,10 @@ function selloutStatusBadge(so) {
   return '<span class="badge inactive">Inactive</span>';
 }
 
+// The "To" date is INCLUDED: the sell-out runs through that day and is switched off the next morning
+// (owner, 2026-09-30).
 // 'activate'   = start date reached, still inactive, not ended yet
-// 'deactivate' = end date reached, still active
+// 'deactivate' = the day after the end date (or later), still active
 // 'archive'    = ended, deactivated, not yet confirmed removed from the store system
 function actionFlag(so) {
   if (so.archived) return null;
@@ -116,13 +118,16 @@ function actionFlag(so) {
   const daysToStart = daysBetween(today, so.from);
   const daysToEnd = daysBetween(today, so.to);
   if (!so.active && daysToStart <= 0 && daysToEnd >= 0) return 'activate';
-  if (so.active && daysToEnd <= 0) return 'deactivate';
+  if (so.active && daysToEnd < 0) return 'deactivate';
   if (!so.active && daysToEnd < 0) return 'archive';
   return null;
 }
+// Its last day (To = today, still active): nothing to do yet — a reminder, not an action.
+const isLastDay = so => !so.archived && so.active && daysBetween(todayStr(), so.to) === 0;
 const FLAG_LABELS = { activate: ['warn', 'Needs activation'], deactivate: ['danger', 'Needs deactivation'], archive: ['warn', 'Needs archiving'] };
 function actionFlagHtml(so) {
   const flag = actionFlag(so);
+  if (!flag && isLastDay(so)) return `<span class="action-flag info" title="The To date is included: switch it off tomorrow (${fmtDate(addDaysStr(so.to, 1))})">Last day — deactivate tomorrow</span>`;
   if (!flag) return '';
   const [cls, label] = FLAG_LABELS[flag];
   return `<span class="action-flag ${cls}"><span class="pulse"></span>${label}</span>`;

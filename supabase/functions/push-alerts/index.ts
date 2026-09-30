@@ -62,9 +62,10 @@ async function buildAlerts(today: string): Promise<Alert[]> {
       if (toStart === 0) a('startDay', `"${so.name}" starts today and is still not activated.`);
       if (toStart < 0 && toEnd >= 0) a('startOverdue', `"${so.name}" was due to start on ${fmt(so.from)} and has still not been activated.`, true);
     } else {
-      if (toEnd === 1) a('endSoon', `"${so.name}" ends tomorrow (${fmt(so.to)}) — remember to deactivate it.`);
-      if (toEnd === 0) a('endDay', `"${so.name}" ends today — deactivate it.`);
-      if (toEnd < 0) a('endOverdue', `"${so.name}" ended on ${fmt(so.to)} and is still active — deactivate it.`, true);
+      // The To date is included: its last day is To, it is switched off the next morning.
+      if (toEnd === 0) a('lastDay', `"${so.name}": today (${fmt(so.to)}) is its last day — deactivate it tomorrow (${fmt(addDays(so.to, 1))}).`);
+      if (toEnd === -1) a('endDay', `"${so.name}" ended yesterday (${fmt(so.to)}) — deactivate it today.`);
+      if (toEnd < -1) a('endOverdue', `"${so.name}" ended on ${fmt(so.to)} and is still active — deactivate it.`, true);
     }
   }
 
