@@ -80,6 +80,16 @@ language sql stable security definer set search_path = public as $$
 $$;
 revoke execute on function public.perms_of(uuid) from public, anon, authenticated;
 
+-- The push keys and the scheduler's secret, kept in Vault (supabase/secrets/push-vault.sql), read by the
+-- push-alerts function with the service role only. (The function's own secrets win when they are set.)
+create or replace function public.push_keys() returns jsonb
+language sql stable security definer set search_path = public, vault as $$
+  select coalesce(jsonb_object_agg(name, decrypted_secret), '{}'::jsonb) from vault.decrypted_secrets
+  where name in ('push_cron_secret', 'vapid_public_key', 'vapid_private_jwk', 'vapid_subject')
+$$;
+revoke execute on function public.push_keys() from public, anon, authenticated;
+grant execute on function public.push_keys() to service_role;
+
 -- ---------------------------------------------------------------------------
 -- 3. Every 10 minutes: run the alerts
 -- ---------------------------------------------------------------------------

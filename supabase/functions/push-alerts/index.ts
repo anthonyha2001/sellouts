@@ -14,13 +14,26 @@ import { sendPush } from './webpush.js';
 
 const URL_ = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('LV_SECRET_KEY') ?? Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-const CRON_SECRET = Deno.env.get('PUSH_CRON_SECRET') ?? '';
+const db = createClient(URL_, SERVICE_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
+// Keys: the function's secrets if set, otherwise Vault through push_keys() (migration 017).
+let CRON_SECRET = Deno.env.get('PUSH_CRON_SECRET') ?? '';
 const VAPID = {
   publicKey: Deno.env.get('VAPID_PUBLIC_KEY') ?? '',
   privateJwk: JSON.parse(Deno.env.get('VAPID_PRIVATE_JWK') ?? '{}'),
   subject: Deno.env.get('VAPID_SUBJECT') ?? 'https://anthonyha2001.github.io/sellouts/',
 };
-const db = createClient(URL_, SERVICE_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
+let keysLoaded = !!(VAPID.publicKey && VAPID.privateJwk.d && CRON_SECRET);
+async function loadKeys() {
+  if (keysLoaded) return;
+  const { data, error } = await db.rpc('push_keys');
+  if (error) throw new Error('Push keys not available: ' + error.message);
+  const k = (data ?? {}) as Record<string, string>;
+  CRON_SECRET = CRON_SECRET || k.push_cron_secret || '';
+  VAPID.publicKey = VAPID.publicKey || k.vapid_public_key || '';
+  if (!VAPID.privateJwk.d && k.vapid_private_jwk) VAPID.privateJwk = JSON.parse(k.vapid_private_jwk);
+  if (k.vapid_subject && !Deno.env.get('VAPID_SUBJECT')) VAPID.subject = k.vapid_subject;
+  keysLoaded = !!(VAPID.publicKey && VAPID.privateJwk.d && CRON_SECRET);
+}
 const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type', 'Access-Control-Allow-Methods': 'POST, OPTIONS' };
 const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status, headers: { ...cors, 'Content-Type': 'application/json' } });
 
@@ -162,7 +175,8 @@ async function run() {
 Deno.serve(async req => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
-  if (!VAPID.publicKey || !VAPID.privateJwk.d) return json({ error: 'Push keys are not set up (VAPID secrets).' }, 500);
+  try { await loadKeys(); } catch (e) { return json({ error: (e as Error).message }, 500); }
+  if (!keysLoaded) return json({ error: 'Push keys are not set up (Vault: supabase/secrets/push-vault.sql).' }, 500);
   let body: Record<string, unknown> = {};
   try { body = await req.json(); } catch { /* empty */ }
   try {
