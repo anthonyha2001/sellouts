@@ -451,6 +451,11 @@ admin only by default (give it per user in Users → Permissions).
 - [x] Notifications: every bell alert (sell-outs, vendors, rentals, floor check, cash, delivery) also shows on the
   phone / computer when the app is in the background, through the service worker (needed on phones); turned on
   per device from the bell panel's footer. iPhone: only once the app is installed (iOS 16.4+).
+- [x] Stays signed in on the device (owner, 2026-09-30): "Keep me signed in on this device" (default on) keeps the
+  session in localStorage plus a backup of the refresh token (long-lived cookie + IndexedDB) that signs back in if
+  the phone wiped localStorage; a missing connection at launch shows "Connecting…" and retries instead of the
+  sign-in form; storage asked to be persistent. Unticked: sessionStorage (signed out when the browser closes).
+  Sign out removes everything.
 - [ ] Later (ask the owner): notifications while the app is fully closed need Web Push — VAPID keys, a
   `push_subscriptions` table and an edge function that sends the alerts on a schedule. `sw.js` already handles `push`.
 
