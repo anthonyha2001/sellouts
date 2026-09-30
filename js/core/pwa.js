@@ -27,8 +27,43 @@
 
   function enabled() { return supported() && Notification.permission === 'granted' && pref() !== 'off'; }
 
+  /* ---- Web Push: alerts while the app is closed (supabase/functions/push-alerts, migration 017) ---- */
+  let pushOn = false;                 // this device is registered: the server sends the alerts
+  const b64uBytes = s => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((s.length + 3) % 4)), c => c.charCodeAt(0));
+  const getReg = async () => swReg || (navigator.serviceWorker ? await navigator.serviceWorker.getRegistration() : null);
+  async function subscribePush() {
+    try {
+      const reg = await getReg();
+      if (!reg || !reg.pushManager || typeof VAPID_PUBLIC_KEY === 'undefined' || !(typeof Session !== 'undefined' && Session.user)) return false;
+      let s = await reg.pushManager.getSubscription();
+      if (!s) s = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64uBytes(VAPID_PUBLIC_KEY) });
+      const j = s.toJSON();
+      const { error } = await sb.rpc('register_push', { p_endpoint: j.endpoint, p_p256dh: j.keys.p256dh, p_auth: j.keys.auth, p_user_agent: navigator.userAgent });
+      if (error) { console.warn('Push not registered (migration 017?)', error.message); pushOn = false; return false; }
+      pushOn = true; return true;
+    } catch (e) { console.warn('Push subscription failed', e); pushOn = false; return false; }
+  }
+  // Turned off here, or signing out: this device stops getting the alerts (also for the next person).
+  async function unsubscribePush() {
+    try {
+      const reg = await getReg(), s = reg && reg.pushManager && await reg.pushManager.getSubscription();
+      if (s) { try { await sb.rpc('unregister_push', { p_endpoint: s.endpoint }); } catch (e) { /* offline */ } await s.unsubscribe().catch(() => {}); }
+    } catch (e) { /* ignore */ }
+    pushOn = false;
+  }
+  // After sign-in: keep this device registered for the person now signed in.
+  async function syncPush() { if (enabled()) { await subscribePush(); renderFoot(); } }
+  async function sendTest() {
+    const { data, error } = await sb.functions.invoke('push-alerts', { body: { action: 'test' } });
+    let msg = error ? error.message : '';
+    try { if (error && error.context) { const b = await error.context.json(); if (b.error) msg = b.error; } } catch (e) { /* not JSON */ }
+    if (error) return showToast('Test not sent — ' + (/not found|Failed to send/i.test(msg) ? 'the notification service is not set up yet.' : msg), true);
+    showToast(data && data.sent ? `Test sent to ${data.sent} device${data.sent === 1 ? '' : 's'} — it arrives in a few seconds.` : 'Test not delivered — try turning notifications off and on.', !(data && data.sent));
+  }
+
   async function show(title, body, opts = {}) {
     if (!enabled()) return false;
+    if (pushOn && !opts.force) return false;       // the server sends it (also when the app is closed): no double
     if (!opts.force && document.visibilityState === 'visible' && document.hasFocus()) return false;   // the bell is enough
     const options = { body, icon: 'icons/icon-192.png', badge: 'icons/badge-96.png', tag: opts.tag, renotify: !!opts.tag, data: { url: opts.url || location.hash || './' } };
     try {
@@ -44,8 +79,11 @@
     }
     const p = Notification.permission === 'default' ? await Notification.requestPermission() : Notification.permission;
     if (p !== 'granted') { renderFoot(); return showToast('Notifications are blocked for this site. Allow them in the browser (padlock icon → Notifications), then try again.', true); }
-    setPref('on'); renderFoot();
-    show('La Valeur', 'Notifications are on. You will get sell-out, rental, floor check and cash alerts here.', { force: true, tag: 'lv-test' });
+    setPref('on');
+    const push = await subscribePush();
+    renderFoot();
+    show('La Valeur', push ? 'Notifications are on — you will get alerts here even when the app is closed.'
+      : 'Notifications are on. You will get alerts here while the app is open or in the background.', { force: true, tag: 'lv-test' });
   }
 
   function renderFoot() {
@@ -56,7 +94,8 @@
       ? `<span class="np-note">${isIOS && !standalone() ? 'iPhone: install the app to get notifications.' : 'Notifications are not available in this browser.'}</span>`
       : perm === 'denied'
         ? '<span class="np-note">Notifications are blocked for this site — allow them in the browser settings.</span>'
-        : `<span class="np-note">${on ? 'Alerts also show on this device when the app is in the background.' : 'Get alerts on this device even when the app is in the background.'}</span>
+        : `<span class="np-note">${on ? (pushOn ? 'Alerts come to this device, even when the app is closed.' : 'Alerts show on this device while the app is open or in the background.') : 'Get alerts on this device, even when the app is closed.'}</span>
+           ${on && pushOn ? '<button type="button" class="np-btn" data-np="test" style="background:none;color:var(--pine)">Send a test</button>' : ''}
            <button type="button" class="np-btn" data-np="${on ? 'off' : 'on'}">${on ? 'Turn off' : 'Turn on notifications'}</button>`;
     const canInstall = !standalone() && (installEvt || isIOS);
     foot.innerHTML = `<div class="np-row">${notifRow}</div>${canInstall ? `<div class="np-row"><span class="np-note">Put La Valeur on your home screen or desktop, like an app.</span>
@@ -66,7 +105,8 @@
     const b = e.target.closest('[data-np]'); if (!b) return;
     e.stopPropagation();
     if (b.dataset.np === 'on') return turnOn();
-    if (b.dataset.np === 'off') { setPref('off'); renderFoot(); return showToast('Notifications turned off on this device.'); }
+    if (b.dataset.np === 'off') { setPref('off'); await unsubscribePush(); renderFoot(); return showToast('Notifications turned off on this device.'); }
+    if (b.dataset.np === 'test') return sendTest();
     if (b.dataset.np === 'install') {
       if (installEvt) { installEvt.prompt(); const r = await installEvt.userChoice.catch(() => null); if (r && r.outcome === 'accepted') installEvt = null; return renderFoot(); }
       if (isIOS) return showConfirm('To install La Valeur on iPhone or iPad:\n\n1. Open this page in Safari.\n2. Tap the Share button (square with an arrow).\n3. Tap "Add to Home Screen", then "Add".\n\nThen open La Valeur from the home screen and turn notifications on from the bell.', 'OK');
@@ -75,5 +115,5 @@
   document.addEventListener('DOMContentLoaded', renderFoot);
   renderFoot();
 
-  window.AppNotify = { show, enabled, renderFoot };
+  window.AppNotify = { show, enabled, renderFoot, sync: syncPush, unsubscribe: unsubscribePush };
 })();

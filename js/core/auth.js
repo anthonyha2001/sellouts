@@ -62,10 +62,12 @@
     startMainModules();
     if (canSee('delivery') && window.Delivery) Delivery.start();
     routeFromHash();
+    if (window.AppNotify) AppNotify.sync();                  // push alerts for the person now signed in
   }
 
   async function signOut() {
     await logActivity('auth', 'logout', null, `${Session.profile?.username} signed out`);
+    if (window.AppNotify) await AppNotify.unsubscribe();   // this device stops getting this person's alerts
     SessionBackup.clear();
     await sb.auth.signOut();
     history.replaceState(null, '', location.pathname);

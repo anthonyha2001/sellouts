@@ -456,8 +456,14 @@ admin only by default (give it per user in Users → Permissions).
   the phone wiped localStorage; a missing connection at launch shows "Connecting…" and retries instead of the
   sign-in form; storage asked to be persistent. Unticked: sessionStorage (signed out when the browser closes).
   Sign out removes everything.
-- [ ] Later (ask the owner): notifications while the app is fully closed need Web Push — VAPID keys, a
-  `push_subscriptions` table and an edge function that sends the alerts on a schedule. `sw.js` already handles `push`.
+- [x] Notifications while the app is closed (Web Push, owner 2026-09-30): migration `017_web_push.sql`
+  (push_subscriptions via register_push / unregister_push, push_log, perms_of, pg_cron every 10 min → the
+  `push-alerts` edge function). The function builds the bell's alerts on the server (sell-outs, vendor orders,
+  cash day missing, floor check finished, rental contracts ending at 30/14/7/3/1/0 days, labels sent for
+  printing) and pushes each once to each person whose permissions cover it; quiet hours 22:00–07:00 Beirut.
+  Web Push is encrypted and signed with WebCrypto only (`push-alerts/webpush.js`, checked against http_ece).
+  Keys: `scripts/make-push-keys.mjs` → .env; secrets for the CLI and Vault in `supabase/secrets/` (git-ignored).
+  Devices register when notifications are turned on and after sign-in; sign-out unregisters the device.
 
 ---
 

@@ -5,6 +5,8 @@
    ============================================================ */
 const SUPABASE_URL = 'https://sezjqcbkiydckhirycjb.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_LRI-MmDPYE_IjrHG-LZ7Xg_mQovg24F';
+// Web Push: the PUBLIC half of the push key (the private half is a secret of the push-alerts function).
+const VAPID_PUBLIC_KEY = 'BMG7Z2phSxCqVWAVaXv0Al16YLNNwbBXMZYfrkFc7FmYkcM9FTxqIzhxTcDpnM7BO-_qDILf0m-7pys_XnAbd4o';
 // Where the sign-in is kept (owner, 2026-09-30: a phone's home-screen app must stay signed in).
 // "Keep me signed in on this device" (the default): localStorage, plus a backup of the refresh token
 // (SessionBackup below) in case the phone clears localStorage. Not kept: sessionStorage, so closing

@@ -5,7 +5,7 @@
      from Supabase and is never cached here).
    - Shows notifications (phones only allow notifications through a service worker) and opens
      the app on the right page when one is tapped. */
-const CACHE = 'lv-app-v1';
+const CACHE = 'lv-app-v2';
 const SHELL = ['./', 'index.html', 'css/app.css', 'css/delivery.css', 'manifest.webmanifest',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/badge-96.png'];
 
@@ -38,11 +38,15 @@ self.addEventListener('notificationclick', e => {
   }));
 });
 
-// Web Push (for later: notifications while the app is closed). Shows whatever the server sends.
+// Web Push from the push-alerts function (alerts while the app is closed). When the app is open and in
+// front, it is skipped: the app's own bell already shows the same alert.
 self.addEventListener('push', e => {
   let d = {};
   try { d = e.data ? e.data.json() : {}; } catch (err) { d = { body: e.data && e.data.text() }; }
-  e.waitUntil(self.registration.showNotification(d.title || 'La Valeur', {
-    body: d.body || '', icon: 'icons/icon-192.png', badge: 'icons/badge-96.png', tag: d.tag, data: { url: d.url || './' },
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
+    if (d.tag !== 'lv-test' && list.some(c => c.visibilityState === 'visible' && c.focused)) return;
+    return self.registration.showNotification(d.title || 'La Valeur', {
+      body: d.body || '', icon: 'icons/icon-192.png', badge: 'icons/badge-96.png', tag: d.tag, renotify: !!d.tag, data: { url: d.url || './' },
+    });
   }));
 });

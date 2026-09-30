@@ -3,3 +3,6 @@ backups/
 node_modules/
 .env
 *.local
+
+# Push secrets for the Supabase CLI / Vault (scripts/make-push-keys.mjs) - never commit
+supabase/secrets/
