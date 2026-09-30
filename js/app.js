@@ -1046,6 +1046,8 @@ document.getElementById('menuToggle').addEventListener('click', () => document.g
    Notifications
    ============================================================ */
 function pushNotification(msg) {
+  // The same alert can come from the app's own check and from the server push: show it once.
+  if (notifications.some(n => n.msg === msg)) return;
   notifications.unshift({ msg, at: new Date().toISOString() });
   if (notifications.length > 50) notifications.pop();
   playChime();

@@ -22,6 +22,11 @@
   if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
     navigator.serviceWorker.register('sw.js').then(r => { swReg = r; }).catch(e => console.warn('Service worker not registered', e));
   }
+  // A server alert that arrived while the app is in front: it goes into the bell (sw.js).
+  if (navigator.serviceWorker) navigator.serviceWorker.addEventListener('message', e => {
+    const m = e.data || {};
+    if (m.type === 'lv-push' && m.body && typeof pushNotification === 'function') pushNotification(m.body);
+  });
   window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; renderFoot(); });
   window.addEventListener('appinstalled', () => { installEvt = null; renderFoot(); showToast('La Valeur is installed. Open it from your home screen or app list.'); });
 

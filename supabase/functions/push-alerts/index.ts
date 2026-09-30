@@ -51,9 +51,10 @@ async function buildAlerts(today: string): Promise<Alert[]> {
   const out: Alert[] = [];
   const add = (a: Alert) => out.push(a);
 
-  // Sell-outs: not activated when it starts / still active when it ends.
-  const { data: sos } = await db.from('sellouts').select('id, name, from, to, active, archived').eq('archived', false);
-  for (const so of sos ?? []) {
+  // Sell-outs (one query for every sell-out alert below).
+  const { data: sosFull } = await db.from('sellouts').select('id, name, from, to, active, archived, log, items').eq('archived', false);
+  // Not activated when it starts / still active when it ends: whoever follows sell-outs (accountant, admin).
+  for (const so of sosFull ?? []) {
     const toStart = daysBetween(today, so.from), toEnd = daysBetween(today, so.to);
     const a = (k: string, body: string, daily = false) => add({ key: `so:${so.id}:${k}${daily ? ':' + today : ''}`, perms: ['sellouts.view'], title: 'Sell-out', body, url: '#sellouts' });
     if (!so.active) {
@@ -65,6 +66,51 @@ async function buildAlerts(today: string): Promise<Alert[]> {
       if (toEnd === 0) a('endDay', `"${so.name}" ends today — deactivate it.`);
       if (toEnd < 0) a('endOverdue', `"${so.name}" ended on ${fmt(so.to)} and is still active — deactivate it.`, true);
     }
+  }
+
+  // Sell-out switched on (last 24 h): the floor managers check the new prices on the shelves.
+  // Ended, switched off and not archived yet: the accountant confirms it left the tills (archive).
+  const dayAgo = Date.now() - 24 * 3600 * 1000;
+  for (const so of sosFull ?? []) {
+    const recent = (action: string) => (Array.isArray(so.log) ? so.log : []).filter((l: { action?: string; at?: string }) => l.action === action && l.at && Date.parse(l.at) > dayAgo).pop();
+    const n = Array.isArray(so.items) ? so.items.length : 0;
+    const act = recent('activated'), deact = recent('deactivated');
+    if (so.active && act)
+      add({ key: `so:${so.id}:activated:${act.at}`, perms: ['floorcheck.do'], title: 'Sell-out now active — floor check',
+        body: `"${so.name}" is now active${n ? ` (${n} items)` : ''} — check the new prices on the shelves.`, url: '#floorcheck' });
+    // Switched off: the floor managers check the prices went back to normal (owner, 2026-09-30).
+    if (!so.active && deact)
+      add({ key: `so:${so.id}:deactivated:${deact.at}`, perms: ['floorcheck.do'], title: 'Sell-out ended — floor check',
+        body: `"${so.name}" was switched off${n ? ` (${n} items)` : ''} — check the prices on the shelves are back to normal.`, url: '#floorcheck' });
+    if (!so.active && so.to < today)
+      add({ key: `so:${so.id}:needsArchive`, perms: ['sellouts.archive'], title: 'Sell-out to archive', url: '#sellouts',
+        body: `"${so.name}" ended on ${fmt(so.to)} and is switched off — confirm it was removed from the tills and archive it.` });
+  }
+
+  // Promotion starting tomorrow: ready to export for the tills (or still empty).
+  const tomorrow = addDays(today, 1);
+  const { data: promos } = await db.from('promotions').select('id, name, from_date').eq('from_date', tomorrow).eq('archived', false);
+  for (const p of promos ?? []) {
+    const { count } = await db.from('promotion_rows').select('id', { count: 'exact', head: true }).eq('promotion_id', p.id).not('code', 'is', null).neq('code', '');
+    if (count) add({ key: `promo:${p.id}:tomorrow`, perms: ['promotions.view'], title: 'Promotion starts tomorrow', url: '#promotions',
+      body: `"${p.name}" starts tomorrow (${fmt(p.from_date)}) — ${count} item${count === 1 ? '' : 's'} ready. Export it for the tills.` });
+    else add({ key: `promo:${p.id}:tomorrow-empty`, perms: ['promotions.edit'], title: 'Promotion starts tomorrow', url: '#promotions',
+      body: `"${p.name}" starts tomorrow (${fmt(p.from_date)}) but has no items yet.` });
+  }
+
+  // Delivery: yesterday's day is closed — its count and value (morning summary).
+  const yd = addDays(today, -1);
+  const [{ data: dOrders }, { data: dSet }] = await Promise.all([
+    db.from('dt_orders').select('amount, paid, payment').eq('order_date', yd),
+    db.from('dt_settings').select('value').eq('key', 'app').maybeSingle(),
+  ]);
+  if (dOrders?.length) {
+    const cur = (dSet?.value as { currency?: string } | null)?.currency || '$';
+    const money = (n: number) => cur + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const total = dOrders.reduce((s, o) => s + (Number(o.amount) || 0), 0);
+    const unpaid = dOrders.filter(o => !o.paid), unpaidSum = unpaid.reduce((s, o) => s + (Number(o.amount) || 0), 0);
+    add({ key: `delivery:day:${yd}`, perms: ['delivery.manage', 'delivery.reports'], title: `Delivery ${fmt(yd)} closed`, url: '#delivery/reports',
+      body: `${dOrders.length} order${dOrders.length === 1 ? '' : 's'} · ${money(total)}${unpaid.length ? ` · ${unpaid.length} not paid yet (${money(unpaidSum)})` : ' · all paid'}.` });
   }
 
   // Vendor orders: overdue deliveries, orders logged 2+ days ago and never sent.
@@ -106,22 +152,34 @@ async function buildAlerts(today: string): Promise<Alert[]> {
     }
   }
 
-  // Rental contracts ending (30, 14, 7, 3, 1 days before, and the day itself) and not renewed.
-  const { data: rc } = await db.from('rental_contracts').select('id, spot_id, supplier, start_date, end_date').gte('end_date', today).lte('end_date', addDays(today, 30));
+  // Rentals: a spot rented (new contract, last 24 h — not to the person who entered it); a contract ending
+  // (30, 14, 7, 3, 1 days before and the day itself) or expired yesterday, and not renewed.
+  const { data: rc } = await db.from('rental_contracts').select('id, spot_id, supplier, term, amount, start_date, end_date, created_by, created_at')
+    .or(`created_at.gt.${new Date(dayAgo).toISOString()},and(end_date.gte.${addDays(today, -1)},end_date.lte.${addDays(today, 30)})`);
   if (rc?.length) {
-    const { data: later } = await db.from('rental_contracts').select('spot_id, supplier, start_date').gt('start_date', today);
+    const { data: later } = await db.from('rental_contracts').select('spot_id, supplier, start_date').gt('start_date', addDays(today, -1));
     const spotIds = rc.map(c => c.spot_id).filter(Boolean);
     const { data: spots } = spotIds.length ? await db.from('store_map_objects').select('id, type, label').in('id', spotIds) : { data: [] };
     const spot = new Map((spots ?? []).map(s => [s.id, s]));
+    const TYPE: Record<string, string> = { gondola: 'gondola', endcap: 'end cap', side_gondola: 'side gondola', basket_side: 'basket side', display: 'display',
+      display_side: 'display side', freezer: 'fridge / freezer', fridge_door: 'fridge door', wall_spot: 'wall spot', screen_wall: 'wall screen',
+      screen_island: 'island screen', promo_table: 'promo table', promo_zone: 'promo zone', pillar: 'pillar' };
+    const whereOf = (c: { spot_id: string | null }) => { const sp = c.spot_id ? spot.get(c.spot_id) : null; return sp ? `${TYPE[sp.type] || String(sp.type).replace(/_/g, ' ')}${sp.label ? ' ' + sp.label : ''}` : ''; };
+    const money = (n: number) => '$' + Number(n || 0).toLocaleString('en-US', { maximumFractionDigits: 2 });
     for (const c of rc) {
+      const where = whereOf(c);
+      if (c.created_at && Date.parse(c.created_at) > dayAgo)
+        add({ key: `rent:${c.id}:new`, perms: ['rentals.contracts'], except: c.created_by ?? undefined, title: 'Spot rented', url: '#rentals',
+          body: `${c.supplier} rented ${where ? 'the ' + where : 'a spot'} — ${money(c.amount)}${c.term === 'monthly' ? ' / month' : ' / year'} (${fmt(c.start_date)} → ${fmt(c.end_date)}).` });
       const d = daysBetween(today, c.end_date);
-      if (![30, 14, 7, 3, 1, 0].includes(d) || c.start_date > today) continue;
+      if (c.start_date > today || d < -1 || d > 30) continue;
       const renewed = (later ?? []).some(x => x.start_date > c.end_date && (c.spot_id ? x.spot_id === c.spot_id : x.supplier.trim().toLowerCase() === c.supplier.trim().toLowerCase()));
       if (renewed) continue;
-      const sp = c.spot_id ? spot.get(c.spot_id) : null;
-      const where = sp ? ` on ${String(sp.type).replace(/_/g, ' ')}${sp.label ? ' ' + sp.label : ''}` : '';
-      add({ key: `rent:${c.id}:${d}`, perms: ['rentals.view'], title: 'Rental contract', url: '#rentals',
-        body: `Contract for ${c.supplier}${where} ends ${d === 0 ? 'today' : `in ${d} day${d === 1 ? '' : 's'}`} (${fmt(c.end_date)}) — time to review the renewal.` });
+      const on = where ? ` on the ${where}` : '';
+      if (d === -1) add({ key: `rent:${c.id}:expired`, perms: ['rentals.view'], title: 'Rent expired', url: '#rentals',
+        body: `The contract for ${c.supplier}${on} expired yesterday (${fmt(c.end_date)}) and was not renewed — the spot is free.` });
+      else if ([30, 14, 7, 3, 1, 0].includes(d)) add({ key: `rent:${c.id}:${d}`, perms: ['rentals.view'], title: 'Rent ending', url: '#rentals',
+        body: `The contract for ${c.supplier}${on} ends ${d === 0 ? 'today' : `in ${d} day${d === 1 ? '' : 's'}`} (${fmt(c.end_date)}) — time to review the renewal.` });
     }
   }
 
@@ -159,14 +217,22 @@ async function run() {
   for (const u of users) { const { data } = await db.rpc('perms_of', { p_user: u }); perms.set(u, new Set((data as string[]) ?? [])); }
   const alerts = await buildAlerts(today);
   let pushed = 0;
-  for (const a of alerts) {
-    for (const u of users) {
+  for (const u of users) {
+    // this person's alerts not sent yet — once per alert per person: only the run that records it sends it
+    const mine: Alert[] = [];
+    for (const a of alerts) {
       if (u === a.except || !a.perms.some(p => perms.get(u)?.has(p))) continue;
-      // once per alert per person: only the first run that records it sends it
       const { data: fresh, error } = await db.from('push_log').insert({ key: a.key, user_id: u }).select('key');
-      if (error || !fresh?.length) continue;
-      const r = await pushTo(subs.filter(s => s.user_id === u), { title: a.title, body: a.body, url: a.url, tag: a.key.split(':').slice(0, 2).join('-') });
-      pushed += r.sent;
+      if (!error && fresh?.length) mine.push(a);
+    }
+    if (!mine.length) continue;
+    const devices = subs.filter(s => s.user_id === u);
+    if (mine.length <= 3) {
+      for (const a of mine) pushed += (await pushTo(devices, { title: a.title, body: a.body, url: a.url, tag: a.key.split(':').slice(0, 2).join('-') })).sent;
+    } else {
+      // Many at once (e.g. the morning after quiet hours): one notification instead of a flood.
+      const body = mine.slice(0, 3).map(a => '• ' + a.body).join('\n') + `\n…and ${mine.length - 3} more — open the app (bell).`;
+      pushed += (await pushTo(devices, { title: `La Valeur — ${mine.length} new alerts`, body, url: './', tag: 'lv-digest' })).sent;
     }
   }
   return { devices: subs.length, alerts: alerts.length, pushed };

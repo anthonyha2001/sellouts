@@ -464,6 +464,14 @@ admin only by default (give it per user in Users → Permissions).
   Web Push is encrypted and signed with WebCrypto only (`push-alerts/webpush.js`, checked against http_ece).
   Keys: `scripts/make-push-keys.mjs` → .env; secrets for the CLI and Vault in `supabase/secrets/` (git-ignored).
   Devices register when notifications are turned on and after sign-in; sign-out unregisters the device.
+- [x] Targeted alerts (owner, 2026-09-30), each to whoever holds the permission (admin gets all):
+  floor managers (floorcheck.do): sell-out switched ON (check the new prices) and switched OFF (check the prices
+  are back to normal); accountant: label list sent (labels.print), sell-out needs action (sellouts.view) and needs
+  archiving (sellouts.archive), promotion starting tomorrow with its item count (promotions.view; empty one →
+  promotions.edit); admin: yesterday's delivery day closed with count, value and unpaid (delivery.manage /
+  reports), a spot rented by someone else, rent ending (30/14/7/3/1/0 days) and rent expired yesterday.
+  More than 3 new alerts for one person in one run → one digest notification. While the app is in front, a push
+  goes into the bell instead (the bell skips exact repeats).
 
 ---
 
