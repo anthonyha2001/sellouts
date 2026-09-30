@@ -388,10 +388,22 @@ table.cn td.num{font-family:var(--font-mono);}
 .promo-tab.active{background:var(--pine);border-color:var(--pine);color:#fff;}
 .promo-tab .plow{width:7px;height:7px;border-radius:50%;background:var(--brick);flex:0 0 auto;}
 
-.promo-header-card{display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end;justify-content:space-between;}
+/* Sticky: the action icons stay on top while scrolling a long table (owner, 2026-09-30). */
+.promo-header-card{position:sticky;top:0;z-index:6;box-shadow:0 6px 14px -10px rgba(0,0,0,.35);}
+.promo-header-card.collapsed{padding-top:10px;padding-bottom:10px;}
+.promo-head-bar{display:flex;align-items:center;gap:10px;}
+.promo-head-summary{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;}
+.promo-header-card:not(.collapsed) .promo-head-summary{visibility:hidden;}
+.promo-header-card:not(.collapsed) .promo-header-fields{margin-top:12px;}
+.promo-header-card.collapsed .promo-header-fields{display:none;}
+.promo-sel-actions{align-items:center;gap:6px;padding-right:10px;margin-right:4px;border-right:1px solid var(--line);}
+.promo-sel-count{font:600 12px var(--font-mono);color:var(--pine);white-space:nowrap;}
+.icon-btn.wide{width:auto;padding:0 10px;gap:6px;font:600 12.5px var(--font-mono);}
+.drop-on{position:relative;outline:2px dashed var(--pine);outline-offset:4px;}
+.drop-on::after{content:attr(data-drop-label);position:absolute;inset:0;display:flex;justify-content:center;align-items:flex-start;padding-top:60px;background:color-mix(in srgb,var(--pine-tint) 85%,transparent);color:var(--pine);font:600 16px var(--font-body);z-index:20;pointer-events:none;border-radius:inherit;}
 .promo-header-fields{display:flex;flex-wrap:wrap;gap:14px;flex:1 1 auto;}
 .promo-header-fields .field{min-width:160px;flex:1 1 160px;}
-.promo-header-actions{display:flex;gap:8px;flex:0 0 auto;}
+.promo-header-actions{display:flex;gap:6px;flex:0 0 auto;align-items:center;flex-wrap:wrap;justify-content:flex-end;}
 
 table.promo{width:100%;border-collapse:collapse;font-size:13.5px;}
 table.promo th{

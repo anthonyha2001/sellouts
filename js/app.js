@@ -645,6 +645,21 @@ let tableSearchQuery = ''; // Search box, scoped to the Table view only
 let countryFilterSearchQuery = ''; // Search box inside the Filter panel's Country list
 let auditSupplierFilterSearchQuery = ''; // Search box inside the Audit "Filter by supplier" panel
 let catalogCollapsed = localStorage.getItem('sol-catalog-collapsed') === 'true';
+// The promotion's name / dates card can fold to one line (its action icons stay, sticky on top).
+let promoHeadCollapsed = (() => { try { return localStorage.getItem('lv:promoHeadCollapsed') === 'true'; } catch (e) { return false; } })();
+// Icons for the promotion toolbars (owner, 2026-09-30: fewer text buttons).
+const svgIcon = d => `<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
+const ICONS = {
+  upload: svgIcon('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/>'),
+  copy: svgIcon('<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>'),
+  copyAll: svgIcon('<rect x="8" y="8" width="14" height="14" rx="2"/><path d="M4 16a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2"/><path d="M12 13h6M12 17h6"/>'),
+  excel: svgIcon('<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 12l6 6M15 12l-6 6"/>'),
+  archive: svgIcon('<rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/>'),
+  unarchive: svgIcon('<rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M12 18v-6M9 15l3-3 3 3"/>'),
+  trash: svgIcon('<path d="M3 6h18"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>'),
+  percent: svgIcon('<path d="M19 5 5 19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/>'),
+  print: svgIcon('<path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>'),
+};
 let showArchivedPromos = false;
 
 const uid = () => 'id-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
@@ -1183,6 +1198,43 @@ document.getElementById('toggleCatalogBtn').addEventListener('click', () => {
   applyCatalogCollapse();
 });
 
+// Drag and drop (owner, 2026-09-30): a file dropped on the catalog card replaces the catalog;
+// dropped anywhere else on the promotion it is imported as the price sheet. Both reuse the
+// file inputs' own handlers, so the checks and confirmations are the same as choosing a file.
+(function wirePromoDrop() {
+  const panel = document.getElementById('panel-promotions');
+  const catalogCard = document.getElementById('catalogBody').closest('.card');
+  const zoneFor = e => {
+    if (!currentPromoId || !can('promotions.edit')) return null;
+    if (catalogCard.contains(e.target)) return { el: catalogCard, input: 'catalogFileInput', label: 'Drop to replace the catalog' };
+    const ws = document.getElementById('promoWorkspace');
+    return ws.contains(e.target) || e.target === panel ? { el: ws, input: 'priceSheetInput', label: 'Drop to import the price sheet' } : null;
+  };
+  let lit = null;
+  const light = z => {
+    if (lit && lit !== z?.el) lit.classList.remove('drop-on');
+    lit = z ? z.el : null;
+    if (lit) { lit.classList.add('drop-on'); lit.dataset.dropLabel = z.label; }
+  };
+  const hasFile = e => [...(e.dataTransfer?.types || [])].includes('Files');
+  panel.addEventListener('dragover', e => { if (!hasFile(e)) return; const z = zoneFor(e); if (!z) return; e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; light(z); });
+  panel.addEventListener('dragleave', e => { if (!panel.contains(e.relatedTarget)) light(null); });
+  panel.addEventListener('drop', e => {
+    if (!hasFile(e)) return;
+    const z = zoneFor(e); light(null);
+    if (!z) return;
+    e.preventDefault();
+    const file = e.dataTransfer.files[0];
+    if (!file) return;
+    if (!/\.(xlsx|xls|csv)$/i.test(file.name)) { showToast('Drop an Excel or CSV file (.xlsx, .xls, .csv).', true); return; }
+    const input = document.getElementById(z.input);
+    if (!input || input.disabled) return;
+    const dt = new DataTransfer(); dt.items.add(file);
+    input.files = dt.files;
+    input.dispatchEvent(new Event('change'));
+  });
+})();
+
 document.getElementById('catalogFileInput').addEventListener('change', async (e) => {
   const file = e.target.files[0];
   if (!file) return;
@@ -1641,7 +1693,27 @@ async function renderPromoWorkspace() {
   const promoStats = computePromoStats(visibleRows);
 
   workspace.innerHTML = `
-    <div class="card promo-header-card">
+    <div class="card promo-header-card ${promoHeadCollapsed ? 'collapsed' : ''}" id="promoHeaderCard">
+      <div class="promo-head-bar">
+        <button class="icon-btn" id="togglePromoHeadBtn" title="${promoHeadCollapsed ? 'Show' : 'Hide'} name and dates" aria-label="Show or hide name and dates">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="transform:rotate(${promoHeadCollapsed ? -90 : 0}deg);transition:transform .15s;"><path d="M6 9l6 6 6-6"/></svg>
+        </button>
+        <div class="promo-head-summary"><b>${escapeHtml(promo.name || 'Untitled')}</b> <span class="muted-note">${promo.from || promo.to ? `${escapeHtml(promo.from || '…')} → ${escapeHtml(promo.to || '…')}` : 'No dates'}${promo.archived ? ' · archived' : ''}</span></div>
+        <div class="promo-header-actions">
+          <div class="promo-sel-actions" id="promoSelActions" style="display:${selectedRowIds.size ? 'flex' : 'none'};">
+            <span class="promo-sel-count" id="promoSelCount">${selectedRowIds.size} selected</span>
+            <button class="icon-btn" id="copySelectedBtn" title="Copy the selected codes" aria-label="Copy the selected codes">${ICONS.copy}</button>
+            <button class="icon-btn" id="applyDiscountSelectedBtn" title="Apply a discount to the selected rows" aria-label="Apply a discount to the selected rows">${ICONS.percent}</button>
+            <button class="icon-btn danger" id="deleteSelectedBtn" title="Delete the selected rows" aria-label="Delete the selected rows">${ICONS.trash}</button>
+          </div>
+          <button class="icon-btn" id="importPriceSheetBtn" title="Import price sheet (or drop the file on the page) — splits multi-codes into rows and fills in Promo/Before Price" aria-label="Import price sheet">${ICONS.upload}</button>
+          <input type="file" id="priceSheetInput" accept=".xlsx,.xls,.csv" style="display:none;">
+          <button class="icon-btn" id="copyCodesBtn" title="Copy all codes" aria-label="Copy all codes">${ICONS.copyAll}</button>
+          <button class="icon-btn" id="exportPromoBtn" title="Export to Excel" aria-label="Export to Excel">${ICONS.excel}</button>
+          <button class="icon-btn" id="toggleArchivePromoBtn" title="${promo.archived ? 'Unarchive' : 'Archive now'}" aria-label="${promo.archived ? 'Unarchive' : 'Archive now'}">${promo.archived ? ICONS.unarchive : ICONS.archive}</button>
+          <button class="icon-btn danger" id="deletePromoBtn" title="Delete this promotion" aria-label="Delete this promotion">${ICONS.trash}</button>
+        </div>
+      </div>
       <div class="promo-header-fields">
         <div class="field">
           <label for="promoName">Promotion name ${promo.archived ? '<span class="muted-note">(archived)</span>' : ''}</label>
@@ -1662,19 +1734,6 @@ async function renderPromoWorkspace() {
           </label>
         </div>
       </div>
-      <div class="promo-header-actions">
-        <button class="btn secondary small" id="importPriceSheetBtn" title="Upload the raw supplier price sheet — splits multi-codes into rows and fills in Promo/Before Price automatically">Import price sheet</button>
-        <input type="file" id="priceSheetInput" accept=".xlsx,.xls,.csv" style="display:none;">
-        <button class="btn secondary small" id="copyCodesBtn">Copy codes</button>
-        <button class="btn secondary small" id="exportPromoBtn">Export to Excel</button>
-        <button class="btn ghost small" id="toggleArchivePromoBtn">${promo.archived ? 'Unarchive' : 'Archive now'}</button>
-        <button class="btn ghost small" id="deletePromoBtn">Delete</button>
-      </div>
-      ${promo.sourceFileName ? `
-      <div class="file-info" style="flex:1 1 100%;">
-        <div><span class="fi-name">${escapeHtml(promo.sourceFileName)}</span><div class="fi-meta">Original price sheet saved to this promotion</div></div>
-        <button class="btn ghost small" id="downloadSourceFileBtn">Download</button>
-      </div>` : ''}
     </div>
 
     <div class="card">
@@ -1744,8 +1803,6 @@ async function renderPromoWorkspace() {
           <div class="promo-foot-actions">
             <button class="btn secondary small" id="addRowBtn">+ Add row</button>
             <button class="btn secondary small" id="addRowsBulkBtn">+ Add rows\u2026</button>
-            <button class="btn ghost small" id="applyDiscountSelectedBtn" style="display:${selectedRowIds.size ? 'inline-flex' : 'none'};">Apply discount to selected (${selectedRowIds.size})</button>
-            <button class="btn ghost small" id="deleteSelectedBtn" style="display:${selectedRowIds.size ? 'inline-flex' : 'none'};color:var(--brick);">Delete selected (${selectedRowIds.size})</button>
           </div>
           <span class="muted-note">${currentRows.length} item${currentRows.length === 1 ? '' : 's'}</span>
         </div>
@@ -1785,8 +1842,8 @@ async function renderPromoWorkspace() {
                 <p class="muted-note" id="auditSupplierSearchEmpty" style="display:none;padding:2px 12px 10px;">No matching suppliers.</p>
               </div>
             </div>
-            <button class="btn secondary small" id="copyAuditCodesBtn" title="Copy the codes shown, grouped by supplier">Copy codes (${auditVisibleRows.filter(r => (r.code || '').trim()).length})</button>
-            <button class="btn secondary small" id="printAuditBtn">Print</button>
+            <button class="icon-btn wide" id="copyAuditCodesBtn" title="Copy the codes shown, grouped by supplier" aria-label="Copy the codes shown, grouped by supplier">${ICONS.copy}<span>${auditVisibleRows.filter(r => (r.code || '').trim()).length}</span></button>
+            <button class="icon-btn" id="printAuditBtn" title="Print" aria-label="Print">${ICONS.print}</button>
           </div>
         </div>
 
@@ -2293,16 +2350,10 @@ function wirePromoRowElement(tr) {
 
     selectCb.addEventListener('change', () => {
       if (selectCb.checked) selectedRowIds.add(rowId); else selectedRowIds.delete(rowId);
-      const delBtn = document.getElementById('deleteSelectedBtn');
-      if (delBtn) {
-        delBtn.style.display = selectedRowIds.size ? 'inline-flex' : 'none';
-        delBtn.textContent = `Delete selected (${selectedRowIds.size})`;
-      }
-      const discBtn = document.getElementById('applyDiscountSelectedBtn');
-      if (discBtn) {
-        discBtn.style.display = selectedRowIds.size ? 'inline-flex' : 'none';
-        discBtn.textContent = `Apply discount to selected (${selectedRowIds.size})`;
-      }
+      const selBar = document.getElementById('promoSelActions');
+      if (selBar) selBar.style.display = selectedRowIds.size ? 'flex' : 'none';
+      const selCount = document.getElementById('promoSelCount');
+      if (selCount) selCount.textContent = `${selectedRowIds.size} selected`;
       const selectAllCb2 = document.getElementById('selectAllRows');
       if (selectAllCb2) selectAllCb2.checked = currentRows.length > 0 && currentRows.every(r => selectedRowIds.has(r.id));
     });
@@ -2601,19 +2652,6 @@ function wirePromoWorkspaceEvents(promo) {
     document.getElementById('priceSheetInput').click();
   });
 
-  const downloadSourceBtn = document.getElementById('downloadSourceFileBtn');
-  if (downloadSourceBtn) {
-    downloadSourceBtn.addEventListener('click', () => {
-      if (!promo.sourceFileBase64) { showToast('That file isn’t available anymore.', true); return; }
-      const blob = base64ToBlob(promo.sourceFileBase64, guessMime(promo.sourceFileName));
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = promo.sourceFileName || 'price-sheet.xlsx';
-      document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 2000);
-    });
-  }
-
   document.getElementById('priceSheetInput').addEventListener('change', async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -2655,6 +2693,21 @@ function wirePromoWorkspaceEvents(promo) {
     if (result.blankCodeCount) parts.push(`${result.blankCodeCount} line${result.blankCodeCount === 1 ? '' : 's'} had no code — kept blank so you can spot ${result.blankCodeCount === 1 ? 'it' : 'them'}`);
     if (result.percentAsDiscountCount) parts.push(`${result.percentAsDiscountCount} line${result.percentAsDiscountCount === 1 ? '' : 's'} had a percentage in the price column — read as Discount instead`);
     showToast(parts.join(', ') + '.', !!result.blankCodeCount);
+  });
+
+  document.getElementById('togglePromoHeadBtn').addEventListener('click', async () => {
+    promoHeadCollapsed = !promoHeadCollapsed;
+    try { localStorage.setItem('lv:promoHeadCollapsed', String(promoHeadCollapsed)); } catch (e) { /* storage blocked */ }
+    await renderPromoWorkspace();
+  });
+
+  // Only the ticked rows' codes, in table order (owner, 2026-09-30).
+  document.getElementById('copySelectedBtn').addEventListener('click', async () => {
+    const codes = [...new Set(currentRows.filter(r => selectedRowIds.has(r.id)).map(r => (r.code || '').trim()).filter(Boolean))];
+    if (!codes.length) { showToast('The selected rows have no codes.', true); return; }
+    const ok = await copyTextToClipboard(codes.join(','));
+    if (ok) showToast(`Copied ${codes.length} selected code${codes.length === 1 ? '' : 's'}.`);
+    else showToast('Could not copy — your browser blocked clipboard access.', true);
   });
 
   document.getElementById('copyCodesBtn').addEventListener('click', async () => {
