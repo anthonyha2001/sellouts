@@ -207,7 +207,7 @@
       <div class="cash-legend">
         <span><i class="lv-warn"></i> ${lbp(S.settings.warning_threshold)} or more over/short</span>
         <span><i class="lv-danger"></i> ${lbp(S.settings.danger_threshold)} or more</span>
-        <span class="muted-note">In LBP. Negative = short, positive = over. Enter moves down, Tab moves right. Paste a block from Excel into any cell.</span>
+        <span class="muted-note">In LBP. Negative = short, positive = over. Arrows move between cells, Enter moves down. Paste a block from Excel into any cell.</span>
       </div>
       <div class="items-scroll cash-grid-wrap">
         <table class="cash-grid">
@@ -239,6 +239,17 @@
         e.preventDefault();
         const next = table.querySelector(`input[data-col="${inp.dataset.col}"][data-row="${Number(inp.dataset.row) + (e.shiftKey ? -1 : 1)}"]`);
         if (next) { next.focus(); next.select(); } else inp.blur();
+      }
+      // Arrows move between cells like a spreadsheet; Left/Right only at the start/end of the text
+      // (the whole value is selected on focus, so they move straight away until you edit).
+      const moves = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] };
+      if (moves[e.key] && !e.altKey && !e.ctrlKey && !e.metaKey) {
+        const len = inp.value.length, all = inp.selectionStart === 0 && inp.selectionEnd === len;
+        if (e.key === 'ArrowLeft' && !all && inp.selectionStart > 0) return;
+        if (e.key === 'ArrowRight' && !all && inp.selectionEnd < len) return;
+        const [dr, dc] = moves[e.key];
+        const next = table.querySelector(`input[data-col="${Number(inp.dataset.col) + dc}"][data-row="${Number(inp.dataset.row) + dr}"]`);
+        if (next) { e.preventDefault(); next.focus(); next.select(); }
       }
       if (e.key === 'Escape') { const r = S.entries.get(key(inp.dataset.c, inp.dataset.day)); inp.value = r ? num(r.amount) : ''; inp.blur(); }
     });

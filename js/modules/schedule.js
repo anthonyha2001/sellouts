@@ -19,7 +19,7 @@
   const SHIFT = { am: { label: 'AM', time: '07:30–14:30', hours: 7 }, pm: { label: 'PM', time: '14:30–22:00', hours: 7.5 }, full: { label: 'Full', time: '07:30–22:00', hours: 14.5 } };
   const NEED_KEYS = [['front', 'Front cashiers'], ['back', 'Back cashiers'], ['supervisor', 'Supervisors']];
   const DEFAULT_NEEDS = { front: { am: 2, pm: 2 }, back: { am: 1, pm: 1 }, supervisor: { am: 1, pm: 1 } };
-  const S = { started: false, tab: 'week', week: null, staff: [], row: null, prev: null, lastNeeds: null, missing: false };
+  const S = { brush: { shift: 'am', station: 'usual' }, started: false, tab: 'week', week: null, staff: [], row: null, prev: null, lastNeeds: null, missing: false };
 
   const iso = d => d.toLocaleDateString('en-CA');
   const mondayOf = s => { const d = new Date(s + 'T00:00:00'); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return iso(d); };
@@ -28,9 +28,16 @@
   const weekTitle = w => `${dayLabel(w, { day: 'numeric', month: 'short' })} – ${dayLabel(addDays(w, 6), { day: 'numeric', month: 'short', year: 'numeric' })}`;
   const isSup = p => p.position === 'supervisor';
   const parse = code => { const [shift, station] = String(code || '').split(':'); return { shift: shift || '', station: station || '' }; };
-  const optionsFor = p => isSup(p)
-    ? [['', '—'], ['am', 'AM'], ['pm', 'PM'], ['full', 'Full'], ['off', 'Off']]
-    : [['', '—'], ['am:front', 'AM · Front'], ['am:back', 'AM · Back'], ['pm:front', 'PM · Front'], ['pm:back', 'PM · Back'], ['full:front', 'Full · Front'], ['full:back', 'Full · Back'], ['off', 'Off']];
+  // The code a shift gets for this person: supervisors have no station; "usual" = their usual station.
+  const codeFor = (p, shift, station) => {
+    if (!SHIFT[shift]) return shift;   // '' (clear) or 'off'
+    if (isSup(p)) return shift;
+    return `${shift}:${station === 'usual' ? (p.default_station || 'front') : station}`;
+  };
+  const cellLabel = code => { const { shift, station } = parse(code); if (shift === 'off') return 'Off'; if (!SHIFT[shift]) return '—'; return SHIFT[shift].label + (station ? ' · ' + (station === 'front' ? 'Front' : 'Back') : ''); };
+  const KEYS = { a: 'am', p: 'pm', f: 'full', o: 'off', Delete: '', Backspace: '' };
+  const BRUSHES = [['am', 'AM'], ['pm', 'PM'], ['full', 'Full'], ['off', 'Off'], ['', 'Clear']];
+  const STATIONS = [['usual', 'Usual'], ['front', 'Front'], ['back', 'Back']];
 
   /* ---------------- data ---------------- */
   async function loadStaff() {
@@ -120,14 +127,21 @@
       const off = days.filter(c => c === 'off').length;
       return `<tr data-p="${p.id}">
         <th class="sh-name">${esc(p.name)}${p.active ? '' : ' <span class="muted-note">(inactive)</span>'}<small>${isSup(p) ? 'Supervisor' : 'Cashier' + (p.default_station ? ' · ' + (p.default_station === 'front' ? 'Front' : 'Back') : '')}</small></th>
-        ${dates.map((d, i) => { const c = days[i] || '', { shift } = parse(c); return `<td class="sh-cell sh-${shift || 'none'}"><select data-day="${i}" aria-label="${esc(p.name)} ${DAYS[i]}">${optionsFor(p).map(([v, l]) => `<option value="${v}" ${v === c ? 'selected' : ''}>${l}</option>`).join('')}</select></td>`; }).join('')}
+        ${dates.map((d, i) => { const c = days[i] || '', { shift } = parse(c); return `<td class="sh-cell sh-${shift || 'none'}"><button type="button" data-day="${i}" aria-label="${esc(p.name)} ${DAYS[i]}">${cellLabel(c)}</button></td>`; }).join('')}
         <td class="num sh-hours">${hours ? hours + 'h' : '—'}<small>${off} off</small></td></tr>`;
     };
     const sups = people().filter(isSup), cash = people().filter(p => !isSup(p));
     el('shBody').innerHTML = `${nav}
       <div class="card sh-needs-card"><div class="sh-needs-head"><b>Needed each day</b><span class="muted-note">Full day counts for AM and PM.</span></div>${needsForm(needs)}</div>
       ${gaps.length ? `<div class="card sh-gaps"><b>${gaps.length} gap${gaps.length === 1 ? '' : 's'}:</b> ${gaps.slice(0, 8).map(esc).join(' · ')}${gaps.length > 8 ? ` · …${gaps.length - 8} more` : ''}</div>` : '<div class="card sh-gaps ok"><b>Every day is covered.</b></div>'}
-      <div class="card"><div class="items-scroll" style="margin-bottom:0;"><table class="sh-grid">
+      <div class="card"><div class="sh-brush" id="shBrush">
+          <span class="sh-brush-t">Brush</span>
+          ${BRUSHES.map(([v, l]) => `<button type="button" class="sh-chip sh-${v || 'none'} ${S.brush.shift === v ? 'on' : ''}" data-bs="${v}">${l}</button>`).join('')}
+          <span class="sh-brush-t">Station</span>
+          ${STATIONS.map(([v, l]) => `<button type="button" class="sh-chip ${S.brush.station === v ? 'on' : ''}" data-bst="${v}">${l}</button>`).join('')}
+          <span class="muted-note">Click or drag across the days. On a cell: A = AM, P = PM, F = Full, O = Off, Delete clears, arrows move.</span>
+        </div>
+        <div class="items-scroll" style="margin-bottom:0;"><table class="sh-grid">
         <thead><tr><th></th>${dates.map((d, i) => `<th>${DAYS[i]}<small>${dayLabel(d, { day: 'numeric', month: 'short' })}</small></th>`).join('')}<th class="num">Week</th></tr></thead>
         <tbody>
           ${sups.length ? `<tr class="sh-group"><td colspan="9">Supervisors</td></tr>${sups.map(personRow).join('')}` : ''}
@@ -138,16 +152,60 @@
       </table></div>
       <p class="muted-note" style="margin:10px 0 0;">AM ${SHIFT.am.time} · PM ${SHIFT.pm.time} · Full ${SHIFT.full.time}. Changes save by themselves; staff see the week once it is published.</p></div>`;
     wireNav();
-    el('shBody').querySelector('.sh-grid tbody').onchange = e => {
-      const s = e.target.closest('select[data-day]'); if (!s) return;
-      const id = s.closest('tr').dataset.p, days = (row.assignments[id] = row.assignments[id] || Array(7).fill(''));
-      days[Number(s.dataset.day)] = s.value;
-      save(); renderWeek();
-    };
+    wireGrid(row);
     el('shBody').querySelector('.sh-needs-card').onchange = e => { if (e.target.dataset.need) { row.needs = readNeeds(); save(); renderWeek(); } };
     el('shCopy')?.addEventListener('click', copyLast);
     el('shPublish').onclick = togglePublish;
     el('shPrint').onclick = print;
+  }
+  // Brush painting (click / drag) and keyboard entry on the grid.
+  function wireGrid(row) {
+    el('shBrush').onclick = e => {
+      const b = e.target.closest('[data-bs], [data-bst]'); if (!b) return;
+      if (b.dataset.bst) S.brush.station = b.dataset.bst; else S.brush.shift = b.dataset.bs;
+      el('shBrush').querySelectorAll('[data-bs]').forEach(x => x.classList.toggle('on', x.dataset.bs === S.brush.shift));
+      el('shBrush').querySelectorAll('[data-bst]').forEach(x => x.classList.toggle('on', x.dataset.bst === S.brush.station));
+    };
+    const tbody = el('shBody').querySelector('.sh-grid tbody');
+    const set = (btn, shift, station) => {
+      const id = btn.closest('tr').dataset.p, p = S.staff.find(x => x.id === id); if (!p) return false;
+      const days = (row.assignments[id] = row.assignments[id] || Array(7).fill(''));
+      const code = codeFor(p, shift, station), i = Number(btn.dataset.day);
+      if ((days[i] || '') === code) return false;
+      days[i] = code;
+      btn.textContent = cellLabel(code);
+      btn.parentElement.className = `sh-cell sh-${parse(code).shift || 'none'}`;
+      return true;
+    };
+    let painting = false, changed = false;
+    tbody.onpointerdown = e => {
+      const b = e.target.closest('button[data-day]'); if (!b || e.button !== 0) return;
+      e.preventDefault(); b.focus();
+      painting = true; changed = set(b, S.brush.shift, S.brush.station) || changed;
+    };
+    tbody.onpointermove = e => {
+      if (!painting) return;
+      const b = document.elementFromPoint(e.clientX, e.clientY)?.closest('.sh-grid tbody button[data-day]');
+      if (b) changed = set(b, S.brush.shift, S.brush.station) || changed;
+    };
+    const stop = () => { if (!painting) return; painting = false; if (changed) { changed = false; save(); renderWeek(); } };
+    window.onpointerup = stop; tbody.onpointercancel = stop;
+    tbody.onkeydown = e => {
+      const b = e.target.closest('button[data-day]'); if (!b || e.ctrlKey || e.metaKey || e.altKey) return;
+      const ids = [...tbody.querySelectorAll('tr[data-p]')].map(tr => tr.dataset.p);
+      let r = ids.indexOf(b.closest('tr').dataset.p), d = Number(b.dataset.day), edit = false;
+      const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+      if (key in KEYS) { if (set(b, KEYS[key], S.brush.station)) save(); d = Math.min(6, d + 1); edit = true; }
+      else if (key === 'Enter' || key === ' ') { if (set(b, S.brush.shift, S.brush.station)) save(); d = Math.min(6, d + 1); edit = true; }
+      else if (key === 'ArrowRight') d = Math.min(6, d + 1);
+      else if (key === 'ArrowLeft') d = Math.max(0, d - 1);
+      else if (key === 'ArrowDown') r = Math.min(ids.length - 1, r + 1);
+      else if (key === 'ArrowUp') r = Math.max(0, r - 1);
+      else return;
+      e.preventDefault();
+      if (edit) renderWeek();
+      el('shBody').querySelector(`.sh-grid tr[data-p="${ids[r]}"] button[data-day="${d}"]`)?.focus();
+    };
   }
   function needsForm(n) {
     return `<div class="sh-needs">${NEED_KEYS.map(([k, label]) => `<div class="sh-need"><span>${label}</span>
