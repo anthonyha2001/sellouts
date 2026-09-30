@@ -492,6 +492,15 @@ function exportSelloutPricing(so) {
 /* ---------------- list ---------------- */
 const LOG_LABELS = { activated: 'Activated', deactivated: 'Deactivated', archived: 'Archived', unarchived: 'Unarchived' };
 
+// Order (owner, 2026-09-30): what has to come off first — needs deactivation, then its last day,
+// then needs activation / archiving — then the rest by end date, soonest first (archived: latest first).
+const URGENCY = { deactivate: 0, lastday: 1, activate: 2, archive: 3 };
+function removalOrder(a, b) {
+  const u = so => { const f = actionFlag(so); return f ? URGENCY[f] : isLastDay(so) ? URGENCY.lastday : 9; };
+  if (u(a) !== u(b)) return u(a) - u(b);
+  if (a.archived && b.archived) return (b.archivedAt || b.to || '').localeCompare(a.archivedAt || a.to || '');
+  return (a.to || '').localeCompare(b.to || '') || (a.from || '').localeCompare(b.from || '') || a.name.localeCompare(b.name);
+}
 function renderSellouts() {
   const list = document.getElementById('selloutList');
   const empty = document.getElementById('selloutEmpty');
@@ -499,7 +508,7 @@ function renderSellouts() {
   updateSelloutsPill();
   const shown = applyFilter(sellouts)
     .slice()
-    .sort((a, b) => (actionFlag(b) ? 1 : 0) - (actionFlag(a) ? 1 : 0));
+    .sort(removalOrder);
   if (!shown.length) {
     empty.style.display = 'block';
     empty.querySelector('p.big').textContent = sellouts.length ? 'No sell-outs match this filter' : 'No sell-outs yet';
