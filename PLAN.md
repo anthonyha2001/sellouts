@@ -483,7 +483,7 @@ admin only by default (give it per user in Users → Permissions).
   other names), Paid / Free, amount in USD when paid (required), item promoted, from / to dates, note.
 - [x] Calendar tab: month grid (Monday first), paid / free chips per day, the selected day's list with Edit and
   "+ Add on this day"; month total of bookings and paid amount. Phone: counts per day, the day's list below.
-- [x] List tab: now and upcoming / past / all, search, totals (paid amount, free, in the store today), status.
+- [x] List tab: now and upcoming / past / all (no search box — owner, 2026-09-30), totals (paid amount, free, in the store today), status.
 - [x] Every add / edit / delete is logged.
 
 ---

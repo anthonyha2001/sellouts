@@ -19,7 +19,7 @@
   const addDays = (s, n) => { const d = new Date(s + 'T00:00:00'); d.setDate(d.getDate() + n); return d.toLocaleDateString('en-CA'); };
   const monthLabel = ym => new Date(ym + '-01T00:00:00').toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
   const addMonths = (ym, n) => { const [y, m] = ym.split('-').map(Number); const d = new Date(y, m - 1 + n, 1); return d.toLocaleDateString('en-CA').slice(0, 7); };
-  const S = { started: false, tab: 'calendar', month: null, rows: [], vendors: [], q: '', when: 'current', day: null, missing: false };
+  const S = { started: false, tab: 'calendar', month: null, rows: [], vendors: [], when: 'current', day: null, missing: false };
 
   /* ---------------- data ---------------- */
   async function load() {
@@ -122,17 +122,15 @@
 
   /* ---------------- list ---------------- */
   function renderList() {
-    const t = today(), q = S.q.toLowerCase();
-    const list = S.rows.filter(r => (S.when === 'all' || (S.when === 'current' ? r.end_date >= t : r.end_date < t))
-        && (!q || [r.supplier, r.item, r.note].join(' ').toLowerCase().includes(q)))
+    const t = today();
+    const list = S.rows.filter(r => S.when === 'all' || (S.when === 'current' ? r.end_date >= t : r.end_date < t))
       .sort((a, b) => S.when === 'past' ? b.start_date.localeCompare(a.start_date) : a.start_date.localeCompare(b.start_date));
     const paid = list.filter(r => r.paid);
     el('plBody').innerHTML = `
-      <div class="filter-row" style="justify-content:space-between;flex-wrap:wrap;">
+      <div class="filter-row">
         <div id="plWhen" style="display:flex;gap:8px;flex-wrap:wrap;">
           ${[['current', 'Now and upcoming'], ['past', 'Past'], ['all', 'All']].map(([k, l]) => `<button data-when="${k}" class="${S.when === k ? 'active' : ''}">${l}</button>`).join('')}
         </div>
-        <input type="search" id="plSearch" placeholder="Search supplier or item…" value="${esc(S.q)}" style="max-width:240px;">
       </div>
       <div class="card rental-totals"><div class="rental-summary">
         <span class="rs-item">Bookings: <strong>${list.length}</strong></span>
@@ -154,10 +152,9 @@
             <td><span class="badge ${st === 'now' ? 'warn' : st === 'upcoming' ? 'active' : 'inactive'}">${st === 'now' ? 'In the store' : st === 'upcoming' ? 'Upcoming' : 'Done'}</span></td>
             <td><div class="icon-actions" style="justify-content:flex-end;"><button class="btn ghost small" data-edit="${r.id}">Edit</button></div></td>
           </tr>`;
-        }).join('') || `<tr><td colspan="8" class="empty-note">${S.rows.length ? 'Nothing matches.' : 'No promo ladies yet — use “+ Add promo lady”.'}</td></tr>`}</tbody>
+        }).join('') || `<tr><td colspan="8" class="empty-note">${S.rows.length ? 'Nothing here.' : 'No promo ladies yet — use “+ Add promo lady”.'}</td></tr>`}</tbody>
       </table></div></div>`;
     el('plWhen').onclick = e => { const b = e.target.closest('[data-when]'); if (b) { S.when = b.dataset.when; renderList(); } };
-    el('plSearch').oninput = e => { S.q = e.target.value; const pos = e.target.selectionStart; renderList(); const i = el('plSearch'); i.focus(); i.setSelectionRange(pos, pos); };
     el('plBody').querySelector('tbody').onclick = e => { const b = e.target.closest('[data-edit]'); if (b) openForm(b.dataset.edit); };
   }
 
@@ -170,7 +167,7 @@
           <h3 id="plTitle" style="margin:0 0 16px;font-family:var(--font-head);"></h3>
           <form id="plForm" autocomplete="off">
             <div class="form-grid">
-              <div class="full"><label for="plSupplier">Supplier <span style="opacity:.6;">(from Vendors — type to search)</span></label>
+              <div class="full"><label for="plSupplier">Supplier</label>
                 <input type="text" id="plSupplier" list="plVendors" required placeholder="Choose a vendor…"><datalist id="plVendors"></datalist>
                 <p class="muted-note" id="plSupWarn" hidden style="margin:4px 0 0;color:var(--gold);">Not in the Vendors list — pick a vendor, or keep this name if it is right.</p></div>
               <div class="full"><label>Paid or free</label>
