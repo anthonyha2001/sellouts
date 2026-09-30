@@ -78,9 +78,12 @@ button{font:inherit;}
 .sidebar{
   width:var(--sidebar-w);background:var(--sidebar-bg);color:var(--sidebar-ink);
   display:flex;flex-direction:column;padding:26px 16px;
-  position:fixed;top:0;left:0;bottom:0;overflow-y:auto;z-index:30;
+  position:fixed;top:0;left:0;bottom:0;overflow-y:auto;overflow-x:hidden;z-index:30;
   transition:width .16s ease;
+  /* still scrolls on short screens, but without a visible scrollbar */
+  scrollbar-width:none;-ms-overflow-style:none;
 }
+.sidebar::-webkit-scrollbar{display:none;width:0;height:0;}
 .brand{display:flex;align-items:center;gap:10px;padding:0 8px 26px;border-bottom:1px solid rgba(255,255,255,.08);margin-bottom:22px;}
 .brand .mark{
   width:34px;height:34px;border-radius:8px;background:linear-gradient(155deg,var(--pine-bright),var(--pine-deep));
@@ -107,6 +110,15 @@ button{font:inherit;}
 .sidebar.collapsed .brand{padding-right:0;}
 .sidebar.collapsed .brand .txt{width:0;flex:0 0 0;opacity:0;}
 .sidebar.collapsed .nav-collapse-toggle svg{transform:rotate(180deg);}
+/* Collapsed rail (desktop): 72px wide, so the logo and the reopen button are stacked instead of
+   side by side (side by side they needed 70px of the 40px left inside the padding, which pushed
+   the button out of view). */
+@media (min-width:861px){
+  .sidebar.collapsed{padding:22px 12px;}
+  .sidebar.collapsed .brand{flex-direction:column;gap:10px;padding:0 0 18px;margin-bottom:16px;}
+  .sidebar.collapsed .brand .txt{display:none;}
+  .sidebar.collapsed .sidenav button.active:before{left:-12px;}
+}
 
 .sidenav{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px;}
 .sidenav button{
