@@ -98,6 +98,15 @@ async function buildAlerts(today: string): Promise<Alert[]> {
       body: `"${p.name}" starts tomorrow (${fmt(p.from_date)}) but has no items yet.` });
   }
 
+  // Promo ladies (018): the day before she starts, and the morning she starts — to whoever manages them.
+  const { data: pls, error: plErr } = await db.from('promo_ladies').select('id, supplier, item, paid, amount, start_date, end_date').in('start_date', [today, tomorrow]);
+  if (!plErr) for (const p of pls ?? []) {
+    const days = daysBetween(p.start_date, p.end_date) + 1;
+    const what = `${p.supplier}${p.item ? ` (${p.item})` : ''}, ${days === 1 ? 'one day' : `${days} days until ${fmt(p.end_date)}`}${p.paid ? ` — paid $${Number(p.amount || 0).toLocaleString('en-US')}` : ' — free'}`;
+    if (p.start_date === tomorrow) add({ key: `pl:${p.id}:tomorrow`, perms: ['promoladies.manage'], title: 'Promo lady tomorrow', url: '#promoladies', body: `Tomorrow: promo lady for ${what}.` });
+    else add({ key: `pl:${p.id}:today`, perms: ['promoladies.manage'], title: 'Promo lady today', url: '#promoladies', body: `Today: promo lady for ${what} — prepare her spot.` });
+  }
+
   // Delivery: yesterday's day is closed — its count and value (morning summary).
   const yd = addDays(today, -1);
   const [{ data: dOrders }, { data: dSet }] = await Promise.all([

@@ -469,7 +469,8 @@ admin only by default (give it per user in Users → Permissions).
   are back to normal); accountant: label list sent (labels.print), sell-out needs action (sellouts.view) and needs
   archiving (sellouts.archive), promotion starting tomorrow with its item count (promotions.view; empty one →
   promotions.edit); admin: yesterday's delivery day closed with count, value and unpaid (delivery.manage /
-  reports), a spot rented by someone else, rent ending (30/14/7/3/1/0 days) and rent expired yesterday.
+  reports), a spot rented by someone else, rent ending (30/14/7/3/1/0 days) and rent expired yesterday;
+  promo ladies (promoladies.manage): the day before one starts and the morning she starts.
   More than 3 new alerts for one person in one run → one digest notification. While the app is in front, a push
   goes into the bell instead (the bell skips exact repeats).
 
