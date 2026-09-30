@@ -238,7 +238,9 @@ button:focus-visible{outline:2px solid var(--pine);outline-offset:2px;}
 .sellout.open .sellout-head .chev{transform:rotate(90deg);}
 .sellout-head .who{flex:1 1 auto;min-width:0;}
 .sellout-head .who .name{font-weight:600;font-size:15px;}
-.sellout-head .who .dates{font-family:var(--font-mono);font-size:12px;color:var(--ink-soft);margin-top:3px;display:flex;align-items:center;gap:5px;}
+.sellout-head .who .dates{font-family:var(--font-mono);font-size:12px;color:var(--ink-soft);margin-top:3px;display:flex;align-items:center;gap:5px;white-space:nowrap;}
+.sellout-head [data-role="copy-codes"]{white-space:nowrap;flex:0 0 auto;}
+.sellout-head .badge-row{white-space:nowrap;}
 .sellout-head .who .dates svg{width:11px;height:11px;stroke:currentColor;flex:0 0 auto;}
 .badge-row{display:flex;gap:6px;flex:0 0 auto;}
 .icon-actions{display:flex;gap:6px;flex:0 0 auto;}

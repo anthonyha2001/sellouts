@@ -102,6 +102,8 @@ function priceWarnings(p) {
 /* ---------------- status, flags, filters ---------------- */
 function selloutStatusBadge(so) {
   if (so.archived) return '<span class="badge inactive">Archived</span>';
+  // Last day (the To date is included): a short badge next to Active; the details are in its tooltip.
+  if (so.active && isLastDay(so)) return `<span class="badge active">Active</span> <span class="badge warn" title="Its last day is today — the To date is included. Switch it off tomorrow (${fmtDate(addDaysStr(so.to, 1))}).">Last day</span>`;
   if (so.active) return '<span class="badge active">Active</span>';
   if (so.from > todayStr()) return '<span class="badge inactive">Upcoming</span>';
   return '<span class="badge inactive">Inactive</span>';
@@ -127,7 +129,6 @@ const isLastDay = so => !so.archived && so.active && daysBetween(todayStr(), so.
 const FLAG_LABELS = { activate: ['warn', 'Needs activation'], deactivate: ['danger', 'Needs deactivation'], archive: ['warn', 'Needs archiving'] };
 function actionFlagHtml(so) {
   const flag = actionFlag(so);
-  if (!flag && isLastDay(so)) return `<span class="action-flag info" title="The To date is included: switch it off tomorrow (${fmtDate(addDaysStr(so.to, 1))})">Last day — deactivate tomorrow</span>`;
   if (!flag) return '';
   const [cls, label] = FLAG_LABELS[flag];
   return `<span class="action-flag ${cls}"><span class="pulse"></span>${label}</span>`;
