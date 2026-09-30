@@ -74,7 +74,8 @@
     const short = d.entries.filter(e => e.amount < 0).length;
     $('cpTotal').innerHTML = `<span>Total for ${esc(monthLabel(d.month))}</span><b class="${d.total < 0 ? 'neg' : ''}">${money(d.total)}</b>
       <small>${d.entries.length} day${d.entries.length === 1 ? '' : 's'} entered · ${short} short</small>`;
-    $('cpList').innerHTML = d.entries.length ? d.entries.map(e => `
+    // Newest day first, so the latest difference is on top (owner, 2026-09-30).
+    $('cpList').innerHTML = d.entries.length ? [...d.entries].sort((a, b) => b.day.localeCompare(a.day)).map(e => `
       <tr class="${level(e.amount)}">
         <td>${esc(new Date(e.day + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }))}</td>
         <td class="num">${money(e.amount)}</td>
