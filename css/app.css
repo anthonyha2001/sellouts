@@ -388,19 +388,36 @@ table.cn td.num{font-family:var(--font-mono);}
 .promo-tab.active{background:var(--pine);border-color:var(--pine);color:#fff;}
 .promo-tab .plow{width:7px;height:7px;border-radius:50%;background:var(--brick);flex:0 0 auto;}
 
-/* Sticky: the action icons stay on top while scrolling a long table (owner, 2026-09-30). */
-.promo-header-card{position:sticky;top:0;z-index:6;box-shadow:0 6px 14px -10px rgba(0,0,0,.35);}
-.promo-header-card.collapsed{padding-top:10px;padding-bottom:10px;}
-.promo-head-bar{display:flex;align-items:center;gap:10px;}
-.promo-head-summary{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;}
-.promo-header-card:not(.collapsed) .promo-head-summary{visibility:hidden;}
-.promo-header-card:not(.collapsed) .promo-header-fields{margin-top:12px;}
-.promo-header-card.collapsed .promo-header-fields{display:none;}
-.promo-sel-actions{align-items:center;gap:6px;padding-right:10px;margin-right:4px;border-right:1px solid var(--line);}
+/* Promotion top card (owner, 2026-10-01): name + dates, the two drop zones, then the promotion's buttons. */
+.promo-top-card .promo-header-fields{margin-bottom:14px;}
+.promo-drops{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+@media (max-width:760px){.promo-drops{grid-template-columns:1fr;}}
+.drop-zone{position:relative;display:flex;align-items:center;gap:12px;padding:14px 16px;border:1.5px dashed var(--line-strong);border-radius:var(--radius-sm);background:var(--paper);cursor:pointer;transition:border-color .12s,background .12s;min-width:0;}
+.drop-zone:hover,.drop-zone:focus-visible{border-color:var(--pine);background:var(--pine-tint);outline:none;}
+.dz-icon{flex:0 0 auto;width:38px;height:38px;border-radius:10px;background:var(--pine-tint);color:var(--pine);display:flex;align-items:center;justify-content:center;}
+.dz-icon svg{width:20px;height:20px;stroke:currentColor;}
+.dz-text{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1 1 auto;}
+.dz-text b{font-size:14px;}
+.dz-info{font-size:12.5px;color:var(--ink-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.dz-hint{font-size:12px;color:var(--ink-faint);}
+.dz-threshold{flex:0 0 auto;display:flex;flex-direction:column;gap:3px;margin:0;font-size:11px;font-weight:500;color:var(--ink-soft);cursor:default;}
+.dz-threshold input{width:78px;padding:5px 8px;font-size:13px;background:var(--paper-raised);color:var(--ink);border:1px solid var(--line-strong);border-radius:6px;}
+.promo-top-actions{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-top:14px;}
+.promo-top-btns{display:flex;gap:8px;flex-wrap:wrap;}
+.btn.ibtn{display:inline-flex;align-items:center;gap:6px;}
+.btn.ibtn svg,.filter-row button svg{width:15px;height:15px;stroke:currentColor;flex:0 0 auto;}
+.filter-row button:has(svg){display:inline-flex;align-items:center;gap:6px;}
+.btn.ibtn.danger{color:var(--brick);}
+/* Sticky bar inside the table card: selection actions on the left, view + filter on the right. */
+.promo-sticky{position:sticky;top:0;z-index:6;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin:-6px -8px 0;padding:8px;background:var(--paper-raised);border-bottom:1px solid var(--line);}
+.promo-sticky-left,.promo-sticky-right{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-height:34px;}
+body.no-promotions-edit .dz-hint,body.no-promotions-edit .dz-threshold{display:none;}
+body.no-promotions-edit .drop-zone{cursor:default;border-style:solid;}
+.promo-sel-actions{align-items:center;gap:8px;flex-wrap:wrap;}
 .promo-sel-count{font:600 12px var(--font-mono);color:var(--pine);white-space:nowrap;}
 .icon-btn.wide{width:auto;padding:0 10px;gap:6px;font:600 12.5px var(--font-mono);}
-.drop-on{position:relative;outline:2px dashed var(--pine);outline-offset:4px;}
-.drop-on::after{content:attr(data-drop-label);position:absolute;inset:0;display:flex;justify-content:center;align-items:flex-start;padding-top:60px;background:color-mix(in srgb,var(--pine-tint) 85%,transparent);color:var(--pine);font:600 16px var(--font-body);z-index:20;pointer-events:none;border-radius:inherit;}
+.drop-on{border-color:var(--pine) !important;border-style:solid !important;background:var(--pine-tint) !important;}
+.drop-on::after{content:attr(data-drop-label);position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--pine-tint) 92%,transparent);color:var(--pine);font:600 15px var(--font-body);border-radius:inherit;pointer-events:none;}
 .promo-header-fields{display:flex;flex-wrap:wrap;gap:14px;flex:1 1 auto;}
 .promo-header-fields .field{min-width:160px;flex:1 1 160px;}
 .promo-header-actions{display:flex;gap:6px;flex:0 0 auto;align-items:center;flex-wrap:wrap;justify-content:flex-end;}
@@ -922,7 +939,6 @@ body.no-creditnotes-edit #panel-creditnotes [data-role="toggle-status"] { pointe
 /* Promotions */
 body.no-promotions-edit #newPromoBtn,
 body.no-promotions-edit #catalogBody .form-grid,
-body.no-promotions-edit #importPriceSheetBtn,
 body.no-promotions-edit #addRowBtn,
 body.no-promotions-edit #addRowsBulkBtn,
 body.no-promotions-edit #applyDiscountSelectedBtn,

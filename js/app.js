@@ -645,8 +645,6 @@ let tableSearchQuery = ''; // Search box, scoped to the Table view only
 let countryFilterSearchQuery = ''; // Search box inside the Filter panel's Country list
 let auditSupplierFilterSearchQuery = ''; // Search box inside the Audit "Filter by supplier" panel
 let catalogCollapsed = localStorage.getItem('sol-catalog-collapsed') === 'true';
-// The promotion's name / dates card can fold to one line (its action icons stay, sticky on top).
-let promoHeadCollapsed = (() => { try { return localStorage.getItem('lv:promoHeadCollapsed') === 'true'; } catch (e) { return false; } })();
 // Icons for the promotion toolbars (owner, 2026-09-30: fewer text buttons).
 const svgIcon = d => `<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
 const ICONS = {
@@ -658,6 +656,12 @@ const ICONS = {
   unarchive: svgIcon('<rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M12 18v-6M9 15l3-3 3 3"/>'),
   trash: svgIcon('<path d="M3 6h18"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>'),
   percent: svgIcon('<path d="M19 5 5 19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/>'),
+  catalog: svgIcon('<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5z"/><path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5"/><path d="M9 8h7M9 12h5"/>'),
+  table: svgIcon('<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18"/>'),
+  audit: svgIcon('<path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9"/>'),
+  rows: svgIcon('<path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/>'),
+  supplier: svgIcon('<path d="M3 21V8l9-5 9 5v13"/><path d="M9 21v-6h6v6"/><path d="M3 21h18"/>'),
+  x: svgIcon('<path d="M18 6 6 18M6 6l12 12"/>'),
   print: svgIcon('<path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>'),
 };
 let showArchivedPromos = false;
@@ -1160,6 +1164,8 @@ function renderCatalogInfo() {
   const inline = document.getElementById('catalogSummaryInline');
   const uploadInput = document.getElementById('catalogFileInput');
   const promo = promotions.find(p => p.id === currentPromoId);
+  const zone = document.getElementById('catZoneInfo');
+  if (zone) zone.innerHTML = catalogZoneInfo(promo);
 
   if (!currentPromoId || !promo) {
     el.className = 'file-info empty';
@@ -1186,6 +1192,14 @@ function renderCatalogInfo() {
   if (inline) inline.textContent = `${catalogItems.length} item${catalogItems.length === 1 ? '' : 's'} loaded for "${promo.name}" \u2014 threshold ${lowStockThreshold}`;
 }
 
+// The catalog drop zone's status line (the zone sits in the promotion's top card).
+function catalogZoneInfo(promo) {
+  if (!promo) return '';
+  if (!catalogItems.length) return 'No catalog yet';
+  const name = catalogFileNames.get(promo.id);
+  return `${catalogItems.length} item${catalogItems.length === 1 ? '' : 's'} loaded${name ? ' · ' + escapeHtml(name) : ''}`;
+}
+
 function applyCatalogCollapse() {
   const bodyEl = document.getElementById('catalogBody');
   const chev = document.getElementById('catalogChevron');
@@ -1203,18 +1217,19 @@ document.getElementById('toggleCatalogBtn').addEventListener('click', () => {
 // file inputs' own handlers, so the checks and confirmations are the same as choosing a file.
 (function wirePromoDrop() {
   const panel = document.getElementById('panel-promotions');
-  const catalogCard = document.getElementById('catalogBody').closest('.card');
   const zoneFor = e => {
     if (!currentPromoId || !can('promotions.edit')) return null;
-    if (catalogCard.contains(e.target)) return { el: catalogCard, input: 'catalogFileInput', label: 'Drop to replace the catalog' };
-    const ws = document.getElementById('promoWorkspace');
-    return ws.contains(e.target) || e.target === panel ? { el: ws, input: 'priceSheetInput', label: 'Drop to import the price sheet' } : null;
+    const cat = document.getElementById('catalogDropZone'), price = document.getElementById('priceDropZone');
+    if (!cat || !price) return null;
+    if (cat.contains(e.target)) return { el: cat, input: 'catalogFileInput' };
+    // Anywhere else on the promotion counts as the price sheet (its zone lights up).
+    return document.getElementById('promoWorkspace').contains(e.target) ? { el: price, input: 'priceSheetInput' } : null;
   };
   let lit = null;
   const light = z => {
     if (lit && lit !== z?.el) lit.classList.remove('drop-on');
     lit = z ? z.el : null;
-    if (lit) { lit.classList.add('drop-on'); lit.dataset.dropLabel = z.label; }
+    if (lit) lit.classList.add('drop-on');
   };
   const hasFile = e => [...(e.dataTransfer?.types || [])].includes('Files');
   panel.addEventListener('dragover', e => { if (!hasFile(e)) return; const z = zoneFor(e); if (!z) return; e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; light(z); });
@@ -1375,7 +1390,7 @@ function lockPromotionsViewOnly() {
   const root = document.getElementById('panel-promotions');
   if (!can('promotions.edit')) {
     root.querySelectorAll('input[data-field], #promoName, #promoFrom, #promoTo').forEach(i => { if (!i.readOnly) i.readOnly = true; });
-    root.querySelectorAll('select[data-field], #catalogFileInput, #lowStockInput, [data-role="toggle-flag"]').forEach(i => { if (!i.disabled) i.disabled = true; });
+    root.querySelectorAll('select[data-field], #catalogFileInput, #lowStockInput, #lowStockZoneInput, [data-role="toggle-flag"]').forEach(i => { if (!i.disabled) i.disabled = true; });
   }
   if (!can('promotions.archive')) root.querySelectorAll('#promoAutoArchive').forEach(i => { if (!i.disabled) i.disabled = true; });
   if (!can('promotions.audit')) {
@@ -1693,27 +1708,7 @@ async function renderPromoWorkspace() {
   const promoStats = computePromoStats(visibleRows);
 
   workspace.innerHTML = `
-    <div class="card promo-header-card ${promoHeadCollapsed ? 'collapsed' : ''}" id="promoHeaderCard">
-      <div class="promo-head-bar">
-        <button class="icon-btn" id="togglePromoHeadBtn" title="${promoHeadCollapsed ? 'Show' : 'Hide'} name and dates" aria-label="Show or hide name and dates">
-          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="transform:rotate(${promoHeadCollapsed ? -90 : 0}deg);transition:transform .15s;"><path d="M6 9l6 6 6-6"/></svg>
-        </button>
-        <div class="promo-head-summary"><b>${escapeHtml(promo.name || 'Untitled')}</b> <span class="muted-note">${promo.from || promo.to ? `${escapeHtml(promo.from || '…')} → ${escapeHtml(promo.to || '…')}` : 'No dates'}${promo.archived ? ' · archived' : ''}</span></div>
-        <div class="promo-header-actions">
-          <div class="promo-sel-actions" id="promoSelActions" style="display:${selectedRowIds.size ? 'flex' : 'none'};">
-            <span class="promo-sel-count" id="promoSelCount">${selectedRowIds.size} selected</span>
-            <button class="icon-btn" id="copySelectedBtn" title="Copy the selected codes" aria-label="Copy the selected codes">${ICONS.copy}</button>
-            <button class="icon-btn" id="applyDiscountSelectedBtn" title="Apply a discount to the selected rows" aria-label="Apply a discount to the selected rows">${ICONS.percent}</button>
-            <button class="icon-btn danger" id="deleteSelectedBtn" title="Delete the selected rows" aria-label="Delete the selected rows">${ICONS.trash}</button>
-          </div>
-          <button class="icon-btn" id="importPriceSheetBtn" title="Import price sheet (or drop the file on the page) — splits multi-codes into rows and fills in Promo/Before Price" aria-label="Import price sheet">${ICONS.upload}</button>
-          <input type="file" id="priceSheetInput" accept=".xlsx,.xls,.csv" style="display:none;">
-          <button class="icon-btn" id="copyCodesBtn" title="Copy all codes" aria-label="Copy all codes">${ICONS.copyAll}</button>
-          <button class="icon-btn" id="exportPromoBtn" title="Export to Excel" aria-label="Export to Excel">${ICONS.excel}</button>
-          <button class="icon-btn" id="toggleArchivePromoBtn" title="${promo.archived ? 'Unarchive' : 'Archive now'}" aria-label="${promo.archived ? 'Unarchive' : 'Archive now'}">${promo.archived ? ICONS.unarchive : ICONS.archive}</button>
-          <button class="icon-btn danger" id="deletePromoBtn" title="Delete this promotion" aria-label="Delete this promotion">${ICONS.trash}</button>
-        </div>
-      </div>
+    <div class="card promo-top-card">
       <div class="promo-header-fields">
         <div class="field">
           <label for="promoName">Promotion name ${promo.archived ? '<span class="muted-note">(archived)</span>' : ''}</label>
@@ -1734,29 +1729,69 @@ async function renderPromoWorkspace() {
           </label>
         </div>
       </div>
+
+      <div class="promo-drops">
+        <div class="drop-zone" id="catalogDropZone" role="button" tabindex="0" data-drop-label="Drop to replace the catalog">
+          <span class="dz-icon">${ICONS.catalog}</span>
+          <div class="dz-text">
+            <b>Item catalog</b>
+            <span class="dz-info" id="catZoneInfo">${catalogZoneInfo(promo)}</span>
+            <span class="dz-hint">Drop the catalog file here or click to choose</span>
+          </div>
+          <label class="dz-threshold" title="Flag an item when its Balance is below this">Low stock under
+            <input type="text" inputmode="numeric" id="lowStockZoneInput" value="${escapeHtml(String(lowStockThreshold))}"></label>
+        </div>
+        <div class="drop-zone" id="priceDropZone" role="button" tabindex="0" data-drop-label="Drop to import the price sheet">
+          <span class="dz-icon">${ICONS.upload}</span>
+          <div class="dz-text">
+            <b>Price sheet</b>
+            <span class="dz-info">${currentRows.length ? `${currentRows.length} row${currentRows.length === 1 ? '' : 's'} in the table${promo.sourceFileName ? ' · from ' + escapeHtml(promo.sourceFileName) : ''}` : 'No items yet'}</span>
+            <span class="dz-hint">Drop the supplier price sheet here or click — it replaces the table</span>
+          </div>
+          <input type="file" id="priceSheetInput" accept=".xlsx,.xls,.csv" style="display:none;">
+        </div>
+      </div>
+
+      <div class="promo-top-actions">
+        <div class="filter-row" id="promoViewSwitch" style="margin:0;">
+          <button class="${promoViewMode === 'table' ? 'active' : ''}" data-view="table">${ICONS.table}Table</button>
+          <button class="${promoViewMode === 'audit' ? 'active' : ''}" data-view="audit">${ICONS.audit}Audit</button>
+        </div>
+        <div class="promo-top-btns">
+          <button class="btn secondary small ibtn" id="copyCodesBtn">${ICONS.copy}Copy all codes</button>
+          <button class="btn secondary small ibtn" id="exportPromoBtn">${ICONS.excel}Export to Excel</button>
+          <button class="btn ghost small ibtn" id="toggleArchivePromoBtn">${promo.archived ? ICONS.unarchive + 'Unarchive' : ICONS.archive + 'Archive'}</button>
+          <button class="btn ghost small ibtn danger" id="deletePromoBtn">${ICONS.trash}Delete promotion</button>
+        </div>
+      </div>
     </div>
 
     <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;">
-        <div>
-          <p class="muted-note" style="margin:0 0 4px;">${promoStats.total} row${promoStats.total === 1 ? '' : 's'} \u00b7 ${promoStats.flagged} flagged \u00b7 ${promoStats.empty} empty row${promoStats.empty === 1 ? '' : 's'}</p>
-          <p class="muted-note" style="margin:0 0 10px;">${promoViewMode === 'audit'
-            ? (auditSubView === 'supplier'
-              ? 'Every item grouped by supplier, for setting Type and adding a note without one long list.'
-              : 'Code and description next to the cost from the imported price sheet, for a manual check. Items with no cost yet are shown too.')
-            : (tableSubView === 'supplier'
-              ? 'Every item grouped by supplier, with stock, Out (YTD) and a reorder recommendation for each.'
-              : !canEditPromotions() ? 'View only: you can export to Excel or download the file; ask the admin for permission to change promotions.'
-              : 'Tip: copy a block of cells from Excel and paste directly into the table \u2014 it will fill rows and columns starting from where you paste, adding new rows if needed. Enter moves down a column, Tab at the last field adds a new row.')}</p>
-        </div>
-        <div class="view-toolbar" style="border:none;background:none;padding:0;margin:0;">
-          <div class="filter-row" id="promoViewSwitch" style="margin:0;">
-            <button class="${promoViewMode === 'table' ? 'active' : ''}" data-view="table">Table</button>
-            <button class="${promoViewMode === 'audit' ? 'active' : ''}" data-view="audit">Audit</button>
+      <div class="promo-sticky" id="promoStickyBar">
+        <div class="promo-sticky-left">
+          ${promoViewMode === 'table' && tableSubView === 'rows' ? `
+          <div class="promo-sel-actions" id="promoSelActions" style="display:${selectedRowIds.size ? 'flex' : 'none'};">
+            <span class="promo-sel-count" id="promoSelCount">${selectedRowIds.size} selected</span>
+            <button class="btn secondary small ibtn" id="copySelectedBtn">${ICONS.copy}Copy codes</button>
+            <button class="btn secondary small ibtn" id="applyDiscountSelectedBtn">${ICONS.percent}Discount</button>
+            <button class="btn ghost small ibtn danger" id="deleteSelectedBtn">${ICONS.trash}Delete rows</button>
+            <button class="icon-btn" id="clearSelectionBtn" title="Clear the selection" aria-label="Clear the selection">${ICONS.x}</button>
           </div>
-          <div class="filter-dropdown-wrap" id="countryFilterWrap" style="margin-left:auto;">
+          <span class="muted-note" id="promoSelHint" style="display:${selectedRowIds.size ? 'none' : ''};">Tick rows to copy their codes, discount or delete them.</span>` : `<span class="muted-note">${promoStats.total} row${promoStats.total === 1 ? '' : 's'} · ${promoStats.flagged} flagged</span>`}
+        </div>
+        <div class="promo-sticky-right">
+          ${promoViewMode === 'table' ? `
+          <div class="filter-row" id="tableSubViewSwitch" style="margin:0;">
+            <button class="${tableSubView === 'rows' ? 'active' : ''}" data-table-sub="rows">${ICONS.rows}All rows</button>
+            <button class="${tableSubView === 'supplier' ? 'active' : ''}" data-table-sub="supplier">${ICONS.supplier}By supplier</button>
+          </div>` : `
+          <div class="filter-row" id="auditSubViewSwitch" style="margin:0;">
+            <button class="${auditSubView === 'cost' ? 'active' : ''}" data-audit-sub="cost">${ICONS.audit}Cost check</button>
+            <button class="${auditSubView === 'supplier' ? 'active' : ''}" data-audit-sub="supplier">${ICONS.supplier}By supplier</button>
+          </div>`}
+          <div class="filter-dropdown-wrap" id="countryFilterWrap">
             <button class="icon-btn" id="countryFilterBtn" title="Filter" aria-label="Filter">${filterButtonInnerHtml(selectedCountries.size + selectedCodeIssues.size + (showFlaggedOnly ? 1 : 0))}</button>
-            <div class="filter-panel filter-panel-up" id="countryFilterPanel" style="display:${countryFilterOpen ? 'block' : 'none'};">
+            <div class="filter-panel" id="countryFilterPanel" style="display:${countryFilterOpen ? 'block' : 'none'};right:0;left:auto;">
               <div class="filter-panel-head">
                 <span>Filters</span>
                 <button class="link-btn" id="clearAllFiltersBtn">Clear all</button>
@@ -1777,11 +1812,16 @@ async function renderPromoWorkspace() {
         </div>
       </div>
 
+      <p class="muted-note" style="margin:10px 0 12px;">${promoStats.total} row${promoStats.total === 1 ? '' : 's'} · ${promoStats.flagged} flagged · ${promoStats.empty} empty row${promoStats.empty === 1 ? '' : 's'} — ${promoViewMode === 'audit'
+        ? (auditSubView === 'supplier'
+          ? 'Every item grouped by supplier, for setting Type and adding a note without one long list.'
+          : 'Code and description next to the cost from the imported price sheet, for a manual check. Items with no cost yet are shown too.')
+        : (tableSubView === 'supplier'
+          ? 'Every item grouped by supplier, with stock, Out (YTD) and a reorder recommendation for each.'
+          : !canEditPromotions() ? 'View only: you can copy the codes and export to Excel; ask the admin for permission to change promotions.'
+          : 'Tip: paste a block of cells from Excel straight into the table. Enter moves down a column, Tab at the last field adds a new row.')}</p>
+
       <div id="promoTableView" style="display:${promoViewMode === 'table' ? '' : 'none'};">
-        <div class="filter-row" id="tableSubViewSwitch" style="margin-bottom:12px;">
-          <button class="${tableSubView === 'rows' ? 'active' : ''}" data-table-sub="rows">All rows</button>
-          <button class="${tableSubView === 'supplier' ? 'active' : ''}" data-table-sub="supplier">By supplier</button>
-        </div>
 
         <div id="promoTableRowsView" style="display:${tableSubView === 'rows' ? '' : 'none'};">
         <div class="view-toolbar">
@@ -1814,11 +1854,6 @@ async function renderPromoWorkspace() {
       </div>
 
       <div id="promoAuditView" style="display:${promoViewMode === 'audit' ? '' : 'none'};">
-        <div class="filter-row" id="auditSubViewSwitch" style="margin-bottom:12px;">
-          <button class="${auditSubView === 'cost' ? 'active' : ''}" data-audit-sub="cost">Cost check</button>
-          <button class="${auditSubView === 'supplier' ? 'active' : ''}" data-audit-sub="supplier">By supplier</button>
-        </div>
-
         <div class="view-toolbar audit-toolbar" style="justify-content:space-between;flex-wrap:wrap;gap:10px;">
           <div class="filter-row audit-type-filter" id="auditTypeFilter" style="margin:0;">
             ${[['', 'All', auditSupplierRows.length], ['sellout', 'Sell Out', auditTypeCounts.sellout || 0], ['cn', 'C/N', auditTypeCounts.cn || 0], ['rightprice', 'Right Price', auditTypeCounts.rightprice || 0], ['none', 'No type', auditTypeCounts.none || 0]]
@@ -2354,6 +2389,8 @@ function wirePromoRowElement(tr) {
       if (selBar) selBar.style.display = selectedRowIds.size ? 'flex' : 'none';
       const selCount = document.getElementById('promoSelCount');
       if (selCount) selCount.textContent = `${selectedRowIds.size} selected`;
+      const selHint = document.getElementById('promoSelHint');
+      if (selHint) selHint.style.display = selectedRowIds.size ? 'none' : '';
       const selectAllCb2 = document.getElementById('selectAllRows');
       if (selectAllCb2) selectAllCb2.checked = currentRows.length > 0 && currentRows.every(r => selectedRowIds.has(r.id));
     });
@@ -2648,9 +2685,6 @@ function wirePromoWorkspaceEvents(promo) {
 
   document.getElementById('exportPromoBtn').addEventListener('click', () => exportPromotionToExcel(promo));
 
-  document.getElementById('importPriceSheetBtn').addEventListener('click', () => {
-    document.getElementById('priceSheetInput').click();
-  });
 
   document.getElementById('priceSheetInput').addEventListener('change', async (e) => {
     const file = e.target.files[0];
@@ -2695,14 +2729,32 @@ function wirePromoWorkspaceEvents(promo) {
     showToast(parts.join(', ') + '.', !!result.blankCodeCount);
   });
 
-  document.getElementById('togglePromoHeadBtn').addEventListener('click', async () => {
-    promoHeadCollapsed = !promoHeadCollapsed;
-    try { localStorage.setItem('lv:promoHeadCollapsed', String(promoHeadCollapsed)); } catch (e) { /* storage blocked */ }
-    await renderPromoWorkspace();
+  // The two drop zones: click (or Enter) opens the file picker; the drop itself is wired once (wirePromoDrop).
+  const zonePick = (zoneId, inputId) => {
+    const zone = document.getElementById(zoneId);
+    const open = () => {
+      if (!can('promotions.edit')) return;
+      const input = document.getElementById(inputId);
+      if (input && !input.disabled) input.click();
+    };
+    zone.addEventListener('click', e => { if (!e.target.closest('.dz-threshold')) open(); });
+    zone.addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && e.target === zone) { e.preventDefault(); open(); } });
+  };
+  zonePick('catalogDropZone', 'catalogFileInput');
+  zonePick('priceDropZone', 'priceSheetInput');
+  // The threshold box in the catalog zone hands its value to the original setting input.
+  document.getElementById('lowStockZoneInput').addEventListener('change', e => {
+    const orig = document.getElementById('lowStockInput');
+    orig.value = e.target.value;
+    orig.dispatchEvent(new Event('change'));
   });
 
+  const clearSelBtn = document.getElementById('clearSelectionBtn');
+  if (clearSelBtn) clearSelBtn.addEventListener('click', async () => { selectedRowIds.clear(); await renderPromoWorkspace(); });
+
   // Only the ticked rows' codes, in table order (owner, 2026-09-30).
-  document.getElementById('copySelectedBtn').addEventListener('click', async () => {
+  const copySelBtn = document.getElementById('copySelectedBtn');
+  if (copySelBtn) copySelBtn.addEventListener('click', async () => {
     const codes = [...new Set(currentRows.filter(r => selectedRowIds.has(r.id)).map(r => (r.code || '').trim()).filter(Boolean))];
     if (!codes.length) { showToast('The selected rows have no codes.', true); return; }
     const ok = await copyTextToClipboard(codes.join(','));
@@ -2771,7 +2823,7 @@ function wirePromoWorkspaceEvents(promo) {
     showToast(`${n} row${n === 1 ? '' : 's'} added${pct !== null ? ` with a ${pct}% discount` : ''}.`);
   });
 
-  document.getElementById('applyDiscountSelectedBtn').addEventListener('click', async () => {
+  document.getElementById('applyDiscountSelectedBtn')?.addEventListener('click', async () => {
     const ids = Array.from(selectedRowIds);
     if (!ids.length) return;
     const val = await showPrompt(`Apply what discount % to ${ids.length} selected row${ids.length === 1 ? '' : 's'}?`, { defaultValue: '', confirmLabel: 'Apply', placeholder: 'e.g. 20' });
@@ -2794,7 +2846,7 @@ function wirePromoWorkspaceEvents(promo) {
     showToast(`${pct}% discount applied to ${rows.length} row${rows.length === 1 ? '' : 's'}.`);
   });
 
-  document.getElementById('deleteSelectedBtn').addEventListener('click', async () => {
+  document.getElementById('deleteSelectedBtn')?.addEventListener('click', async () => {
     const ids = Array.from(selectedRowIds);
     if (!ids.length) return;
     const ok = await showConfirm(`Delete ${ids.length} selected row${ids.length === 1 ? '' : 's'}?`, 'Delete');
