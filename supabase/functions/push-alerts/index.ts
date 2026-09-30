@@ -108,6 +108,38 @@ async function buildAlerts(today: string): Promise<Alert[]> {
     else add({ key: `pl:${p.id}:today`, perms: ['promoladies.manage'], title: 'Promo lady today', url: '#promoladies', body: `Today: promo lady for ${what} — prepare her spot.` });
   }
 
+  // Promo lady attendance (019): a paid one who didn't come (to the others who manage promo ladies —
+  // the admin), and at 15:00 a reminder to mark today's attendance.
+  const { data: att, error: attErr } = await db.from('promo_lady_attendance').select('promo_lady_id, day, came, checked_by, checked_at').gt('checked_at', new Date(dayAgo).toISOString());
+  if (!attErr) {
+    const absent = (att ?? []).filter(a => !a.came);
+    if (absent.length) {
+      const { data: bk } = await db.from('promo_ladies').select('id, supplier, item, paid, amount').in('id', absent.map(a => a.promo_lady_id));
+      for (const a of absent) {
+        const p = (bk ?? []).find(x => x.id === a.promo_lady_id); if (!p || !p.paid) continue;
+        add({ key: `pl:${p.id}:absent:${a.day}`, perms: ['promoladies.manage'], except: a.checked_by ?? undefined, title: "Promo lady didn't come", url: '#promoladies',
+          body: `${p.supplier}'s paid promo lady${p.item ? ` (${p.item})` : ''} didn't come on ${fmt(a.day)} — paid $${Number(p.amount || 0).toLocaleString('en-US')}.` });
+      }
+    }
+    if (beirutHour() >= 15) {
+      const { data: todayPl } = await db.from('promo_ladies').select('id, supplier').lte('start_date', today).gte('end_date', today);
+      const { data: marked } = todayPl?.length ? await db.from('promo_lady_attendance').select('promo_lady_id').eq('day', today).in('promo_lady_id', todayPl.map(p => p.id)) : { data: [] };
+      const done = new Set((marked ?? []).map(m => m.promo_lady_id));
+      const left = (todayPl ?? []).filter(p => !done.has(p.id));
+      if (left.length) add({ key: `pl:attendance:${today}`, perms: ['promoladies.manage'], title: 'Promo lady attendance', url: '#promoladies',
+        body: `Mark today's attendance: ${left.map(p => p.supplier).join(', ')} — did she come?` });
+    }
+  }
+
+  // Rented spot check finished (019): the result to whoever manages the contracts (not the one who did it).
+  const { data: sc, error: scErr } = await db.from('spot_checks').select('id, started_by, started_by_name, completed_at, summary').gt('completed_at', new Date(dayAgo).toISOString());
+  if (!scErr) for (const c of sc ?? []) {
+    const s = c.summary || {};
+    const problems = (s.other || 0) + (s.empty || 0) + (s.extra || 0);
+    add({ key: `spotcheck:${c.id}`, perms: ['rentals.contracts'], except: c.started_by, title: 'Rented spot check finished', url: '#floorcheck',
+      body: `By ${c.started_by_name || 'the floor manager'}: ${s.ok || 0} right${problems ? ` · ${s.other || 0} other supplier · ${s.empty || 0} empty · ${s.extra || 0} used without a contract` : ' — no problems'}${s.pending ? ` · ${s.pending} not checked` : ''}.` });
+  }
+
   // Delivery: yesterday's day is closed — its count and value (morning summary).
   const yd = addDays(today, -1);
   const [{ data: dOrders }, { data: dSet }] = await Promise.all([

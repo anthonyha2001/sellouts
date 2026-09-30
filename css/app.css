@@ -1027,3 +1027,34 @@ body.rentals-map-expanded #rentalsMap .sm-canvas{ min-height:0; height:100%; bor
   .pl-count{display:inline-block;}
   .pl-cal-sum{margin-left:0;width:100%;}
 }
+
+/* Floor check › Rented spots (js/modules/spotcheck.js) */
+.sc-head{display:flex;align-items:center;gap:16px;flex-wrap:wrap;}
+.sc-progress{flex:1;min-width:220px;display:flex;flex-direction:column;gap:6px;font-size:13px;}
+.sc-bar{height:8px;border-radius:99px;background:var(--line);overflow:hidden;}
+.sc-bar i{display:block;height:100%;background:var(--pine);}
+.sc-list{list-style:none;margin:0;padding:0;}
+.sc-item{display:flex;align-items:center;gap:12px;padding:11px 0;border-top:1px solid var(--line);}
+.sc-list .sc-item:first-child{border-top:0;}
+.sc-item.ok .sc-main b{color:var(--ink-soft);}
+.sc-main{flex:1;min-width:0;}
+.sc-where{font-size:12.5px;color:var(--ink-soft);margin-top:2px;}
+.sc-found{font-size:13px;color:var(--brick);margin-top:3px;}
+.sc-btns{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;}
+.sc-btn{border:1px solid var(--line-strong);background:var(--paper-raised);border-radius:8px;padding:8px 12px;font:600 13px var(--font-body);cursor:pointer;color:var(--ink);min-height:40px;}
+.sc-btn.ok.on{background:var(--pine);border-color:var(--pine);color:#fff;}
+.sc-btn.other.on{background:var(--brick);border-color:var(--brick);color:#fff;}
+.sc-btn.empty.on{background:var(--gold);border-color:var(--gold);color:#fff;}
+.sc-btn.note{padding:8px 10px;}
+.sc-extra-add{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;}
+.sc-extra-add select{flex:2 1 260px;min-width:0;}
+.sc-extra-add input{flex:1 1 180px;min-width:0;}
+@media (max-width:640px){ .sc-item{flex-direction:column;align-items:stretch;} .sc-btns{justify-content:flex-start;} .sc-btn{flex:1;} }
+.pl-daylist li{flex-direction:column;align-items:stretch;}
+.pl-dl-row{display:flex;align-items:center;gap:10px;}
+.pl-att{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px;padding:8px 10px;background:var(--paper);border-radius:8px;}
+.pl-att-q{font-size:12.5px;color:var(--ink-soft);margin-right:4px;}
+.pl-att .sc-btn{min-height:36px;padding:6px 12px;}
+.pl-att-time{display:flex;align-items:center;gap:5px;font-size:12.5px;margin:0;font-weight:400;color:var(--ink-soft);}
+.pl-att-time input{width:auto;padding:5px 6px;}
+.pl-att-note{flex:1 1 180px;min-width:0;padding:6px 8px;}

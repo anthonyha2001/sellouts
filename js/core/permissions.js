@@ -24,6 +24,7 @@ const PERMISSIONS = [
   ['rentals.view',       'Rentals',       'See the store map and contracts',                    []],
   ['rentals.contracts',  'Rentals',       'Add and change contracts, billing, sales',           []],
   ['rentals.layout',     'Rentals',       'Edit the map layout',                                []],
+  ['rentals.spotcheck',  'Rentals',       'Check rented spots on the floor',                    ['floor_manager']],
   ['delivery.orders',    'Delivery',      "Add and edit today's orders",                        ['delivery']],
   ['delivery.settle',    'Delivery',      'Driver payments (mark paid)',                        ['delivery', 'accountant']],
   ['delivery.customers', 'Delivery',      'Customers',                                          ['delivery']],
@@ -49,7 +50,7 @@ const SECTION_PERMS = {
   sellouts: ['sellouts.view'], creditnotes: ['creditnotes.view'], promotions: ['promotions.view'],
   vendors: ['vendors.manage'], rentals: ['rentals.view'],
   delivery: ['delivery.orders', 'delivery.settle', 'delivery.customers', 'delivery.reports', 'delivery.manage'],
-  cash: ['cash.view'], floorcheck: ['floorcheck.do', 'floorcheck.manage'],
+  cash: ['cash.view'], floorcheck: ['floorcheck.do', 'floorcheck.manage', 'rentals.spotcheck'],
   labels: ['labels.scan', 'labels.print'], activity: ['activity.view'], tools: ['tools.convert'], promoladies: ['promoladies.manage'],
 };
 // Within a group, the first permission ("view") is needed by the others (the Users editor keeps that true).

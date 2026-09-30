@@ -488,6 +488,19 @@ admin only by default (give it per user in Users → Permissions).
 
 ---
 
+## 10g. Floor manager: rented spot check + promo lady attendance (added 2026-09-30)
+
+Owner: both, without photos. Migration `019_spot_checks_attendance.sql`.
+- [x] Floor check › **Rented spots** (`js/modules/spotcheck.js`), permission `rentals.spotcheck` (floor manager by
+  default; reads the map and the current contracts): start a check (the rented spots now, frozen), mark each
+  Right supplier / Other supplier (who) / Empty, add a note, report a free spot used without a contract, finish
+  (summary). Views: to check / problems / all; history with details. Admin notified when a check finishes.
+- [x] Promo ladies **attendance**: on each booked day up to today, Came / Didn't come (click again to clear), hours
+  from–to and a note; ✓ / ✗ on the calendar; "x of y days · n absent" in the list. Alerts: a paid promo lady who
+  didn't come (admin), and at 15:00 a reminder to the floor manager if today's attendance is not marked.
+
+---
+
 ## 11. Open questions (ask the owner when you reach the phase)
 
 | # | Question | Default until answered |

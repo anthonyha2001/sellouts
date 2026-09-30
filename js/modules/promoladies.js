@@ -3,7 +3,9 @@
    suppliers. A booking: supplier (from Vendors), paid or free
    (amount in USD when paid), the item promoted, the dates.
    Two tabs: a month calendar (who is in the store on which day)
-   and the list (search, current / upcoming / past, totals).
+   and the list (current / upcoming / past, totals).
+   Attendance (migration 019): on each booked day up to today the
+   floor manager marks Came / Didn't come, with hours and a note.
    Permission: promoladies.manage (admin, floor manager by default).
    Table: promo_ladies (supabase/migrations/018_promo_ladies.sql).
    Public API: window.PromoLadies = { show }.
@@ -19,20 +21,31 @@
   const addDays = (s, n) => { const d = new Date(s + 'T00:00:00'); d.setDate(d.getDate() + n); return d.toLocaleDateString('en-CA'); };
   const monthLabel = ym => new Date(ym + '-01T00:00:00').toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
   const addMonths = (ym, n) => { const [y, m] = ym.split('-').map(Number); const d = new Date(y, m - 1 + n, 1); return d.toLocaleDateString('en-CA').slice(0, 7); };
-  const S = { started: false, tab: 'calendar', month: null, rows: [], vendors: [], when: 'current', day: null, missing: false };
+  const S = { started: false, tab: 'calendar', month: null, rows: [], vendors: [], att: new Map(), when: 'current', day: null, missing: false };
 
   /* ---------------- data ---------------- */
   async function load() {
-    const [{ data, error }, v] = await Promise.all([
+    const [{ data, error }, v, at] = await Promise.all([
       sb.from('promo_ladies').select('*').order('start_date', { ascending: false }),
       S.vendors.length ? { data: null } : sb.from('vendors').select('name').order('name'),
+      sb.from('promo_lady_attendance').select('*'),
     ]);
+    S.attMissing = !!at.error;
+    S.att = new Map((at.data || []).map(a => [a.promo_lady_id + '|' + a.day, a]));
     S.missing = !!error;
     if (error) { console.warn('Promo ladies not available (migration 018?)', error.message); S.rows = []; }
     else S.rows = (data || []).map(r => ({ ...r, amount: r.amount === null ? null : Number(r.amount) }));
     if (v.data) { const seen = new Set(); S.vendors = v.data.map(x => String(x.name || '').trim()).filter(n => n && !seen.has(n.toLowerCase()) && seen.add(n.toLowerCase())).sort((a, b) => a.localeCompare(b)); }
   }
   const onDay = (r, d) => r.start_date <= d && r.end_date >= d;
+  const attOf = (r, d) => S.att.get(r.id + '|' + d) || null;
+  // Days of a booking up to today, and how many were marked "came".
+  function attendance(r) {
+    const t = today(), days = [];
+    for (let d = r.start_date; d <= r.end_date && d <= t; d = addDays(d, 1)) days.push(d);
+    return { days: days.length, came: days.filter(d => attOf(r, d)?.came === true).length, absent: days.filter(d => attOf(r, d)?.came === false).length, unmarked: days.filter(d => !attOf(r, d)).length };
+  }
+  const attMark = (r, d) => { if (d > today()) return ''; const a = attOf(r, d); return a ? (a.came ? '✓ ' : '✗ ') : (d < today() ? '? ' : ''); };
   const statusOf = r => r.end_date < today() ? 'past' : r.start_date > today() ? 'upcoming' : 'now';
 
   /* ---------------- shell ---------------- */
@@ -85,7 +98,7 @@
             const list = inMonth.filter(r => onDay(r, d));
             return `<div class="pl-day ${d.startsWith(ym) ? '' : 'out'} ${d === t ? 'today' : ''} ${d === S.day ? 'sel' : ''}" data-day="${d}">
               <div class="pl-dnum">${Number(d.slice(8))}${list.length ? `<span class="pl-count">${list.length}</span>` : ''}</div>
-              ${list.slice(0, 3).map(r => `<button type="button" class="pl-chip ${r.paid ? 'paid' : 'free'}" data-id="${r.id}" title="${esc(r.supplier + (r.item ? ' — ' + r.item : '') + (r.paid ? ' · ' + money(r.amount) : ' · free'))}">${esc(r.supplier)}</button>`).join('')}
+              ${list.slice(0, 3).map(r => `<button type="button" class="pl-chip ${r.paid ? 'paid' : 'free'}" data-id="${r.id}" title="${esc(r.supplier + (r.item ? ' — ' + r.item : '') + (r.paid ? ' · ' + money(r.amount) : ' · free'))}">${attMark(r, d)}${esc(r.supplier)}</button>`).join('')}
               ${list.length > 3 ? `<span class="pl-more">+${list.length - 3} more</span>` : ''}
             </div>`;
           }).join('')}
@@ -109,13 +122,54 @@
     const list = S.rows.filter(r => onDay(r, d)).sort((a, b) => a.supplier.localeCompare(b.supplier));
     return `<div class="pl-dayhead"><h3>${esc(new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' }))}</h3>
         <button class="btn small secondary" data-add="${d}">+ Add on this day</button></div>
-      ${list.length ? `<ul class="pl-daylist">${list.map(r => `<li data-id="${r.id}">
-          <span class="badge ${r.paid ? 'active' : 'inactive'}">${r.paid ? 'Paid' : 'Free'}</span>
-          <div class="pl-dl-main"><b>${esc(r.supplier)}</b>${r.item ? ` · ${esc(r.item)}` : ''}<div class="muted-note">${fmtShort(r.start_date)} → ${fmtShort(r.end_date)}${r.paid ? ' · ' + money(r.amount) : ''}${r.note ? ' · ' + esc(r.note) : ''}</div></div>
-          <button class="btn ghost small" data-edit="${r.id}">Edit</button></li>`).join('')}</ul>`
+      ${list.length ? `<ul class="pl-daylist">${list.map(r => { const a = attOf(r, d); return `<li data-id="${r.id}">
+          <div class="pl-dl-row">
+            <span class="badge ${r.paid ? 'active' : 'inactive'}">${r.paid ? 'Paid' : 'Free'}</span>
+            <div class="pl-dl-main"><b>${esc(r.supplier)}</b>${r.item ? ` · ${esc(r.item)}` : ''}<div class="muted-note">${fmtShort(r.start_date)} → ${fmtShort(r.end_date)}${r.paid ? ' · ' + money(r.amount) : ''}${r.note ? ' · ' + esc(r.note) : ''}</div></div>
+            <button class="btn ghost small" data-edit="${r.id}">Edit</button>
+          </div>
+          ${d <= today() && !S.attMissing ? `<div class="pl-att" data-att="${r.id}" data-day="${d}">
+            <span class="pl-att-q">Did she come?</span>
+            <button type="button" class="sc-btn ok ${a?.came === true ? 'on' : ''}" data-came="1">✓ Came</button>
+            <button type="button" class="sc-btn other ${a?.came === false ? 'on' : ''}" data-came="0">✗ Didn't come</button>
+            ${a?.came ? `<label class="pl-att-time">From <input type="time" data-f="time_from" value="${esc(a.time_from || '')}"></label>
+              <label class="pl-att-time">to <input type="time" data-f="time_to" value="${esc(a.time_to || '')}"></label>` : ''}
+            ${a ? `<input type="text" class="pl-att-note" data-f="note" placeholder="Note (optional)" value="${esc(a.note || '')}">` : ''}
+          </div>` : ''}</li>`; }).join('')}</ul>`
         : '<p class="muted-note" style="margin:6px 0 0;">No promo lady on this day.</p>'}`;
   }
+  // Attendance: Came / Didn't come (click again to clear), hours and note saved as they change.
+  async function saveAtt(id, day, patch) {
+    const key = id + '|' + day, cur = S.att.get(key);
+    if (patch === null) {
+      const { error } = await sb.from('promo_lady_attendance').delete().eq('promo_lady_id', id).eq('day', day);
+      if (error) return showToast('Not saved — ' + friendlyError(error), true);
+      S.att.delete(key); return true;
+    }
+    const row = { promo_lady_id: id, day, came: cur ? cur.came : true, time_from: cur?.time_from || null, time_to: cur?.time_to || null, note: cur?.note || null, ...patch, checked_at: new Date().toISOString() };
+    if (!row.came) { row.time_from = null; row.time_to = null; }
+    const { data, error } = await sb.from('promo_lady_attendance').upsert(row, { onConflict: 'promo_lady_id,day' }).select().single();
+    if (error) { showToast('Not saved — ' + friendlyError(error), true); return false; }
+    S.att.set(key, data);
+    return true;
+  }
+  document.addEventListener('change', async e => {
+    const box = e.target.closest && e.target.closest('.pl-att'); if (!box || !e.target.dataset.f) return;
+    const v = e.target.value.trim();
+    await saveAtt(box.dataset.att, box.dataset.day, { [e.target.dataset.f]: v || null });
+  });
   function dayCardClick(e) {
+    const c = e.target.closest('[data-came]');
+    if (c) {
+      const box = c.closest('.pl-att'), r = S.rows.find(x => x.id === box.dataset.att), cur = attOf(r, box.dataset.day), came = c.dataset.came === '1';
+      (cur && cur.came === came ? saveAtt(r.id, box.dataset.day, null) : saveAtt(r.id, box.dataset.day, { came })).then(ok => {
+        if (!ok) return;
+        const a = attOf(r, box.dataset.day);
+        logActivity('promoladies', 'attendance', { type: 'promo_lady', id: r.id }, `${r.supplier} promo lady on ${fmt(box.dataset.day)}: ${a ? (a.came ? 'came' : "didn't come") : 'cleared'}`);
+        renderCalendar();
+      });
+      return;
+    }
     const a = e.target.closest('[data-add]'); if (a) return openForm(null, a.dataset.add);
     const ed = e.target.closest('[data-edit]'); if (ed) return openForm(ed.dataset.edit);
   }
@@ -139,7 +193,7 @@
         <span class="rs-item">In the store today: <strong>${S.rows.filter(r => onDay(r, t)).length}</strong></span>
       </div></div>
       <div class="card"><div class="items-scroll" style="margin-bottom:0;"><table class="items pl-table">
-        <thead><tr><th>Supplier</th><th>Item promoted</th><th>Dates</th><th>Days</th><th>Paid / free</th><th class="num">Amount</th><th>Status</th><th></th></tr></thead>
+        <thead><tr><th>Supplier</th><th>Item promoted</th><th>Dates</th><th>Days</th><th>Paid / free</th><th class="num">Amount</th><th>Attendance</th><th>Status</th><th></th></tr></thead>
         <tbody>${list.map(r => {
           const st = statusOf(r), days = Math.round((new Date(r.end_date) - new Date(r.start_date)) / 86400000) + 1;
           return `<tr data-id="${r.id}">
@@ -149,10 +203,11 @@
             <td class="num">${days}</td>
             <td><span class="badge ${r.paid ? 'active' : 'inactive'}">${r.paid ? 'Paid' : 'Free'}</span></td>
             <td class="num">${r.paid ? money(r.amount) : '—'}</td>
+            <td>${(() => { const at = attendance(r); if (!at.days) return '<span class="muted-note">—</span>'; return `<span title="${at.came} came · ${at.absent} didn't come · ${at.unmarked} not marked">${at.came} of ${at.days} day${at.days === 1 ? '' : 's'}${at.absent ? ` · <span style="color:var(--brick)">${at.absent} absent</span>` : ''}${at.unmarked ? ` · <span class="muted-note">${at.unmarked} not marked</span>` : ''}</span>`; })()}</td>
             <td><span class="badge ${st === 'now' ? 'warn' : st === 'upcoming' ? 'active' : 'inactive'}">${st === 'now' ? 'In the store' : st === 'upcoming' ? 'Upcoming' : 'Done'}</span></td>
             <td><div class="icon-actions" style="justify-content:flex-end;"><button class="btn ghost small" data-edit="${r.id}">Edit</button></div></td>
           </tr>`;
-        }).join('') || `<tr><td colspan="8" class="empty-note">${S.rows.length ? 'Nothing here.' : 'No promo ladies yet — use “+ Add promo lady”.'}</td></tr>`}</tbody>
+        }).join('') || `<tr><td colspan="9" class="empty-note">${S.rows.length ? 'Nothing here.' : 'No promo ladies yet — use “+ Add promo lady”.'}</td></tr>`}</tbody>
       </table></div></div>`;
     el('plWhen').onclick = e => { const b = e.target.closest('[data-when]'); if (b) { S.when = b.dataset.when; renderList(); } };
     el('plBody').querySelector('tbody').onclick = e => { const b = e.target.closest('[data-edit]'); if (b) openForm(b.dataset.edit); };
