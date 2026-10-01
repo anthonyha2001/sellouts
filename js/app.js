@@ -600,7 +600,9 @@ function refreshDuplicateFlagsForCode(code) {
 }
 function refreshDiscountUi(tr, row) {
   const dot = tr.querySelector('[data-role="big-discount-dot"]');
-  if (dot) dot.style.display = isBigDiscount(row) ? 'inline-block' : 'none';
+  if (dot) dot.style.display = isBigDiscount(row) && !row.reviewed ? 'inline-block' : 'none';
+  const fixed = tr.querySelector('[data-role="fixed-tag"]');
+  if (fixed) fixed.style.display = isBigDiscount(row) && row.reviewed ? 'inline-flex' : 'none';
   const gapCell = tr.querySelector('[data-role="gap-display"]');
   if (gapCell) gapCell.textContent = gapPctDisplay(row);
 }
@@ -741,6 +743,7 @@ const ICONS = {
   supplier: svgIcon('<path d="M3 21V8l9-5 9 5v13"/><path d="M9 21v-6h6v6"/><path d="M3 21h18"/>'),
   x: svgIcon('<path d="M18 6 6 18M6 6l12 12"/>'),
   plus: svgIcon('<path d="M12 5v14M5 12h14"/>'),
+  check: svgIcon('<path d="M20 6 9 17l-5-5"/>'),
   cart: svgIcon('<circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/><path d="M2 3h3l2.7 12.2a1.5 1.5 0 0 0 1.5 1.2h8.6a1.5 1.5 0 0 0 1.5-1.1L21 8H6.2"/>'),
   undo: svgIcon('<path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-1"/>'),
   print: svgIcon('<path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>'),
@@ -1964,7 +1967,7 @@ function catalogExtrasHtml(row) {
       &nbsp;&middot;&nbsp; Out: ${v(num(out))}
       &nbsp;&middot;&nbsp; Last purchase: ${v(escapeHtml(cat?.lastPurchase || '—'))}
       &nbsp;&middot;&nbsp; Last invoice: ${v(escapeHtml(cat?.lastInvoice || '—'))}
-      ${isBigDiscount(row) ? `<span class="sl-actions"><button type="button" class="btn small ${row.reviewed ? 'ghost' : ''}" data-role="quiet-blink" data-row="${row.id}">${row.reviewed ? 'Blink again' : 'Stop blinking'}</button></span>` : ''}
+      ${isBigDiscount(row) ? `<span class="sl-actions"><button type="button" class="icon-btn fix-btn ${row.reviewed ? 'on' : ''}" data-role="quiet-blink" data-row="${row.id}" title="${row.reviewed ? 'Fixed — click to show the warning again' : 'Discount over 25% checked: mark it fixed (removes the blinking dot)'}" aria-label="${row.reviewed ? 'Show the warning again' : 'Mark fixed'}" aria-pressed="${!!row.reviewed}">${ICONS.check}</button></span>` : ''}
       ${onSelloutOf(row).length ? `<div class="sl-sellout ${row.selloutOk ? 'ok' : ''}">On sell-out: ${onSelloutOf(row).map(x => `<strong>${escapeHtml(x.name)}</strong> (${fmtDate(x.from)} → ${fmtDate(x.to)}${x.price != null ? ' · ' + Number(x.price).toFixed(2) : ''})`).join(', ')}
         <button type="button" class="btn small ${row.selloutOk ? 'ghost' : ''}" data-role="sellout-ok" data-row="${row.id}">${row.selloutOk ? 'Mark as sell-out again' : 'Override the sell-out'}</button></div>` : ''}`;
 }
@@ -2016,7 +2019,8 @@ function buildPromoRowHtml(row) {
     <td class="balance-cell">
       <div class="discount-cell-wrap">
         <input type="text" inputmode="decimal" value="${numToStr(row.discount)}" data-field="discount" placeholder="0%">
-        <span class="big-discount-dot ${row.reviewed ? 'quiet' : ''}" data-role="big-discount-dot" title="Promo price is more than 25% below the sale price${row.reviewed ? ' (blinking stopped)' : ' — open the supplier line to stop the blinking'}" style="display:${isBigDiscount(row) ? 'inline-block' : 'none'};"></span>
+        <span class="big-discount-dot" data-role="big-discount-dot" title="Promo price is more than 25% below the sale price — open the supplier line to mark it fixed" style="display:${isBigDiscount(row) && !row.reviewed ? 'inline-block' : 'none'};"></span>
+        <span class="fixed-tag" data-role="fixed-tag" title="Discount over 25% checked and marked fixed" style="display:${isBigDiscount(row) && row.reviewed ? 'inline-flex' : 'none'};">✓ Fixed</span>
       </div>
     </td>
     <td class="balance-cell"><input type="text" inputmode="decimal" value="${numToStr(row.salePrice)}" data-field="salePrice" placeholder="0.00"></td>

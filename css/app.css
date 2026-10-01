@@ -1292,3 +1292,9 @@ table.promo input[data-field="discount"]{color:var(--ok-green);font-weight:600;}
 .sl-sellout .btn{margin-left:8px;}
 #promoRowsBody tr.row-new > td{animation:rowNew 1.2s ease-out;}
 @keyframes rowNew{from{background:var(--pine-tint);}}
+/* Promotions: "Fixed" for a checked big discount (instead of the blinking dot) */
+.icon-btn.fix-btn{width:28px;height:28px;display:inline-flex;vertical-align:middle;}
+.icon-btn.fix-btn.on{background:var(--ok-green);border-color:var(--ok-green);color:#fff;}
+.fixed-tag{align-items:center;font:700 10px var(--font-mono);text-transform:uppercase;padding:2px 6px;border-radius:999px;background:color-mix(in srgb, var(--ok-green) 15%, transparent);color:var(--ok-green);white-space:nowrap;}
+.discount-cell-wrap input[data-field="discount"]{min-width:52px;}
+.discount-cell-wrap .fixed-tag{padding:2px 5px;font-size:9px;}
