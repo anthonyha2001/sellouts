@@ -206,7 +206,7 @@
           <button type="button" class="lb-remove" data-remove aria-label="Remove ${esc(x.barcode)}">
             <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
         </div>`).join('') || '<div class="empty-state" style="padding:30px 16px;"><p class="big">Nothing scanned yet</p><p>Tap Scan and point the camera at the barcodes that need a new label.</p></div>'}</div>
-      ${S.items.length ? `<div class="lb-done"><button class="btn" id="lbDone">Done — send to the accountant</button></div>` : ''}`;
+      ${S.items.length ? `<div class="lb-done"><button class="btn" id="lbDone">Done</button></div>` : ''}`;
     el('lbScan').onclick = () => Scanner.open({ title: 'Scan for labels', continuous: true, onCode: code => addCode(code, true) });
     el('lbManual').onsubmit = e => { e.preventDefault(); const v = el('lbCode').value; if (addCode(v)) { el('lbCode').value = ''; el('lbCode').focus(); } };
     body.querySelectorAll('.lb-row').forEach(row => {
@@ -221,22 +221,23 @@
 
   async function submitList() {
     const labels = S.items.reduce((n, x) => n + x.qty, 0);
-    if (!(await showConfirm(`Send ${S.items.length} item${S.items.length === 1 ? '' : 's'} (${labels} label${labels === 1 ? '' : 's'}) to the accountant? You start a new list after this.`, 'Send'))) return;
+    const btn = el('lbDone'); if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
     // Everything must be in the database first: resend what is still only on this phone.
     S.items.filter(x => x.dirty).forEach(it => enqueue(() => saveItem(it)));
     [...(S.removed || [])].forEach(code => enqueue(() => deleteItem(code)));
     await S.queue;
     if (pendingCount() || !S.list) {
       showToast('Some scans are not saved to the server yet (no connection?). Your list is safe on this phone — try Done again in a moment.', true);
+      if (btn) { btn.disabled = false; btn.textContent = 'Done'; }
       return;
     }
     const { error } = await sb.from('label_lists').update({ submitted_at: new Date().toISOString() }).eq('id', S.list.id);
-    if (error) return fail('Could not send the list', error);
+    if (error) { if (btn) { btn.disabled = false; btn.textContent = 'Done'; } return fail('Could not send the list', error); }
     logActivity('labels', 'submit', { type: 'label_list', id: S.list.id }, `Sent ${S.items.length} items (${labels} labels) for printing`, { items: S.items.length, labels });
     S.list = null; S.items = []; S.removed = [];
     clearDraft();
     renderMine();
-    showToast('Sent. The accountant will print the labels.');
+    showToast(`Sent to the accountant — ${labels} label${labels === 1 ? '' : 's'}.`);
   }
 
   /* ================= To print (accountant / admin) ================= */
@@ -259,48 +260,130 @@
     }));
     return [...m.values()].sort((a, b) => a.barcode.localeCompare(b.barcode));
   }
+  // One card per sent list, like the sell-outs: the worker's name, when it was sent, items / labels;
+  // open it to see the barcodes; Export downloads that list (then it leaves this page); Edit corrects
+  // quantities, removes or adds a barcode before printing (migration 026).
+  const svg = d => `<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
   function renderToPrint() {
     const body = el('lbBody'); if (!body) return;
-    const rows = merged();
-    const labels = rows.reduce((n, r) => n + r.qty, 0);
     if (!S.toPrint.length) {
       body.innerHTML = '<div class="empty-state"><p class="big">Nothing to print</p><p>Lists appear here when a shelf worker taps Done.</p></div>';
       return;
     }
+    S.open = S.open || new Set();
+    const total = merged().reduce((n, r) => n + r.qty, 0);
     body.innerHTML = `
-      <div class="card">
-        <div class="lb-print-head">
-          <div><h3 style="margin:0 0 4px;">${rows.length} item${rows.length === 1 ? '' : 's'} · ${labels} label${labels === 1 ? '' : 's'}</h3>
-            <span class="muted-note">From ${S.toPrint.length} list${S.toPrint.length === 1 ? '' : 's'}: ${S.toPrint.map(l => `${esc(l.created_by_name || 'Shelf worker')} (${esc(fmtTs(l.submitted_at))})`).join(', ')}</span></div>
-          <button class="btn" id="lbExport">Export to Excel</button>
+      <div class="lb-print-top">
+        <span class="muted-note">${S.toPrint.length} list${S.toPrint.length === 1 ? '' : 's'} · ${total} label${total === 1 ? '' : 's'} to print</span>
+        ${S.toPrint.length > 1 ? '<button class="btn secondary small" id="lbExportAll">Export all together</button>' : ''}
+      </div>
+      ${S.toPrint.map(listCard).join('')}`;
+    el('lbExportAll')?.addEventListener('click', () => exportLists(S.toPrint));
+    body.querySelectorAll('.sellout[data-list]').forEach(card => wireCard(card));
+  }
+  function listCard(l) {
+    const editing = S.editing === l.id;
+    const items = (editing ? S.draftItems : l.items).slice().sort((x, y) => x.barcode.localeCompare(y.barcode));
+    const labels = l.items.reduce((n, i) => n + i.qty, 0);
+    const open = editing || S.open.has(l.id);
+    const rows = items.map(i => editing
+      ? `<tr data-code="${esc(i.barcode)}"><td style="font-family:var(--font-mono);">${esc(i.barcode)}</td>
+          <td class="num"><input type="text" inputmode="numeric" class="lb-edit-qty" value="${i.qty}" aria-label="Quantity for ${esc(i.barcode)}"></td>
+          <td class="num"><button type="button" class="icon-btn danger" data-act="remove" title="Remove" aria-label="Remove ${esc(i.barcode)}">${svg('<path d="M6 6l12 12M18 6L6 18"/>')}</button></td></tr>`
+      : `<tr><td style="font-family:var(--font-mono);">${esc(i.barcode)}</td><td class="num" style="font-family:var(--font-mono);">${i.qty}</td></tr>`).join('');
+    return `<div class="sellout ${open ? 'open' : ''}" data-list="${esc(l.id)}">
+      <div class="sellout-head" data-toggle>
+        <span class="chev">${svg('<path d="M9 6l6 6-6 6"/>')}</span>
+        <div class="who"><div class="name">${esc(l.created_by_name || 'Shelf worker')}</div>
+          <div class="dates"><span>${esc(fmtTs(l.submitted_at))}</span><span>· ${l.items.length} item${l.items.length === 1 ? '' : 's'} · ${labels} label${labels === 1 ? '' : 's'}</span></div></div>
+        <div class="icon-actions">
+          <button class="icon-btn" data-act="edit" title="Edit this list" aria-label="Edit this list" ${editing ? 'disabled' : ''}>${svg('<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>')}</button>
+          <button class="btn small lb-export-one" data-act="export" ${editing ? 'disabled' : ''}>${svg('<path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 19h14"/>')} Export</button>
         </div>
-        <div class="items-scroll" style="margin:14px 0 0;">
-          <table class="items"><thead><tr><th>ItemCode</th><th class="num">Qty</th><th class="num">Lists</th></tr></thead>
-            <tbody>${rows.map(r => `<tr><td style="font-family:var(--font-mono);">${esc(r.barcode)}</td><td class="num" style="font-family:var(--font-mono);">${r.qty}</td><td class="num">${r.lists}</td></tr>`).join('')}</tbody>
-          </table>
+      </div>
+      <div class="sellout-body">
+        <div class="items-scroll" style="margin:0;">
+          <table class="items"><thead><tr><th>ItemCode</th><th class="num">Qty</th>${editing ? '<th></th>' : ''}</tr></thead><tbody>${rows || '<tr><td colspan="3" class="empty-note">No items.</td></tr>'}</tbody></table>
         </div>
-      </div>`;
-    el('lbExport').onclick = exportAndEmpty;
+        ${editing ? `<form class="lb-edit-add" data-act="add-form"><input type="text" inputmode="numeric" placeholder="Add a barcode" aria-label="Add a barcode"><input type="text" inputmode="numeric" value="1" class="lb-edit-qty" aria-label="Quantity"><button class="btn secondary small" type="submit">Add</button></form>
+          <div class="actions-row"><button type="button" class="btn ghost small" data-act="cancel">Cancel</button><button type="button" class="btn small" data-act="save">Save changes</button></div>` : ''}
+      </div>
+    </div>`;
+  }
+  function wireCard(card) {
+    const l = S.toPrint.find(x => x.id === card.dataset.list); if (!l) return;
+    card.querySelector('[data-toggle]').addEventListener('click', e => {
+      if (e.target.closest('.icon-actions') || S.editing === l.id) return;
+      S.open.has(l.id) ? S.open.delete(l.id) : S.open.add(l.id);
+      card.classList.toggle('open');
+    });
+    card.addEventListener('click', async e => {
+      const b = e.target.closest('[data-act]'); if (!b || b.tagName === 'FORM') return;
+      e.stopPropagation();
+      if (b.dataset.act === 'export') return exportLists([l]);
+      if (b.dataset.act === 'edit') { S.editing = l.id; S.draftItems = l.items.map(i => ({ barcode: i.barcode, qty: i.qty })); return renderToPrint(); }
+      if (b.dataset.act === 'cancel') { S.editing = null; return renderToPrint(); }
+      if (b.dataset.act === 'remove') { const code = b.closest('tr').dataset.code; S.draftItems = S.draftItems.filter(i => i.barcode !== code); return renderToPrint(); }
+      if (b.dataset.act === 'save') return saveEdit(l);
+    });
+    card.querySelectorAll('.lb-edit-qty').forEach(inp => inp.addEventListener('change', () => {
+      const code = inp.closest('tr')?.dataset.code; if (!code) return;
+      const it = S.draftItems.find(i => i.barcode === code); const n = parseInt(inp.value, 10);
+      if (it) it.qty = Number.isFinite(n) && n > 0 ? n : 1;
+    }));
+    card.querySelector('[data-act="add-form"]')?.addEventListener('submit', e => {
+      e.preventDefault();
+      const [codeInp, qtyInp] = e.target.querySelectorAll('input');
+      const code = codeInp.value.replace(/\s+/g, ''); const n = parseInt(qtyInp.value, 10) || 1;
+      if (!code) return;
+      const it = S.draftItems.find(i => i.barcode === code);
+      if (it) it.qty += n; else S.draftItems.push({ barcode: code, qty: n });
+      renderToPrint();
+      el('lbBody').querySelector(`.sellout[data-list="${CSS.escape(l.id)}"] [data-act="add-form"] input`)?.focus();
+    });
+  }
+  async function saveEdit(l) {
+    // Quantities typed but not yet "changed" (still focused) count too.
+    el('lbBody').querySelectorAll(`.sellout[data-list="${CSS.escape(l.id)}"] tr[data-code] .lb-edit-qty`).forEach(inp => {
+      const it = S.draftItems.find(i => i.barcode === inp.closest('tr').dataset.code); const n = parseInt(inp.value, 10);
+      if (it) it.qty = Number.isFinite(n) && n > 0 ? n : 1;
+    });
+    const now = new Map(S.draftItems.map(i => [i.barcode, i.qty]));
+    const removed = l.items.filter(i => !now.has(i.barcode)).map(i => i.barcode);
+    const upserts = S.draftItems.filter(i => { const o = l.items.find(x => x.barcode === i.barcode); return !o || o.qty !== i.qty; })
+      .map(i => ({ list_id: l.id, barcode: i.barcode, qty: i.qty }));
+    if (removed.length) { const { error } = await sb.from('label_items').delete().eq('list_id', l.id).in('barcode', removed); if (error) return fail('Could not save the list', error); }
+    if (upserts.length) { const { error } = await sb.from('label_items').upsert(upserts, { onConflict: 'list_id,barcode' }); if (error) return fail('Could not save the list', error); }
+    if (removed.length || upserts.length) logActivity('labels', 'edit', { type: 'label_list', id: l.id }, `Edited the label list of ${l.created_by_name || 'a shelf worker'} (${upserts.length} changed, ${removed.length} removed)`);
+    S.editing = null;
+    await loadToPrint();
+    renderToPrint();
+    showToast('List saved.');
   }
 
-  async function exportAndEmpty() {
-    const rows = merged();
-    const ids = S.toPrint.map(l => l.id);
-    const aoa = [['ItemCode', 'Qty'], ...rows.map(r => [r.barcode, r.qty])];
+  // Export one list (or all together): the Excel file, then those lists are marked printed and leave the page.
+  async function exportLists(lists) {
+    const m = new Map();
+    lists.forEach(l => l.items.forEach(i => m.set(i.barcode, (m.get(i.barcode) || 0) + i.qty)));
+    const rows = [...m.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+    if (!rows.length) return showToast('This list is empty.', true);
+    const aoa = [['ItemCode', 'Qty'], ...rows];
     const ws = XLSX.utils.aoa_to_sheet(aoa);
     for (let r = 1; r < aoa.length; r++) { const ref = XLSX.utils.encode_cell({ r, c: 0 }); ws[ref].t = 's'; ws[ref].v = String(aoa[r][0]); ws[ref].w = String(aoa[r][0]); }
     ws['!cols'] = [{ wch: 18 }, { wch: 6 }];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Labels');
     const stamp = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Beirut' }).slice(0, 16).replace(/[ :]/g, '-');
-    XLSX.writeFile(wb, `labels-${stamp}.xlsx`);
-    // The file is out: mark the lists exported, which empties this page (they stay in the database).
+    const who = lists.length === 1 ? '-' + String(lists[0].created_by_name || 'list').replace(/[^\w-]+/g, '-').toLowerCase() : '';
+    XLSX.writeFile(wb, `labels${who}-${stamp}.xlsx`);
+    const ids = lists.map(l => l.id);
     const { error } = await sb.from('label_lists').update({ exported_at: new Date().toISOString() }).in('id', ids);
-    if (error) return fail('The file was downloaded, but the lists could not be marked as printed. Try Export again', error);
-    logActivity('labels', 'export', null, `Exported ${rows.length} items (${rows.reduce((n, r) => n + r.qty, 0)} labels) for printing`, { lists: ids, items: rows.length });
-    S.toPrint = [];
+    if (error) return fail('The file was downloaded, but the list could not be marked as printed. Try Export again', error);
+    const labels = rows.reduce((n, r) => n + r[1], 0);
+    logActivity('labels', 'export', null, `Exported ${rows.length} items (${labels} labels) for printing`, { lists: ids, items: rows.length });
+    S.toPrint = S.toPrint.filter(l => !ids.includes(l.id));
     renderToPrint();
-    showToast('Excel downloaded. The list is now empty.');
+    showToast(`Excel downloaded — ${labels} label${labels === 1 ? '' : 's'}.`);
   }
 
   window.Labels = { show, _state: S, _addCode: addCode };

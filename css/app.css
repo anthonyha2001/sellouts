@@ -1169,3 +1169,16 @@ tr.sh-dragging th,tr.sh-dragging td{background:var(--pine-tint);}
 .so-drop:hover,.so-drop.on{border-color:var(--pine);background:var(--pine-tint);}
 .so-file-hidden{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;}
 .sellout.so-drop-on{outline:2px dashed var(--pine);outline-offset:3px;}
+
+/* Labels › To print: one accordion per list */
+.lb-print-top{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;}
+#panel-labels .sellout-body{padding:14px 18px 16px;}
+#panel-labels .sellout:not(.open) .sellout-body{display:none;}
+.lb-export-one{display:inline-flex;align-items:center;gap:6px;}
+.lb-export-one svg{width:15px;height:15px;stroke:currentColor;}
+.lb-edit-qty{width:70px;text-align:right;padding:5px 8px;font-family:var(--font-mono);background:var(--paper-raised);color:var(--ink);border:1px solid var(--line-strong);border-radius:6px;}
+.lb-edit-add{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;}
+.lb-edit-add input:first-child{flex:1 1 180px;padding:7px 10px;font-family:var(--font-mono);background:var(--paper-raised);color:var(--ink);border:1px solid var(--line-strong);border-radius:6px;}
+#panel-labels input.lb-edit-qty{width:80px;flex:0 0 80px;}
+#panel-labels .lb-edit-add{align-items:center;}
+#panel-labels .lb-edit-add input:first-child{width:auto;}
