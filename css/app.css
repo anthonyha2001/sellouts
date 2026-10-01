@@ -1274,3 +1274,21 @@ table.promo td.rowact-col [data-role="insert-row"]:hover{transform:translateX(-5
 table.promo tr:has(+ tr:hover) td.rowact-col [data-role="insert-row"]{opacity:1;pointer-events:auto;}
 table.promo tr:hover td.rowact-col,table.promo tr:focus-within td.rowact-col,table.promo tr:has(+ tr:hover) td.rowact-col{z-index:4;}
 table.promo tr:has(+ tr:hover) td.rowact-col{z-index:5;}
+
+/* Promotions (owner, 2026-10-01): selection footer, green discount, quiet dot, sell-out rows */
+.promo-sel-footer{position:sticky;bottom:12px;z-index:7;display:flex;justify-content:center;pointer-events:none;margin-top:10px;}
+.promo-sel-footer .promo-sel-actions{pointer-events:auto;background:var(--paper-raised);border:1px solid var(--line-strong);border-radius:999px;padding:8px 10px 8px 16px;box-shadow:0 8px 24px -8px rgba(0,0,0,.35);gap:8px;align-items:center;}
+table.promo input[data-field="discount"]{color:var(--ok-green);font-weight:600;}
+:root{--ok-green:#1F8A4C;--so-purple:#7A3FD0;--so-purple-tint:#F1E9FC;}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){--ok-green:#5BCB8A;--so-purple:#B794F4;--so-purple-tint:#2B2140;} }
+:root[data-theme="dark"]{--ok-green:#5BCB8A;--so-purple:#B794F4;--so-purple-tint:#2B2140;}
+.big-discount-dot.quiet:after{animation:none;opacity:0;}
+#promoRowsBody tr.row-on-sellout > td{background:var(--so-purple-tint);}
+#promoRowsBody tr.row-on-sellout > td.rownum-col{box-shadow:inset 3px 0 0 var(--so-purple);}
+.so-badge{flex:0 0 auto;font:700 9.5px var(--font-mono);text-transform:uppercase;padding:2px 6px;border-radius:999px;background:var(--so-purple);color:#fff;letter-spacing:.03em;}
+.sl-actions{margin-left:10px;}
+.sl-sellout{margin-top:6px;color:var(--so-purple);}
+.sl-sellout.ok{color:var(--ink-soft);}
+.sl-sellout .btn{margin-left:8px;}
+#promoRowsBody tr.row-new > td{animation:rowNew 1.2s ease-out;}
+@keyframes rowNew{from{background:var(--pine-tint);}}

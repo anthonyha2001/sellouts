@@ -232,6 +232,7 @@ async function fetchPromoRows(promoId) {
     supplier: r.supplier || '',
     flagged: !!r.flagged,
     toOrder: !!r.to_order,
+    selloutOk: !!r.sellout_ok,
     reviewed: !!r.reviewed,
     cost: r.cost === undefined ? null : r.cost,
     country: r.country || '',
@@ -270,6 +271,7 @@ function promoRowPayload(row) {
     supplier: row.supplier || null,
     flagged: !!row.flagged,
     to_order: !!row.toOrder,
+    sellout_ok: !!row.selloutOk,
     reviewed: !!row.reviewed,
     cost: (row.cost === null || row.cost === undefined || row.cost === '') ? null : String(row.cost),
     country: row.country || null,
@@ -1854,14 +1856,52 @@ document.addEventListener('click', e => {
   if (b.dataset.role === 'export-to-order') exportToOrder();
 });
 
+// Supplier line buttons: stop / restart the blinking (big discount), override the sell-out mark.
+document.addEventListener('click', async e => {
+  const b = e.target.closest('[data-role="quiet-blink"], [data-role="sellout-ok"]'); if (!b) return;
+  if (!canEditPromotions()) return refuseViewOnly('promotions');
+  const row = currentRows.find(r => r.id === b.dataset.row); if (!row) return;
+  if (b.dataset.role === 'quiet-blink') row.reviewed = !row.reviewed; else row.selloutOk = !row.selloutOk;
+  await savePromoRow(row);
+  await renderPromoWorkspace();
+});
+
+// Space on the row under the mouse (not while typing in a field): one press adds an empty row
+// below it, two quick presses add one above it (owner, 2026-10-01). Replaces the "+" buttons.
+let hoveredPromoRowId = null, spaceTimer = null;
+document.addEventListener('mouseover', e => {
+  const tr = e.target.closest && e.target.closest('#promoRowsBody tr[data-row-id]');
+  if (tr) hoveredPromoRowId = tr.dataset.rowId;
+  else if (!e.target.closest || !e.target.closest('#promoRowsBody')) hoveredPromoRowId = null;
+});
+async function insertPromoRowNear(rowId, above) {
+  if (!canEditPromotions()) return refuseViewOnly('promotions');
+  const idx = currentRows.findIndex(r => r.id === rowId); if (idx < 0) return;
+  const row = blankPromoRow();
+  currentRows.splice(above ? idx : idx + 1, 0, row);
+  const moved = renumberRows();
+  await renderPromoWorkspace();
+  await persistRowsBulk(moved.includes(row) ? moved : [row, ...moved]);
+  const tr = document.querySelector(`#promoRowsBody tr[data-row-id="${row.id}"]`);
+  if (tr) { tr.classList.add('row-new'); tr.querySelector('[data-field="code"]')?.focus(); }
+}
+document.addEventListener('keydown', e => {
+  if (e.key !== ' ' || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || e.repeat) return;
+  if (!document.getElementById('panel-promotions')?.classList.contains('active')) return;
+  if (e.target.closest && e.target.closest('input, textarea, select, button, [contenteditable="true"]')) return;
+  if (document.querySelector('.modal-overlay.open') || !hoveredPromoRowId) return;
+  e.preventDefault();
+  const id = hoveredPromoRowId;
+  if (spaceTimer) { clearTimeout(spaceTimer); spaceTimer = null; insertPromoRowNear(id, true); return; }
+  spaceTimer = setTimeout(() => { spaceTimer = null; insertPromoRowNear(id, false); }, 280);
+});
+
 let lastClickedRowId = null;
 function updateSelectionUi() {
   const selBar = document.getElementById('promoSelActions');
   if (selBar) selBar.style.display = selectedRowIds.size ? 'flex' : 'none';
   const selCount = document.getElementById('promoSelCount');
   if (selCount) selCount.textContent = `${selectedRowIds.size} selected`;
-  const selHint = document.getElementById('promoSelHint');
-  if (selHint) selHint.style.display = selectedRowIds.size ? 'none' : '';
 }
 function filterButtonInnerHtml(count) {
   return `<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16l-6.5 7.5V19l-3 1.5v-8L4 5Z"/></svg>${count ? `<span class="icon-btn-badge">${count}</span>` : ''}`;
@@ -1891,6 +1931,26 @@ function wireTableFilterStatus() {
   }
 }
 
+// Sell-outs this item's code is on, running during the promotion's dates (or today when it has none).
+// Rebuilt when the sell-outs or the open promotion change (owner, 2026-10-01).
+let selloutCodeCache = { key: '', map: new Map() };
+function onSelloutOf(row) {
+  const code = String(row.code || '').trim(); if (!code) return [];
+  const promo = promotions.find(p => p.id === currentPromoId);
+  const list = typeof sellouts !== 'undefined' && Array.isArray(sellouts) ? sellouts : [];
+  const key = `${currentPromoId}|${promo?.from}|${promo?.to}|${list.length}|${list.map(x => x.id + x.from + x.to + (x.archived ? 1 : 0)).join(',')}`;
+  if (selloutCodeCache.key !== key) {
+    const from = promo?.from || todayStr(), to = promo?.to || promo?.from || todayStr();
+    const map = new Map();
+    list.filter(so => !so.archived && so.from <= to && so.to >= from).forEach(so => {
+      const rows = typeof pricedRowsOf === 'function' ? pricedRowsOf(so) : [];
+      rows.forEach(p => { const c = normalizeCatalogCode(String(p.code || '').trim()); if (!c) return; if (!map.has(c)) map.set(c, []); if (!map.get(c).some(x => x.id === so.id)) map.get(c).push({ id: so.id, name: so.name, from: so.from, to: so.to, price: p.newPrice }); });
+    });
+    selloutCodeCache = { key, map };
+  }
+  return selloutCodeCache.map.get(normalizeCatalogCode(code)) || [];
+}
+
 // Balance / Out / Last purchase / Last invoice from the item catalog, in the supplier line of a row
 // (the building button) — owner, 2026-10-01.
 function catalogExtrasHtml(row) {
@@ -1903,7 +1963,10 @@ function catalogExtrasHtml(row) {
       &nbsp;&middot;&nbsp; Balance: ${v(num(bal))}
       &nbsp;&middot;&nbsp; Out: ${v(num(out))}
       &nbsp;&middot;&nbsp; Last purchase: ${v(escapeHtml(cat?.lastPurchase || '—'))}
-      &nbsp;&middot;&nbsp; Last invoice: ${v(escapeHtml(cat?.lastInvoice || '—'))}`;
+      &nbsp;&middot;&nbsp; Last invoice: ${v(escapeHtml(cat?.lastInvoice || '—'))}
+      ${isBigDiscount(row) ? `<span class="sl-actions"><button type="button" class="btn small ${row.reviewed ? 'ghost' : ''}" data-role="quiet-blink" data-row="${row.id}">${row.reviewed ? 'Blink again' : 'Stop blinking'}</button></span>` : ''}
+      ${onSelloutOf(row).length ? `<div class="sl-sellout ${row.selloutOk ? 'ok' : ''}">On sell-out: ${onSelloutOf(row).map(x => `<strong>${escapeHtml(x.name)}</strong> (${fmtDate(x.from)} → ${fmtDate(x.to)}${x.price != null ? ' · ' + Number(x.price).toFixed(2) : ''})`).join(', ')}
+        <button type="button" class="btn small ${row.selloutOk ? 'ghost' : ''}" data-role="sellout-ok" data-row="${row.id}">${row.selloutOk ? 'Mark as sell-out again' : 'Override the sell-out'}</button></div>` : ''}`;
 }
 function buildPromoRowHtml(row) {
   const priceRisk = isPriceRisk(row);
@@ -1923,12 +1986,9 @@ function buildPromoRowHtml(row) {
     </td>
   </tr>` : '';
   return `
-  <tr data-row-id="${row.id}" class="${selectedRowIds.has(row.id) ? 'row-selected' : ''} ${row.toOrder ? 'row-to-order' : ''}">
+  <tr data-row-id="${row.id}" class="${selectedRowIds.has(row.id) ? 'row-selected' : ''} ${row.toOrder ? 'row-to-order' : ''} ${onSelloutOf(row).length && !row.selloutOk ? 'row-on-sellout' : ''}">
     <td class="rowact-col">
       <div class="icon-actions">
-        <button class="icon-btn" data-role="insert-row" tabindex="-1" title="Insert row below" aria-label="Insert row below">
-          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
-        </button>
         <button class="icon-btn" data-role="insert-rows-bulk" tabindex="-1" title="Insert multiple rows below" aria-label="Insert multiple rows below">
           <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M3 12h10"/><path d="M17 15v6M14 18h6"/></svg>
         </button>
@@ -1940,6 +2000,7 @@ function buildPromoRowHtml(row) {
     <td class="chk-col rownum-col" data-role="select-row" title="Click to select (Shift: a range)">${(row.sortOrder ?? 0) + 1}</td>
     <td class="code-cell">
       <div class="code-cell-wrap">
+        ${onSelloutOf(row).length && !row.selloutOk ? `<span class="so-badge" title="Already on sell-out: ${escapeHtml(onSelloutOf(row).map(x => x.name).join(', '))} — open the supplier line to override">Sell-out</span>` : ''}
         <input type="text" class="${isDuplicateCodeInPromo(row) ? 'cell-duplicate' : ''}" value="${escapeHtml(row.code)}" data-field="code" placeholder="Code" title="${isDuplicateCodeInPromo(row) ? 'This code appears more than once in this promotion' : ''}">
         <span class="code-issue-icon mismatch-icon" data-role="mismatch-icon" title="${MISMATCH_TITLE}" style="display:${isCodeMissingFromCatalog(row) ? 'inline-flex' : 'none'};">
           <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
@@ -1955,7 +2016,7 @@ function buildPromoRowHtml(row) {
     <td class="balance-cell">
       <div class="discount-cell-wrap">
         <input type="text" inputmode="decimal" value="${numToStr(row.discount)}" data-field="discount" placeholder="0%">
-        <span class="big-discount-dot" data-role="big-discount-dot" title="Promo price is more than 25% below the sale price" style="display:${isBigDiscount(row) ? 'inline-block' : 'none'};"></span>
+        <span class="big-discount-dot ${row.reviewed ? 'quiet' : ''}" data-role="big-discount-dot" title="Promo price is more than 25% below the sale price${row.reviewed ? ' (blinking stopped)' : ' — open the supplier line to stop the blinking'}" style="display:${isBigDiscount(row) ? 'inline-block' : 'none'};"></span>
       </div>
     </td>
     <td class="balance-cell"><input type="text" inputmode="decimal" value="${numToStr(row.salePrice)}" data-field="salePrice" placeholder="0.00"></td>
@@ -2082,19 +2143,10 @@ async function renderPromoWorkspace() {
       <div class="promo-sticky" id="promoStickyBar">
         <div class="promo-sticky-left">
           ${promoViewMode === 'table' && tableSubView === 'rows' ? `
-          <div class="promo-sel-actions" id="promoSelActions" style="display:${selectedRowIds.size ? 'flex' : 'none'};">
-            <span class="promo-sel-count" id="promoSelCount">${selectedRowIds.size} selected</span>
-            <button class="btn secondary small ibtn" id="copySelectedBtn">${ICONS.copy}Copy codes</button>
-            <button class="btn secondary small ibtn" id="orderSelectedBtn" title="Mark the selected rows To order">${ICONS.cart}To order</button>
-            <button class="btn secondary small ibtn" id="applyDiscountSelectedBtn">${ICONS.percent}Discount</button>
-            <button class="btn ghost small ibtn danger" id="deleteSelectedBtn">${ICONS.trash}Delete rows</button>
-            <button class="icon-btn" id="clearSelectionBtn" title="Clear the selection" aria-label="Clear the selection">${ICONS.x}</button>
-          </div>
-          <span class="muted-note" id="promoSelHint" style="display:${selectedRowIds.size ? 'none' : ''};">${promoStats.total} row${promoStats.total === 1 ? '' : 's'} · ${promoStats.flagged} flagged · ${promoStats.empty} empty</span>` : `<span class="muted-note">${promoStats.total} row${promoStats.total === 1 ? '' : 's'} · ${promoStats.flagged} flagged · ${promoStats.empty} empty</span>`}
+          <span class="muted-note" id="promoSelHint">${promoStats.total} row${promoStats.total === 1 ? '' : 's'} · ${promoStats.flagged} flagged · ${promoStats.empty} empty</span>` : `<span class="muted-note">${promoStats.total} row${promoStats.total === 1 ? '' : 's'} · ${promoStats.flagged} flagged · ${promoStats.empty} empty</span>`}
         </div>
         <div class="promo-sticky-mid" id="promoToOrderBox"></div>
         <div class="promo-sticky-right">
-          ${promoViewMode === 'table' && tableSubView === 'rows' ? `<button type="button" class="btn small ibtn" id="addRowTopBtn" title="Insert an empty row at the top of the table">${ICONS.plus}Row at top</button>` : ''}
           <button type="button" class="btn secondary small ibtn" data-role="promo-undo" disabled>${ICONS.undo}Undo</button>
           ${promoViewMode === 'table' ? `
           <div class="filter-row" id="tableSubViewSwitch" style="margin:0;">
@@ -2155,6 +2207,16 @@ async function renderPromoWorkspace() {
           </table>
           <div id="tableEmptyState">${tableEmptyStateHtml(tableVisibleRows)}</div>
         </div>
+        ${promoViewMode === 'table' && tableSubView === 'rows' ? `<div class="promo-sel-footer">
+          <div class="promo-sel-actions" id="promoSelActions" style="display:${selectedRowIds.size ? 'flex' : 'none'};">
+            <span class="promo-sel-count" id="promoSelCount">${selectedRowIds.size} selected</span>
+            <button class="btn secondary small ibtn" id="copySelectedBtn">${ICONS.copy}Copy codes</button>
+            <button class="btn secondary small ibtn" id="orderSelectedBtn" title="Mark the selected rows To order">${ICONS.cart}To order</button>
+            <button class="btn secondary small ibtn" id="applyDiscountSelectedBtn">${ICONS.percent}Discount</button>
+            <button class="btn ghost small ibtn danger" id="deleteSelectedBtn">${ICONS.trash}Delete rows</button>
+            <button class="icon-btn" id="clearSelectionBtn" title="Clear the selection" aria-label="Clear the selection">${ICONS.x}</button>
+          </div>
+        </div>` : ''}
         <div class="promo-table-foot">
           <div class="promo-foot-actions">
             <button class="btn secondary small" id="addRowBtn">+ Add row</button>
@@ -2856,7 +2918,7 @@ function wirePromoRowElement(tr) {
       renderPromoWorkspace();
     });
 
-    tr.querySelector('[data-role="insert-row"]').addEventListener('click', async () => {
+    tr.querySelector('[data-role="insert-row"]')?.addEventListener('click', async () => {
       const idx = currentRows.findIndex(r => r.id === rowId);
       const newRow = blankPromoRow();
       currentRows.splice(idx + 1, 0, newRow);
