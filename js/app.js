@@ -734,6 +734,7 @@ const ICONS = {
   rows: svgIcon('<path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/>'),
   supplier: svgIcon('<path d="M3 21V8l9-5 9 5v13"/><path d="M9 21v-6h6v6"/><path d="M3 21h18"/>'),
   x: svgIcon('<path d="M18 6 6 18M6 6l12 12"/>'),
+  plus: svgIcon('<path d="M12 5v14M5 12h14"/>'),
   undo: svgIcon('<path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-1"/>'),
   print: svgIcon('<path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>'),
 };
@@ -2027,6 +2028,7 @@ async function renderPromoWorkspace() {
           <span class="muted-note" id="promoSelHint" style="display:${selectedRowIds.size ? 'none' : ''};">${promoStats.total} row${promoStats.total === 1 ? '' : 's'} · ${promoStats.flagged} flagged · ${promoStats.empty} empty</span>` : `<span class="muted-note">${promoStats.total} row${promoStats.total === 1 ? '' : 's'} · ${promoStats.flagged} flagged · ${promoStats.empty} empty</span>`}
         </div>
         <div class="promo-sticky-right">
+          ${promoViewMode === 'table' && tableSubView === 'rows' ? `<button type="button" class="btn small ibtn" id="addRowTopBtn" title="Insert an empty row at the top of the table">${ICONS.plus}Row at top</button>` : ''}
           <button type="button" class="btn secondary small ibtn" data-role="promo-undo" disabled>${ICONS.undo}Undo</button>
           ${promoViewMode === 'table' ? `
           <div class="filter-row" id="tableSubViewSwitch" style="margin:0;">
@@ -3013,6 +3015,18 @@ function wirePromoWorkspaceEvents(promo) {
 
   document.querySelectorAll('[data-role="promo-undo"]').forEach(b => b.addEventListener('click', undoPromoChange));
   updateUndoButton();
+  // A new empty row at the very top (owner, 2026-10-01); the rows below move down one place.
+  document.getElementById('addRowTopBtn')?.addEventListener('click', async () => {
+    if (!canEditPromotions()) return refuseViewOnly('promotions');
+    const row = blankPromoRow();
+    currentRows.unshift(row);
+    const moved = renumberRows();
+    tableSearchQuery = '';
+    await renderPromoWorkspace();
+    await persistRowsBulk(moved.includes(row) ? moved : [row, ...moved]);
+    const tr = document.querySelector(`#promoRowsBody tr[data-row-id="${row.id}"]`);
+    if (tr) { tr.scrollIntoView({ block: 'center' }); tr.querySelector('[data-field="code"]')?.focus(); }
+  });
   const clearSelBtn = document.getElementById('clearSelectionBtn');
   if (clearSelBtn) clearSelBtn.addEventListener('click', async () => { selectedRowIds.clear(); await renderPromoWorkspace(); });
 

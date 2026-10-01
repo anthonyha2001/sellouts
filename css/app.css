@@ -1252,3 +1252,4 @@ table.promo th.rownum-col:hover,table.promo td.rownum-col:hover{color:var(--pine
 .dz-linked{font-weight:600;color:var(--pine);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%;}
 .dz-linked em{font-weight:400;color:var(--ink-faint);}
 .dz-reload{padding:4px 10px !important;}
+body.no-promotions-edit #addRowTopBtn{display:none !important;}
