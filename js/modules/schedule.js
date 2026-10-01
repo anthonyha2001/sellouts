@@ -118,8 +118,8 @@
       const days = a[p.id] || [];
       const hours = days.reduce((t, c) => t + (SHIFT[parse(c).shift]?.hours || 0), 0);
       const off = days.filter(c => c === 'off').length;
-      return `<tr data-p="${p.id}">
-        <th class="sh-name">${esc(p.name)}${p.active ? '' : ' <span class="muted-note">(inactive)</span>'}<small>${(isSup(p) ? 'Supervisor' : 'Cashier') + (p.default_station ? ' · ' + (p.default_station === 'front' ? 'Front' : 'Back') : '')}</small></th>
+      return `<tr data-p="${p.id}" data-grp="${isSup(p) ? 'sup' : 'cash'}">
+        <th class="sh-name"><span class="sh-drag" data-drag title="Drag to move" aria-label="Drag to move"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="6" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="18" r="1"/></svg></span>${esc(p.name)}${p.active ? '' : ' <span class="muted-note">(inactive)</span>'}<small>${(isSup(p) ? 'Supervisor' : 'Cashier') + (p.default_station ? ' · ' + (p.default_station === 'front' ? 'Front' : 'Back') : '')}</small></th>
         ${dates.map((d, i) => { const c = days[i] || '', { shift } = parse(c); return `<td class="sh-cell sh-${shift || 'none'}"><button type="button" data-day="${i}" aria-label="${esc(p.name)} ${DAYS[i]}">${cellLabel(c)}</button></td>`; }).join('')}
         <td class="num sh-hours">${hours ? hours + 'h' : '—'}<small>${off} off</small></td></tr>`;
     };
@@ -147,11 +147,59 @@
       <p class="muted-note" style="margin:10px 0 0;">AM ${SHIFT.am.time} · PM ${SHIFT.pm.time} · Full ${SHIFT.full.time}. Changes save by themselves; staff see the week once it is published.</p></div>`;
     wireNav();
     wireGrid(row);
+    wireRowDrag();
     el('shCopy')?.addEventListener('click', copyLast);
     el('shPublish').onclick = togglePublish;
     el('shPrint').onclick = print;
   }
   // Brush painting (click / drag) and keyboard entry on the grid.
+  // Drag a row by the handle next to the name: it moves among its own group only (supervisors
+  // among supervisors, cashiers among cashiers). The order is the staff list's (sort_order), the
+  // same one the Cash grid uses; the other group keeps its places.
+  function wireRowDrag() {
+    const tbody = el('shBody').querySelector('.sh-grid tbody');
+    tbody.addEventListener('pointerdown', e => {
+      const h = e.target.closest('[data-drag]'); if (!h || e.button !== 0) return;
+      e.preventDefault(); e.stopPropagation();
+      const row = h.closest('tr'), grp = row.dataset.grp;
+      const groupRows = () => [...tbody.querySelectorAll(`tr[data-grp="${grp}"]`)];
+      const before = groupRows().map(r => r.dataset.p);
+      row.classList.add('sh-dragging'); tbody.classList.add('sh-drag-on');
+      const move = ev => {
+        const others = groupRows().filter(r => r !== row);
+        if (!others.length) return;
+        const over = others.find(r => { const b = r.getBoundingClientRect(); return ev.clientY < b.top + b.height / 2; });
+        if (over) { if (over.previousElementSibling !== row) tbody.insertBefore(row, over); }
+        else { const last = others[others.length - 1]; if (last.nextElementSibling !== row) last.after(row); }
+      };
+      const up = async () => {
+        window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up);
+        row.classList.remove('sh-dragging'); tbody.classList.remove('sh-drag-on');
+        const after = groupRows().map(r => r.dataset.p);
+        if (after.join() === before.join()) return;
+        await saveGroupOrder(after, row.dataset.p);
+      };
+      window.addEventListener('pointermove', move); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
+    });
+  }
+  // The group's members take the group's slots of the whole list in their new order.
+  async function saveGroupOrder(ids, movedId) {
+    const list = [...S.staff].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+    const set = new Set(ids);
+    let k = 0;
+    const next = list.map(p => { if (!set.has(p.id)) return p; const id = ids[k++]; return S.staff.find(x => x.id === id); });
+    const changed = next.map((p, i) => ({ p, i })).filter(({ p, i }) => p.sort_order !== i);
+    for (const { p, i } of changed) {
+      const { error } = await sb.from('cashiers').update({ sort_order: i }).eq('id', p.id);
+      if (error) { showToast('Order not saved — ' + friendlyError(error), true); await loadStaff(); return renderWeek(); }
+      p.sort_order = i;
+    }
+    S.staff.sort((a, b) => a.sort_order - b.sort_order);
+    const moved = S.staff.find(x => x.id === movedId);
+    if (changed.length) logActivity('schedule', 'reorder_staff', { type: 'cashier', id: movedId }, `Moved ${moved?.name || 'a person'} to place ${ids.indexOf(movedId) + 1} of the ${isSup(moved || {}) ? 'supervisors' : 'cashiers'}`);
+    renderWeek();
+  }
+
   function wireGrid(row) {
     el('shBrush').onclick = e => {
       const b = e.target.closest('[data-bs], [data-bst]'); if (!b) return;

@@ -1140,3 +1140,11 @@ body.rentals-map-expanded #rentalsMap .sm-canvas{ min-height:0; height:100%; bor
 .cash-drag:hover{color:var(--pine);}
 .cash-drag-on,.cash-drag-on *{cursor:grabbing !important;user-select:none;}
 tr.cash-dragging td{background:var(--pine-tint);}
+
+/* Staff schedule: drag a row by the handle next to the name (js/modules/schedule.js) */
+.sh-drag{display:inline-flex;align-items:center;justify-content:center;width:18px;height:22px;margin:0 4px 0 -4px;vertical-align:middle;color:var(--ink-faint);cursor:grab;touch-action:none;}
+.sh-drag svg{width:14px;height:14px;stroke:currentColor;}
+.sh-drag:hover{color:var(--pine);}
+.sh-drag-on,.sh-drag-on *{cursor:grabbing !important;user-select:none;}
+tr.sh-dragging th,tr.sh-dragging td{background:var(--pine-tint);}
+.sh-name small{padding-left:18px;}
