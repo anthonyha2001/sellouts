@@ -1211,3 +1211,12 @@ tr.sh-dragging th,tr.sh-dragging td{background:var(--pine-tint);}
 .sh-le-time.has{color:var(--gold);border-color:var(--gold);font-family:var(--font-mono);}
 .sh-le-person{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;}
 .sh-le-person select{width:auto;min-width:220px;}
+/* By person: the week so far (js/modules/schedule.js weekSummaryHtml) */
+.sh-sum{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:4px 0 10px;}
+.sh-sum-chip{font-size:12.5px;padding:4px 10px;border-radius:999px;background:var(--paper);border:1px solid var(--line);color:var(--ink);}
+.sh-sum-chip b{font-family:var(--font-mono);}
+.sh-sum-chip.zero{opacity:.45;}
+.sh-sum-am{background:var(--sh-am);} .sh-sum-pm{background:var(--sh-pm);} .sh-sum-full{background:var(--sh-full);}
+.sh-sum-front b{color:var(--pine);} .sh-sum-back b{color:var(--brick);}
+.sh-sum-sep{width:1px;height:20px;background:var(--line-strong);margin:0 2px;}
+.sh-sum-left{font-size:12px;color:var(--gold);margin-left:4px;}

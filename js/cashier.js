@@ -145,6 +145,17 @@
     const st = x.station || p.default_station || '';
     return tool + (st ? ':' + st : '');
   }
+  // By person: what the week already has, e.g. 2 AM · 1 PM · 1 Full · 2 Off · 3 Front · 1 Back (owner, 2026-10-01).
+  function weekSummary(p, a) {
+    const n = { am: 0, pm: 0, full: 0, off: 0, front: 0, back: 0, none: 0 };
+    for (let d = 0; d < 7; d++) {
+      const x = parseCode((a[p.id] || [])[d]);
+      if (SHIFTS[x.shift]) { n[x.shift]++; const st = x.station || p.default_station; if (st) n[st]++; }
+      else if (x.shift === 'off') n.off++; else n.none++;
+    }
+    const chip = (k, l) => `<span class="cp-sum-chip cp-sum-${k} ${n[k] ? '' : 'zero'}"><b>${n[k]}</b> ${l}</span>`;
+    return `<div class="cp-sum">${chip('am', 'AM')}${chip('pm', 'PM')}${chip('full', 'Full')}${chip('off', 'Off')}${chip('front', 'Front')}${chip('back', 'Back')}${n.none ? `<span class="cp-sum-left">${n.none} not set</span>` : ''}</div>`;
+  }
   function renderDraft() {
     const box = $('cpDraft');
     if (!draft.on) { box.innerHTML = ''; return; }
@@ -186,6 +197,7 @@
             <button type="button" class="cp-dr-step" data-dp="${everyone[i - 1]?.id || ''}" ${i <= 0 ? 'disabled' : ''} aria-label="Previous person">‹</button>
             <select id="cpDraftPerson" aria-label="Person">${sups.length ? `<optgroup label="Supervisors">${sups.map(x => `<option value="${x.id}" ${x.id === p.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</optgroup>` : ''}${cash.length ? `<optgroup label="Cashiers">${cash.map(x => `<option value="${x.id}" ${x.id === p.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</optgroup>` : ''}</select>
             <button type="button" class="cp-dr-step" data-dp="${everyone[i + 1]?.id || ''}" ${i >= everyone.length - 1 ? 'disabled' : ''} aria-label="Next person">›</button></div>
+          ${weekSummary(p, a)}
           <ul class="cp-dr-list">${dates.map((dt, d) => line(p, d, `<b>${DAYS[d]}</b><em>${dt.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</em>`)).join('')}</ul>` : '<p class="empty-note">No staff.</p>') + send;
       } else body = note + modes + `
         <div class="cp-cal-strip">${dates.map((d, i) => `<button type="button" data-dd="${i}" class="${i === day ? 'on' : ''}"><span>${DAYS[i]}</span><b>${d.getDate()}</b></button>`).join('')}</div>

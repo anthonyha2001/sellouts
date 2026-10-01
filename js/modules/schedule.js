@@ -337,7 +337,19 @@
         <button type="button" class="icon-btn" data-vstep="1" ${idx >= everyone.length - 1 ? 'disabled' : ''} aria-label="Next person"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></button>
         <span class="muted-note">${hours ? hours + 'h this week' : 'Nothing yet this week'} · ${days.filter(c => c === 'off').length} off</span>
       </div>
+      ${weekSummaryHtml(days, p)}
       <ul class="sh-le">${dates.map((dt, i) => `<li data-pid="${p.id}" data-day="${i}" class="${dt === today ? 'today' : ''}"><div class="sh-le-who"><b>${DAYS[i]}</b><small>${dayLabel(dt, { day: 'numeric', month: 'short' })}</small></div>${seg(days[i], p)}</li>`).join('')}</ul>`;
+  }
+  // By person: what the week already has, e.g. 2 AM · 1 PM · 1 Full · 2 Off | 3 Front · 1 Back (owner, 2026-10-01).
+  function weekSummaryHtml(days, p) {
+    const n = { am: 0, pm: 0, full: 0, off: 0, front: 0, back: 0, none: 0 };
+    for (let i = 0; i < 7; i++) {
+      const x = parse(days[i]);
+      if (SHIFT[x.shift]) { n[x.shift]++; const st = x.station || p.default_station; if (st) n[st]++; }
+      else if (x.shift === 'off') n.off++; else n.none++;
+    }
+    const chip = (k, label) => `<span class="sh-sum-chip sh-sum-${k} ${n[k] ? '' : 'zero'}"><b>${n[k]}</b> ${label}</span>`;
+    return `<div class="sh-sum">${chip('am', 'AM')}${chip('pm', 'PM')}${chip('full', 'Full')}${chip('off', 'Off')}<span class="sh-sum-sep"></span>${chip('front', 'Front')}${chip('back', 'Back')}${n.none ? `<span class="sh-sum-left">${n.none} day${n.none === 1 ? '' : 's'} not set</span>` : ''}</div>`;
   }
   function wireListEditor(row) {
     const box = el('shBody').querySelector('.card:last-child');
