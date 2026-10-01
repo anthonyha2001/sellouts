@@ -5,9 +5,10 @@
      from Supabase and is never cached here).
    - Shows notifications (phones only allow notifications through a service worker) and opens
      the app on the right page when one is tapped. */
-const CACHE = 'lv-app-v3';
+const CACHE = 'lv-app-v4';
 const SHELL = ['./', 'index.html', 'css/app.css', 'css/delivery.css', 'manifest.webmanifest',
-  'icons/icon-192.png', 'icons/icon-512.png', 'icons/badge-96.png'];
+  'icons/icon-192.png', 'icons/icon-512.png', 'icons/badge-96.png',
+  'cashier.html', 'css/cashier.css', 'js/cashier.js', 'manifest-cashier.webmanifest'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).catch(() => {}).then(() => self.skipWaiting()));
@@ -24,7 +25,7 @@ self.addEventListener('fetch', e => {
   e.respondWith(fetch(req).then(res => {
     if (res.ok) { const copy = res.clone(); caches.open(CACHE).then(c => c.put(req, copy)); }
     return res;
-  }).catch(() => caches.match(req, { ignoreSearch: true }).then(r => r || (req.mode === 'navigate' ? caches.match('index.html') : undefined))));
+  }).catch(() => caches.match(req, { ignoreSearch: true }).then(r => r || (req.mode === 'navigate' ? caches.match(/cashier\.html$/.test(url.pathname) ? 'cashier.html' : 'index.html') : undefined))));
 });
 
 // Tapping a notification: bring the app to the front (or open it) on the page the notification is about.

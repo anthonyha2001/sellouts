@@ -153,6 +153,27 @@
       $('cpBoot').textContent = 'This page is not available right now. Try again later.';
     }
   })();
+  // Install as an app (owner, 2026-10-01): its own manifest (LV Cashier, opens on this page) and the
+  // app's service worker (sw.js: installable, opens without a connection).
+  (function install() {
+    const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+    const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) navigator.serviceWorker.register('sw.js').catch(() => {});
+    if (standalone) return;
+    let evt = null;
+    const box = $('cpInstall');
+    if (isIOS) { box.hidden = false; $('cpInstallBtn').hidden = true; $('cpInstallIos').hidden = false; }
+    window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); evt = e; box.hidden = false; });
+    window.addEventListener('appinstalled', () => { box.hidden = true; });
+    $('cpInstallBtn').addEventListener('click', async () => {
+      if (!evt) return;
+      evt.prompt();
+      const r = await evt.userChoice.catch(() => null);
+      if (r && r.outcome === 'accepted') box.hidden = true;
+      evt = null;
+    });
+  })();
+
   // Remember only which name was picked on this device (never the PIN).
   $('cpName').addEventListener('change', () => { try { localStorage.setItem('lv:cashierName', $('cpName').value); } catch (e) { /* ignore */ } });
 })();

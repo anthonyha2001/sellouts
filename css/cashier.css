@@ -41,3 +41,9 @@ body.cashier-page{display:block;min-height:100vh;}
 .cp-day.past{opacity:.55;}
 .cp-remember{display:flex;align-items:center;gap:8px;margin:12px 0 0;font-weight:400;font-size:14px;color:var(--ink-soft);cursor:pointer;}
 .cp-remember input{width:18px;height:18px;margin:0;accent-color:var(--pine);}
+
+/* Install as an app */
+.cp-install{margin-top:22px;text-align:center;}
+.cp-install .btn{display:inline-flex;align-items:center;gap:8px;}
+.cp-install svg{width:16px;height:16px;stroke:currentColor;}
+.cp-install p{margin:8px auto 0;max-width:320px;}
