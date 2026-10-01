@@ -303,14 +303,13 @@ async function runCashiers(today: string) {
   subs.forEach(x => { const t = Date.parse(x.created_at); if (!since.has(x.cashier_id) || t < since.get(x.cashier_id)!) since.set(x.cashier_id, t); });
   const settled = new Date(Date.now() - 5 * 60 * 1000).toISOString();     // 5 minutes after the last edit
   const monday = mondayOf(today);
-  const [{ data: weeks }, { data: diffs }, { data: cs }] = await Promise.all([
+  const [{ data: weeks }, { data: diffs }] = await Promise.all([
     db.from('schedule_weeks').select('week_start, assignments, updated_at').eq('published', true)
       .gte('week_start', monday).lte('week_start', addDays(monday, 14)).lte('updated_at', settled),
     db.from('cash_differences').select('id, cashier_id, day, amount, currency, updated_at').in('cashier_id', ids)
       .gte('updated_at', new Date(Date.now() - 3 * 86400000).toISOString()).lte('updated_at', settled).order('day'),
-    db.from('cash_settings').select('currency').eq('id', 'app').maybeSingle(),
   ]);
-  const cur = cs?.currency ?? 'LBP';
+  const cur = 'LBP';   // like the Cash page and the cashier page
   let pushed = 0;
   for (const cid of ids) {
     if (!active.has(cid)) continue;

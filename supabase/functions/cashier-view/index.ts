@@ -90,9 +90,10 @@ Deno.serve(async req => {
 
       const months = beirutMonths();
       const month = months.includes(String(body.month)) ? String(body.month) : months[0];
-      // The amounts are in the app's cash currency (cash_settings.currency; LBP since migration 015).
-      const { data: settings } = await db.from('cash_settings').select('warning_threshold, danger_threshold, currency').eq('id', 'app').single();
-      const currency = settings?.currency ?? 'LBP';
+      // Always LBP, like the Cash page (js/modules/cash.js CURRENCY); the old USD rows stay in the
+      // database but are not shown (owner, 2026-10-01). cash_settings.currency is not used.
+      const { data: settings } = await db.from('cash_settings').select('warning_threshold, danger_threshold').eq('id', 'app').single();
+      const currency = 'LBP';
       const [{ data: cashier }, { data: rows, error: rowsErr }, schedule, { data: pos }] = await Promise.all([
         db.from('cashiers').select('name').eq('id', cashierId).single(),
         db.from('cash_differences').select('day, amount, note')
