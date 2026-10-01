@@ -1032,6 +1032,7 @@ function switchTab(name, sub) {
   if (name === 'rentals' && typeof Rentals !== 'undefined') Rentals.show();
   if (name !== 'floorcheck' && name !== 'labels' && window.Scanner) Scanner.close();
   if (name === 'activity' && window.ActivityPage) ActivityPage.show();
+  if (typeof Live !== 'undefined') Live.shown(name);   // changed while closed: reload now
 }
 function routeFromHash() {
   const [name, sub] = location.hash.replace(/^#/, '').split('/');
@@ -1451,6 +1452,30 @@ document.getElementById('toggleArchivedBtn').addEventListener('click', async () 
 // rows AND its own catalog (each promotion has its own uploaded catalog
 // file), then re-renders everything that depends on "which promotion is
 // open" — the tab strip/dropdown, the catalog card, and the workspace.
+// Live updates (js/core/live.js): the promotions list, the open promotion's rows or its catalog
+// changed elsewhere. Keeps the open promotion, its filters and the ticked rows that still exist.
+async function refreshPromotions() {
+  await loadPromotions();
+  const visible = promotions.filter(p => !!p.archived === showArchivedPromos);
+  if (currentPromoId && promotions.some(p => p.id === currentPromoId)) {
+    currentRows = await loadPromoRows(currentPromoId);
+    await loadCatalogFor(currentPromoId);
+    const ids = new Set(currentRows.map(r => r.id));
+    [...selectedRowIds].forEach(id => { if (!ids.has(id)) selectedRowIds.delete(id); });
+    renderPromoTabstrip();
+    renderCatalogInfo();
+    await renderPromoWorkspace();
+  } else if (visible.length) {
+    currentPromoId = null;                 // the open one was deleted: open the first one left
+    await selectPromotion(visible[0].id);
+  } else {
+    currentPromoId = null; currentRows = [];
+    renderPromoTabstrip();
+    renderCatalogInfo();
+    await renderPromoWorkspace();
+  }
+}
+
 async function selectPromotion(id) {
   if (id === currentPromoId) return;
   currentPromoId = id;
@@ -4190,6 +4215,15 @@ document.getElementById('ordersFileInput').addEventListener('change', async (e) 
 
 /* Rentals: js/modules/rentals.js */
 
+// Live updates (js/core/live.js): vendors, orders or skips changed elsewhere.
+async function refreshVendors() {
+  await loadVendorsData();
+  renderVendorsPage();
+  await loadOrdersData();
+  await loadSkipsData();
+  renderOrdersView();
+}
+
 async function initVendors() {
   await loadVendorsData();
   renderVendorsPage();
@@ -4208,4 +4242,5 @@ function startMainModules() {
   if (canSee('rentals') && typeof Rentals !== 'undefined') Rentals.start();          // contracts + renewal reminders (js/modules/rentals.js)
   if (canSee('cash') && window.Cash) Cash.start();
   if (canSee('floorcheck') && window.FloorCheck) FloorCheck.start();   // admin: finished-check notifications
+  if (typeof Live !== 'undefined') Live.start();                        // changes by others show up without a reload
 }

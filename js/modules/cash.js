@@ -791,5 +791,13 @@
     if (b && b.dataset.tab === 'analysis') { await loadHistory(); if (S.tab === 'analysis') render(); }
   });
 
-  window.Cash = { start, show, _state: S };
+  // Live updates (js/core/live.js): someone else changed differences, the month lock or the settings.
+  async function refresh() {
+    if (!S.started) return;
+    await Promise.all([loadCashiers(), loadSettings()]);
+    await loadMonth();
+    if (S.tab === 'analysis') await loadHistory();
+    render();
+  }
+  window.Cash = { start, show, refresh, _state: S };
 })();

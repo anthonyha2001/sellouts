@@ -334,5 +334,12 @@ const Rentals = (function () {
     if (changed) try { localStorage.setItem(NOTIFY_LOG_KEY, JSON.stringify(log)); } catch (e) { /* ignore */ }
   }
 
-  return { start, show, get map() { return S.map; }, _state: S };
+  // Live updates (js/core/live.js): contracts or supplier sales changed elsewhere. The map itself
+  // keeps its own state (it is an editor); its list and the recap reload.
+  async function refresh() {
+    try { S.contracts = await adapter().listContracts(); } catch (e) { return; }
+    await loadSales();
+    renderList();
+  }
+  return { start, show, refresh, get map() { return S.map; }, _state: S };
 })();
