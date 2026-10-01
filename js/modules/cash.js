@@ -45,8 +45,8 @@
     let { data, error } = await sb.from('cashiers').select(CASHIER_COLS + ', position').order('sort_order').order('name');
     if (error && /position/.test(error.message)) ({ data, error } = await sb.from('cashiers').select(CASHIER_COLS).order('sort_order').order('name'));   // before migration 020
     if (error) return fail('Could not load cashiers', error);
-    // Supervisors are on the staff list (Staff schedule) but have no cash differences.
-    S.cashiers = data.filter(c => c.position !== 'supervisor');
+    // Supervisors are cashiers too (owner, 2026-10-01): they stay in the grid with their differences.
+    S.cashiers = data;
   }
   async function loadSettings() {
     const { data, error } = await sb.from('cash_settings').select('*').eq('id', 'app').maybeSingle();
@@ -472,7 +472,7 @@
         </form>
         <div class="items-scroll" style="margin-bottom:0;">
           <table class="items">
-            <thead><tr><th>Order</th><th>Name</th><th>Status</th><th>PIN</th><th></th></tr></thead>
+            <thead><tr><th>Order</th><th>Name</th><th>Position</th><th>Status</th><th>PIN</th><th></th></tr></thead>
             <tbody>${S.cashiers.map((c, i) => {
               const locked = c.locked_until && new Date(c.locked_until).getTime() > now;
               return `<tr data-id="${esc(c.id)}">
@@ -481,6 +481,9 @@
                   <button class="icon-btn" data-act="down" ${i === S.cashiers.length - 1 ? 'disabled' : ''} title="Move down" aria-label="Move down"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>
                 </div></td>
                 <td><b>${esc(c.name)}</b></td>
+                <td><select data-f="position" aria-label="Position of ${esc(c.name)}" style="width:auto;padding:5px 8px;">
+                  <option value="cashier" ${c.position !== 'supervisor' ? 'selected' : ''}>Cashier</option>
+                  <option value="supervisor" ${c.position === 'supervisor' ? 'selected' : ''}>Supervisor</option></select></td>
                 <td>${c.active ? '<span class="badge active">Active</span>' : '<span class="badge inactive">Inactive</span>'}</td>
                 <td>${locked ? `<span class="badge danger">Locked out</span>` : c.has_pin ? '<span class="badge active">Set</span>' : '<span class="badge warn">Not set</span>'}</td>
                 <td><div class="icon-actions" style="justify-content:flex-end;">
@@ -489,7 +492,7 @@
                   <button class="btn ghost small" data-act="rename">Rename</button>
                   <button class="btn ghost small" data-act="toggle">${c.active ? 'Deactivate' : 'Activate'}</button>
                 </div></td></tr>`;
-            }).join('') || '<tr><td colspan="5" class="empty-note">No cashiers yet.</td></tr>'}</tbody>
+            }).join('') || '<tr><td colspan="6" class="empty-note">No cashiers yet.</td></tr>'}</tbody>
           </table>
         </div>
       </div>
@@ -516,7 +519,7 @@
       e.preventDefault();
       const name = el('cashNewName').value.trim(); if (!name) return;
       const sort = Math.max(0, ...S.cashiers.map(c => c.sort_order)) + 1;
-      const { data, error } = await sb.from('cashiers').insert({ name, sort_order: sort }).select(CASHIER_COLS).single();
+      const { data, error } = await sb.from('cashiers').insert({ name, sort_order: sort }).select(CASHIER_COLS + ', position').single();
       if (error) return fail(/duplicate|unique/i.test(error.message) ? `"${name}" already exists` : 'Could not add the cashier', error);
       S.cashiers.push(data);
       logActivity('cash', 'add_cashier', { type: 'cashier', id: data.id }, `Added cashier ${name}`);
@@ -525,6 +528,18 @@
     };
     el('cashCopyUrl').onclick = async () => showToast((await copyTextToClipboard(pageUrl)) ? 'Link copied.' : 'Could not copy — select the link and copy it.', false);
     body.querySelector('tbody').onclick = e => { const b = e.target.closest('[data-act]'); if (b) cashierAction(b.dataset.act, b.closest('tr').dataset.id); };
+    // Cashier / Supervisor (the Staff schedule uses it; both keep their cash differences).
+    body.querySelector('tbody').onchange = async e => {
+      const sel = e.target.closest('select[data-f="position"]'); if (!sel) return;
+      const c = S.cashiers.find(x => x.id === sel.closest('tr').dataset.id); if (!c) return;
+      const patch = { position: sel.value };
+      if (sel.value === 'supervisor') patch.default_station = null;
+      const { error } = await sb.from('cashiers').update(patch).eq('id', c.id);
+      if (error) { sel.value = c.position || 'cashier'; return fail('Could not change the position', error); }
+      c.position = sel.value;
+      logActivity('cash', 'cashier_position', { type: 'cashier', id: c.id }, `${c.name} is now ${sel.value === 'supervisor' ? 'a supervisor' : 'a cashier'}`);
+      showToast(`${c.name} is now ${sel.value === 'supervisor' ? 'a supervisor' : 'a cashier'}.`);
+    };
     el('cashSettingsForm').onsubmit = saveSettings;
   }
 

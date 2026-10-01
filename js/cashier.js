@@ -64,8 +64,6 @@
   function render() {
     const d = session.data, lv = d.levels;
     renderSchedule(d.schedule);
-    // Supervisors have no cash differences.
-    $('cpCash').hidden = d.cashier.position === 'supervisor';
     currency = lv.currency || 'LBP';
     const level = a => Math.abs(a) >= lv.danger ? 'lv-danger' : Math.abs(a) >= lv.warning ? 'lv-warn' : '';
     $('cpWho').textContent = d.cashier.name;

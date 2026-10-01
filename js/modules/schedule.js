@@ -286,7 +286,7 @@
           <td>${p.has_pin ? '<span class="badge active">Set</span>' : '<span class="badge warn">No PIN</span>'} <button class="btn ghost small" data-act="pin">${p.has_pin ? 'Reset' : 'Set PIN'}</button></td>
           <td>${p.active ? '<span class="badge active">Active</span>' : '<span class="badge inactive">Inactive</span>'}</td>
           <td><button class="btn ghost small" data-act="toggle">${p.active ? 'Deactivate' : 'Activate'}</button></td></tr>`).join('') || '<tr><td colspan="6" class="empty-note">No staff yet.</td></tr>'}</tbody>
-      </table></div><p class="muted-note" style="margin:10px 0 0;">This is the same list as the cashiers in Cash; supervisors do not appear in the cash grid.</p></div>`;
+      </table></div><p class="muted-note" style="margin:10px 0 0;">This is the same list as the cashiers in Cash; supervisors keep their cash differences too.</p></div>`;
     el('shPos').onchange = e => { el('shSt').hidden = e.target.value === 'supervisor'; };
     el('shAdd').onsubmit = async e => {
       e.preventDefault();
