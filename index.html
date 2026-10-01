@@ -840,8 +840,17 @@
           <textarea id="soNote" placeholder="e.g. Supplier pays the difference as a credit note"></textarea>
         </div>
         <div class="full">
+          <label for="soSupplier">Supplier</label>
+          <input type="text" id="soSupplier" list="soVendors" placeholder="Choose a vendor or type the name" autocomplete="off"><datalist id="soVendors"></datalist>
+        </div>
+        <div class="full">
           <label for="soFile">Excel file</label>
-          <input type="file" id="soFile" accept=".xlsx,.xls,.csv" required>
+          <!-- Drop the file here or click (owner, 2026-10-01). The store's item report gives categories for the floor check. -->
+          <label class="so-drop" id="soDrop" for="soFile">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></svg>
+            <span id="soDropText"><b>Drop the Excel file here</b> or click to choose</span>
+          </label>
+          <input type="file" id="soFile" accept=".xlsx,.xls,.csv" class="so-file-hidden">
         </div>
       </div>
       <div id="soMapping"></div>

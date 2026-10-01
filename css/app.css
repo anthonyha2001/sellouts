@@ -1160,3 +1160,12 @@ tr.sh-dragging th,tr.sh-dragging td{background:var(--pine-tint);}
 .sh-brush .sh-step + .sh-brush-t{margin-left:2px;}
 .sh-chip.sh-front,.sh-chip.sh-back{min-width:64px;}
 .sh-brush-sep{width:1px;height:22px;background:var(--line-strong);margin:0 6px;}
+
+/* Sell-outs: supplier, drop zone for the file, replace by drop */
+.so-supplier{font-size:12.5px;font-weight:600;color:var(--pine);margin:1px 0 2px;}
+.so-drop{display:flex !important;align-items:center;gap:12px;padding:16px 18px;margin:0;border:1.5px dashed var(--line-strong);border-radius:var(--radius-sm);background:var(--paper);cursor:pointer;font-weight:400;color:var(--ink-soft);transition:border-color .12s,background .12s;}
+.so-drop svg{width:22px;height:22px;stroke:var(--pine);flex:0 0 auto;}
+.so-drop b{color:var(--ink);}
+.so-drop:hover,.so-drop.on{border-color:var(--pine);background:var(--pine-tint);}
+.so-file-hidden{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;}
+.sellout.so-drop-on{outline:2px dashed var(--pine);outline-offset:3px;}

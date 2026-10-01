@@ -24,6 +24,11 @@ const NEW_PRICE_ALIASES = ['promotedprice', 'promoprice', 'promotionprice', 'new
 // Shelf prices are in USD (owner, 2026-09-29): an "old price" this big is almost certainly LBP.
 const LBP_LOOKING_PRICE = 1000;
 const normHeader = h => String(h ?? '').toLowerCase().replace(/[^a-z]/g, '');
+// The store system's item report ("ItemPriceQty Report") also has Group / Sub-Group (the floor check
+// goes category by category) and Supplier. Exact header names only, so "Group Code" is never taken.
+const GROUP_HEADERS = ['group', 'category', 'department', 'groupname', 'categoryname'];
+const SUBGROUP_HEADERS = ['subgroup', 'subcategory', 'subgroupname', 'subfamily', 'family'];
+const SUPPLIER_HEADERS = ['supplier', 'suppliername', 'vendor', 'vendorname', 'fournisseur'];
 
 function itemColumns(items) {
   if (!items || !items.length) return [];
@@ -46,7 +51,21 @@ function detectColumns(items) {
   const newPrice = find(NEW_PRICE_ALIASES, [code, description]);
   const price = find(PRICE_ALIASES, [code, description, newPrice]);
   const barcode = cols.find(c => c !== code && BARCODE_HEADERS.includes(normHeader(c))) || null;
-  return { code, description, price, newPrice, barcode };
+  const exact = list => cols.find(c => c !== code && list.includes(normHeader(c))) || null;
+  return { code, description, price, newPrice, barcode, group: exact(GROUP_HEADERS), subgroup: exact(SUBGROUP_HEADERS), supplier: exact(SUPPLIER_HEADERS) };
+}
+// "WHITE DAIRY PRODUCTS › LABNEH COW" from the Group / Sub-Group columns ('' when the file has none).
+const titleCase = s => String(s || '').trim().toLowerCase().replace(/\b\w/g, ch => ch.toUpperCase());
+function categoryOfRow(row, map) {
+  if (!row || !map) return '';
+  return [map.group, map.subgroup].map(c => c ? titleCase(row[c]) : '').filter(Boolean).join(' › ');
+}
+// The file's supplier: the most common name in its Supplier column (empty in some exports).
+function supplierFromFile(items, map) {
+  if (!map.supplier) return '';
+  const n = new Map();
+  items.forEach(r => { const v = String(r[map.supplier] ?? '').trim(); if (v) n.set(v, (n.get(v) || 0) + 1); });
+  return [...n.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || '';
 }
 
 function buildPricedItems(items, map) {
@@ -58,6 +77,7 @@ function buildPricedItems(items, map) {
       description: map.description ? String(r[map.description] ?? '').trim() : '',
       oldPrice: map.price ? parseNum(r[map.price]) : null,
       barcode: map.barcode ? (splitBarcodes(r[map.barcode])[0] || '') : '',
+      category: categoryOfRow(r, map),
       mode: fromFile !== null ? 'file' : null, value: null,
       newPrice: fromFile !== null ? round2(fromFile) : null,
     };
@@ -210,20 +230,60 @@ function renderMappingStep() {
   }));
 }
 
-document.getElementById('soFile').addEventListener('change', async e => {
-  const file = e.target.files[0];
+// Vendors for the supplier field (and the supplier guess from the item names).
+let vendorNames = [];
+async function loadVendorNames() {
+  if (vendorNames.length) return vendorNames;
+  const { data } = await sb.from('vendors').select('name').order('name');
+  vendorNames = (data || []).map(v => v.name);
+  document.getElementById('soVendors').innerHTML = vendorNames.map(n => `<option value="${escapeHtml(n)}">`).join('');
+  return vendorNames;
+}
+// The supplier of a file: its Supplier column, else a vendor whose name starts the item names ("TAANAYEL LABNEH…").
+function guessSupplier(items, map) {
+  const fromFile = supplierFromFile(items, map);
+  if (fromFile) return fromFile;
+  const first = new Map();
+  items.forEach(r => { const w = String(map.description ? r[map.description] : '').trim().split(/\s+/)[0]?.toLowerCase(); if (w && w.length > 2) first.set(w, (first.get(w) || 0) + 1); });
+  const top = [...first.entries()].sort((a, b) => b[1] - a[1])[0];
+  if (!top || top[1] < Math.max(1, items.length / 2)) return '';
+  return vendorNames.find(v => v.toLowerCase().split(/\s+/)[0] === top[0]) || '';
+}
+
+async function takeSelloutFile(file) {
   pendingImport = null;
+  document.getElementById('soDropText').innerHTML = '<b>Drop the Excel file here</b> or click to choose';
   if (file) {
     try {
       const items = readSheetItems(await file.arrayBuffer());
       if (!items.length) showToast('That file has no item rows.', true);
-      else pendingImport = { items, map: detectColumns(items) };
+      else {
+        pendingImport = { items, map: detectColumns(items), file };
+        document.getElementById('soDropText').innerHTML = `<b>${escapeHtml(file.name)}</b> · ${items.length} item${items.length === 1 ? '' : 's'} — drop another file to change it`;
+        const sup = document.getElementById('soSupplier');
+        if (!sup.value.trim()) { await loadVendorNames(); sup.value = guessSupplier(items, pendingImport.map); }
+      }
     } catch (err) {
       showToast('Could not read that file as Excel/CSV. Please check the format.', true);
     }
   }
   renderMappingStep();
-});
+}
+document.getElementById('soFile').addEventListener('change', e => takeSelloutFile(e.target.files[0]));
+(function wireSelloutDrop() {
+  const zone = document.getElementById('soDrop');
+  const hasFile = e => [...(e.dataTransfer?.types || [])].includes('Files');
+  zone.addEventListener('dragover', e => { if (!hasFile(e)) return; e.preventDefault(); zone.classList.add('on'); });
+  zone.addEventListener('dragleave', () => zone.classList.remove('on'));
+  zone.addEventListener('drop', e => {
+    if (!hasFile(e)) return;
+    e.preventDefault(); zone.classList.remove('on');
+    const f = e.dataTransfer.files[0];
+    if (!f) return;
+    if (!/\.(xlsx|xls|csv)$/i.test(f.name)) return showToast('Drop an Excel or CSV file (.xlsx, .xls, .csv).', true);
+    takeSelloutFile(f);
+  });
+})();
 
 document.getElementById('selloutForm').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -231,8 +291,9 @@ document.getElementById('selloutForm').addEventListener('submit', async (e) => {
   const from = document.getElementById('soFrom').value;
   const to = document.getElementById('soTo').value;
   const note = document.getElementById('soNote').value.trim();
-  const file = document.getElementById('soFile').files[0];
-  if (!file || !pendingImport) { showToast('Choose an Excel file with item rows.', true); return; }
+  const supplier = document.getElementById('soSupplier').value.trim();
+  const file = pendingImport?.file;
+  if (!file || !pendingImport) { showToast('Choose or drop an Excel file with item rows.', true); return; }
   if (new Date(to) < new Date(from)) {
     showToast('The "To" date is before the "From" date — please check the dates.', true);
     return;
@@ -241,7 +302,7 @@ document.getElementById('selloutForm').addEventListener('submit', async (e) => {
   if (!map.code) { showToast('Pick the Code column.', true); return; }
 
   const record = {
-    id: uid(), name, from, to, note, fileName: file.name, fileBlob: file, items,
+    id: uid(), name, from, to, note, supplier, fileName: file.name, fileBlob: file, items,
     active: false, log: [], notifiedFlags: {},
     priceColumn: map.price, pricing: null, pricedItems: buildPricedItems(items, map),
     createdAt: new Date().toISOString()
@@ -256,6 +317,8 @@ document.getElementById('selloutForm').addEventListener('submit', async (e) => {
 
 function openAddSelloutModal() {
   document.getElementById('addSelloutOverlay').classList.add('open');
+  loadVendorNames();
+  document.getElementById('soDropText').innerHTML = '<b>Drop the Excel file here</b> or click to choose';
   setTimeout(() => document.getElementById('soName').focus(), 30);
 }
 function closeAddSelloutModal() {
@@ -275,6 +338,45 @@ document.addEventListener('keydown', (e) => {
   if (document.getElementById('addSelloutOverlay').classList.contains('open')) closeAddSelloutModal();
   if (document.getElementById('dupSelloutOverlay').classList.contains('open')) closeDuplicate();
 });
+
+/* ---------------- replace the file (owner, 2026-10-01: move every sell-out to the item report) ---------------- */
+// The new file's rows take the prices already set, matched by item code (a % or amount off is
+// recomputed on the new old price). Rows not found keep no new price.
+function pickReplacement(so) {
+  if (!canEditSellouts()) return refuseViewOnly('sell-outs');
+  const input = document.createElement('input');
+  input.type = 'file'; input.accept = '.xlsx,.xls,.csv';
+  input.onchange = () => { if (input.files[0]) replaceSelloutFile(so, input.files[0]); };
+  input.click();
+}
+async function replaceSelloutFile(so, file) {
+  if (!canEditSellouts()) return refuseViewOnly('sell-outs');
+  if (!/\.(xlsx|xls|csv)$/i.test(file.name)) return showToast('Use an Excel or CSV file (.xlsx, .xls, .csv).', true);
+  let items;
+  try { items = readSheetItems(await file.arrayBuffer()); } catch (e) { return showToast('Could not read that file as Excel/CSV.', true); }
+  if (!items.length) return showToast('That file has no item rows.', true);
+  const map = detectColumns(items);
+  if (!map.code) return showToast('No code column found in that file.', true);
+  const before = new Map(pricedRowsOf(so).filter(p => p.code).map(p => [p.code, p]));
+  const priced = buildPricedItems(items, map).map(p => {
+    const old = before.get(p.code);
+    if (!old || p.mode === 'file' || old.newPrice === null || old.newPrice === undefined) return p;
+    const newPrice = (old.mode === 'percent' || old.mode === 'amount') ? computeNewPrice(p.oldPrice, old.mode, old.value) : old.newPrice;
+    return { ...p, mode: old.mode, value: old.value, newPrice: newPrice ?? old.newPrice };
+  });
+  const kept = priced.filter(p => before.has(p.code) && p.newPrice !== null).length;
+  const lost = [...before.keys()].filter(c => !priced.some(p => p.code === c)).length;
+  const ok = await showConfirm(`Replace the file of "${so.name}" with ${file.name}?\n\n${items.length} item${items.length === 1 ? '' : 's'} in the new file · ${kept} keep their new price (same code)${lost ? ` · ${lost} code${lost === 1 ? '' : 's'} of the old file are not in it` : ''}.${map.group ? '\n\nCategories found: the floor check can go category by category.' : ''}`, 'Replace file');
+  if (!ok) return;
+  await loadVendorNames();
+  const fields = { fileName: file.name, fileBlob: file, items, priceColumn: map.price, pricedItems: priced };
+  if (!so.supplier) fields.supplier = guessSupplier(items, map);
+  Object.assign(so, fields);
+  await idbPut('sellouts', so);
+  logActivity('sellouts', 'replace_file', { type: 'sellout', id: so.id }, `Replaced the file of "${so.name}" (${items.length} items, ${kept} prices kept)`, { file: file.name, columns: map });
+  await loadAll();
+  showToast(`File replaced — ${items.length} items, ${kept} price${kept === 1 ? '' : 's'} kept.`);
+}
 
 /* ---------------- duplicate ---------------- */
 let duplicatingId = null;
@@ -302,7 +404,7 @@ document.getElementById('dupSelloutForm').addEventListener('submit', async e => 
   if (!name) { showToast('Name can’t be empty.', true); return; }
   if (new Date(to) < new Date(from)) { showToast('The "To" date is before the "From" date.', true); return; }
   const copy = {
-    id: uid(), name, from, to, note: src.note, fileName: src.fileName, fileBlob: src.fileBlob,
+    id: uid(), name, from, to, note: src.note, supplier: src.supplier || '', fileName: src.fileName, fileBlob: src.fileBlob,
     items: JSON.parse(JSON.stringify(src.items)),
     pricedItems: JSON.parse(JSON.stringify(pricedRowsOf(src))),
     pricing: src.pricing ? { ...src.pricing } : null, priceColumn: src.priceColumn,
@@ -556,6 +658,10 @@ function renderSellouts() {
               <input type="date" id="edit-to-${so.id}" data-field="to" value="${so.to}">
             </div>
             <div class="full">
+              <label for="edit-supplier-${so.id}">Supplier</label>
+              <input type="text" id="edit-supplier-${so.id}" data-field="supplier" list="soVendors" value="${escapeHtml(so.supplier || '')}" placeholder="Choose a vendor or type the name" autocomplete="off">
+            </div>
+            <div class="full">
               <label for="edit-note-${so.id}">Note</label>
               <textarea id="edit-note-${so.id}" data-field="note">${escapeHtml(so.note || '')}</textarea>
             </div>
@@ -593,6 +699,7 @@ function renderSellouts() {
         <span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></span>
         <div class="who">
           <div class="name">${escapeHtml(so.name)}</div>
+          ${so.supplier ? `<div class="so-supplier">${escapeHtml(so.supplier)}</div>` : ''}
           <div class="dates"><span>${fmtDate(so.from)}</span><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></svg><span>${fmtDate(so.to)}</span></div>
           ${so.note ? `<div class="so-note">${escapeHtml(so.note)}</div>` : ''}
         </div>
@@ -604,6 +711,9 @@ function renderSellouts() {
           </button>
           <button class="icon-btn" data-role="duplicate" title="Duplicate (use as a template)" aria-label="Duplicate sell-out">
             <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>
+          </button>
+          <button class="icon-btn" data-role="replace-file" title="Replace the file (prices kept by item code)" aria-label="Replace the file">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"/><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8"/><path d="M21 3v5h-5M3 21v-5h5"/></svg>
           </button>
           <button class="icon-btn" data-role="download" title="Download original file" aria-label="Download original file">
             <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 19h14"/></svg>
@@ -634,6 +744,17 @@ function renderSellouts() {
     }));
     el.querySelector('[data-role="export"]')?.addEventListener('click', ev => { ev.stopPropagation(); exportSelloutPricing(so); });
     if (!isEditing && st.view === 'pricing') wirePricingPanel(el, so);
+
+    el.querySelector('[data-role="replace-file"]')?.addEventListener('click', ev => { ev.stopPropagation(); pickReplacement(so); });
+    // Drop a file on an open sell-out to replace its file.
+    el.addEventListener('dragover', ev => { if ([...(ev.dataTransfer?.types || [])].includes('Files') && canEditSellouts()) { ev.preventDefault(); el.classList.add('so-drop-on'); } });
+    el.addEventListener('dragleave', ev => { if (!el.contains(ev.relatedTarget)) el.classList.remove('so-drop-on'); });
+    el.addEventListener('drop', ev => {
+      if (![...(ev.dataTransfer?.types || [])].includes('Files') || !canEditSellouts()) return;
+      ev.preventDefault(); el.classList.remove('so-drop-on');
+      const f = ev.dataTransfer.files[0];
+      if (f) replaceSelloutFile(so, f);
+    });
 
     // Codes live in whatever the first column of the uploaded file turned out to be.
     el.querySelector('[data-role="copy-codes"]').addEventListener('click', async (ev) => {
@@ -711,13 +832,14 @@ function renderSellouts() {
         const from = el.querySelector('[data-field="from"]').value;
         const to = el.querySelector('[data-field="to"]').value;
         const note = el.querySelector('[data-field="note"]').value.trim();
+        const supplier = el.querySelector('[data-field="supplier"]').value.trim();
         if (!name) { showToast('Name can’t be empty.', true); return; }
         if (!from || !to) { showToast('Please set both dates.', true); return; }
         if (new Date(to) < new Date(from)) { showToast('The "To" date is before the "From" date.', true); return; }
         const changed = {};
-        [['name', name], ['from', from], ['to', to], ['note', note]].forEach(([k, v]) => { if ((so[k] || '') !== v) changed[k] = { from: so[k] || '', to: v }; });
-        so.name = name; so.from = from; so.to = to; so.note = note;
-        if (!(await updateSelloutFields(so.id, { name, from, to, note: note || null }))) return;
+        [['name', name], ['from', from], ['to', to], ['note', note], ['supplier', supplier]].forEach(([k, v]) => { if ((so[k] || '') !== v) changed[k] = { from: so[k] || '', to: v }; });
+        so.name = name; so.from = from; so.to = to; so.note = note; so.supplier = supplier;
+        if (!(await updateSelloutFields(so.id, { name, from, to, note: note || null, supplier: supplier || null }))) return;
         if (Object.keys(changed).length) logActivity('sellouts', 'edit', { type: 'sellout', id: so.id }, `Edited sell-out "${name}"`, { changed });
         editingSelloutId = null;
         await loadAll();

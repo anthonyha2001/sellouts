@@ -30,14 +30,14 @@
   async function todaysSources() {
     const today = todayStr();
     const [so, pr] = await Promise.all([
-      sb.from('sellouts').select('id, name, from, to, active, archived, items, priced_items, price_column'),
+      sb.from('sellouts').select('id, name, supplier, from, to, active, archived, items, priced_items, price_column'),
       sb.from('promotions').select('id, name, from_date, to_date, archived').eq('archived', false).lte('from_date', today).gte('to_date', today),
     ]);
     if (so.error) { fail('Could not load the sell-outs', so.error); return { sellouts: [], promotions: [] }; }
     if (pr.error) { fail('Could not load the promotions', pr.error); return { sellouts: [], promotions: [] }; }
     const sellouts = so.data
       .filter(s => !s.archived && (s.active || (s.from <= today && today <= s.to)))
-      .map(s => ({ id: s.id, name: s.name, from: s.from, to: s.to, items: s.items || [], pricedItems: Array.isArray(s.priced_items) ? s.priced_items : null, priceColumn: s.price_column }));
+      .map(s => ({ id: s.id, name: s.name, supplier: s.supplier || '', from: s.from, to: s.to, items: s.items || [], pricedItems: Array.isArray(s.priced_items) ? s.priced_items : null, priceColumn: s.price_column }));
     const promotions = pr.data.map(p => ({ id: p.id, name: p.name || 'Promotion', from: p.from_date, to: p.to_date, rows: [] }));
     if (promotions.length) {
       const { data: rows, error } = await sb.from('promotion_rows').select('id, promotion_id, code, description, supplier, barcode, promo_price, before_price, sale_price, sort_order')
@@ -53,11 +53,12 @@
     const out = [];
     const priorityOf = x => (x.from === today || x.to === today) ? 0 : 1;
     sellouts.forEach(so => {
-      const bcCol = detectColumns(so.items).barcode;
+      const map = detectColumns(so.items), bcCol = map.barcode;
       pricedRowsOf(so).forEach(p => {
         if (!p.code && !p.description) return;
-        // Sell-out files have no supplier column; each sell-out is one supplier's offer, so its name groups it.
-        out.push({ source: 'sellout', sellout_id: so.id, source_name: so.name, supplier: so.name, item_key: `so:${so.id}:${p.row}`, item_row: p.row,
+        // The sell-out's supplier (set on the sell-out), else its name. Category from the file (Group › Sub-Group).
+        out.push({ source: 'sellout', sellout_id: so.id, source_name: so.name, supplier: so.supplier || so.name, item_key: `so:${so.id}:${p.row}`, item_row: p.row,
+          category: p.category || categoryOfRow(so.items[p.row], map) || null,
           code: p.code, description: p.description, expected_price: p.newPrice ?? null, old_price: p.oldPrice ?? null, priority: priorityOf(so),
           barcode: p.barcode || (bcCol ? (splitBarcodes(so.items[p.row]?.[bcCol])[0] || '') : '') });
       });
@@ -80,6 +81,9 @@
     return out;
   }
   const supplierOf = x => x.supplier || x.source_name || 'No supplier';
+  const categoryOf = x => x.category || 'No category';
+  // The group an item is in, for the current "Group by".
+  const groupKeyOf = x => S.groupBy === 'source' ? `${x.source}|${x.source_name}` : S.groupBy === 'category' ? `c|${categoryOf(x)}` : `s|${supplierOf(x)}`;
 
   // Groups for the list: by supplier, or by each sell-out / promotion. Kept in item order
   // (groups with something starting or ending today already come first).
@@ -87,10 +91,10 @@
     const map = new Map();
     items.slice().sort((a, b) => a.sort_order - b.sort_order).forEach(x => {
       const bySource = S.groupBy === 'source';
-      const key = bySource ? `${x.source}|${x.source_name}` : `s|${supplierOf(x)}`;
+      const key = groupKeyOf(x);
       if (!map.has(key)) map.set(key, {
         key, items: [],
-        label: bySource ? (x.source_name || '') : supplierOf(x),
+        label: bySource ? (x.source_name || '') : S.groupBy === 'category' ? categoryOf(x) : supplierOf(x),
         badge: bySource ? `<span class="badge ${x.source === 'promotion' ? 'active' : 'inactive'}">${x.source === 'promotion' ? 'Promo' : 'Sell-out'}</span> ` : '',
         priority: 1,
       });
@@ -98,6 +102,8 @@
       g.items.push(x);
       g.priority = Math.min(g.priority, x.priority);
     });
+    // Categories A-Z ("No category" last), so the walk follows the store's sections.
+    if (S.groupBy === 'category') return [...map.values()].sort((a, b) => (a.label === 'No category') - (b.label === 'No category') || a.label.localeCompare(b.label));
     return [...map.values()].sort((a, b) => a.priority - b.priority || (S.groupBy === 'source' ? a.label.localeCompare(b.label) : 0));
   }
   function saveView() { try { localStorage.setItem('lv:floorView', JSON.stringify({ groupBy: S.groupBy, show: S.show })); } catch (e) { /* ignore */ } }
@@ -195,7 +201,7 @@
         Scan an item</button>`}
       <div class="fc-view">
         <div class="fc-view-row"><span class="fc-view-label">Group by</span><div class="filter-row">
-          ${pill('group', 'supplier', S.groupBy, 'Supplier')}${pill('group', 'source', S.groupBy, 'Sell-out / promotion')}</div></div>
+          ${pill('group', 'category', S.groupBy, 'Category')}${pill('group', 'supplier', S.groupBy, 'Supplier')}${pill('group', 'source', S.groupBy, 'Sell-out / promotion')}</div></div>
         <div class="fc-view-row"><span class="fc-view-label">Show</span><div class="filter-row">
           ${pill('show', 'all', S.show, 'All')}${pill('show', 'sellout', S.show, 'Sell-outs')}${pill('show', 'promotion', S.show, 'Promotions')}</div></div>
       </div>
@@ -242,7 +248,7 @@
         if (S.show !== 'all' && x.source !== S.show) S.show = 'all';
         const matchesFilter = S.filter === 'all' || (S.filter === 'todo' ? x.status === 'pending' : PROBLEMS.includes(x.status));
         if (!matchesFilter) S.filter = 'all';
-        const key = S.groupBy === 'source' ? `${x.source}|${x.source_name}` : `s|${supplierOf(x)}`;
+        const key = groupKeyOf(x);
         S.openGroups = S.openGroups || new Set();
         S.openGroups.add(key);
         S.focus = x.id;
@@ -262,17 +268,25 @@
     const current = itemsFor(await todaysSources());
     const byKey = new Map(current.map(x => [x.item_key, x]));
     const same = (a, b) => String(a ?? '') === String(b ?? '');
+    const FIELDS = ['expected_price', 'old_price', 'code', 'description', 'category', 'supplier'];
     const stale = S.items.filter(i => i.status === 'pending' && byKey.has(i.item_key))
-      .filter(i => { const c = byKey.get(i.item_key); return !same(i.expected_price, c.expected_price) || !same(i.old_price, c.old_price) || (c.barcode && !same(i.barcode, c.barcode)); });
+      .filter(i => { const c = byKey.get(i.item_key); return FIELDS.some(f => !same(i[f], c[f])) || (c.barcode && !same(i.barcode, c.barcode)); });
     for (let k = 0; k < stale.length; k += 20) {
       await Promise.all(stale.slice(k, k + 20).map(async i => {
         const c = byKey.get(i.item_key);
-        const patch = { expected_price: c.expected_price, old_price: c.old_price, ...(c.barcode ? { barcode: c.barcode } : {}) };
+        const patch = { ...Object.fromEntries(FIELDS.map(f => [f, c[f] ?? null])), ...(c.barcode ? { barcode: c.barcode } : {}) };
         const { error } = await sb.from('floor_check_items').update(patch).eq('id', i.id);
         if (!error) Object.assign(i, patch);
       }));
     }
-    if (stale.length) showToast(`Updated ${stale.length} item${stale.length === 1 ? '' : 's'} not checked yet (prices / barcodes).`);
+    // A sell-out whose file was replaced with fewer rows: its rows that are gone leave the check (not checked ones only).
+    const liveSellouts = new Set(current.filter(x => x.source === 'sellout').map(x => x.sellout_id));
+    const gone = current.length ? S.items.filter(i => i.status === 'pending' && i.source === 'sellout' && liveSellouts.has(i.sellout_id) && !byKey.has(i.item_key)) : [];
+    if (gone.length) {
+      const { error } = await sb.from('floor_check_items').delete().in('id', gone.map(i => i.id));
+      if (!error) S.items = S.items.filter(i => !gone.includes(i));
+    }
+    if (stale.length || gone.length) showToast(`Updated ${stale.length + gone.length} item${stale.length + gone.length === 1 ? '' : 's'} not checked yet (new file, prices or categories).`);
     const have = new Set(S.items.map(x => x.item_key));
     S.extra = current.filter(x => !have.has(x.item_key));
   }
