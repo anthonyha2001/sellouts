@@ -1129,3 +1129,7 @@ body.rentals-map-expanded #rentalsMap .sm-canvas{ min-height:0; height:100%; bor
 :root{ --sh-am:#E6F0FF; --sh-pm:#FFF3DC; --sh-full:#E8F6EC; }
 @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){ --sh-am:#1C2A45; --sh-pm:#3A2E16; --sh-full:#17331F; } }
 :root[data-theme="dark"]{ --sh-am:#1C2A45; --sh-pm:#3A2E16; --sh-full:#17331F; }
+.sh-count th,.sh-count td{background:var(--paper);border-bottom:2px solid var(--line-strong);}
+.sh-count td{text-align:center;font-size:12px;white-space:nowrap;}
+.sh-count td b{font:600 12px var(--font-mono);color:var(--pine);}
+.sh-count td small{display:block;color:var(--ink-soft);font-size:11px;}

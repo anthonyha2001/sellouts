@@ -533,7 +533,6 @@
       const sel = e.target.closest('select[data-f="position"]'); if (!sel) return;
       const c = S.cashiers.find(x => x.id === sel.closest('tr').dataset.id); if (!c) return;
       const patch = { position: sel.value };
-      if (sel.value === 'supervisor') patch.default_station = null;
       const { error } = await sb.from('cashiers').update(patch).eq('id', c.id);
       if (error) { sel.value = c.position || 'cashier'; return fail('Could not change the position', error); }
       c.position = sel.value;
