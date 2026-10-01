@@ -6,7 +6,8 @@
 // POST { action: 'cashiers' }                              -> { cashiers: [{ id, name, has_pin }] }
 // POST { action: 'view', cashier_id, pin, month? }         -> { cashier, month, months, entries, total, levels, schedule }
 //   schedule: this week and next week of the staff schedule (migration 020), published weeks only:
-//   [{ week_start, days: ['am:front' | 'pm:back' | 'full' | 'off' | '', … Mon→Sun] }]
+//   [{ week_start, days: ['am:front' | 'pm:back|14:30-20:00' | 'full' | 'off' | '', … Mon→Sun] }]
+//   team (supervisors only): [{ week_start, people: [{ name, position, days }] }] — the whole published week
 // POST { action: 'subscribe', cashier_id, pin, endpoint, p256dh, auth } -> { ok }  this phone gets the cashier's
 //   notifications (schedule published, difference entered; sent by push-alerts, migration 023)
 // POST { action: 'unsubscribe', endpoint }                -> { ok }  this phone stops getting them
@@ -47,6 +48,20 @@ async function scheduleOf(id: string) {
     .in('week_start', beirutWeeks()).eq('published', true).order('week_start');
   if (error) { console.error(error); return []; }
   return (data ?? []).map(w => ({ week_start: w.week_start, days: ((w.assignments ?? {})[id] ?? []).slice(0, 7) }));
+}
+// Supervisors see the whole team's published schedule (owner, 2026-10-01): names and shifts only.
+async function teamOf() {
+  const [{ data: weeks, error }, { data: staff }] = await Promise.all([
+    db.from('schedule_weeks').select('week_start, assignments').in('week_start', beirutWeeks()).eq('published', true).order('week_start'),
+    db.from('cashiers').select('id, name, position, active').order('sort_order').order('name'),
+  ]);
+  if (error) { console.error(error); return []; }
+  return (weeks ?? []).map(w => {
+    const a = (w.assignments ?? {}) as Record<string, string[]>;
+    const people = (staff ?? []).filter(p => p.active || (a[p.id] ?? []).some(Boolean))
+      .map(p => ({ name: p.name, position: p.position ?? 'cashier', days: (a[p.id] ?? []).slice(0, 7) }));
+    return { week_start: w.week_start, people };
+  });
 }
 function monthEnd(ym: string) {
   const [y, m] = ym.split('-').map(Number);
@@ -103,10 +118,11 @@ Deno.serve(async req => {
         db.from('cashiers').select('position').eq('id', cashierId).maybeSingle(),   // null before migration 020
       ]);
       if (rowsErr) throw rowsErr;
+      const team = pos?.position === 'supervisor' ? await teamOf() : undefined;
       const entries = (rows ?? []).map(r => ({ day: r.day, amount: Number(r.amount), note: r.note }));
       const total = Math.round(entries.reduce((s, r) => s + r.amount, 0) * 100) / 100;
       return json({
-        cashier: { name: cashier?.name ?? '', position: pos?.position ?? 'cashier' }, schedule, month, months, entries, total,
+        cashier: { name: cashier?.name ?? '', position: pos?.position ?? 'cashier' }, schedule, team, month, months, entries, total,
         levels: { warning: Number(settings?.warning_threshold ?? 0), danger: Number(settings?.danger_threshold ?? 0), currency },
       });
     }

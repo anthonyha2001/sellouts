@@ -1148,3 +1148,8 @@ tr.cash-dragging td{background:var(--pine-tint);}
 .sh-drag-on,.sh-drag-on *{cursor:grabbing !important;user-select:none;}
 tr.sh-dragging th,tr.sh-dragging td{background:var(--pine-tint);}
 .sh-name small{padding-left:18px;}
+
+/* Staff schedule: exact times on a cell (arrives late / leaves early) */
+.sh-cell button .sh-time{display:block;font:600 11px var(--font-mono);color:var(--gold);margin-top:1px;}
+.sh-time-box input[type=time]{width:100%;padding:9px 10px;border:1px solid var(--line-strong);border-radius:var(--radius-sm);background:var(--paper-raised);color:var(--ink);font:500 15px var(--font-mono);}
+.sh-chip.sh-time{border-style:dashed;}

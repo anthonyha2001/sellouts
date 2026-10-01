@@ -53,3 +53,22 @@ body.cashier-page{display:block;min-height:100vh;}
 .cp-notify .muted-note{flex:1 1 200px;margin:0;}
 .cp-notify-on{font-weight:600;color:var(--pine);}
 .cp-notify .login-err{flex-basis:100%;margin:4px 0 0;min-height:0;}
+
+/* Exact times (arrives late / leaves early) and the supervisors' full schedule */
+.cp-day small.cp-custom,.cp-team small.cp-custom{color:var(--gold);font-weight:700;}
+.cp-team{padding:12px;}
+.cp-team-scroll{overflow-x:auto;margin:0 -4px;}
+.cp-team table{border-collapse:collapse;width:100%;min-width:540px;font-size:12px;table-layout:fixed;}
+.cp-team thead th:first-child{width:72px;}
+.cp-team th,.cp-team td{padding:5px 4px;border-bottom:1px solid var(--line);text-align:center;white-space:nowrap;}
+.cp-team thead th{font:600 10.5px var(--font-mono);text-transform:uppercase;color:var(--ink-soft);}
+.cp-team thead th small{display:block;font-weight:400;}
+.cp-team thead th.today{color:var(--pine);}
+.cp-team tbody th{text-align:left;font-weight:600;position:sticky;left:0;background:var(--paper-raised);padding-right:8px;}
+.cp-team td b{font-weight:600;}
+.cp-team td small{display:block;font-size:10.5px;}
+.cp-team .cp-t-am{background:var(--sh-am, #E6F0FF);}
+.cp-team .cp-t-pm{background:var(--sh-pm, #FFF3DC);}
+.cp-team .cp-t-full{background:var(--sh-full, #E8F6EC);}
+.cp-team .cp-t-off,.cp-team .cp-t-none{color:var(--ink-faint);}
+.cp-team .cp-t-group td{text-align:left;font:600 10.5px var(--font-mono);text-transform:uppercase;color:var(--pine);background:var(--pine-tint);}

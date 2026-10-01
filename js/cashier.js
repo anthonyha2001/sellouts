@@ -56,18 +56,44 @@
   ['click', 'keydown', 'touchstart'].forEach(ev => document.addEventListener(ev, touch, { passive: true }));
 
   // The person's shifts for this week and next (published weeks only).
+  // "am:front|08:30-13:00": shift, station, and the exact times when someone arrives late / leaves early.
+  const parseCode = code => {
+    const [main, t] = String(code || '').split('|');
+    const [shift, station] = main.split(':');
+    const [start, end] = (t || '').split('-');
+    return { shift: shift || '', station: station || '', times: start && end ? `${start} – ${end}` : '' };
+  };
   function renderSchedule(weeks) {
     const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Beirut' });
     const cell = (code, date) => {
-      const [shift, station] = String(code || '').split(':');
+      const { shift, station, times } = parseCode(code);
       const iso = date.toLocaleDateString('en-CA'), day = date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
-      const what = shift === 'off' ? '<b>Off</b>' : SHIFTS[shift] ? `<b>${SHIFTS[shift][0]}${station ? ' · ' + (station === 'front' ? 'Front' : 'Back') : ''}</b><small>${SHIFTS[shift][1]}</small>` : '<span class="muted-note">—</span>';
+      const what = shift === 'off' ? '<b>Off</b>' : SHIFTS[shift] ? `<b>${SHIFTS[shift][0]}${station ? ' · ' + (station === 'front' ? 'Front' : 'Back') : ''}</b><small class="${times ? 'cp-custom' : ''}">${times || SHIFTS[shift][1]}</small>` : '<span class="muted-note">—</span>';
       return `<li class="cp-day cp-${shift || 'none'}${iso === today ? ' today' : ''}${iso < today ? ' past' : ''}"><span>${DAYS[(date.getDay() + 6) % 7]}<small>${day}</small></span><div>${what}</div></li>`;
     };
     $('cpSchedule').innerHTML = '<h3 class="cp-sec">My schedule</h3>' + (weeks && weeks.length
       ? weeks.map((w, i) => `<div class="card cp-week"><p class="cp-week-t">${w.week_start <= today ? 'This week' : 'Next week'} · from ${addDays(w.week_start, 0).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</p>
           <ul>${DAYS.map((_, d) => cell(w.days[d], addDays(w.week_start, d))).join('')}</ul></div>`).join('')
       : '<div class="card"><p class="empty-note" style="margin:0;">No schedule published yet.</p></div>');
+  }
+
+  // Supervisors: the whole team's published week (owner, 2026-10-01).
+  function renderTeam(weeks) {
+    const box = $('cpTeam');
+    if (!weeks || !weeks.length) { box.innerHTML = ''; return; }
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Beirut' });
+    const short = code => {
+      const { shift, station, times } = parseCode(code);
+      if (shift === 'off') return '<td class="cp-t-off">Off</td>';
+      if (!SHIFTS[shift]) return '<td class="cp-t-none">—</td>';
+      return `<td class="cp-t-${shift}"><b>${shift === 'full' ? 'Full' : SHIFTS[shift][0]}${station ? ' ' + (station === 'front' ? 'F' : 'B') : ''}</b>${times ? `<small class="cp-custom">${times.replace(/ /g, '')}</small>` : ''}</td>`;
+    };
+    const group = (people, label) => people.length ? `<tr class="cp-t-group"><td colspan="8">${label}</td></tr>` + people.map(p => `<tr><th>${esc(p.name)}</th>${DAYS.map((_, d) => short(p.days[d])).join('')}</tr>`).join('') : '';
+    box.innerHTML = '<h3 class="cp-sec">Full schedule</h3>' + weeks.map(w => `<div class="card cp-team">
+      <p class="cp-week-t">${w.week_start <= today ? 'This week' : 'Next week'} · from ${addDays(w.week_start, 0).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</p>
+      <div class="cp-team-scroll"><table><thead><tr><th></th>${DAYS.map((d, i) => { const iso = addDays(w.week_start, i).toLocaleDateString('en-CA'); return `<th class="${iso === today ? 'today' : ''}">${d}<small>${addDays(w.week_start, i).getDate()}</small></th>`; }).join('')}</tr></thead>
+      <tbody>${group(w.people.filter(p => p.position === 'supervisor'), 'Supervisors')}${group(w.people.filter(p => p.position !== 'supervisor'), 'Cashiers')}</tbody></table></div>
+      <p class="muted-note" style="margin:8px 0 0;">F = Front · B = Back · times in orange = arrives late / leaves early</p></div>`).join('');
   }
 
   function renderNotify() {
@@ -120,6 +146,7 @@
     const d = session.data, lv = d.levels;
     renderNotify();
     renderSchedule(d.schedule);
+    renderTeam(d.team);
     currency = lv.currency || 'LBP';
     const level = a => Math.abs(a) >= lv.danger ? 'lv-danger' : Math.abs(a) >= lv.warning ? 'lv-warn' : '';
     $('cpWho').textContent = d.cashier.name;
