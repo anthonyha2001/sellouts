@@ -213,6 +213,11 @@ async function deletePromotionRemote(id) {
 }
 
 async function loadPromoRows(promoId) {
+  const rows = await fetchPromoRows(promoId);
+  rememberSavedRows(rows);
+  return rows;
+}
+async function fetchPromoRows(promoId) {
   const { data, error } = await sb.from('promotion_rows').select('*').eq('promotion_id', promoId).order('sort_order', { ascending: true }).order('created_at', { ascending: true });
   if (error) { console.error(error); showToast('Could not load this promotion’s items — ' + sbErrText(error), true); return []; }
   return (data || []).map(r => ({
@@ -287,6 +292,67 @@ async function ensurePromotionExistsFor(row) {
   await savePromotion(promo);
   return true;
 }
+/* Undo (owner, 2026-10-01). What each row was the last time it was saved / loaded (`promoSaved`), and
+   a stack of steps; changes saved within a short moment form one step (an import, a paste, a bulk
+   discount = one Undo). Undo puts the rows back as they were, deletes rows that did not exist, and
+   saves that. Per promotion: switching promotion clears it. Ctrl+Z works outside the cells too. */
+let promoSaved = new Map();          // row id -> JSON of the row as saved
+let promoUndo = [], promoUndoPending = null, promoUndoTimer = null, promoUndoing = false;
+const promoRowJson = r => JSON.stringify(Object.fromEntries(Object.entries(r).filter(([k]) => !k.startsWith('_'))));
+function rememberSavedRows(rows) { promoSaved = new Map(rows.map(r => [r.id, promoRowJson(r)])); }
+function recordRowChange(id, after) {
+  const before = promoSaved.get(id);
+  if (after === undefined) promoSaved.delete(id); else promoSaved.set(id, after);
+  if (promoUndoing || before === after) return;
+  if (!promoUndoPending) promoUndoPending = { promoId: currentPromoId, changes: new Map() };
+  if (!promoUndoPending.changes.has(id)) promoUndoPending.changes.set(id, before);   // keep the oldest "before"
+  clearTimeout(promoUndoTimer);
+  promoUndoTimer = setTimeout(closeUndoStep, 800);
+  updateUndoButton();
+}
+function closeUndoStep() {
+  clearTimeout(promoUndoTimer);
+  if (promoUndoPending && promoUndoPending.changes.size) { promoUndo.push(promoUndoPending); if (promoUndo.length > 50) promoUndo.shift(); }
+  promoUndoPending = null;
+  updateUndoButton();
+}
+function resetPromoUndo() { promoUndo = []; promoUndoPending = null; clearTimeout(promoUndoTimer); updateUndoButton(); }
+function updateUndoButton() {
+  const n = promoUndo.length + (promoUndoPending ? 1 : 0);
+  document.querySelectorAll('[data-role="promo-undo"]').forEach(b => { b.disabled = !n; b.title = n ? `Undo the last change (${n} step${n === 1 ? '' : 's'} back) — Ctrl+Z` : 'Nothing to undo'; });
+}
+async function undoPromoChange() {
+  if (!canEditPromotions()) return refuseViewOnly('promotions');
+  closeUndoStep();
+  const step = promoUndo.pop();
+  if (!step) return showToast('Nothing to undo.');
+  if (step.promoId !== currentPromoId) { resetPromoUndo(); return showToast('Nothing to undo.'); }
+  promoUndoing = true;
+  try {
+    const restore = [], remove = [];
+    for (const [id, before] of step.changes) {
+      if (before === undefined) { remove.push(id); currentRows = currentRows.filter(r => r.id !== id); selectedRowIds.delete(id); continue; }
+      const old = JSON.parse(before);
+      old._savedSortOrder = null; old._lastLookupCode = old.code || '';
+      const i = currentRows.findIndex(r => r.id === id);
+      if (i >= 0) currentRows[i] = old; else currentRows.push(old);
+      restore.push(old);
+    }
+    currentRows.sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+    if (remove.length) await deleteRowsBulk(remove);
+    if (restore.length) await persistRowsBulk(restore);
+    await renderPromoWorkspace();
+    showToast(`Undone — ${step.changes.size} row${step.changes.size === 1 ? '' : 's'} put back.`);
+  } finally { promoUndoing = false; updateUndoButton(); }
+}
+document.addEventListener('keydown', e => {
+  if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.key.toLowerCase() !== 'z') return;
+  if (!document.getElementById('panel-promotions')?.classList.contains('active')) return;
+  if (e.target.closest('input, textarea, select, [contenteditable="true"]')) return;   // a cell keeps its own Ctrl+Z
+  e.preventDefault();
+  undoPromoChange();
+});
+
 // perm: 'promotions.edit', or 'promotions.audit' for the Audit Type / Note.
 async function savePromoRow(row, perm = 'promotions.edit') {
   if (!can(perm)) return refuseViewOnly('promotions');
@@ -295,7 +361,7 @@ async function savePromoRow(row, perm = 'promotions.edit') {
     ({ error } = await sb.from('promotion_rows').upsert(promoRowPayload(row)));
   }
   if (error) { console.error(error); showToast('Could not save that row — ' + sbErrText(error), true); }
-  else row._savedSortOrder = row.sortOrder;
+  else { row._savedSortOrder = row.sortOrder; recordRowChange(row.id, promoRowJson(row)); }
 }
 async function persistRowsBulk(rows) {
   if (!canEditPromotions()) return refuseViewOnly('promotions');
@@ -309,19 +375,21 @@ async function persistRowsBulk(rows) {
       ({ error } = await sb.from('promotion_rows').upsert(chunk));
     }
     if (error) { console.error(error); showToast('Could not save some of the rows — ' + sbErrText(error), true); return; }
-    rows.slice(i, i + chunkSize).forEach(r => { r._savedSortOrder = r.sortOrder; });
+    rows.slice(i, i + chunkSize).forEach(r => { r._savedSortOrder = r.sortOrder; recordRowChange(r.id, promoRowJson(r)); });
   }
 }
 async function deletePromoRow(id) {
   if (!canEditPromotions()) return refuseViewOnly('promotions');
   const { error } = await sb.from('promotion_rows').delete().eq('id', id);
   if (error) { console.error(error); showToast('Could not delete that row — ' + sbErrText(error), true); }
+  else recordRowChange(id, undefined);
 }
 async function deleteRowsBulk(ids) {
   if (!canEditPromotions()) return refuseViewOnly('promotions');
   if (!ids.length) return;
   const { error } = await sb.from('promotion_rows').delete().in('id', ids);
   if (error) { console.error(error); showToast('Could not delete the selected rows — ' + sbErrText(error), true); }
+  else ids.forEach(id => recordRowChange(id, undefined));
 }
 // Used by "Import price sheet": the imported rows become the promotion's
 // whole table rather than being tacked onto whatever was already there, so
@@ -331,6 +399,7 @@ async function replaceAllPromoRows(promoId, rows) {
   if (!canEditPromotions()) return refuseViewOnly('promotions');
   const { error } = await sb.from('promotion_rows').delete().eq('promotion_id', promoId);
   if (error) { console.error(error); showToast('Could not clear the old rows — ' + sbErrText(error), true); return false; }
+  [...promoSaved.keys()].forEach(id => recordRowChange(id, undefined));   // the old table, for Undo
   await persistRowsBulk(rows);
   return true;
 }
@@ -642,6 +711,7 @@ let selectedAuditSuppliers = new Set(); // Supplier filter, scoped to the Audit 
 let auditSupplierFilterOpen = false;
 let auditTypeFilter = ''; // Audit type filter: '' (all), 'sellout', 'cn', 'rightprice' or 'none', both Audit sub-views
 let auditFilteredRows = []; // what the Audit view shows after its filters; Copy codes copies exactly these
+let gapFilterMin = null;     // Filter: only rows whose price gap is at least this % (null = off) — owner, 2026-10-01
 let showFlaggedOnly = false; // Flagged-only toggle, scoped to the Table view only
 let tableSearchQuery = ''; // Search box, scoped to the Table view only
 let countryFilterSearchQuery = ''; // Search box inside the Filter panel's Country list
@@ -664,6 +734,7 @@ const ICONS = {
   rows: svgIcon('<path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/>'),
   supplier: svgIcon('<path d="M3 21V8l9-5 9 5v13"/><path d="M9 21v-6h6v6"/><path d="M3 21h18"/>'),
   x: svgIcon('<path d="M18 6 6 18M6 6l12 12"/>'),
+  undo: svgIcon('<path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-1"/>'),
   print: svgIcon('<path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>'),
 };
 let showArchivedPromos = false;
@@ -1481,6 +1552,8 @@ async function refreshPromotions() {
 async function selectPromotion(id) {
   if (id === currentPromoId) return;
   currentPromoId = id;
+  resetPromoUndo();
+  gapFilterMin = null;
   selectedRowIds.clear();
   selectedCountries.clear();
   selectedCodeIssues.clear();
@@ -1544,6 +1617,7 @@ function computeVisibleRows() {
   if (selectedCodeIssues.size) {
     rows = rows.filter(r => { const issue = codeIssueOf(r); return issue && selectedCodeIssues.has(issue); });
   }
+  if (gapFilterMin !== null) rows = rows.filter(r => { const g = computeAutoDiscountPct(r); return g !== null && g >= gapFilterMin; });
   return rows;
 }
 // The Flagged-only toggle and search box in the Table view's own toolbar
@@ -1594,6 +1668,15 @@ function refreshPromoTableView() {
 // this builds its inner markup from the combined Country + Code-issue +
 // Flagged-only count — shared by the initial render and the lightweight
 // refresh path below so the two never drift out of sync.
+let lastClickedRowId = null;
+function updateSelectionUi() {
+  const selBar = document.getElementById('promoSelActions');
+  if (selBar) selBar.style.display = selectedRowIds.size ? 'flex' : 'none';
+  const selCount = document.getElementById('promoSelCount');
+  if (selCount) selCount.textContent = `${selectedRowIds.size} selected`;
+  const selHint = document.getElementById('promoSelHint');
+  if (selHint) selHint.style.display = selectedRowIds.size ? 'none' : '';
+}
 function filterButtonInnerHtml(count) {
   return `<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16l-6.5 7.5V19l-3 1.5v-8L4 5Z"/></svg>${count ? `<span class="icon-btn-badge">${count}</span>` : ''}`;
 }
@@ -1603,7 +1686,7 @@ function filterButtonInnerHtml(count) {
 function updateFilterButtonLabel() {
   const btn = document.getElementById('countryFilterBtn');
   if (!btn) return;
-  const count = selectedCountries.size + selectedCodeIssues.size + (showFlaggedOnly ? 1 : 0);
+  const count = selectedCountries.size + selectedCodeIssues.size + (showFlaggedOnly ? 1 : 0) + (gapFilterMin !== null ? 1 : 0);
   btn.innerHTML = filterButtonInnerHtml(count);
 }
 function wireTableFilterStatus() {
@@ -1639,7 +1722,7 @@ function buildPromoRowHtml(row) {
     </td>
   </tr>` : '';
   return `
-  <tr data-row-id="${row.id}">
+  <tr data-row-id="${row.id}" class="${selectedRowIds.has(row.id) ? 'row-selected' : ''}">
     <td class="rowact-col">
       <div class="icon-actions">
         <button class="icon-btn" data-role="insert-row" tabindex="-1" title="Insert row below" aria-label="Insert row below">
@@ -1653,7 +1736,7 @@ function buildPromoRowHtml(row) {
         </button>
       </div>
     </td>
-    <td class="chk-col"><input type="checkbox" data-role="select-row" tabindex="-1" ${selectedRowIds.has(row.id) ? 'checked' : ''}></td>
+    <td class="chk-col rownum-col" data-role="select-row" title="Click to select (Shift: a range)">${(row.sortOrder ?? 0) + 1}</td>
     <td class="code-cell">
       <div class="code-cell-wrap">
         <input type="text" class="${isDuplicateCodeInPromo(row) ? 'cell-duplicate' : ''}" value="${escapeHtml(row.code)}" data-field="code" placeholder="Code" title="${isDuplicateCodeInPromo(row) ? 'This code appears more than once in this promotion' : ''}">
@@ -1807,6 +1890,7 @@ async function renderPromoWorkspace() {
           <span class="muted-note" id="promoSelHint" style="display:${selectedRowIds.size ? 'none' : ''};">${promoStats.total} row${promoStats.total === 1 ? '' : 's'} · ${promoStats.flagged} flagged · ${promoStats.empty} empty</span>` : `<span class="muted-note">${promoStats.total} row${promoStats.total === 1 ? '' : 's'} · ${promoStats.flagged} flagged · ${promoStats.empty} empty</span>`}
         </div>
         <div class="promo-sticky-right">
+          <button type="button" class="btn secondary small ibtn" data-role="promo-undo" disabled>${ICONS.undo}Undo</button>
           ${promoViewMode === 'table' ? `
           <div class="filter-row" id="tableSubViewSwitch" style="margin:0;">
             <button class="${tableSubView === 'rows' ? 'active' : ''}" data-table-sub="rows">${ICONS.rows}All rows</button>
@@ -1817,7 +1901,7 @@ async function renderPromoWorkspace() {
             <button class="${auditSubView === 'supplier' ? 'active' : ''}" data-audit-sub="supplier">${ICONS.supplier}By supplier</button>
           </div>`}
           <div class="filter-dropdown-wrap" id="countryFilterWrap">
-            <button class="icon-btn" id="countryFilterBtn" title="Filter" aria-label="Filter">${filterButtonInnerHtml(selectedCountries.size + selectedCodeIssues.size + (showFlaggedOnly ? 1 : 0))}</button>
+            <button class="icon-btn" id="countryFilterBtn" title="Filter" aria-label="Filter">${filterButtonInnerHtml(selectedCountries.size + selectedCodeIssues.size + (showFlaggedOnly ? 1 : 0) + (gapFilterMin !== null ? 1 : 0))}</button>
             <div class="filter-panel" id="countryFilterPanel" style="display:${countryFilterOpen ? 'block' : 'none'};right:0;left:auto;">
               <div class="filter-panel-head">
                 <span>Filters</span>
@@ -1825,6 +1909,11 @@ async function renderPromoWorkspace() {
               </div>
               <div class="filter-panel-section">
                 <label class="filter-panel-option"><input type="checkbox" data-role="flagged-only-option" ${showFlaggedOnly ? 'checked' : ''}> Flagged only</label>
+              </div>
+              <div class="filter-panel-section">
+                <p class="filter-panel-label">Price gap</p>
+                <label class="filter-panel-option"><input type="checkbox" data-role="gap-option" ${gapFilterMin !== null ? 'checked' : ''}> Big gap — at least
+                  <input type="text" inputmode="numeric" data-role="gap-min" class="gap-min-input" value="${gapFilterMin ?? 30}" aria-label="Minimum gap %"> %</label>
               </div>
               <div class="filter-panel-section">
                 <p class="filter-panel-label">Code issues</p>
@@ -1853,7 +1942,7 @@ async function renderPromoWorkspace() {
           <table class="promo">
             <thead><tr>
               <th class="rowact-col"></th>
-              <th class="chk-col"><input type="checkbox" id="selectAllRows"></th>
+              <th class="chk-col rownum-col" id="selectAllRows" title="Select all shown / none">#</th>
               <th class="code-cell">Code</th><th class="desc-cell">Description</th><th class="balance-cell">Promo Price</th><th class="balance-cell">Before Price</th><th class="balance-cell">Discount</th><th class="balance-cell">Sale Price</th><th class="balance-cell" title="Auto-calculated — the price gap Sale Price and Promo Price already imply. Purely informational; doesn't affect Discount or Audit type.">Gap</th><th class="stock-cell">Stock</th><th></th>
             </tr></thead>
             <tbody id="promoRowsBody">${rowsHtml}</tbody>
@@ -2404,18 +2493,21 @@ function wirePromoRowElement(tr) {
     const balInput = tr.querySelector('[data-field="balance"]');
     const stockBadgeSlot = tr.querySelector('.stock-badge-slot');
 
-    selectCb.addEventListener('change', () => {
-      if (selectCb.checked) selectedRowIds.add(rowId); else selectedRowIds.delete(rowId);
-      const selBar = document.getElementById('promoSelActions');
-      if (selBar) selBar.style.display = selectedRowIds.size ? 'flex' : 'none';
-      const selCount = document.getElementById('promoSelCount');
-      if (selCount) selCount.textContent = `${selectedRowIds.size} selected`;
-      const selHint = document.getElementById('promoSelHint');
-      if (selHint) selHint.style.display = selectedRowIds.size ? 'none' : '';
-      const selectAllCb2 = document.getElementById('selectAllRows');
-      if (selectAllCb2) selectAllCb2.checked = currentRows.length > 0 && currentRows.every(r => selectedRowIds.has(r.id));
+    // Click anywhere on the row that is not a field or a button (Shift-click: everything in between).
+    tr.addEventListener('click', e => {
+      if (e.target.closest('input, textarea, select, button, a') && !e.target.closest('[data-role="select-row"]')) return;
+      const ids = [...document.querySelectorAll('#promoRowsBody tr[data-row-id]')].map(x => x.dataset.rowId);
+      if (e.shiftKey && lastClickedRowId && ids.includes(lastClickedRowId)) {
+        const [a, b] = [ids.indexOf(lastClickedRowId), ids.indexOf(rowId)].sort((x, y) => x - y);
+        ids.slice(a, b + 1).forEach(id => selectedRowIds.add(id));
+        document.querySelectorAll('#promoRowsBody tr[data-row-id]').forEach(x => x.classList.toggle('row-selected', selectedRowIds.has(x.dataset.rowId)));
+      } else {
+        if (selectedRowIds.has(rowId)) selectedRowIds.delete(rowId); else selectedRowIds.add(rowId);
+        tr.classList.toggle('row-selected', selectedRowIds.has(rowId));
+      }
+      lastClickedRowId = rowId;
+      updateSelectionUi();
     });
-
     const doLookup = () => {
       const prevCode = row.code;
       const code = codeInput.value.trim();
@@ -2670,12 +2762,18 @@ function wirePromoWorkspaceEvents(promo) {
         await renderPromoWorkspace();
       });
     }
+    const gapOption = countryFilterPanel.querySelector('[data-role="gap-option"]');
+    const gapMin = countryFilterPanel.querySelector('[data-role="gap-min"]');
+    const readGap = () => { const n = parseFloat(String(gapMin.value).replace(',', '.')); return Number.isFinite(n) ? n : 30; };
+    if (gapOption) gapOption.addEventListener('change', async () => { gapFilterMin = gapOption.checked ? readGap() : null; countryFilterOpen = true; await renderPromoWorkspace(); });
+    if (gapMin) gapMin.addEventListener('change', async () => { if (gapFilterMin === null) return; gapFilterMin = readGap(); countryFilterOpen = true; await renderPromoWorkspace(); });
     const clearAllBtn = document.getElementById('clearAllFiltersBtn');
     if (clearAllBtn) clearAllBtn.addEventListener('click', async (e) => {
       e.stopPropagation();
       selectedCountries.clear();
       selectedCodeIssues.clear();
       showFlaggedOnly = false;
+      gapFilterMin = null;
       countryFilterSearchQuery = '';
       countryFilterOpen = true;
       await renderPromoWorkspace();
@@ -2770,6 +2868,8 @@ function wirePromoWorkspaceEvents(promo) {
     orig.dispatchEvent(new Event('change'));
   });
 
+  document.querySelectorAll('[data-role="promo-undo"]').forEach(b => b.addEventListener('click', undoPromoChange));
+  updateUndoButton();
   const clearSelBtn = document.getElementById('clearSelectionBtn');
   if (clearSelBtn) clearSelBtn.addEventListener('click', async () => { selectedRowIds.clear(); await renderPromoWorkspace(); });
 
@@ -2881,12 +2981,12 @@ function wirePromoWorkspaceEvents(promo) {
     showToast('Selected rows deleted.');
   });
 
+  // "#" header: select every row shown (with the filters / search), or none.
   const selectAllCb = document.getElementById('selectAllRows');
   if (selectAllCb) {
-    selectAllCb.checked = currentRows.length > 0 && currentRows.every(r => selectedRowIds.has(r.id));
-    selectAllCb.addEventListener('change', async () => {
-      if (selectAllCb.checked) currentRows.forEach(r => selectedRowIds.add(r.id));
-      else selectedRowIds.clear();
+    selectAllCb.addEventListener('click', async () => {
+      const shown = [...document.querySelectorAll('#promoRowsBody tr[data-row-id]')].map(x => x.dataset.rowId);
+      if (shown.length && shown.every(id => selectedRowIds.has(id))) selectedRowIds.clear(); else shown.forEach(id => selectedRowIds.add(id));
       await renderPromoWorkspace();
     });
   }

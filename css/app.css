@@ -1236,3 +1236,13 @@ tr.sh-dragging th,tr.sh-dragging td{background:var(--pine-tint);}
 .sh-le-counts{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 6px;}
 .sh-le-grpcount{font-size:12.5px;padding:4px 10px;border-radius:999px;background:var(--paper);border:1px solid var(--line);}
 .sh-le-grpcount b{color:var(--pine);margin-right:2px;}
+
+/* Promotions: click a row to select it; row number instead of a checkbox; Undo; gap filter */
+table.promo td.rownum-col,table.promo th.rownum-col{width:38px;text-align:center;font:500 11.5px var(--font-mono);color:var(--ink-faint);cursor:pointer;user-select:none;}
+table.promo th.rownum-col:hover,table.promo td.rownum-col:hover{color:var(--pine);}
+#promoRowsBody tr[data-row-id]{cursor:pointer;}
+#promoRowsBody tr[data-row-id] input{cursor:text;}
+#promoRowsBody tr.row-selected > td{background:var(--pine-tint) !important;}
+#promoRowsBody tr.row-selected td.rownum-col{color:var(--paper-raised);background:var(--pine) !important;font-weight:700;}
+.gap-min-input{width:52px !important;padding:3px 6px !important;margin:0 2px;text-align:right;font-family:var(--font-mono);}
+[data-role="promo-undo"]:disabled{opacity:.45;}
