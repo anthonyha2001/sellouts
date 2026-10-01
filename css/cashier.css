@@ -56,19 +56,34 @@ body.cashier-page{display:block;min-height:100vh;}
 
 /* Exact times (arrives late / leaves early) and the supervisors' full schedule */
 .cp-day small.cp-custom,.cp-team small.cp-custom{color:var(--gold);font-weight:700;}
-.cp-team{padding:12px;}
-.cp-team-scroll{overflow-x:auto;margin:0 -4px;}
-.cp-team table{border-collapse:collapse;width:100%;min-width:540px;font-size:12px;table-layout:fixed;}
-.cp-team thead th:first-child{width:72px;}
-.cp-team th,.cp-team td{padding:5px 4px;border-bottom:1px solid var(--line);text-align:center;white-space:nowrap;}
-.cp-team thead th{font:600 10.5px var(--font-mono);text-transform:uppercase;color:var(--ink-soft);}
-.cp-team thead th small{display:block;font-weight:400;}
-.cp-team thead th.today{color:var(--pine);}
-.cp-team tbody th{text-align:left;font-weight:600;position:sticky;left:0;background:var(--paper-raised);padding-right:8px;}
-.cp-team td b{font-weight:600;}
-.cp-team td small{display:block;font-size:10.5px;}
-.cp-team .cp-t-am{background:var(--sh-am, #E6F0FF);}
-.cp-team .cp-t-pm{background:var(--sh-pm, #FFF3DC);}
-.cp-team .cp-t-full{background:var(--sh-full, #E8F6EC);}
-.cp-team .cp-t-off,.cp-team .cp-t-none{color:var(--ink-faint);}
-.cp-team .cp-t-group td{text-align:left;font:600 10.5px var(--font-mono);text-transform:uppercase;color:var(--pine);background:var(--pine-tint);}
+/* Supervisors' full schedule: a phone calendar */
+.cp-cal{padding:14px;}
+.cp-cal-weeks{display:flex;gap:6px;margin-bottom:12px;}
+.cp-cal-weeks button{flex:1;padding:8px;border:1px solid var(--line-strong);border-radius:999px;background:var(--paper-raised);color:var(--ink-soft);font:600 13px var(--font-body);}
+.cp-cal-weeks button.on{background:var(--pine);border-color:var(--pine);color:var(--paper-raised);}
+.cp-cal-strip{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;}
+.cp-cal-strip button{display:flex;flex-direction:column;align-items:center;gap:2px;padding:7px 0 8px;border:1px solid transparent;border-radius:12px;background:var(--paper);color:var(--ink);cursor:pointer;}
+.cp-cal-strip span{font:600 10.5px var(--font-mono);text-transform:uppercase;color:var(--ink-soft);}
+.cp-cal-strip b{font:600 17px var(--font-body);}
+.cp-cal-strip button.today{border-color:var(--pine);}
+.cp-cal-strip button.on{background:var(--pine);border-color:var(--pine);}
+.cp-cal-strip button.on span,.cp-cal-strip button.on b{color:var(--paper-raised);}
+.cp-cal-date{margin:12px 2px 8px;font-weight:600;font-size:14px;}
+.cp-cal-sec{border-radius:12px;padding:10px 12px;margin-bottom:8px;}
+.cp-cal-am{background:var(--sh-am,#E6F0FF);}
+.cp-cal-pm{background:var(--sh-pm,#FFF3DC);}
+.cp-cal-full{background:var(--sh-full,#E8F6EC);}
+.cp-cal-head{display:flex;align-items:baseline;gap:8px;margin-bottom:6px;}
+.cp-cal-head b{font-size:14px;}
+.cp-cal-head span{font:500 12px var(--font-mono);color:var(--ink-soft);flex:1;}
+.cp-cal-head i{font-style:normal;font:600 12px var(--font-mono);background:var(--paper-raised);border-radius:999px;padding:1px 8px;color:var(--ink-soft);}
+.cp-cal-sec ul{list-style:none;margin:0;padding:0;}
+.cp-cal-sec li{display:flex;align-items:center;gap:8px;padding:7px 0;border-top:1px solid rgba(0,0,0,.06);font-size:14px;}
+.cp-cal-sec li:first-child{border-top:0;}
+.cp-cal-name{flex:1;min-width:0;font-weight:600;}
+.cp-cal-name em{display:block;font-style:normal;font-weight:400;font-size:11.5px;color:var(--ink-soft);}
+.cp-cal-sec .cp-custom{font:700 12px var(--font-mono);color:var(--gold);white-space:nowrap;}
+.cp-st{font:600 11px var(--font-mono);padding:2px 8px;border-radius:999px;background:var(--paper-raised);color:var(--ink-soft);white-space:nowrap;}
+.cp-st-front{color:var(--pine);}
+.cp-st-back{color:var(--brick);}
+.cp-cal-off{margin:4px 2px 0;font-size:13px;color:var(--ink-soft);}

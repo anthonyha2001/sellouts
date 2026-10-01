@@ -77,24 +77,52 @@
       : '<div class="card"><p class="empty-note" style="margin:0;">No schedule published yet.</p></div>');
   }
 
-  // Supervisors: the whole team's published week (owner, 2026-10-01).
+  // Supervisors: the whole team's published week as a calendar (owner, 2026-10-01):
+  // week tabs, a strip of 7 days, and who works that day — AM, PM, Full day, Off.
+  const team = { weeks: [], w: 0, d: null };
   function renderTeam(weeks) {
     const box = $('cpTeam');
-    if (!weeks || !weeks.length) { box.innerHTML = ''; return; }
+    if (weeks !== undefined) {
+      team.weeks = weeks || [];
+      if (team.w >= team.weeks.length) team.w = 0;
+    }
+    if (!team.weeks.length) { box.innerHTML = ''; return; }
     const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Beirut' });
-    const short = code => {
-      const { shift, station, times } = parseCode(code);
-      if (shift === 'off') return '<td class="cp-t-off">Off</td>';
-      if (!SHIFTS[shift]) return '<td class="cp-t-none">—</td>';
-      return `<td class="cp-t-${shift}"><b>${shift === 'full' ? 'Full' : SHIFTS[shift][0]}${station ? ' ' + (station === 'front' ? 'F' : 'B') : ''}</b>${times ? `<small class="cp-custom">${times.replace(/ /g, '')}</small>` : ''}</td>`;
-    };
-    const group = (people, label) => people.length ? `<tr class="cp-t-group"><td colspan="8">${label}</td></tr>` + people.map(p => `<tr><th>${esc(p.name)}</th>${DAYS.map((_, d) => short(p.days[d])).join('')}</tr>`).join('') : '';
-    box.innerHTML = '<h3 class="cp-sec">Full schedule</h3>' + weeks.map(w => `<div class="card cp-team">
-      <p class="cp-week-t">${w.week_start <= today ? 'This week' : 'Next week'} · from ${addDays(w.week_start, 0).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</p>
-      <div class="cp-team-scroll"><table><thead><tr><th></th>${DAYS.map((d, i) => { const iso = addDays(w.week_start, i).toLocaleDateString('en-CA'); return `<th class="${iso === today ? 'today' : ''}">${d}<small>${addDays(w.week_start, i).getDate()}</small></th>`; }).join('')}</tr></thead>
-      <tbody>${group(w.people.filter(p => p.position === 'supervisor'), 'Supervisors')}${group(w.people.filter(p => p.position !== 'supervisor'), 'Cashiers')}</tbody></table></div>
-      <p class="muted-note" style="margin:8px 0 0;">F = Front · B = Back · times in orange = arrives late / leaves early</p></div>`).join('');
+    const w = team.weeks[team.w];
+    const dates = DAYS.map((_, i) => addDays(w.week_start, i));
+    const isoOf = d => d.toLocaleDateString('en-CA');
+    if (team.d === null || team.d > 6) { const t = dates.findIndex(d => isoOf(d) === today); team.d = t >= 0 ? t : 0; }
+    const day = team.d;
+    const groups = { am: [], pm: [], full: [], off: [] };
+    w.people.forEach(p => {
+      const x = parseCode(p.days[day]);
+      if (SHIFTS[x.shift]) groups[x.shift].push({ ...p, ...x });
+      else if (x.shift === 'off') groups.off.push(p);
+    });
+    const sortSup = list => list.sort((x, y) => (y.position === 'supervisor') - (x.position === 'supervisor'));
+    const person = p => `<li><span class="cp-cal-name">${esc(p.name)}${p.position === 'supervisor' ? '<em>Supervisor</em>' : ''}</span>
+        ${p.times ? `<span class="cp-custom">${p.times}</span>` : ''}
+        ${p.station ? `<span class="cp-st cp-st-${p.station}">${p.station === 'front' ? 'Front' : 'Back'}</span>` : ''}</li>`;
+    const section = (key, title, time) => groups[key].length ? `<div class="cp-cal-sec cp-cal-${key}">
+        <div class="cp-cal-head"><b>${title}</b><span>${time}</span><i>${groups[key].length}</i></div>
+        <ul>${sortSup(groups[key]).map(person).join('')}</ul></div>` : '';
+    const dLabel = dates[day].toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
+    box.innerHTML = `<h3 class="cp-sec">Full schedule</h3>
+      <div class="card cp-cal">
+        ${team.weeks.length > 1 ? `<div class="cp-cal-weeks">${team.weeks.map((x, i) => `<button type="button" data-tw="${i}" class="${i === team.w ? 'on' : ''}">${x.week_start <= today ? 'This week' : 'Next week'}</button>`).join('')}</div>` : ''}
+        <div class="cp-cal-strip">${dates.map((d, i) => `<button type="button" data-td="${i}" class="${i === day ? 'on' : ''}${isoOf(d) === today ? ' today' : ''}"><span>${DAYS[i]}</span><b>${d.getDate()}</b></button>`).join('')}</div>
+        <p class="cp-cal-date">${dLabel}</p>
+        ${section('am', 'AM', '07:30 – 14:30')}${section('full', 'Full day', '07:30 – 22:00')}${section('pm', 'PM', '14:30 – 22:00')}
+        ${groups.off.length ? `<p class="cp-cal-off"><b>Off:</b> ${groups.off.map(p => esc(p.name)).join(', ')}</p>` : ''}
+        ${!groups.am.length && !groups.pm.length && !groups.full.length ? '<p class="empty-note" style="margin:6px 0;">Nobody is scheduled this day.</p>' : ''}
+      </div>`;
   }
+  $('cpTeam').addEventListener('click', e => {
+    const b = e.target.closest('[data-tw], [data-td]'); if (!b) return;
+    if (b.dataset.tw !== undefined) { team.w = Number(b.dataset.tw); team.d = null; }
+    else team.d = Number(b.dataset.td);
+    renderTeam();
+  });
 
   function renderNotify() {
     const box = $('cpNotify');
