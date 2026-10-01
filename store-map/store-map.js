@@ -606,6 +606,46 @@
       return { dx: bx ? bx.d : 0, dy: by ? by.d : 0, lines };
     }
 
+    // Sticking (owner, 2026-10-01): which elements stick to which, and on which faces.
+    //   end cap      -> the two short ends of a gondola
+    //   side gondola -> any side of an end cap
+    stickTargets(o) {
+      if (o.type === 'endcap') return { types: ['gondola'], faces: 'ends' };
+      if (o.type === 'side_gondola') return { types: ['endcap'], faces: 'all' };
+      return null;
+    }
+    // Where the moving element would sit against the nearest allowed face, if it is close enough:
+    // { x, y, rot, line } (line = that face, drawn as a guide), or null.
+    stickSnap(m, k) {
+      const rule = this.stickTargets(m); if (!rule) return null;
+      const mc = { x: m.x + m.w / 2, y: m.y + m.h / 2 };
+      const reach = Math.max(m.w, m.h) * 0.9 + 18 / k;
+      let best = null;
+      (this.draft || []).forEach(t => {
+        if (t.id === m.id || !rule.types.includes(t.type)) return;
+        const r = normRot(t.rot) * Math.PI / 180;
+        const u = { x: Math.cos(r), y: Math.sin(r) }, v = { x: -Math.sin(r), y: Math.cos(r) };
+        const tc = { x: t.x + t.w / 2, y: t.y + t.h / 2 };
+        // faces: normal, distance from the centre to the face, the face's direction and half length
+        const faces = [
+          { n: u, d: t.w / 2, tan: v, half: t.h / 2, long: t.w >= t.h }, { n: { x: -u.x, y: -u.y }, d: t.w / 2, tan: v, half: t.h / 2, long: t.w >= t.h },
+          { n: v, d: t.h / 2, tan: u, half: t.w / 2, long: t.h > t.w }, { n: { x: -v.x, y: -v.y }, d: t.h / 2, tan: u, half: t.w / 2, long: t.h > t.w },
+        ].filter(f => rule.faces === 'all' || f.long);   // 'ends' = the faces across the long axis
+        faces.forEach(f => {
+          const fc = { x: tc.x + f.n.x * f.d, y: tc.y + f.n.y * f.d };
+          // the moving element lies along the face (its width on the face), its depth going outwards
+          const c = { x: fc.x + f.n.x * m.h / 2, y: fc.y + f.n.y * m.h / 2 };
+          const dist = Math.hypot(mc.x - c.x, mc.y - c.y);
+          if (dist > reach || (best && dist >= best.dist)) return;
+          let deg = Math.round(Math.atan2(f.tan.y, f.tan.x) * 180 / Math.PI);
+          deg = ((deg % 180) + 180) % 180;
+          const a = { x: fc.x - f.tan.x * f.half, y: fc.y - f.tan.y * f.half }, b = { x: fc.x + f.tan.x * f.half, y: fc.y + f.tan.y * f.half };
+          best = { dist, x: Math.round((c.x - m.w / 2) * 10) / 10, y: Math.round((c.y - m.h / 2) * 10) / 10, rot: deg, line: { x1: a.x, y1: a.y, x2: b.x, y2: b.y } };
+        });
+      });
+      return best;
+    }
+
     renderAll() { this.renderFloors(); this.renderBar(); this.renderSvg(); this.renderLegend(); this.renderPanel(); }
 
     renderFloors() {
@@ -950,7 +990,7 @@
           if (!this.selSet.has(id)) return;
         } else if (!this.selSet.has(id)) { this.sel = id; this.renderBar(); this.renderSvg(); this.renderPanel(); }
         else this._sel = id;                     // a member of the group: keep the group, it moves together
-        const origs = new Map(this.selectedObjs().map(o => [o.id, { x: o.x, y: o.y }]));
+        const origs = new Map(this.selectedObjs().map(o => [o.id, { x: o.x, y: o.y, rot: o.rot || 0 }]));
         this.gesture = { type: 'drag', id, start, origs, add, snap: JSON.stringify(this.draft), moved: false };
         return;
       }
@@ -994,9 +1034,17 @@
           const g2 = this.guideSnap(sel.map(o => { const O = G.origs.get(o.id); return Object.assign({}, o, { x: O.x + ddx, y: O.y + ddy }); }), k);
           ddx += g2.dx; ddy += g2.dy; this.guides = g2.lines;
         }
+        // One end cap / side piece near a gondola / end cap: it sticks (Alt: no sticking).
+        let stick = null;
+        if (sel.length === 1 && !e.altKey && this.stickTargets(sel[0])) {
+          const O = G.origs.get(sel[0].id);
+          stick = this.stickSnap(Object.assign({}, sel[0], { x: O.x + dx / k, y: O.y + dy / k, rot: O.rot }), k);
+          if (stick) this.guides = [stick.line];
+        }
         sel.forEach(o => {
           const O = G.origs.get(o.id); if (!O) return;
-          o.x = Math.round((O.x + ddx) * 10) / 10; o.y = Math.round((O.y + ddy) * 10) / 10;
+          if (stick) { o.x = stick.x; o.y = stick.y; o.rot = stick.rot; }
+          else { o.x = Math.round((O.x + ddx) * 10) / 10; o.y = Math.round((O.y + ddy) * 10) / 10; if (O.rot !== undefined) o.rot = O.rot; }
           const el = this.vp.querySelector(`.sm-o[data-id="${CSS.escape(o.id)}"]`);
           const rot = normRot(o.rot);
           if (el) el.setAttribute('transform', `translate(${o.x} ${o.y})${rot ? ` rotate(${rot} ${o.w / 2} ${o.h / 2})` : ''}`);
@@ -1523,6 +1571,7 @@
             • Click an element to select it; drag to move; drag the square handles to resize.<br>
             • <b>Ctrl + click</b> (Cmd on a Mac) adds elements to the selection; <b>Ctrl + drag</b> on the floor selects everything in a box; Ctrl+A selects all. Then align, spread or move them together.<br>
             • While dragging, pink guide lines show when edges or centres line up with another element, and it snaps to them (hold <b>Alt</b> to move freely).<br>
+            • An <b>end cap</b> dropped near the end of a gondola sticks to it (and turns to face it); a <b>side gondola</b> sticks to the side of an end cap. Hold <b>Alt</b> to place it freely.<br>
             • Pick a type in the bar and press <b>Add</b> to place a new element in the middle of the view.<br>
             • Arrows nudge (Shift = bigger steps) · Del deletes · Ctrl+D duplicates · Ctrl+Z / Ctrl+Y undo / redo.<br>
             • Drag the empty floor to pan, scroll or pinch to zoom.</p></div>
