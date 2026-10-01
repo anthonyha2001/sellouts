@@ -119,7 +119,7 @@
   }
   // ---- Supervisors: the shared draft (cashier-view draft_*; migration 024). All supervisors edit the
   // same unpublished week, one cell at a time; "Send to HR", and HR publishes it in the app.
-  const draft = { on: false, weeks: [], week: null, staff: [], canCopy: false, w: null, d: 0, busy: false };
+  const draft = { on: false, weeks: [], week: null, staff: [], canCopy: false, w: null, d: 0, busy: false, mode: 'day', p: null };
   const WEEK_NAMES = ['This week', 'Next week', 'In 2 weeks', 'In 3 weeks'];
   const STATUS = { none: 'Not started', draft: 'Draft', sent: 'Sent to HR', published: 'Published' };
   async function loadDraft(week) {
@@ -163,21 +163,35 @@
       const day = draft.d;
       const cnt = { am: 0, pm: 0, front: 0, back: 0 };
       draft.staff.forEach(p => { const x = parseCode((a[p.id] || [])[day]); if (!SHIFTS[x.shift]) return; if (x.shift !== 'pm') cnt.am++; if (x.shift !== 'am') cnt.pm++; const st = x.station || p.default_station; if (st === 'front') cnt.front++; else if (st === 'back') cnt.back++; });
-      const row = p => {
-        const code = (a[p.id] || [])[day] || '', x = parseCode(code), working = !!SHIFTS[x.shift];
+      // One line: a person on a day (By day: everyone on draft.d; By person: draft.p on each day).
+      const line = (p, d, who) => {
+        const code = (a[p.id] || [])[d] || '', x = parseCode(code), working = !!SHIFTS[x.shift];
         const seg = [['', '—'], ['am', 'AM'], ['pm', 'PM'], ['full', 'Full'], ['off', 'Off']].map(([v, l]) => `<button type="button" data-dset="${v}" class="${x.shift === v ? 'on' : ''} cp-dr-${v || 'none'}">${l}</button>`).join('');
         const st = [['front', 'Front'], ['back', 'Back']].map(([v, l]) => `<button type="button" data-dset="${v}" class="${working && x.station === v ? 'on' : ''}" ${working ? '' : 'disabled'}>${l}</button>`).join('');
-        return `<li data-pid="${p.id}"><div class="cp-dr-who"><b>${esc(p.name)}</b>${p.position === 'supervisor' ? '<em>Supervisor</em>' : ''}${x.times ? `<span class="cp-custom">${x.times}</span>` : ''}</div>
+        return `<li data-pid="${p.id}" data-day="${d}"><div class="cp-dr-who">${who}${x.times ? `<span class="cp-custom">${x.times}</span>` : ''}</div>
           <div class="cp-dr-seg">${seg}</div><div class="cp-dr-seg cp-dr-stn">${st}</div></li>`;
       };
+      const row = p => line(p, day, `<b>${esc(p.name)}</b>${p.position === 'supervisor' ? '<em>Supervisor</em>' : ''}`);
       const sups = draft.staff.filter(p => p.position === 'supervisor'), cash = draft.staff.filter(p => p.position !== 'supervisor');
-      body = `<p class="muted-note cp-dr-note">${info.status === 'sent' ? `Sent to HR by ${esc(info.submitted_by || '')} — you can still change it until HR publishes it.` : 'Draft — staff cannot see it yet.'}${wk.last_editor ? ` Last change by ${esc(wk.last_editor)}.` : ''}</p>
+      const everyone = [...sups, ...cash];
+      if (!draft.p || !everyone.some(p => p.id === draft.p)) draft.p = everyone[0]?.id || null;
+      const modes = `<div class="cp-dr-modes">${[['day', 'By day'], ['person', 'By person']].map(([v, l]) => `<button type="button" data-dmode="${v}" class="${draft.mode === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+      const note = `<p class="muted-note cp-dr-note">${info.status === 'sent' ? `Sent to HR by ${esc(info.submitted_by || '')} — you can still change it until HR publishes it.` : 'Draft — staff cannot see it yet.'}${wk.last_editor ? ` Last change by ${esc(wk.last_editor)}.` : ''}</p>`;
+      const send = `<div class="cp-dr-send"><button type="button" class="btn" id="cpDraftSend">${info.status === 'sent' ? 'Send to HR again' : 'Send to HR'}</button>
+          <span class="muted-note">HR reviews it and publishes it to everyone.</span></div>`;
+      if (draft.mode === 'person') {
+        const p = everyone.find(x => x.id === draft.p);
+        const i = everyone.indexOf(p);
+        body = note + modes + (p ? `<div class="cp-dr-person">
+            <button type="button" class="cp-dr-step" data-dp="${everyone[i - 1]?.id || ''}" ${i <= 0 ? 'disabled' : ''} aria-label="Previous person">‹</button>
+            <select id="cpDraftPerson" aria-label="Person">${sups.length ? `<optgroup label="Supervisors">${sups.map(x => `<option value="${x.id}" ${x.id === p.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</optgroup>` : ''}${cash.length ? `<optgroup label="Cashiers">${cash.map(x => `<option value="${x.id}" ${x.id === p.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</optgroup>` : ''}</select>
+            <button type="button" class="cp-dr-step" data-dp="${everyone[i + 1]?.id || ''}" ${i >= everyone.length - 1 ? 'disabled' : ''} aria-label="Next person">›</button></div>
+          <ul class="cp-dr-list">${dates.map((dt, d) => line(p, d, `<b>${DAYS[d]}</b><em>${dt.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</em>`)).join('')}</ul>` : '<p class="empty-note">No staff.</p>') + send;
+      } else body = note + modes + `
         <div class="cp-cal-strip">${dates.map((d, i) => `<button type="button" data-dd="${i}" class="${i === day ? 'on' : ''}"><span>${DAYS[i]}</span><b>${d.getDate()}</b></button>`).join('')}</div>
         <p class="cp-dr-count">${dates[day].toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })} · <b>AM ${cnt.am} · PM ${cnt.pm}</b> · Front ${cnt.front} · Back ${cnt.back}</p>
         ${sups.length ? `<p class="cp-dr-grp">Supervisors</p><ul class="cp-dr-list">${sups.map(row).join('')}</ul>` : ''}
-        ${cash.length ? `<p class="cp-dr-grp">Cashiers</p><ul class="cp-dr-list">${cash.map(row).join('')}</ul>` : ''}
-        <div class="cp-dr-send"><button type="button" class="btn" id="cpDraftSend">${info.status === 'sent' ? 'Send to HR again' : 'Send to HR'}</button>
-          <span class="muted-note">HR reviews it and publishes it to everyone.</span></div>`;
+        ${cash.length ? `<p class="cp-dr-grp">Cashiers</p><ul class="cp-dr-list">${cash.map(row).join('')}</ul>` : ''}` + send;
     }
     box.innerHTML = `<h3 class="cp-sec">Draft schedule <span class="muted-note">(supervisors)</span></h3><div class="card cp-dr">${tabs}${body}<p class="login-err" id="cpDraftErr"></p></div>`;
   }
@@ -186,6 +200,8 @@
     const err = m => { const p = $('cpDraftErr'); if (p) p.textContent = m || ''; };
     if (t.dataset.dw) { draft.w = t.dataset.dw; draft.d = 0; return loadDraft(draft.w); }
     if (t.dataset.dd) { draft.d = Number(t.dataset.dd); return renderDraft(); }
+    if (t.dataset.dmode) { draft.mode = t.dataset.dmode; return renderDraft(); }
+    if (t.dataset.dp !== undefined) { if (t.dataset.dp) { draft.p = t.dataset.dp; renderDraft(); } return; }
     if (t.dataset.dstart) {
       draft.busy = true;
       try { await call({ action: 'draft_create', cashier_id: session.cashier_id, pin: session.pin, week_start: draft.w, copy: t.dataset.dstart === 'copy' }); }
@@ -200,17 +216,19 @@
       return loadDraft(draft.w);
     }
     if (t.dataset.dset !== undefined) {
-      const li = t.closest('li[data-pid]'), p = draft.staff.find(x => x.id === li.dataset.pid);
+      const li = t.closest('li[data-pid]'), p = draft.staff.find(x => x.id === li.dataset.pid), d = Number(li.dataset.day);
       const a = draft.week.assignments, days = (a[p.id] = a[p.id] || ['', '', '', '', '', '', '']);
-      const before = days[draft.d] || '', code = applyTool(p, before, t.dataset.dset);
+      const before = days[d] || '', code = applyTool(p, before, t.dataset.dset);
       if (code === before) return;
-      days[draft.d] = code; renderDraft();          // right away; the server confirms
+      days[d] = code; renderDraft();          // right away; the server confirms
       try {
-        const r = await call({ action: 'draft_set', cashier_id: session.cashier_id, pin: session.pin, week_start: draft.w, staff_id: p.id, day: draft.d, code });
+        const r = await call({ action: 'draft_set', cashier_id: session.cashier_id, pin: session.pin, week_start: draft.w, staff_id: p.id, day: d, code });
         if (Array.isArray(r.days)) a[p.id] = r.days;
-      } catch (x) { days[draft.d] = before; renderDraft(); err(x.message); }
+      } catch (x) { days[d] = before; renderDraft(); err(x.message); }
     }
   });
+
+  $('cpDraft').addEventListener('change', e => { if (e.target.id === 'cpDraftPerson') { draft.p = e.target.value; renderDraft(); } });
 
   $('cpTeam').addEventListener('click', e => {
     const b = e.target.closest('[data-tw], [data-td]'); if (!b) return;

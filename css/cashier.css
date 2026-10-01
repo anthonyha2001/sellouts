@@ -116,3 +116,12 @@ body.cashier-page{display:block;min-height:100vh;}
 .cp-dr-send{display:flex;flex-direction:column;align-items:stretch;gap:6px;margin-top:14px;text-align:center;}
 #cpDraftErr{margin:8px 0 0;min-height:0;}
 .cp-dr-seg button.on.cp-dr-none{background:var(--line);color:var(--ink-soft);}
+
+/* Supervisors' draft: By day / By person */
+.cp-dr-modes{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:0 0 10px;}
+.cp-dr-modes button{padding:8px;border:1px solid var(--line-strong);border-radius:999px;background:var(--paper-raised);color:var(--ink-soft);font:600 13px var(--font-body);cursor:pointer;}
+.cp-dr-modes button.on{background:var(--pine);border-color:var(--pine);color:var(--paper-raised);}
+.cp-dr-person{display:flex;gap:6px;align-items:center;margin-bottom:4px;}
+.cp-dr-person select{flex:1;font-size:16px;}
+.cp-dr-step{width:40px;height:40px;border:1px solid var(--line-strong);border-radius:10px;background:var(--paper-raised);color:var(--ink);font-size:22px;line-height:1;cursor:pointer;}
+.cp-dr-step:disabled{color:var(--ink-faint);cursor:default;}

@@ -24,7 +24,7 @@
   const esc = escapeHtml;
   const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   const SHIFT = { am: { label: 'AM', time: '07:30–14:30', hours: 7 }, pm: { label: 'PM', time: '14:30–22:00', hours: 7.5 }, full: { label: 'Full', time: '07:30–22:00', hours: 14.5 } };
-  const S = { brush: { tool: 'am' }, started: false, tab: 'week', week: null, staff: [], row: null, prev: null, missing: false };
+  const S = { brush: { tool: 'am' }, view: 'grid', vday: null, vperson: null, started: false, tab: 'week', week: null, staff: [], row: null, prev: null, missing: false };
 
   const iso = d => d.toLocaleDateString('en-CA');
   const mondayOf = s => { const d = new Date(s + 'T00:00:00'); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return iso(d); };
@@ -163,7 +163,18 @@
     const countRow = (list, label) => `<tr class="sh-count"><th class="sh-name">${label} working</th>${dates.map((_, i) => {
       const c = groupCount(list, a, i);
       return `<td><b>AM ${c.am} · PM ${c.pm}</b><small>Front ${c.front} · Back ${c.back}</small></td>`; }).join('')}<td></td></tr>`;
-    el('shBody').innerHTML = `${nav}
+    // Fill the week: the whole grid, one day for everyone, or one person's 7 days.
+    const viewSwitch = `<div class="filter-row sh-views" id="shViews">
+        ${[['grid', 'Week grid'], ['day', 'By day'], ['person', 'By person']].map(([v, l]) => `<button type="button" data-view="${v}" class="${S.view === v ? 'active' : ''}">${l}</button>`).join('')}</div>`;
+    if (S.view !== 'grid') {
+      el('shBody').innerHTML = `${nav}${viewSwitch}<div class="card">${listEditorHtml(row, dates, sups, cash)}</div>`;
+      wireNav(); wireViews(); wireListEditor(row);
+      el('shCopy')?.addEventListener('click', copyLast);
+      el('shPublish').onclick = togglePublish;
+      el('shPrint').onclick = print;
+      return;
+    }
+    el('shBody').innerHTML = `${nav}${viewSwitch}
       <div class="card"><div class="sh-brush" id="shBrush">
           <span class="sh-step">1</span><span class="sh-brush-t">Shift</span>
           ${SHIFT_TOOLS.map(([v, l]) => `<button type="button" class="sh-chip sh-${v || 'none'} ${S.brush.tool === v ? 'on' : ''}" data-tool="${v}">${l}</button>`).join('')}
@@ -183,6 +194,7 @@
       </table></div>
       <p class="muted-note" style="margin:10px 0 0;">AM ${SHIFT.am.time} · PM ${SHIFT.pm.time} · Full ${SHIFT.full.time}. Changes save by themselves; staff see the week once it is published.</p></div>`;
     wireNav();
+    wireViews();
     wireGrid(row);
     wireRowDrag();
     el('shCopy')?.addEventListener('click', copyLast);
@@ -288,10 +300,73 @@
       el('shBody').querySelector(`.sh-grid tr[data-p="${ids[r]}"] button[data-day="${d}"]`)?.focus();
     };
   }
+  function wireViews() {
+    el('shViews').onclick = e => { const b = e.target.closest('[data-view]'); if (!b) return; S.view = b.dataset.view; renderWeek(); };
+  }
+  // By day: everyone on one day. By person: one person's 7 days. Same buttons as the cashier page.
+  function listEditorHtml(row, dates, sups, cash) {
+    const a = row.assignments || {};
+    const today = beirutToday();
+    if (S.vday === null) { const t = dates.findIndex(d => d === today); S.vday = t >= 0 ? t : 0; }
+    const everyone = [...sups, ...cash];
+    if (!S.vperson || !everyone.some(p => p.id === S.vperson)) S.vperson = everyone[0]?.id || null;
+    const seg = (code, p) => {
+      const x = parse(code), working = !!SHIFT[x.shift], t = custom(code) ? timesOf(code) : null;
+      return `<div class="sh-seg">${[['', '—'], ['am', 'AM'], ['pm', 'PM'], ['full', 'Full'], ['off', 'Off']].map(([v, l]) => `<button type="button" data-set="${v}" class="sh-seg-${v || 'none'} ${x.shift === v ? 'on' : ''}">${l}</button>`).join('')}</div>
+        <div class="sh-seg sh-seg-st">${[['front', 'Front'], ['back', 'Back']].map(([v, l]) => `<button type="button" data-set="${v}" class="${working && x.station === v ? 'on' : ''}" ${working ? '' : 'disabled'}>${l}</button>`).join('')}</div>
+        <button type="button" class="btn ghost small sh-le-time ${t ? 'has' : ''}" data-set="time" ${working ? '' : 'disabled'} title="Arrives late / leaves early">${t ? `${t[0]}–${t[1]}` : 'Times…'}</button>`;
+    };
+    if (S.view === 'day') {
+      const d = S.vday;
+      const c = { am: 0, pm: 0, front: 0, back: 0 };
+      everyone.forEach(p => { const k = groupCount([p], a, d); c.am += k.am; c.pm += k.pm; c.front += k.front; c.back += k.back; });
+      const line = p => `<li data-pid="${p.id}" data-day="${d}"><div class="sh-le-who"><b>${esc(p.name)}</b><small>${isSup(p) ? 'Supervisor' : 'Cashier'}${p.default_station ? ' · usually ' + (p.default_station === 'front' ? 'Front' : 'Back') : ''}</small></div>${seg((a[p.id] || [])[d], p)}</li>`;
+      return `<div class="sh-le-strip">${dates.map((dt, i) => `<button type="button" data-vday="${i}" class="${i === d ? 'on' : ''}${dt === today ? ' today' : ''}"><span>${DAYS[i]}</span><b>${Number(dt.slice(8))}</b></button>`).join('')}</div>
+        <p class="sh-le-count"><b>${dayLabel(dates[d], { weekday: 'long', day: 'numeric', month: 'long' })}</b> · AM ${c.am} · PM ${c.pm} · Front ${c.front} · Back ${c.back}</p>
+        ${sups.length ? `<p class="sh-le-grp">Supervisors</p><ul class="sh-le">${sups.map(line).join('')}</ul>` : ''}
+        ${cash.length ? `<p class="sh-le-grp">Cashiers</p><ul class="sh-le">${cash.map(line).join('')}</ul>` : ''}`;
+    }
+    const p = everyone.find(x => x.id === S.vperson);
+    if (!p) return '<p class="empty-note">No staff yet — add them in the Staff tab.</p>';
+    const days = a[p.id] || [];
+    const hours = Math.round(days.reduce((t, c) => t + hoursOf(c), 0) * 100) / 100;
+    const idx = everyone.indexOf(p);
+    return `<div class="sh-le-person">
+        <button type="button" class="icon-btn" data-vstep="-1" ${idx <= 0 ? 'disabled' : ''} aria-label="Previous person"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+        <select id="shVPerson" aria-label="Person">${sups.length ? `<optgroup label="Supervisors">${sups.map(x => `<option value="${x.id}" ${x.id === p.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</optgroup>` : ''}${cash.length ? `<optgroup label="Cashiers">${cash.map(x => `<option value="${x.id}" ${x.id === p.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</optgroup>` : ''}</select>
+        <button type="button" class="icon-btn" data-vstep="1" ${idx >= everyone.length - 1 ? 'disabled' : ''} aria-label="Next person"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></button>
+        <span class="muted-note">${hours ? hours + 'h this week' : 'Nothing yet this week'} · ${days.filter(c => c === 'off').length} off</span>
+      </div>
+      <ul class="sh-le">${dates.map((dt, i) => `<li data-pid="${p.id}" data-day="${i}" class="${dt === today ? 'today' : ''}"><div class="sh-le-who"><b>${DAYS[i]}</b><small>${dayLabel(dt, { day: 'numeric', month: 'short' })}</small></div>${seg(days[i], p)}</li>`).join('')}</ul>`;
+  }
+  function wireListEditor(row) {
+    const box = el('shBody').querySelector('.card:last-child');
+    box.onclick = e => {
+      const b = e.target.closest('button'); if (!b) return;
+      if (b.dataset.vday !== undefined) { S.vday = Number(b.dataset.vday); return renderWeek(); }
+      if (b.dataset.vstep) {
+        const all = people().filter(isSup).concat(people().filter(p => !isSup(p)));
+        const i = all.findIndex(x => x.id === S.vperson) + Number(b.dataset.vstep);
+        if (all[i]) { S.vperson = all[i].id; renderWeek(); }
+        return;
+      }
+      if (b.dataset.set === undefined) return;
+      const li = b.closest('li[data-pid]'), id = li.dataset.pid, i = Number(li.dataset.day);
+      const p = S.staff.find(x => x.id === id); if (!p) return;
+      if (b.dataset.set === 'time') return editTimesAt(id, i, row);
+      const days = (row.assignments[id] = row.assignments[id] || Array(7).fill(''));
+      const code = applyTool(p, days[i] || '', b.dataset.set);
+      if ((days[i] || '') === code) return;
+      days[i] = code; save(); renderWeek();
+    };
+    const sel = el('shVPerson');
+    if (sel) sel.onchange = () => { S.vperson = sel.value; renderWeek(); };
+  }
+
   // Arrives late / leaves early: the cell's shift, station and exact start / end.
-  function editTimes(btn, row) {
-    const id = btn.closest('tr').dataset.p, p = S.staff.find(x => x.id === id); if (!p) return;
-    const i = Number(btn.dataset.day);
+  function editTimes(btn, row) { editTimesAt(btn.closest('tr').dataset.p, Number(btn.dataset.day), row, btn); }
+  function editTimesAt(id, i, row, btn) {
+    const p = S.staff.find(x => x.id === id); if (!p) return;
     const days = (row.assignments[id] = row.assignments[id] || Array(7).fill(''));
     let x = parse(days[i]);
     if (!SHIFT[x.shift]) {   // empty or Off: start from the brush's shift (or AM)
@@ -332,7 +407,7 @@
     fill(x.shift, true);
     el('shTShift').onchange = () => fill(el('shTShift').value, false);
     el('shTReset').onclick = () => fill(el('shTShift').value, false);
-    const close = () => { ov.classList.remove('open'); btn.focus(); };
+    const close = () => { ov.classList.remove('open'); btn?.focus(); };
     el('shTCancel').onclick = close;
     ov.onclick = e => { if (e.target === ov) close(); };
     el('shTimeForm').onsubmit = e => {
@@ -369,7 +444,7 @@
   function save(now) {
     clearTimeout(timer);
     const go = async () => {
-      const { error } = await sb.from('schedule_weeks').update({ assignments: S.row.assignments, published: S.row.published, last_editor: Session.profile?.display_name || Session.profile?.username || 'HR' }).eq('week_start', S.row.week_start);
+      const { error } = await sb.from('schedule_weeks').update({ assignments: S.row.assignments, published: S.row.published, last_editor: (typeof Session !== 'undefined' && (Session.profile?.display_name || Session.profile?.username)) || 'HR' }).eq('week_start', S.row.week_start);
       if (error) showToast('Not saved — ' + friendlyError(error), true);
     };
     if (now) return go();
