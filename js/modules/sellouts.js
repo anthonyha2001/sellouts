@@ -479,14 +479,14 @@ function pricingPanelHtml(so) {
     <div class="items-scroll">
       <table class="items so-price-table">
         <thead><tr>
-          <th class="checkbox-cell"><input type="checkbox" data-role="select-all" ${allSel ? 'checked' : ''} title="Select all"></th>
+          <th class="so-rownum" data-role="select-all" title="Select all / none">#</th>
           <th>Code</th><th>Description</th><th class="num">Old price</th><th class="num">New price</th><th class="num">Discount</th><th>Mode</th><th></th>
         </tr></thead>
-        <tbody>${rows.map(p => {
+        <tbody>${rows.map((p, i) => {
           const w = priceWarnings(p);
           const d = discountPct(p);
-          return `<tr data-row="${p.row}" class="${w.length ? 'so-warn-row' : ''}">
-            <td class="checkbox-cell"><input type="checkbox" data-role="select-row" ${st.selected.has(p.row) ? 'checked' : ''}></td>
+          return `<tr data-row="${p.row}" class="${w.length ? 'so-warn-row' : ''} ${st.selected.has(p.row) ? 'row-selected' : ''}">
+            <td class="so-rownum" title="Click the row to select it (Shift: a range)">${i + 1}</td>
             <td style="font-family:var(--font-mono);">${escapeHtml(p.code)}</td>
             <td class="so-desc">${escapeHtml(p.description)}</td>
             <td class="num">${p.oldPrice === null ? '<span class="empty-note">—</span>' : p.oldPrice.toFixed(2)}</td>
@@ -497,6 +497,12 @@ function pricingPanelHtml(so) {
           </tr>`;
         }).join('')}</tbody>
       </table>
+    </div>
+    <div class="so-sel-footer" ${st.selected.size ? '' : 'hidden'}>
+      <div class="so-sel-bar"><span class="promo-sel-count">${st.selected.size} selected</span>
+        <button type="button" class="btn secondary small" data-role="copy-selected">Copy codes</button>
+        <button type="button" class="btn secondary small" data-role="apply-selected-foot">Apply the rule</button>
+        <button type="button" class="icon-btn" data-role="clear-selected" title="Clear the selection" aria-label="Clear the selection"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
     </div>`;
 }
 
@@ -508,16 +514,30 @@ function wirePricingPanel(el, so) {
 
   panel.querySelector('[data-role="price-mode"]').addEventListener('change', e => { st.mode = e.target.value; rerender(); });
   panel.querySelector('[data-role="price-value"]').addEventListener('input', e => { st.value = e.target.value; });
-  panel.querySelector('[data-role="select-all"]').addEventListener('change', e => {
+  panel.querySelector('[data-role="select-all"]').addEventListener('click', () => {
     const rows = pricedRowsOf(so);
-    st.selected = e.target.checked ? new Set(rows.map(p => p.row)) : new Set();
+    st.selected = st.selected.size === rows.length ? new Set() : new Set(rows.map(p => p.row));
     rerender();
   });
-  panel.querySelectorAll('[data-role="select-row"]').forEach(cb => cb.addEventListener('change', e => {
-    const row = Number(e.target.closest('tr').dataset.row);
-    e.target.checked ? st.selected.add(row) : st.selected.delete(row);
+  // Click a row (not its price field) to select it; Shift-click selects everything in between.
+  panel.querySelectorAll('.so-price-table tbody tr[data-row]').forEach(tr => tr.addEventListener('click', e => {
+    if (e.target.closest('input, button, select, a')) return;
+    const row = Number(tr.dataset.row);
+    const order = [...panel.querySelectorAll('.so-price-table tbody tr[data-row]')].map(x => Number(x.dataset.row));
+    if (e.shiftKey && st.lastRow !== undefined && order.includes(st.lastRow)) {
+      const [a, b] = [order.indexOf(st.lastRow), order.indexOf(row)].sort((x, y) => x - y);
+      order.slice(a, b + 1).forEach(r => st.selected.add(r));
+    } else st.selected.has(row) ? st.selected.delete(row) : st.selected.add(row);
+    st.lastRow = row;
     rerender();
   }));
+  panel.querySelector('[data-role="clear-selected"]')?.addEventListener('click', () => { st.selected = new Set(); rerender(); });
+  panel.querySelector('[data-role="copy-selected"]')?.addEventListener('click', async () => {
+    const codes = [...new Set(pricedRowsOf(so).filter(p => st.selected.has(p.row)).map(p => p.code).filter(Boolean))];
+    if (!codes.length) return showToast('The selected rows have no codes.', true);
+    showToast((await copyTextToClipboard(codes.join(','))) ? `Copied ${codes.length} code${codes.length === 1 ? '' : 's'}.` : 'Could not copy — your browser blocked clipboard access.', !codes);
+  });
+  panel.querySelector('[data-role="apply-selected-foot"]')?.addEventListener('click', () => panel.querySelector('[data-role="apply-selected"]')?.click());
 
   const apply = async scope => {
     const value = parseNum(st.value);
@@ -697,11 +717,13 @@ function renderSellouts() {
             <button type="button" class="${st.view === 'file' ? 'active' : ''}" data-view="file">Original file</button>
             <button type="button" class="${st.view === 'log' ? 'active' : ''}" data-view="log">Activity</button>
           </div>
-          ${st.view === 'pricing' ? '<button type="button" class="btn secondary small" data-role="export">Export to Excel</button>' : ''}
         </div>
         ${st.view === 'pricing' ? `<div data-role="pricing-panel">${so.items.length ? pricingPanelHtml(so) : '<p class="empty-note">No item rows found in this file.</p>'}</div>` : ''}
         ${st.view === 'file' ? fileHtml : ''}
         ${st.view === 'log' ? logHtml : ''}
+        <div class="so-end"><button type="button" class="btn ghost small" data-role="download">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 19h14"/></svg>
+          Download original file${so.fileName ? ' · ' + escapeHtml(so.fileName) : ''}</button></div>
       `;
 
     const archiveBtn = so.archived
@@ -728,13 +750,10 @@ function renderSellouts() {
           <button class="icon-btn" data-role="edit" title="Edit sell-out" aria-label="Edit sell-out">
             <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
           </button>
-          <button class="icon-btn" data-role="duplicate" title="Duplicate (use as a template)" aria-label="Duplicate sell-out">
-            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>
-          </button>
           <button class="icon-btn" data-role="replace-file" title="Replace the file (prices kept by item code)" aria-label="Replace the file">
             <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"/><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8"/><path d="M21 3v5h-5M3 21v-5h5"/></svg>
           </button>
-          <button class="icon-btn" data-role="download" title="Download original file" aria-label="Download original file">
+          <button class="icon-btn" data-role="export" title="Download the sell-out (Excel with the prices)" aria-label="Download the sell-out">
             <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 19h14"/></svg>
           </button>
           ${archiveBtn}
@@ -792,7 +811,7 @@ function renderSellouts() {
       logActivity('sellouts', so.active ? 'activate' : 'deactivate', { type: 'sellout', id: so.id }, `${so.active ? 'Activated' : 'Deactivated'} "${so.name}"`);
       await loadAll();
     });
-    el.querySelector('[data-role="download"]').addEventListener('click', (ev) => {
+    el.querySelector('[data-role="download"]')?.addEventListener('click', (ev) => {
       ev.stopPropagation();
       const url = URL.createObjectURL(so.fileBlob);
       const a = document.createElement('a');
@@ -800,7 +819,6 @@ function renderSellouts() {
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 2000);
     });
-    el.querySelector('[data-role="duplicate"]').addEventListener('click', ev => { ev.stopPropagation(); openDuplicate(so); });
     el.querySelector('[data-role="archive"]')?.addEventListener('click', async ev => {
       ev.stopPropagation();
       if (so.active) { showToast('Deactivate it first.', true); return; }
