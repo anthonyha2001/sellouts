@@ -23,6 +23,15 @@
   const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   const addDays = (s, n) => { const d = new Date(s + 'T00:00:00'); d.setDate(d.getDate() + n); return d; };
   let session = null, idleTimer = null;
+  // Notifications on this phone (migration 023): the push-alerts function sends them, cashier-view registers the phone.
+  const VAPID_PUBLIC_KEY = 'BMG7Z2phSxCqVWAVaXv0Al16YLNNwbBXMZYfrkFc7FmYkcM9FTxqIzhxTcDpnM7BO-_qDILf0m-7pys_XnAbd4o';
+  const PUSH_KEY = 'lv:cashierPush';   // which cashier this phone gets notifications for
+  const pushSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  const pushFor = () => { try { return localStorage.getItem(PUSH_KEY); } catch (e) { return null; } };
+  const setPushFor = v => { try { v ? localStorage.setItem(PUSH_KEY, v) : localStorage.removeItem(PUSH_KEY); } catch (e) { /* ignore */ } };
+  const b64uBytes = str => Uint8Array.from(atob(str.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((str.length + 3) % 4)), c => c.charCodeAt(0));
   const SAVED = 'lv:cashierLogin';
   const saved = () => { try { const v = JSON.parse(localStorage.getItem(SAVED)); return v && v.cashier_id && v.pin ? v : null; } catch (e) { return null; } };
   const setSaved = v => { try { v ? localStorage.setItem(SAVED, JSON.stringify(v)) : localStorage.removeItem(SAVED); } catch (e) { /* storage blocked */ } };   // { cashier_id, pin, name, data }
@@ -61,8 +70,55 @@
       : '<div class="card"><p class="empty-note" style="margin:0;">No schedule published yet.</p></div>');
   }
 
+  function renderNotify() {
+    const box = $('cpNotify');
+    if (!session) { box.hidden = true; return; }
+    box.hidden = false;
+    if (!pushSupported()) {
+      box.innerHTML = isIOS && !isStandalone()
+        ? '<p class="muted-note">To get notifications on iPhone, install the app first (steps at the bottom), then open it from the home screen.</p>'
+        : '';
+      box.hidden = !box.innerHTML;
+      return;
+    }
+    const on = pushFor() === session.cashier_id && Notification.permission === 'granted';
+    box.innerHTML = Notification.permission === 'denied'
+      ? '<p class="muted-note">Notifications are blocked for this page. Allow them in the phone settings to be told about your schedule and differences.</p>'
+      : on
+        ? `<span class="cp-notify-on">🔔 Notifications on</span><span class="muted-note">You are told when your schedule is out and when a difference is entered.</span><button type="button" class="link-btn" id="cpPushOff">Turn off</button>`
+        : `<button type="button" class="btn secondary small" id="cpPushOn">🔔 Turn on notifications</button><span class="muted-note">Get told when your schedule is out and when a difference is entered.</span>`;
+    $('cpPushOn')?.addEventListener('click', pushOn);
+    $('cpPushOff')?.addEventListener('click', async () => { await pushOff(); renderNotify(); });
+  }
+  async function pushOn() {
+    try {
+      const perm = Notification.permission === 'default' ? await Notification.requestPermission() : Notification.permission;
+      if (perm !== 'granted') return renderNotify();
+      const reg = await navigator.serviceWorker.ready;
+      let sub = await reg.pushManager.getSubscription();
+      if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64uBytes(VAPID_PUBLIC_KEY) });
+      const j = sub.toJSON();
+      await call({ action: 'subscribe', cashier_id: session.cashier_id, pin: session.pin, endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth });
+      setPushFor(session.cashier_id);
+    } catch (err) {
+      $('cpNotify').insertAdjacentHTML('beforeend', `<p class="login-err">Could not turn notifications on: ${esc(err.message || err)}</p>`);
+      return;
+    }
+    renderNotify();
+  }
+  // Turned off, or Log out: this phone stops getting this person's notifications.
+  async function pushOff() {
+    try {
+      const reg = await navigator.serviceWorker.getRegistration();
+      const sub = reg && await reg.pushManager.getSubscription();
+      if (sub) { await call({ action: 'unsubscribe', endpoint: sub.endpoint }).catch(() => {}); await sub.unsubscribe().catch(() => {}); }
+    } catch (e) { /* ignore */ }
+    setPushFor(null);
+  }
+
   function render() {
     const d = session.data, lv = d.levels;
+    renderNotify();
     renderSchedule(d.schedule);
     currency = lv.currency || 'LBP';
     const level = a => Math.abs(a) >= lv.danger ? 'lv-danger' : Math.abs(a) >= lv.warning ? 'lv-warn' : '';
@@ -120,7 +176,7 @@
     if (!b || !session || b.dataset.m === session.data.month) return;
     try { await load(b.dataset.m); } catch (err) { forget(); $('cpErr').textContent = err.message; }
   });
-  $('cpDone').addEventListener('click', () => { setSaved(null); forget(); });
+  $('cpDone').addEventListener('click', async () => { if (pushFor()) await pushOff(); setSaved(null); forget(); });
   // Remembered: refresh when the page comes back to the screen (new week published, new entries).
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && session && session.data && saved()) load(session.data.month).catch(() => {});

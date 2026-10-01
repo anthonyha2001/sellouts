@@ -7,6 +7,9 @@
 // POST { action: 'view', cashier_id, pin, month? }         -> { cashier, month, months, entries, total, levels, schedule }
 //   schedule: this week and next week of the staff schedule (migration 020), published weeks only:
 //   [{ week_start, days: ['am:front' | 'pm:back' | 'full' | 'off' | '', … Mon→Sun] }]
+// POST { action: 'subscribe', cashier_id, pin, endpoint, p256dh, auth } -> { ok }  this phone gets the cashier's
+//   notifications (schedule published, difference entered; sent by push-alerts, migration 023)
+// POST { action: 'unsubscribe', endpoint }                -> { ok }  this phone stops getting them
 //
 // Deploy with JWT verification OFF (the page has no user session).
 import { createClient } from 'npm:@supabase/supabase-js@2';
@@ -50,6 +53,22 @@ function monthEnd(ym: string) {
   return `${ym}-${String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, '0')}`;
 }
 
+// The cashier's name + PIN: null when they are right, otherwise the error response to send.
+async function pinError(body: Record<string, unknown>): Promise<Response | null> {
+  const cashierId = String(body.cashier_id ?? '');
+  const pin = String(body.pin ?? '');
+  if (!/^[0-9a-f-]{36}$/i.test(cashierId)) return json({ error: 'Choose your name.' }, 400);
+  if (!/^\d{4}$/.test(pin)) return json({ error: 'The PIN is 4 digits.' }, 400);
+  const { data: check, error: checkErr } = await db.rpc('cashier_verify_pin', { p_cashier: cashierId, p_pin: pin });
+  if (checkErr) throw checkErr;
+  const result = Array.isArray(check) ? check[0] : check;
+  if (result.status === 'locked') return json({ error: 'Too many wrong PINs. Try again later.', locked_until: result.locked_until }, 423);
+  if (result.status === 'wrong') return json({ error: 'Wrong PIN.', attempts_left: result.attempts_left }, 401);
+  if (result.status === 'no_pin') return json({ error: 'No PIN has been set for you yet. Ask your manager.' }, 403);
+  if (result.status !== 'ok') return json({ error: 'Choose your name.' }, 404);
+  return null;
+}
+
 Deno.serve(async req => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
@@ -66,17 +85,8 @@ Deno.serve(async req => {
 
     if (body.action === 'view') {
       const cashierId = String(body.cashier_id ?? '');
-      const pin = String(body.pin ?? '');
-      if (!/^[0-9a-f-]{36}$/i.test(cashierId)) return json({ error: 'Choose your name.' }, 400);
-      if (!/^\d{4}$/.test(pin)) return json({ error: 'The PIN is 4 digits.' }, 400);
-
-      const { data: check, error: checkErr } = await db.rpc('cashier_verify_pin', { p_cashier: cashierId, p_pin: pin });
-      if (checkErr) throw checkErr;
-      const result = Array.isArray(check) ? check[0] : check;
-      if (result.status === 'locked') return json({ error: 'Too many wrong PINs. Try again later.', locked_until: result.locked_until }, 423);
-      if (result.status === 'wrong') return json({ error: 'Wrong PIN.', attempts_left: result.attempts_left }, 401);
-      if (result.status === 'no_pin') return json({ error: 'No PIN has been set for you yet. Ask your manager.' }, 403);
-      if (result.status !== 'ok') return json({ error: 'Choose your name.' }, 404);
+      const bad = await pinError(body);
+      if (bad) return bad;
 
       const months = beirutMonths();
       const month = months.includes(String(body.month)) ? String(body.month) : months[0];
@@ -98,6 +108,26 @@ Deno.serve(async req => {
         cashier: { name: cashier?.name ?? '', position: pos?.position ?? 'cashier' }, schedule, month, months, entries, total,
         levels: { warning: Number(settings?.warning_threshold ?? 0), danger: Number(settings?.danger_threshold ?? 0), currency },
       });
+    }
+
+    if (body.action === 'subscribe') {
+      const bad = await pinError(body);
+      if (bad) return bad;
+      const endpoint = String(body.endpoint ?? ''), p256dh = String(body.p256dh ?? ''), auth = String(body.auth ?? '');
+      if (!/^https:\/\//.test(endpoint) || !p256dh || !auth) return json({ error: 'This phone cannot get notifications.' }, 400);
+      // One phone = one person: registering again moves it to whoever signed in now.
+      const { error } = await db.from('cashier_push_subscriptions').upsert({
+        cashier_id: String(body.cashier_id), endpoint, p256dh, auth,
+        user_agent: (req.headers.get('user-agent') ?? '').slice(0, 300), created_at: new Date().toISOString(), failures: 0,
+      }, { onConflict: 'endpoint' });
+      if (error) throw error;
+      return json({ ok: true });
+    }
+
+    if (body.action === 'unsubscribe') {
+      const endpoint = String(body.endpoint ?? '');
+      if (endpoint) await db.from('cashier_push_subscriptions').delete().eq('endpoint', endpoint);
+      return json({ ok: true });
     }
 
     return json({ error: 'Unknown action' }, 400);

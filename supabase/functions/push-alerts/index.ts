@@ -4,6 +4,9 @@
 //   works out the same alerts the app shows on its bell and pushes each one ONCE to every device of
 //   every person whose permissions cover it (push_log). Quiet hours 22:00–07:00 Beirut: nothing is
 //   sent; the alerts go out in the morning.
+//   Also the cashiers' phones (cashier_push_subscriptions, migration 023; registered on the cashier page
+//   through cashier-view after the PIN): their weekly program once it is published (and when it changes),
+//   and each cash difference entered for them (5 minutes after the last edit, so a quick fix sends once).
 // POST { action: 'test' }  from a signed-in user (Authorization: Bearer <their token>): a test push to
 //   their own devices.
 //
@@ -236,14 +239,14 @@ async function buildAlerts(today: string): Promise<Alert[]> {
 
 // ---- sending
 type Sub = { id: string; user_id: string; endpoint: string; p256dh: string; auth: string };
-async function pushTo(subs: Sub[], payload: Record<string, unknown>) {
+async function pushTo(subs: Sub[], payload: Record<string, unknown>, table = 'push_subscriptions') {
   let sent = 0, gone = 0, failed = 0;
   for (const s of subs) {
     try {
       const r = await sendPush({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, payload, VAPID, { topic: String(payload.tag || '') });
-      if (r.ok) { sent++; await db.from('push_subscriptions').update({ last_ok_at: new Date().toISOString(), failures: 0 }).eq('id', s.id); }
-      else if (r.gone) { gone++; await db.from('push_subscriptions').delete().eq('id', s.id); }
-      else { failed++; console.warn('push failed', r.status, r.text); await db.from('push_subscriptions').update({ failures: 1 }).eq('id', s.id); }
+      if (r.ok) { sent++; await db.from(table).update({ last_ok_at: new Date().toISOString(), failures: 0 }).eq('id', s.id); }
+      else if (r.gone) { gone++; await db.from(table).delete().eq('id', s.id); }
+      else { failed++; console.warn('push failed', r.status, r.text); await db.from(table).update({ failures: 1 }).eq('id', s.id); }
     } catch (e) { failed++; console.error('push error', e); }
   }
   return { sent, gone, failed };
@@ -252,8 +255,9 @@ async function pushTo(subs: Sub[], payload: Record<string, unknown>) {
 async function run() {
   const today = beirut(), hour = beirutHour();
   if (hour < 7 || hour >= 22) return { quiet: true };
+  const cashiers = await runCashiers(today);
   const { data: subs } = await db.from('push_subscriptions').select('id, user_id, endpoint, p256dh, auth');
-  if (!subs?.length) return { devices: 0 };
+  if (!subs?.length) return { devices: 0, cashiers };
   const users = [...new Set(subs.map(s => s.user_id))];
   const perms = new Map<string, Set<string>>();
   for (const u of users) { const { data } = await db.rpc('perms_of', { p_user: u }); perms.set(u, new Set((data as string[]) ?? [])); }
@@ -277,7 +281,69 @@ async function run() {
       pushed += (await pushTo(devices, { title: `La Valeur — ${mine.length} new alerts`, body, url: './', tag: 'lv-digest' })).sent;
     }
   }
-  return { devices: subs.length, alerts: alerts.length, pushed };
+  return { devices: subs.length, alerts: alerts.length, pushed, cashiers };
+}
+
+// ---- cashiers' phones (no login: registered with their PIN on the cashier page)
+const mondayOf = (d: string) => { const x = new Date(d + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() - ((x.getUTCDay() + 6) % 7)); return x.toISOString().slice(0, 10); };
+const WEEKDAY = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const dayName = (d: string) => WEEKDAY[new Date(d + 'T00:00:00Z').getUTCDay()];
+const money = (n: number, cur: string) => cur === 'USD'
+  ? (n < 0 ? '-' : '') + '$' + Math.abs(n).toFixed(2)
+  : (n < 0 ? '-' : '') + Math.round(Math.abs(n)).toLocaleString('en-US') + ' LBP';
+
+async function runCashiers(today: string) {
+  const { data: subs } = await db.from('cashier_push_subscriptions').select('id, cashier_id, endpoint, p256dh, auth, created_at');
+  if (!subs?.length) return { devices: 0 };
+  const ids = [...new Set(subs.map(x => x.cashier_id as string))];
+  const { data: staff } = await db.from('cashiers').select('id').in('id', ids).eq('active', true);
+  const active = new Set((staff ?? []).map(c => c.id));
+  // Only what happened after the phone was registered (no flood of old news on the first run).
+  const since = new Map<string, number>();
+  subs.forEach(x => { const t = Date.parse(x.created_at); if (!since.has(x.cashier_id) || t < since.get(x.cashier_id)!) since.set(x.cashier_id, t); });
+  const settled = new Date(Date.now() - 5 * 60 * 1000).toISOString();     // 5 minutes after the last edit
+  const monday = mondayOf(today);
+  const [{ data: weeks }, { data: diffs }, { data: cs }] = await Promise.all([
+    db.from('schedule_weeks').select('week_start, assignments, updated_at').eq('published', true)
+      .gte('week_start', monday).lte('week_start', addDays(monday, 14)).lte('updated_at', settled),
+    db.from('cash_differences').select('id, cashier_id, day, amount, currency, updated_at').in('cashier_id', ids)
+      .gte('updated_at', new Date(Date.now() - 3 * 86400000).toISOString()).lte('updated_at', settled).order('day'),
+    db.from('cash_settings').select('currency').eq('id', 'app').maybeSingle(),
+  ]);
+  const cur = cs?.currency ?? 'LBP';
+  let pushed = 0;
+  for (const cid of ids) {
+    if (!active.has(cid)) continue;
+    const from = since.get(cid)!;
+    const items: { key: string; body: string }[] = [];
+    for (const w of weeks ?? []) {
+      if (Date.parse(w.updated_at) < from) continue;
+      const days = (((w.assignments ?? {}) as Record<string, string[]>)[cid] ?? []).slice(0, 7);
+      if (!days.some(Boolean)) continue;
+      const { data: before } = await db.from('cashier_push_log').select('key').eq('cashier_id', cid).like('key', `sched:${w.week_start}:%`).limit(1);
+      items.push({ key: `sched:${w.week_start}:${days.join(',')}`,
+        body: before?.length ? `Your schedule for the week of ${fmt(w.week_start)} was changed. Tap to see it.`
+          : `Your schedule for the week of ${fmt(w.week_start)} is out. Tap to see it.` });
+    }
+    for (const d of diffs ?? []) {
+      if (d.cashier_id !== cid || d.currency !== cur || Date.parse(d.updated_at) < from) continue;
+      items.push({ key: `cash:${d.id}:${Number(d.amount)}`, body: `${dayName(d.day)} ${fmt(d.day)}: ${money(Number(d.amount), cur)}` });
+    }
+    const fresh: typeof items = [];
+    for (const it of items) {
+      const { data, error } = await db.from('cashier_push_log').insert({ key: it.key, cashier_id: cid }).select('key');
+      if (!error && data?.length) fresh.push(it);
+    }
+    if (!fresh.length) continue;
+    const devices = subs.filter(x => x.cashier_id === cid) as unknown as Sub[];
+    const send = (title: string, body: string, tag: string) => pushTo(devices, { title, body, url: './cashier.html', tag, cashier: true }, 'cashier_push_subscriptions');
+    for (const a of fresh.filter(i => i.key.startsWith('sched:'))) pushed += (await send('Your schedule', a.body, 'lv-sched')).sent;
+    const cash = fresh.filter(i => i.key.startsWith('cash:'));
+    if (cash.length === 1) pushed += (await send('Cash difference', cash[0].body, 'lv-cash')).sent;
+    else if (cash.length > 1) pushed += (await send(`${cash.length} cash differences`,
+      cash.slice(0, 4).map(c => '• ' + c.body).join('\n') + (cash.length > 4 ? `\n…and ${cash.length - 4} more` : ''), 'lv-cash')).sent;
+  }
+  return { devices: subs.length, pushed };
 }
 
 Deno.serve(async req => {
