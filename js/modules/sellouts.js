@@ -68,8 +68,23 @@ function supplierFromFile(items, map) {
   return [...n.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || '';
 }
 
+// The store's item report can list one code on several rows (one per barcode): the sell-out shows
+// and prices it once (its first row); all its barcodes are kept in `barcodes` for the floor check scan.
+function mergeByCode(priced) {
+  const byCode = new Map(), out = [];
+  priced.forEach(p => {
+    if (!p.code) { out.push(p); return; }
+    const first = byCode.get(p.code);
+    if (!first) { const q = { ...p, barcodes: [...new Set([...(p.barcodes || []), p.barcode].filter(Boolean))] }; byCode.set(p.code, q); out.push(q); return; }
+    [...(p.barcodes || []), p.barcode].filter(Boolean).forEach(b => { if (!first.barcodes.includes(b)) first.barcodes.push(b); });
+    if (!first.barcode && first.barcodes.length) first.barcode = first.barcodes[0];
+  });
+  return out;
+}
+const hasRepeatedCodes = rows => { const seen = new Set(); return rows.some(p => p.code && (seen.has(p.code) || !seen.add(p.code))); };
+
 function buildPricedItems(items, map) {
-  return items.map((r, i) => {
+  return mergeByCode(items.map((r, i) => {
     const fromFile = map.newPrice ? parseNum(r[map.newPrice]) : null;
     return {
       row: i,
@@ -81,13 +96,17 @@ function buildPricedItems(items, map) {
       mode: fromFile !== null ? 'file' : null, value: null,
       newPrice: fromFile !== null ? round2(fromFile) : null,
     };
-  });
+  }));
 }
 
 // Priced rows of a sell-out; older sell-outs (before pricing existed) get them from their file on the fly,
 // including the new price when the file has a "Promoted price"-type column.
 function pricedRowsOf(so) {
-  if (so.pricedItems && so.pricedItems.length === so.items.length) return so.pricedItems;
+  if (so.pricedItems && so.pricedItems.length) {
+    // Saved before codes were merged: merge now (the first row's price is kept).
+    if (hasRepeatedCodes(so.pricedItems)) so.pricedItems = mergeByCode(so.pricedItems);
+    return so.pricedItems;
+  }
   const map = detectColumns(so.items);
   if (so.priceColumn) map.price = so.priceColumn;
   so.pricedItems = buildPricedItems(so.items, map);
@@ -544,10 +563,10 @@ function wirePricingPanel(el, so) {
   panel.querySelectorAll('[data-role="new-price"]').forEach(inp => {
     inp.addEventListener('keydown', e => {
       if (e.key === 'Enter') { e.preventDefault(); inp.blur(); }
-      if (e.key === 'Escape') { const p = pricedRowsOf(so)[Number(inp.closest('tr').dataset.row)]; inp.value = p.newPrice === null ? '' : p.newPrice.toFixed(2); inp.blur(); }
+      if (e.key === 'Escape') { const p = pricedRowsOf(so).find(x => x.row === Number(inp.closest('tr').dataset.row)); inp.value = p.newPrice === null ? '' : p.newPrice.toFixed(2); inp.blur(); }
     });
     inp.addEventListener('blur', async () => {
-      const p = pricedRowsOf(so)[Number(inp.closest('tr').dataset.row)];
+      const p = pricedRowsOf(so).find(x => x.row === Number(inp.closest('tr').dataset.row));
       const raw = inp.value.trim();
       const before = p.newPrice;
       if (raw === '') {
@@ -674,7 +693,7 @@ function renderSellouts() {
       ` : `
         <div class="so-body-head">
           <div class="filter-row" style="margin:0;">
-            <button type="button" class="${st.view === 'pricing' ? 'active' : ''}" data-view="pricing">Prices (${so.items.length})</button>
+            <button type="button" class="${st.view === 'pricing' ? 'active' : ''}" data-view="pricing">Prices (${pricedRowsOf(so).length})</button>
             <button type="button" class="${st.view === 'file' ? 'active' : ''}" data-view="file">Original file</button>
             <button type="button" class="${st.view === 'log' ? 'active' : ''}" data-view="log">Activity</button>
           </div>

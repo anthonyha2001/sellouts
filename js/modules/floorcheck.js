@@ -60,7 +60,7 @@
         out.push({ source: 'sellout', sellout_id: so.id, source_name: so.name, supplier: so.supplier || so.name, item_key: `so:${so.id}:${p.row}`, item_row: p.row,
           category: p.category || categoryOfRow(so.items[p.row], map) || null,
           code: p.code, description: p.description, expected_price: p.newPrice ?? null, old_price: p.oldPrice ?? null, priority: priorityOf(so),
-          barcode: p.barcode || (bcCol ? (splitBarcodes(so.items[p.row]?.[bcCol])[0] || '') : '') });
+          barcode: (p.barcodes && p.barcodes.length ? p.barcodes.join(',') : '') || p.barcode || (bcCol ? (splitBarcodes(so.items[p.row]?.[bcCol])[0] || '') : '') });
       });
     });
     promotions.forEach(pm => {
@@ -243,7 +243,7 @@
     Scanner.open({
       title: 'Scan an item', continuous: true,
       onCode: code => {
-        const x = S.items.find(i => i.barcode && i.barcode === code) || S.items.find(i => i.code && i.code === code);
+        const x = S.items.find(i => i.barcode && String(i.barcode).split(',').includes(code)) || S.items.find(i => i.code && i.code === code);
         if (!x) return { ok: false, html: `<span class="scan-code">${esc(code)}</span><span class="scan-sub">Not in today's check</span>` };
         if (S.show !== 'all' && x.source !== S.show) S.show = 'all';
         const matchesFilter = S.filter === 'all' || (S.filter === 'todo' ? x.status === 'pending' : PROBLEMS.includes(x.status));
