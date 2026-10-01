@@ -354,10 +354,8 @@ function applyRoleUi(){
   $('#dtNav').querySelectorAll('button').forEach(b => {
     const i = PAGES.indexOf(b.dataset.page);
     b.hidden = i < 0;
-    b.querySelector('kbd').textContent = i + 1;
   });
   $('#dtNav').hidden = PAGES.length < 2;
-  $('#helpNumKeys').textContent = PAGES.length > 1 ? `1 … ${PAGES.length}` : '';
 }
 panel.querySelectorAll('[data-close]').forEach(b => b.onclick = () => b.closest('dialog').close());
 
@@ -547,12 +545,6 @@ oForm.addEventListener('submit', e => {
   renderOrders();
 });
 
-$('#exportOrders').onclick = () => {
-  if(!window.XLSX) return uiAlert('The Excel tool could not load. Check the internet connection and reload the page.', {title:'Excel not available', icon:'alert'});
-  const rows = filteredOrders().map(o => ({Date:fmtDate(o.date), Customer:o.cName, Phone:o.cPhone, Area:o.cArea, Address:o.cAddress, Driver:driverName(o.driverId), Amount:+o.amount, Platform:o.platform, Payment:o.payment, Status:o.paid?'Paid':'Unpaid', 'Paid on':fmtDate(o.paidAt), Note:o.note}));
-  const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Orders');
-  XLSX.writeFile(wb, `orders_${OF.q.trim() ? 'search' : OF.day}.xlsx`);
-};
 
 /* ================= DRIVER PAYMENTS ================= */
 let settleDriver = '', settlePay = '', settleCursor = null, settleIds = [];
@@ -565,19 +557,18 @@ function renderSettle(){
   });
   $('#settleCards').innerHTML = cards.join('') || '<div class="empty">No drivers yet — add them in the Drivers tab.</div>';
   const panel = $('#settlePanel');
-  if(!settleDriver){ panel.innerHTML = db.drivers.length ? '<p class="keys-hint">Click a driver, or press <kbd>→</kbd> to start.</p>' : ''; return; }
+  if(!settleDriver){ panel.innerHTML = db.drivers.length ? '<p class="muted">Choose a driver above.</p>' : ''; return; }
   const list = db.orders.filter(o => o.driverId === settleDriver && !o.paid && (!settlePay || o.payment === settlePay)).sort((a,b) => a.date.localeCompare(b.date));
   settleIds = list.map(o => o.id);
   [...settleSel].forEach(id => { if(!settleIds.includes(id)) settleSel.delete(id); });
   if(!settleIds.includes(settleCursor)) settleCursor = settleIds[0] || null;
   const selTotal = list.filter(o => settleSel.has(o.id)).reduce((s,o) => s + (+o.amount||0), 0);
-  panel.innerHTML = `<div class="keys-hint"><kbd>↑</kbd><kbd>↓</kbd> move · <kbd>Space</kbd> tick · <kbd>A</kbd> select all · <kbd>Enter</kbd> mark as paid · <kbd>←</kbd><kbd>→</kbd> change driver</div>
-  <div class="card table-wrap">
+  panel.innerHTML = `  <div class="card table-wrap">
     <div class="toolbar" style="padding:14px 14px 0"><h3 style="margin:0">${esc(driverName(settleDriver))} — unpaid orders</h3><div class="spacer"></div>
       <label>Payment type<select id="settlePay">${options(PAYMENTS, settlePay, 'All')}</select></label></div>
     <table class="tbl"><thead><tr><th><input type="checkbox" id="selAll" ${list.length && settleSel.size===list.length?'checked':''}></th><th>Date</th><th>Customer</th><th>Area</th><th>Platform</th><th>Payment</th><th class="num">Amount</th></tr></thead>
     <tbody id="settleBody">${list.map(o => `<tr data-id="${o.id}" class="${o.id===settleCursor?'sel':''}" style="cursor:pointer"><td><input type="checkbox" tabindex="-1" ${settleSel.has(o.id)?'checked':''}></td><td>${fmtDate(o.date)}</td><td><b>${esc(o.cName)}</b><div class="muted">${esc(o.cPhone)}</div></td><td>${esc(o.cArea)}</td><td><span class="tag ${platClass(o.platform)}">${esc(o.platform)}</span></td><td>${esc(o.payment)}</td><td class="num">${money(o.amount)}</td></tr>`).join('') || `<tr><td colspan="7" class="empty">${ic('checkc')} Nothing to pay — all settled</td></tr>`}</tbody></table>
-    ${list.length ? `<div class="settle-foot"><span>Selected: <b>${settleSel.size}</b> of ${list.length}</span><span class="total">${money(selTotal)}</span><div class="spacer"></div><button class="btn primary" id="markPaid" ${settleSel.size?'':'disabled'}>${ic('check')} Mark selected as paid <kbd>Enter</kbd></button></div>` : ''}
+    ${list.length ? `<div class="settle-foot"><span>Selected: <b>${settleSel.size}</b> of ${list.length}</span><span class="total">${money(selTotal)}</span><div class="spacer"></div><button class="btn primary" id="markPaid" ${settleSel.size?'':'disabled'}>${ic('check')} Mark selected as paid</button></div>` : ''}
   </div>`;
   $('#settlePay').onchange = e => { settlePay = e.target.value; renderSettle(); };
   $('#selAll') && ($('#selAll').onchange = () => settleSelectAll());
@@ -1186,7 +1177,6 @@ $('#quickRow').addEventListener('keydown', e => {
 });
 
 /* ================= GLOBAL SHORTCUTS ================= */
-$('#helpBtn').onclick = () => $('#helpDlg').showModal();
 
 const isField = el => el && el.matches && el.matches('input, select, textarea, [contenteditable="true"]');
 // Shortcuts only while the Delivery section is showing, never on the login screen or over a main-app dialog.
@@ -1202,7 +1192,6 @@ document.addEventListener('keydown', e => {
   if(isField(t)){ if(e.key === 'Escape') t.blur(); return; } // typing in a field
   const k = e.key;
   if(/^[1-9]$/.test(k) && PAGES[+k-1]){ e.preventDefault(); go(PAGES[+k-1]); return; }
-  if(k === '?'){ e.preventDefault(); $('#helpDlg').showModal(); return; }
   if((k === 'n' || k === 'N') && can.createOrder()){ e.preventDefault(); focusQuick(); return; }
   if(k === '/'){ const s = {orders:'#fSearch', customers:'#cSearch'}[currentPage]; if(s){ e.preventDefault(); $(s).focus(); } return; }
   if(t.tagName === 'BUTTON' && (k === 'Enter' || k === ' ')) return; // let the focused button work

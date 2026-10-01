@@ -531,32 +531,30 @@
     <section class="panel" id="panel-delivery">
       <div class="dt-subnav">
         <div class="filter-row" id="dtNav">
-          <button data-page="orders">Orders<kbd></kbd></button>
-          <button data-page="settle">Driver payments<kbd></kbd></button>
-          <button data-page="reports">Reports<kbd></kbd></button>
-          <button data-page="customers">Customers<kbd></kbd></button>
-          <button data-page="drivers">Drivers<kbd></kbd></button>
-          <button data-page="settings">Settings<kbd></kbd></button>
+          <button data-page="orders">Orders</button>
+          <button data-page="settle">Driver payments</button>
+          <button data-page="reports">Reports</button>
+          <button data-page="customers">Customers</button>
+          <button data-page="drivers">Drivers</button>
+          <button data-page="settings">Settings</button>
         </div>
         <div class="dt-subnav-right">
           <span class="sync loading" id="syncStatus"><i></i><span>Loading…</span></span>
-          <button type="button" class="btn sm" id="helpBtn"><i data-ic="keyboard"></i> Shortcuts <kbd>?</kbd></button>
         </div>
       </div>
       <div class="dt-boot" id="dtBoot">Loading deliveries…</div>
     <section class="page" id="page-orders" hidden>
       <div class="toolbar">
         <h2>Orders</h2><div class="spacer"></div>
-        <button class="btn" id="exportOrders"><i data-ic="download"></i> Export Excel</button>
-        <button class="btn primary" id="newOrderBtn"><i data-ic="plus"></i> New order <kbd>F2</kbd></button>
+        <button class="btn primary" id="newOrderBtn"><i data-ic="plus"></i> New order</button>
       </div>
       <div class="card filters">
         <label>Day
           <div class="daynav">
-            <button type="button" class="btn sm" id="dayPrev" title="Previous day (←)"><i data-ic="left"></i></button>
+            <button type="button" class="btn sm" id="dayPrev" title="Previous day"><i data-ic="left"></i></button>
             <select id="fDay"></select>
-            <button type="button" class="btn sm" id="dayNext" title="Next day (→)"><i data-ic="right"></i></button>
-            <button type="button" class="btn sm" id="dayToday" title="Back to today (T)">Today</button>
+            <button type="button" class="btn sm" id="dayNext" title="Next day"><i data-ic="right"></i></button>
+            <button type="button" class="btn sm" id="dayToday" title="Back to today">Today</button>
           </div>
         </label>
         <label>Driver<select id="fDriver"></select></label>
@@ -566,8 +564,6 @@
         <label class="grow">Search<input id="fSearch" placeholder="Name, phone, area…"></label>
       </div>
       <div class="summary" id="ordersSummary"></div>
-      <div class="keys-hint">Customer → <kbd>Enter</kbd> → driver → <kbd>Enter</kbd> → amount → <kbd>Enter</kbd> saves the order. Payment and platform are filled from the customer's last order.
-        &nbsp;·&nbsp; <kbd>Esc</kbd> then <kbd>↑</kbd><kbd>↓</kbd> move in the list, <kbd>←</kbd><kbd>→</kbd> change day &nbsp;·&nbsp; <kbd>?</kbd> all shortcuts</div>
       <div class="card table-wrap">
         <table class="tbl">
           <thead><tr><th></th><th>Customer</th><th>Driver</th><th>Area</th><th class="num">Amount</th><th>Platform</th><th>Payment</th><th>Status</th><th></th></tr>
@@ -580,7 +576,7 @@
             <td><div class="seg" id="qPlat"></div></td>
             <td><div class="seg" id="qPay"></div></td>
             <td><button type="button" class="status unpaid" id="qPaid" tabindex="-1"></button></td>
-            <td><button type="button" class="btn primary sm" id="qAdd" tabindex="-1">Add <i data-ic="enter"></i></button></td>
+            <td><button type="button" class="btn primary sm" id="qAdd" tabindex="-1">Add</button></td>
           </tr></thead>
           <tbody id="ordersBody"></tbody>
         </table>
@@ -760,51 +756,6 @@
     </div>
   </dialog>
   
-  <!-- HELP DIALOG -->
-  <dialog id="helpDlg" style="width:min(720px,96vw)">
-    <div class="dlg">
-      <h3>Keyboard shortcuts</h3>
-      <div class="help-grid">
-        <div>
-          <h4>Anywhere</h4>
-          <table>
-            <tr><td><kbd>F2</kbd> or <kbd>N</kbd></td><td>New order (jumps to the quick row)</td></tr>
-            <tr><td><kbd id="helpNumKeys">1 … 6</kbd></td><td>Switch page</td></tr>
-            <tr><td><kbd>/</kbd></td><td>Search on this page</td></tr>
-            <tr><td><kbd>Esc</kbd></td><td>Clear / leave a field</td></tr>
-            <tr><td><kbd>?</kbd></td><td>This help</td></tr>
-          </table>
-          <h4>Quick order row</h4>
-          <table>
-            <tr><td><kbd>↑</kbd><kbd>↓</kbd> <kbd>Enter</kbd></td><td>Pick customer from the list</td></tr>
-            <tr><td><kbd>Enter</kbd></td><td>On the last choice “+ New customer” to create one</td></tr>
-            <tr><td><kbd>Enter</kbd></td><td>Customer → driver → amount → save</td></tr>
-            <tr><td><kbd>1</kbd>–<kbd>9</kbd></td><td>On the driver field: pick driver by number</td></tr>
-          </table>
-        </div>
-        <div>
-          <h4>Orders list (after <kbd>Esc</kbd>)</h4>
-          <table>
-            <tr><td><kbd>↑</kbd><kbd>↓</kbd></td><td>Move between orders</td></tr>
-            <tr><td><kbd>Space</kbd> / <kbd>Enter</kbd></td><td>Show phone &amp; address</td></tr>
-            <tr><td><kbd>E</kbd></td><td>Edit order</td></tr>
-            <tr><td><kbd>Del</kbd></td><td>Delete order</td></tr>
-            <tr><td><kbd>←</kbd><kbd>→</kbd></td><td>Previous / next day (archive)</td></tr>
-            <tr><td><kbd>T</kbd></td><td>Back to today</td></tr>
-          </table>
-          <h4>Driver payments</h4>
-          <table>
-            <tr><td><kbd>←</kbd><kbd>→</kbd></td><td>Previous / next driver</td></tr>
-            <tr><td><kbd>↑</kbd><kbd>↓</kbd></td><td>Move between orders</td></tr>
-            <tr><td><kbd>Space</kbd></td><td>Tick / untick order</td></tr>
-            <tr><td><kbd>A</kbd></td><td>Select all</td></tr>
-            <tr><td><kbd>Enter</kbd></td><td>Mark selected as paid</td></tr>
-          </table>
-        </div>
-      </div>
-      <div class="dlg-actions"><button type="button" class="btn" data-close>Close</button></div>
-    </div>
-  </dialog>
   
   <!-- CUSTOM MESSAGE / CONFIRM / INPUT DIALOG -->
   <dialog id="uiDlg" class="ui-dlg">
