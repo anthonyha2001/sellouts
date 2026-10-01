@@ -140,6 +140,7 @@
         ${row && row.last_editor && !row.published ? `<span class="muted-note">Last change by ${esc(row.last_editor)}</span>` : ''}
         <span style="flex:1"></span>
         ${row ? `<button class="btn ghost small" id="shCopy" ${S.prev ? '' : 'disabled'} title="${S.prev ? 'Replace this week with last week’s schedule' : 'Last week has no schedule'}">Copy last week</button>
+          <button class="btn ghost small sh-empty-btn" id="shEmpty" title="Clear every shift of this week">Empty table</button>
           <button class="btn secondary small" id="shPrint">Print</button>
           <button class="btn small" id="shPublish">${row.published ? 'Unpublish' : 'Publish'}</button>` : ''}
       </div>`;
@@ -177,6 +178,7 @@
       el('shBody').innerHTML = `${nav}${viewSwitch}<div class="card">${requestsHtml(dates, sups, cash)}</div>`;
       wireNav(); wireViews();
       el('shCopy')?.addEventListener('click', copyLast);
+      el('shEmpty')?.addEventListener('click', emptyWeek);
       el('shPublish').onclick = togglePublish;
       el('shPrint').onclick = print;
       return;
@@ -185,6 +187,7 @@
       el('shBody').innerHTML = `${nav}${viewSwitch}<div class="card">${listEditorHtml(row, dates, sups, cash)}</div>`;
       wireNav(); wireViews(); wireListEditor(row);
       el('shCopy')?.addEventListener('click', copyLast);
+      el('shEmpty')?.addEventListener('click', emptyWeek);
       el('shPublish').onclick = togglePublish;
       el('shPrint').onclick = print;
       return;
@@ -213,6 +216,7 @@
     wireGrid(row);
     wireRowDrag();
     el('shCopy')?.addEventListener('click', copyLast);
+    el('shEmpty')?.addEventListener('click', emptyWeek);
     el('shPublish').onclick = togglePublish;
     el('shPrint').onclick = print;
   }
@@ -486,6 +490,21 @@
     S.row = data;
     logActivity('schedule', 'create', { type: 'schedule_week', id: S.week }, `Created the schedule of the week ${weekTitle(S.week)}${copy ? ' (copied from last week)' : ''}`);
     renderWeek();
+  }
+  // Empty table (owner, 2026-10-01): clears every shift of the week (the week itself stays).
+  async function emptyWeek() {
+    const n = Object.values(S.row.assignments || {}).reduce((t, d) => t + (d || []).filter(Boolean).length, 0);
+    if (!n) return showToast('This week is already empty.');
+    const what = `${n} shift${n === 1 ? '' : 's'} will be removed.`;
+    const msg = S.row.published
+      ? `Empty the whole week of ${weekTitle(S.week)}? It is PUBLISHED — staff will see an empty schedule. ${what}`
+      : `Empty the whole week of ${weekTitle(S.week)}? ${what}`;
+    if (!(await showConfirm(msg, 'Empty table'))) return;
+    S.row.assignments = {};
+    await save(true);
+    logActivity('schedule', 'empty', { type: 'schedule_week', id: S.week }, `Emptied the schedule of the week ${weekTitle(S.week)} (${n} shifts)`);
+    renderWeek();
+    showToast('The week is empty.');
   }
   async function copyLast() {
     if (!(await showConfirm(`Replace this week's schedule with last week's (${weekTitle(addDays(S.week, -7))})?`, 'Copy'))) return;
