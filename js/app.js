@@ -1802,7 +1802,7 @@ async function renderPromoWorkspace() {
             <button class="btn ghost small ibtn danger" id="deleteSelectedBtn">${ICONS.trash}Delete rows</button>
             <button class="icon-btn" id="clearSelectionBtn" title="Clear the selection" aria-label="Clear the selection">${ICONS.x}</button>
           </div>
-          <span class="muted-note" id="promoSelHint" style="display:${selectedRowIds.size ? 'none' : ''};">Tick rows to copy their codes, discount or delete them.</span>` : `<span class="muted-note">${promoStats.total} row${promoStats.total === 1 ? '' : 's'} · ${promoStats.flagged} flagged</span>`}
+          <span class="muted-note" id="promoSelHint" style="display:${selectedRowIds.size ? 'none' : ''};">${promoStats.total} row${promoStats.total === 1 ? '' : 's'} · ${promoStats.flagged} flagged · ${promoStats.empty} empty</span>` : `<span class="muted-note">${promoStats.total} row${promoStats.total === 1 ? '' : 's'} · ${promoStats.flagged} flagged · ${promoStats.empty} empty</span>`}
         </div>
         <div class="promo-sticky-right">
           ${promoViewMode === 'table' ? `
@@ -1837,14 +1837,8 @@ async function renderPromoWorkspace() {
         </div>
       </div>
 
-      <p class="muted-note" style="margin:10px 0 12px;">${promoStats.total} row${promoStats.total === 1 ? '' : 's'} · ${promoStats.flagged} flagged · ${promoStats.empty} empty row${promoStats.empty === 1 ? '' : 's'} — ${promoViewMode === 'audit'
-        ? (auditSubView === 'supplier'
-          ? 'Every item grouped by supplier, for setting Type and adding a note without one long list.'
-          : 'Code and description next to the cost from the imported price sheet, for a manual check. Items with no cost yet are shown too.')
-        : (tableSubView === 'supplier'
-          ? 'Every item grouped by supplier, with stock, Out (YTD) and a reorder recommendation for each.'
-          : !canEditPromotions() ? 'View only: you can copy the codes and export to Excel; ask the admin for permission to change promotions.'
-          : 'Tip: paste a block of cells from Excel straight into the table. Enter moves down a column, Tab at the last field adds a new row.')}</p>
+      ${!canEditPromotions() ? '<p class="muted-note" style="margin:10px 0 0;">View only: you can copy the codes and export to Excel.</p>' : ''}
+      <div style="height:12px;"></div>
 
       <div id="promoTableView" style="display:${promoViewMode === 'table' ? '' : 'none'};">
 
@@ -2106,7 +2100,7 @@ function buildSupplierGroupedHtml(rows, mode) {
     return mode === 'audit' ? `
       <div class="empty-state" style="padding:34px 16px;">
         <p class="big">Nothing to audit yet</p>
-        <p>Add items to this promotion (or use "Import price sheet"), then come back here.</p>
+        <p>Add items to this promotion, or drop a price sheet above.</p>
       </div>` : `
       <div class="empty-state" style="padding:34px 16px;">
         <p class="big">Nothing to group yet</p>
@@ -2262,7 +2256,7 @@ function buildAuditHtml(auditRows) {
     return `
     <div class="empty-state" style="padding:40px 20px;">
       <p class="big">Nothing to audit yet</p>
-      <p>Add items to this promotion (or use "Import price sheet"), then come back here.</p>
+      <p>Add items to this promotion, or drop a price sheet above.</p>
     </div>`;
   }
   return `
