@@ -132,7 +132,7 @@
         draft.w = first.week_start;
         if (first.week_start !== r.weeks[0].week_start) r = await ask(draft.w);
       }
-      draft.on = true; draft.weeks = r.weeks; draft.week = r.week; draft.staff = r.staff; draft.canCopy = r.can_copy;
+      draft.on = true; draft.weeks = r.weeks; draft.week = r.week; draft.staff = r.staff; draft.canCopy = r.can_copy; draft.requests = r.requests || [];
       renderDraft();
     } catch (err) { draft.on = false; $('cpDraft').innerHTML = ''; }
   }
@@ -145,6 +145,54 @@
     const st = x.station || p.default_station || '';
     return tool + (st ? ':' + st : '');
   }
+  // ---- My requests (migration 027): what I'd like for an upcoming week — sent here instead of WhatsApp.
+  // Per day: Any / AM / PM / Full / Off, and a note. Can be changed until the week is published.
+  const req = { weeks: [], w: null, edit: null };
+  const REQ_NAMES = ['Next week', 'In 2 weeks', 'In 3 weeks'];
+  const REQ_OPTS = [['', 'Any'], ['am', 'AM'], ['pm', 'PM'], ['full', 'Full'], ['off', 'Off']];
+  async function loadReq(sent) {
+    if (!session) return;
+    try {
+      const r = await call({ action: 'req_get', cashier_id: session.cashier_id, pin: session.pin });
+      req.weeks = r.weeks;
+      if (!req.w || !req.weeks.some(x => x.week_start === req.w)) req.w = (req.weeks.find(x => !x.published) || req.weeks[0]).week_start;
+      if (sent) req.edit = null;      // keep unsent choices when the page just refreshes
+      renderReq();
+    } catch (e) { $('cpReq').innerHTML = ''; }
+  }
+  function renderReq() {
+    const box = $('cpReq');
+    if (!req.weeks.length) { box.innerHTML = ''; return; }
+    const w = req.weeks.find(x => x.week_start === req.w);
+    if (!req.edit || req.edit.w !== w.week_start) req.edit = { w: w.week_start, days: (w.days || ['', '', '', '', '', '', '']).slice(), note: w.note || '' };
+    const tabs = `<div class="cp-dr-weeks cp-rq-weeks">${req.weeks.map((x, i) => `<button type="button" data-rw="${x.week_start}" class="${x.week_start === req.w ? 'on' : ''}"><b>${REQ_NAMES[i]}</b><span class="cp-dr-st ${x.published ? 'cp-dr-published' : x.updated_at ? 'cp-dr-sent' : ''}">${x.published ? 'Closed' : x.updated_at ? 'Sent' : 'Not sent'}</span></button>`).join('')}</div>`;
+    let body;
+    if (w.published) body = '<p class="muted-note cp-dr-note">This week is already published — see My schedule. Ask your supervisor for a change.</p>';
+    else body = `<p class="muted-note cp-dr-note">From ${addDays(w.week_start, 0).toLocaleDateString('en-GB', { day: 'numeric', month: 'long' })}. Tap what you would like each day; leave "Any" when it does not matter.</p>
+      <ul class="cp-dr-list">${DAYS.map((d, i) => `<li data-rd="${i}"><div class="cp-dr-who"><b>${d}</b><em>${addDays(w.week_start, i).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</em></div>
+        <div class="cp-dr-seg cp-rq-seg">${REQ_OPTS.map(([v, l]) => `<button type="button" data-rset="${v}" class="${req.edit.days[i] === v ? 'on' : ''} cp-dr-${v || 'none'}">${l}</button>`).join('')}</div></li>`).join('')}</ul>
+      <label class="cp-rq-note-l" for="cpReqNote">Note <span class="muted-note">(optional)</span></label>
+      <textarea id="cpReqNote" class="cp-rq-note" maxlength="300" placeholder="e.g. I have university on Tuesday morning">${esc(req.edit.note)}</textarea>
+      <div class="cp-dr-send"><button type="button" class="btn" id="cpReqSend">${w.updated_at ? 'Update my requests' : 'Send my requests'}</button>
+        <span class="muted-note">${w.updated_at ? 'Sent ' + new Date(w.updated_at).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) + ' — HR and the supervisors see it.' : 'HR and the supervisors see it when they make the schedule.'}</span></div>
+      <p class="login-err" id="cpReqErr"></p>`;
+    box.innerHTML = `<h3 class="cp-sec">My requests</h3><div class="card cp-dr">${tabs}${body}</div>`;
+  }
+  $('cpReq').addEventListener('input', e => { if (e.target.id === 'cpReqNote' && req.edit) req.edit.note = e.target.value; });
+  $('cpReq').addEventListener('click', async e => {
+    const t = e.target.closest('button'); if (!t) return;
+    if (t.dataset.rw) { req.w = t.dataset.rw; req.edit = null; return renderReq(); }
+    if (t.dataset.rset !== undefined) { req.edit.days[Number(t.closest('li').dataset.rd)] = t.dataset.rset; return renderReq(); }
+    if (t.id === 'cpReqSend') {
+      t.disabled = true;
+      try {
+        await call({ action: 'req_save', cashier_id: session.cashier_id, pin: session.pin, week_start: req.w, days: req.edit.days, note: req.edit.note });
+        await loadReq(true);
+        const p = $('cpReqErr'); if (p) { p.style.color = 'var(--pine)'; p.textContent = 'Sent ✓'; }
+      } catch (x) { t.disabled = false; const p = $('cpReqErr'); if (p) p.textContent = x.message; }
+    }
+  });
+
   // By person: what the week already has, e.g. 2 AM · 1 PM · 1 Full · 2 Off · 3 Front · 1 Back (owner, 2026-10-01).
   function weekSummary(p, a) {
     const n = { am: 0, pm: 0, full: 0, off: 0, front: 0, back: 0, none: 0 };
@@ -179,7 +227,8 @@
         const code = (a[p.id] || [])[d] || '', x = parseCode(code), working = !!SHIFTS[x.shift];
         const seg = [['', '—'], ['am', 'AM'], ['pm', 'PM'], ['full', 'Full'], ['off', 'Off']].map(([v, l]) => `<button type="button" data-dset="${v}" class="${x.shift === v ? 'on' : ''} cp-dr-${v || 'none'}">${l}</button>`).join('');
         const st = [['front', 'Front'], ['back', 'Back']].map(([v, l]) => `<button type="button" data-dset="${v}" class="${working && x.station === v ? 'on' : ''}" ${working ? '' : 'disabled'}>${l}</button>`).join('');
-        return `<li data-pid="${p.id}" data-day="${d}"><div class="cp-dr-who">${who}${x.times ? `<span class="cp-custom">${x.times}</span>` : ''}</div>
+        const asked = ((draft.requests || []).find(q => q.cashier_id === p.id)?.days || [])[d];
+        return `<li data-pid="${p.id}" data-day="${d}"><div class="cp-dr-who">${who}${x.times ? `<span class="cp-custom">${x.times}</span>` : ''}${asked ? `<span class="cp-ask ${asked === x.shift ? 'ok' : ''}">asked ${asked === 'full' ? 'Full' : asked === 'off' ? 'Off' : asked.toUpperCase()}</span>` : ''}</div>
           <div class="cp-dr-seg">${seg}</div><div class="cp-dr-seg cp-dr-stn">${st}</div></li>`;
       };
       const row = p => line(p, day, `<b>${esc(p.name)}</b>${p.position === 'supervisor' ? '<em>Supervisor</em>' : ''}`);
@@ -198,6 +247,7 @@
             <select id="cpDraftPerson" aria-label="Person">${sups.length ? `<optgroup label="Supervisors">${sups.map(x => `<option value="${x.id}" ${x.id === p.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</optgroup>` : ''}${cash.length ? `<optgroup label="Cashiers">${cash.map(x => `<option value="${x.id}" ${x.id === p.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</optgroup>` : ''}</select>
             <button type="button" class="cp-dr-step" data-dp="${everyone[i + 1]?.id || ''}" ${i >= everyone.length - 1 ? 'disabled' : ''} aria-label="Next person">›</button></div>
           ${weekSummary(p, a)}
+          ${(() => { const q = (draft.requests || []).find(r => r.cashier_id === p.id); return q?.note ? `<p class="cp-ask-note">“${esc(q.note)}”</p>` : ''; })()}
           <ul class="cp-dr-list">${dates.map((dt, d) => line(p, d, `<b>${DAYS[d]}</b><em>${dt.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</em>`)).join('')}</ul>` : '<p class="empty-note">No staff.</p>') + send;
       } else body = note + modes + `
         <div class="cp-cal-strip">${dates.map((d, i) => `<button type="button" data-dd="${i}" class="${i === day ? 'on' : ''}"><span>${DAYS[i]}</span><b>${d.getDate()}</b></button>`).join('')}</div>
@@ -299,6 +349,7 @@
     const d = session.data, lv = d.levels;
     renderNotify();
     renderSchedule(d.schedule);
+    loadReq();
     renderTeam(d.team);
     if (d.cashier.position === 'supervisor') loadDraft(); else { draft.on = false; $('cpDraft').innerHTML = ''; }
     currency = lv.currency || 'LBP';

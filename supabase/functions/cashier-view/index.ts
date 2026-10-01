@@ -17,6 +17,9 @@
 //   status: 'none' | 'draft' | 'sent' | 'published' (published = read-only); weeks = this week and the next three
 // POST { action: 'draft_create', week_start, copy } -> { ok }  start a week (copy of the week before, or empty)
 // POST { action: 'draft_set', week_start, staff_id, day, code } -> { days }  one cell (schedule_set_cell)
+// Requests (migration 027; any active cashier or supervisor, with their PIN):
+// POST { action: 'req_get' }                       -> { weeks: [{ week_start, published, days, note, updated_at }] }  the next three weeks
+// POST { action: 'req_save', week_start, days, note } -> { ok }  refused once the week is published
 // POST { action: 'draft_submit', week_start }     -> { ok }  "Send to HR": HR is notified (push-alerts) and publishes
 //
 // Deploy with JWT verification OFF (the page has no user session).
@@ -161,6 +164,34 @@ Deno.serve(async req => {
       return json({ ok: true });
     }
 
+    if (body.action === 'req_get' || body.action === 'req_save') {
+      const bad = await pinError(body);
+      if (bad) return bad;
+      const me = String(body.cashier_id);
+      const weeks = draftWeeks().slice(1);          // next week and the two after
+      if (body.action === 'req_get') {
+        const [{ data: reqs }, { data: pub }] = await Promise.all([
+          db.from('schedule_requests').select('week_start, days, note, updated_at').eq('cashier_id', me).in('week_start', weeks),
+          db.from('schedule_weeks').select('week_start, published').in('week_start', weeks),
+        ]);
+        return json({ weeks: weeks.map(w => {
+          const r = (reqs ?? []).find(x => x.week_start === w);
+          return { week_start: w, published: !!(pub ?? []).find(x => x.week_start === w)?.published, days: r?.days ?? null, note: r?.note ?? '', updated_at: r?.updated_at ?? null };
+        }) });
+      }
+      const week = String(body.week_start ?? '');
+      if (!weeks.includes(week)) return json({ error: 'That week cannot be requested here.' }, 400);
+      const { data: wk } = await db.from('schedule_weeks').select('published').eq('week_start', week).maybeSingle();
+      if (wk?.published) return json({ error: 'This week is already published — ask your supervisor.' }, 409);
+      const days = Array.isArray(body.days) ? body.days.slice(0, 7).map(d => String(d ?? '')) : [];
+      while (days.length < 7) days.push('');
+      if (days.some(d => !['', 'am', 'pm', 'full', 'off'].includes(d))) return json({ error: 'Bad request.' }, 400);
+      const note = String(body.note ?? '').trim().slice(0, 300) || null;
+      const { error } = await db.from('schedule_requests').upsert({ week_start: week, cashier_id: me, days, note, updated_at: new Date().toISOString() }, { onConflict: 'week_start,cashier_id' });
+      if (error) throw error;
+      return json({ ok: true });
+    }
+
     if (typeof body.action === 'string' && body.action.startsWith('draft_')) {
       const me = await supervisorOf(body);
       if (me instanceof Response) return me;
@@ -169,9 +200,10 @@ Deno.serve(async req => {
       if (!weeks.includes(week)) return json({ error: 'That week cannot be edited here.' }, 400);
 
       if (body.action === 'draft_get') {
-        const [{ data: rows, error }, { data: staff }] = await Promise.all([
+        const [{ data: rows, error }, { data: staff }, { data: reqs }] = await Promise.all([
           db.from('schedule_weeks').select('week_start, published, submitted_at, submitted_by, last_editor, assignments').in('week_start', weeks),
           db.from('cashiers').select('id, name, position, default_station').eq('active', true).order('sort_order').order('name'),
+          db.from('schedule_requests').select('cashier_id, days, note').eq('week_start', week),
         ]);
         if (error) throw error;
         const byWeek = new Map((rows ?? []).map(r => [r.week_start, r]));
@@ -181,7 +213,7 @@ Deno.serve(async req => {
         return json({
           weeks: weeks.map(w => { const r = byWeek.get(w); return { week_start: w, status: !r ? 'none' : r.published ? 'published' : r.submitted_at ? 'sent' : 'draft', submitted_by: r?.submitted_by ?? null, submitted_at: r?.submitted_at ?? null, last_editor: r?.last_editor ?? null }; }),
           week: cur ? { week_start: week, published: cur.published, submitted_at: cur.submitted_at, submitted_by: cur.submitted_by, last_editor: cur.last_editor, assignments: cur.assignments ?? {} } : null,
-          staff: staff ?? [], can_copy: !!prev,
+          staff: staff ?? [], can_copy: !!prev, requests: reqs ?? [],
         });
       }
 

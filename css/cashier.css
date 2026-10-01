@@ -133,3 +133,12 @@ body.cashier-page{display:block;min-height:100vh;}
 .cp-sum-am{background:var(--sh-am,#E6F0FF);} .cp-sum-pm{background:var(--sh-pm,#FFF3DC);} .cp-sum-full{background:var(--sh-full,#E8F6EC);}
 .cp-sum-front b{color:var(--pine);} .cp-sum-back b{color:var(--brick);}
 .cp-sum-left{font-size:12px;color:var(--gold);align-self:center;}
+
+/* My requests + request hints in the draft */
+.cp-rq-seg button{padding:8px 4px;}
+.cp-rq-note-l{display:block;margin:12px 2px 4px;font-size:13px;font-weight:600;}
+.cp-rq-note{width:100%;min-height:60px;font-size:16px;}
+.cp-ask{font:600 10.5px var(--font-mono);text-transform:uppercase;padding:2px 7px;border-radius:999px;background:var(--gold-tint, #FBF1E1);color:var(--gold);white-space:nowrap;}
+.cp-ask.ok{background:var(--pine-tint);color:var(--pine);}
+.cp-ask-note{margin:2px 2px 6px;font-size:13px;font-style:italic;color:var(--ink-soft);}
+.cp-rq-weeks{grid-template-columns:repeat(3,1fr);}

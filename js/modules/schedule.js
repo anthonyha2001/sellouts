@@ -66,6 +66,10 @@
     const st = x.station || p.default_station || '';
     return tool + (st ? ':' + st : '');
   };
+  // What someone asked for on a day ('' = nothing asked), and the small "asked PM" tag (green when the cell matches).
+  const askOf = (id, day) => ((S.reqs || []).find(r => r.cashier_id === id)?.days || [])[day] || '';
+  const ASK_LABEL = { am: 'AM', pm: 'PM', full: 'Full', off: 'Off' };
+  const askTag = (id, day, code) => { const q = askOf(id, day); return q ? `<span class="sh-ask ${parse(code).shift === q ? 'ok' : ''}" title="Asked for ${ASK_LABEL[q]}">asked ${ASK_LABEL[q]}</span>` : ''; };
   const KEYS = { a: 'am', p: 'pm', f: 'full', o: 'off', 1: 'front', 2: 'back', Delete: '', Backspace: '' };
   const SHIFT_TOOLS = [['am', 'AM'], ['pm', 'PM'], ['full', 'Full'], ['off', 'Off']];
   const STATION_TOOLS = [['front', 'Front'], ['back', 'Back']];
@@ -84,6 +88,9 @@
     ]);
     if (cur.error) { S.missing = true; return; }
     S.row = cur.data || null; S.prev = prev.data || null;
+    // The cashiers' requests for this week (cashier page; migration 027). None before the migration.
+    const { data: reqs } = await sb.from('schedule_requests').select('cashier_id, days, note, updated_at').eq('week_start', S.week);
+    S.reqs = reqs || [];
   }
 
   /* ---------------- shell ---------------- */
@@ -155,7 +162,7 @@
       const off = days.filter(c => c === 'off').length;
       return `<tr data-p="${p.id}" data-grp="${isSup(p) ? 'sup' : 'cash'}">
         <th class="sh-name"><span class="sh-drag" data-drag title="Drag to move" aria-label="Drag to move"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="6" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="18" r="1"/></svg></span>${esc(p.name)}${p.active ? '' : ' <span class="muted-note">(inactive)</span>'}<small>${(isSup(p) ? 'Supervisor' : 'Cashier') + (p.default_station ? ' · ' + (p.default_station === 'front' ? 'Front' : 'Back') : '')}</small></th>
-        ${dates.map((d, i) => { const c = days[i] || '', { shift } = parse(c); return `<td class="sh-cell sh-${shift || 'none'}"><button type="button" data-day="${i}" aria-label="${esc(p.name)} ${DAYS[i]}">${cellHtml(c)}</button></td>`; }).join('')}
+        ${dates.map((d, i) => { const c = days[i] || '', { shift } = parse(c); const q = askOf(p.id, i); return `<td class="sh-cell sh-${shift || 'none'}"><button type="button" data-day="${i}" aria-label="${esc(p.name)} ${DAYS[i]}" ${q ? `title="Asked for ${ASK_LABEL[q]}"` : ''}>${cellHtml(c)}${q ? `<i class="sh-ask-dot ${shift === q ? 'ok' : ''}">${ASK_LABEL[q]}</i>` : ''}</button></td>`; }).join('')}
         <td class="num sh-hours">${hours ? hours + 'h' : '—'}<small>${off} off</small></td></tr>`;
     };
     const sups = people().filter(isSup), cash = people().filter(p => !isSup(p));
@@ -165,7 +172,15 @@
       return `<td><b>AM ${c.am} · PM ${c.pm}</b><small>Front ${c.front} · Back ${c.back}</small></td>`; }).join('')}<td></td></tr>`;
     // Fill the week: the whole grid, one day for everyone, or one person's 7 days.
     const viewSwitch = `<div class="filter-row sh-views" id="shViews">
-        ${[['grid', 'Week grid'], ['day', 'By day'], ['person', 'By person']].map(([v, l]) => `<button type="button" data-view="${v}" class="${S.view === v ? 'active' : ''}">${l}</button>`).join('')}</div>`;
+        ${[['grid', 'Week grid'], ['day', 'By day'], ['person', 'By person'], ['requests', `Requests (${(S.reqs || []).length})`]].map(([v, l]) => `<button type="button" data-view="${v}" class="${S.view === v ? 'active' : ''}">${l}</button>`).join('')}</div>`;
+    if (S.view === 'requests') {
+      el('shBody').innerHTML = `${nav}${viewSwitch}<div class="card">${requestsHtml(dates, sups, cash)}</div>`;
+      wireNav(); wireViews();
+      el('shCopy')?.addEventListener('click', copyLast);
+      el('shPublish').onclick = togglePublish;
+      el('shPrint').onclick = print;
+      return;
+    }
     if (S.view !== 'grid') {
       el('shBody').innerHTML = `${nav}${viewSwitch}<div class="card">${listEditorHtml(row, dates, sups, cash)}</div>`;
       wireNav(); wireViews(); wireListEditor(row);
@@ -300,6 +315,27 @@
       el('shBody').querySelector(`.sh-grid tr[data-p="${ids[r]}"] button[data-day="${d}"]`)?.focus();
     };
   }
+  // Everyone's requests for the week in one table (what used to come on WhatsApp), with their notes.
+  function requestsHtml(dates, sups, cash) {
+    const reqs = S.reqs || [];
+    if (!reqs.length) return '<div class="empty-state" style="padding:26px 16px;"><p class="big">No requests for this week yet</p><p>Cashiers send them from the cashier page (My requests), after their PIN.</p></div>';
+    const a = S.row?.assignments || {};
+    const rowOf = p => {
+      const q = reqs.find(r => r.cashier_id === p.id);
+      if (!q) return '';
+      return `<tr><th class="sh-name">${esc(p.name)}<small>${q.updated_at ? 'sent ' + new Date(q.updated_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}</small></th>
+        ${dates.map((_, i) => { const v = (q.days || [])[i] || '', cur = parse((a[p.id] || [])[i]).shift;
+          return `<td class="sh-rq sh-rq-${v || 'any'} ${v && cur === v ? 'ok' : ''}" title="${v ? (cur === v ? 'Given' : 'Not given yet') : ''}">${v ? ASK_LABEL[v] : '<span class="muted-note">any</span>'}</td>`; }).join('')}
+        <td class="sh-rq-note">${q.note ? esc(q.note) : ''}</td></tr>`;
+    };
+    const waiting = [...sups, ...cash].filter(p => !reqs.some(r => r.cashier_id === p.id));
+    return `<div class="items-scroll" style="margin-bottom:0;"><table class="sh-grid sh-rq-table">
+        <thead><tr><th></th>${dates.map((d, i) => `<th>${DAYS[i]}<small>${dayLabel(d, { day: 'numeric', month: 'short' })}</small></th>`).join('')}<th>Note</th></tr></thead>
+        <tbody>${sups.some(p => reqs.some(r => r.cashier_id === p.id)) ? '<tr class="sh-group"><td colspan="9">Supervisors</td></tr>' + sups.map(rowOf).join('') : ''}
+          ${cash.some(p => reqs.some(r => r.cashier_id === p.id)) ? '<tr class="sh-group"><td colspan="9">Cashiers</td></tr>' + cash.map(rowOf).join('') : ''}</tbody>
+      </table></div>
+      <p class="muted-note" style="margin:10px 0 0;">Outlined = already given in the schedule. ${waiting.length ? `No request yet from: ${waiting.map(p => esc(p.name)).join(', ')}.` : 'Everyone sent a request.'}</p>`;
+  }
   function wireViews() {
     el('shViews').onclick = e => { const b = e.target.closest('[data-view]'); if (!b) return; S.view = b.dataset.view; renderWeek(); };
   }
@@ -320,7 +356,7 @@
       const d = S.vday;
       const c = { am: 0, pm: 0, front: 0, back: 0 };
       everyone.forEach(p => { const k = groupCount([p], a, d); c.am += k.am; c.pm += k.pm; c.front += k.front; c.back += k.back; });
-      const line = p => `<li data-pid="${p.id}" data-day="${d}"><div class="sh-le-who"><b>${esc(p.name)}</b><small>${isSup(p) ? 'Supervisor' : 'Cashier'}${p.default_station ? ' · usually ' + (p.default_station === 'front' ? 'Front' : 'Back') : ''}</small></div>${seg((a[p.id] || [])[d], p)}</li>`;
+      const line = p => `<li data-pid="${p.id}" data-day="${d}"><div class="sh-le-who"><b>${esc(p.name)} ${askTag(p.id, d, (a[p.id] || [])[d])}</b><small>${isSup(p) ? 'Supervisor' : 'Cashier'}${p.default_station ? ' · usually ' + (p.default_station === 'front' ? 'Front' : 'Back') : ''}</small></div>${seg((a[p.id] || [])[d], p)}</li>`;
       return `<div class="sh-le-strip">${dates.map((dt, i) => `<button type="button" data-vday="${i}" class="${i === d ? 'on' : ''}${dt === today ? ' today' : ''}"><span>${DAYS[i]}</span><b>${Number(dt.slice(8))}</b></button>`).join('')}</div>
         <p class="sh-le-count"><b>${dayLabel(dates[d], { weekday: 'long', day: 'numeric', month: 'long' })}</b> · AM ${c.am} · PM ${c.pm} · Front ${c.front} · Back ${c.back}</p>
         ${sups.length ? `<p class="sh-le-grp">Supervisors</p><ul class="sh-le">${sups.map(line).join('')}</ul>` : ''}
@@ -338,7 +374,8 @@
         <span class="muted-note">${hours ? hours + 'h this week' : 'Nothing yet this week'} · ${days.filter(c => c === 'off').length} off</span>
       </div>
       ${weekSummaryHtml(days, p)}
-      <ul class="sh-le">${dates.map((dt, i) => `<li data-pid="${p.id}" data-day="${i}" class="${dt === today ? 'today' : ''}"><div class="sh-le-who"><b>${DAYS[i]}</b><small>${dayLabel(dt, { day: 'numeric', month: 'short' })}</small></div>${seg(days[i], p)}</li>`).join('')}</ul>`;
+      ${(() => { const q = (S.reqs || []).find(r => r.cashier_id === p.id); return q?.note ? `<p class="sh-ask-note">${esc(p.name)} wrote: “${esc(q.note)}”</p>` : ''; })()}
+      <ul class="sh-le">${dates.map((dt, i) => `<li data-pid="${p.id}" data-day="${i}" class="${dt === today ? 'today' : ''}"><div class="sh-le-who"><b>${DAYS[i]} ${askTag(p.id, i, days[i])}</b><small>${dayLabel(dt, { day: 'numeric', month: 'short' })}</small></div>${seg(days[i], p)}</li>`).join('')}</ul>`;
   }
   // By person: what the week already has, e.g. 2 AM · 1 PM · 1 Full · 2 Off | 3 Front · 1 Back (owner, 2026-10-01).
   function weekSummaryHtml(days, p) {
