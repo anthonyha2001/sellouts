@@ -505,7 +505,13 @@
             <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="15" height="15" stroke="currentColor"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
             <span>Full screen</span>
           </button>
+          <button type="button" class="btn small" id="rentalPresent" title="Show the store to potential renters: available spaces, guided tour, no amounts">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="15" height="15" stroke="currentColor"><path d="M3 4h18v12H3Z"/><path d="M8 21l4-5 4 5"/><path d="M10 8l4 2-4 2Z"/></svg>
+            <span>Presentation</span>
+          </button>
         </div>
+        <!-- Presentation header (js/modules/rentals.js) -->
+        <div class="rentals-present-bar" id="rentalPresentBar" hidden></div>
         <div id="rentalsMap" class="rentals-map"></div>
       </div>
 

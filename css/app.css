@@ -1317,3 +1317,32 @@ body.rentals-map-expanded #rentalsMap.sm-has-sel .sm-panel{display:block !import
 
 /* Store map full screen = presentation: no money (owner, 2026-10-02) */
 body.rentals-map-expanded #rentalsMap .sm-money{display:none !important;}
+
+/* Rentals › Presentation (owner, 2026-10-02) */
+#rentalPresent{display:inline-flex;align-items:center;gap:6px;margin-left:6px;}
+body.rentals-present .rentals-map-bar{display:none !important;}
+body.rentals-present #rentalsMap .sm-panel{display:none !important;}
+.rentals-present-bar{position:absolute;top:0;left:0;right:0;z-index:6;display:flex;align-items:center;gap:18px;flex-wrap:wrap;padding:12px 18px;
+  background:color-mix(in srgb, var(--paper-raised) 88%, transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--line);}
+.rentals-present-bar[hidden]{display:none;}
+.rp-brand{display:flex;align-items:center;gap:12px;}
+.rp-brand img{width:44px;height:44px;border-radius:12px;}
+.rp-brand b{display:block;font-family:var(--font-head);font-size:22px;line-height:1.1;}
+.rp-brand span{font-size:13px;color:var(--ink-soft);}
+.rp-floors{display:flex;gap:6px;}
+.rp-floors button{padding:7px 14px;border-radius:999px;border:1px solid var(--line-strong);background:var(--paper-raised);color:var(--ink);font-weight:600;cursor:pointer;}
+.rp-floors button.on{background:var(--pine);border-color:var(--pine);color:var(--paper-raised);}
+.rp-counts{display:flex;gap:8px;margin-left:auto;}
+.rp-c{display:inline-flex;align-items:baseline;gap:5px;padding:6px 12px;border-radius:999px;font-size:13px;background:var(--paper);border:1px solid var(--line);}
+.rp-c b{font-size:20px;}
+.rp-c.av b{color:#1F9D55;} .rp-c.soon b{color:#D08A10;} .rp-c.taken b{color:var(--ink-faint);}
+.rp-tools{display:flex;align-items:center;gap:12px;}
+.rp-only{display:flex;align-items:center;gap:6px;margin:0;font-size:13.5px;font-weight:500;cursor:pointer;}
+.rp-only input{width:16px;height:16px;accent-color:var(--pine);}
+.rp-tour{display:flex;align-items:center;gap:6px;padding:4px;border-radius:999px;background:var(--pine);color:var(--paper-raised);}
+.rp-tour button{width:34px;height:34px;border-radius:50%;border:0;background:rgba(255,255,255,.18);color:inherit;font-size:20px;line-height:1;cursor:pointer;}
+.rp-tour button:hover{background:rgba(255,255,255,.3);}
+.rp-tour span{min-width:64px;text-align:center;font:600 13px var(--font-mono);}
+.rp-exit{width:36px;height:36px;border-radius:50%;border:1px solid var(--line-strong);background:var(--paper-raised);color:var(--ink);font-size:16px;cursor:pointer;}
+body.rentals-present.rentals-map-expanded #rentalsMap.sm-has-sel .sm-panel{display:none !important;}
+body.rentals-present #rentalsMap .sm-zoom, body.rentals-present #rentalsMap .sm-zoombar{top:84px;}

@@ -105,7 +105,62 @@ const Rentals = (function () {
     btn.querySelector('span').textContent = on ? 'Exit full screen' : 'Full screen';
     btn.title = on ? 'Back to the page (Esc)' : 'Show the map on the whole screen (Esc to close)';
     if (S.map) requestAnimationFrame(() => S.map.fit());
+    if (!on && P.on) stopPresent();
   }
+
+  /* ---------------- presentation (owner, 2026-10-02) ----------------
+     For potential renters: full screen, La Valeur header, available / soon / rented counts,
+     "Available only", a guided tour of the available spaces (‹ › or the arrow keys) with a large
+     spotlight card. No amount is shown anywhere (the map hides them in this mode). */
+  const P = { on: false, only: false, pos: null };
+  function presentBar() {
+    const bar = el('rentalPresentBar'); if (!bar || !S.map) return;
+    const m = S.map, n = m.presentCounts();
+    const date = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+    bar.innerHTML = `
+      <div class="rp-brand"><img src="icons/icon-192.png" alt=""><div><b>Advertising spaces</b><span>La Valeur Ajaltoun · ${esc(date)}</span></div></div>
+      ${m.floors.length > 1 ? `<div class="rp-floors">${m.floors.map(f => `<button type="button" data-pf="${esc(f.id)}" class="${f.id === m.floorId ? 'on' : ''}">${esc(f.name)}</button>`).join('')}</div>` : ''}
+      <div class="rp-counts"><span class="rp-c av"><b>${n.av}</b> available</span><span class="rp-c soon"><b>${n.soon}</b> soon</span><span class="rp-c taken"><b>${n.taken}</b> rented</span></div>
+      <div class="rp-tools">
+        <label class="rp-only"><input type="checkbox" id="rpOnly" ${P.only ? 'checked' : ''}> Available only</label>
+        <div class="rp-tour"><button type="button" data-pt="-1" aria-label="Previous available space">‹</button>
+          <span>${P.pos ? `${P.pos.index} / ${P.pos.total}` : (n.av + n.soon ? 'Tour' : 'No space free')}</span>
+          <button type="button" data-pt="1" aria-label="Next available space">›</button></div>
+        <button type="button" class="rp-exit" id="rpExit" title="Leave the presentation (Esc)">✕</button>
+      </div>`;
+  }
+  async function startPresent() {
+    if (!S.map) return;
+    await S.map.ready;
+    P.on = true; P.pos = null;
+    document.body.classList.add('rentals-present');
+    el('rentalPresentBar').hidden = false;
+    setExpanded(true);
+    S.map.setPresent(true);
+    S.map.setPresentOnly(P.only);
+    requestAnimationFrame(() => S.map.fit());
+    presentBar();
+  }
+  function stopPresent() {
+    P.on = false; P.pos = null;
+    document.body.classList.remove('rentals-present');
+    el('rentalPresentBar').hidden = true;
+    if (S.map) { S.map.setPresentOnly(false); S.map.setPresent(false); }
+    if (document.body.classList.contains('rentals-map-expanded')) setExpanded(false);
+  }
+  const tourStep = step => { P.pos = S.map.tour(step); presentBar(); };
+  el('rentalPresent').addEventListener('click', startPresent);
+  el('rentalPresentBar').addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.id === 'rpExit') return stopPresent();
+    if (b.dataset.pt) return tourStep(Number(b.dataset.pt));
+    if (b.dataset.pf) { S.map.setFloor(b.dataset.pf); P.pos = null; presentBar(); }
+  });
+  el('rentalPresentBar').addEventListener('change', e => { if (e.target.id === 'rpOnly') { P.only = e.target.checked; S.map.setPresentOnly(P.only); } });
+  document.addEventListener('keydown', e => {
+    if (!P.on || document.querySelector('.modal-overlay.open')) return;
+    if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { e.preventDefault(); tourStep(e.key === 'ArrowRight' ? 1 : -1); }
+  });
   el('rentalMapExpand').addEventListener('click', () => setExpanded(!document.body.classList.contains('rentals-map-expanded')));
   document.addEventListener('keydown', e => {
     if (e.key !== 'Escape' || !document.body.classList.contains('rentals-map-expanded')) return;

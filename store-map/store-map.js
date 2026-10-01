@@ -609,6 +609,85 @@
       return { dx: bx ? bx.d : 0, dy: by ? by.d : 0, lines };
     }
 
+    /* ---------------- presentation (owner, 2026-10-02) ----------------
+       For potential renters: availability instead of contract status, a guided tour of the available
+       spots, a large spotlight card; never any amount. */
+    // 'av' = available now (free / expired), 'soon' = rent ending soon, 'taken' = rented; null = not rentable.
+    presentKind(o) {
+      const st = this.statusOf(o); if (!st) return null;
+      if (st === 'free' || st === 'expired') return 'av';
+      if (st === 'ending') return 'soon';
+      return 'taken';
+    }
+    // When a spot becomes free: today, or the day after the current rent ends (none if a next rent is booked).
+    availableFrom(o) {
+      const kind = this.presentKind(o); if (kind === 'av') return this.today();
+      const t = this.today(), list = this.contractsFor(o.id);
+      const active = list.find(c => c.start <= t && c.end >= t);
+      if (!active || list.some(c => c.start > active.end)) return null;
+      return addDays(active.end, 1);
+    }
+    spotInfo(o) {
+      const t = this.typeOf(o), kind = this.presentKind(o), from = this.availableFrom(o);
+      const near = this.nearLabel(o);
+      return {
+        kind, type: t.name, label: o.label || '', near, floor: this.floor ? this.floor.name : '',
+        name: kind === 'av' ? 'Available' : this.displayName(o) || 'Taken',
+        when: kind === 'av' ? 'Available now' : from ? `Available from ${fmtD(from)}` : 'Rented',
+      };
+    }
+    presentSpots() {
+      const order = { av: 0, soon: 1 };
+      return this.objects.filter(o => { const k = this.presentKind(o); return k === 'av' || k === 'soon'; })
+        .sort((a, b) => order[this.presentKind(a)] - order[this.presentKind(b)] || (a.y - b.y) || (a.x - b.x));
+    }
+    presentCounts() {
+      const n = { av: 0, soon: 0, taken: 0 };
+      this.objects.forEach(o => { const k = this.presentKind(o); if (k) n[k]++; });
+      return n;
+    }
+    setPresent(on) {
+      this.present = !!on; this.tourIdx = -1;
+      if (on) { this.editing = false; this.sel = null; }
+      this.root.classList.toggle('sm-present', this.present);
+      this.renderSvg(); this.renderPanel();
+    }
+    setPresentOnly(on) { this.root.classList.toggle('sm-pv-only', !!on); }
+    setFloor(id) { if (!this.floors.some(f => f.id === id)) return; this.floorId = id; this.sel = null; this.tourIdx = -1; this.renderAll(); this.fit(); }
+    // Next / previous available spot on this floor: zoom to it and show its card.
+    tour(step) {
+      const list = this.presentSpots(); if (!list.length) return null;
+      const cur = list.findIndex(o => o.id === this.sel);
+      this.tourIdx = cur < 0 ? (step > 0 ? 0 : list.length - 1) : (cur + step + list.length) % list.length;
+      const o = list[this.tourIdx];
+      this.sel = o.id; this.renderSvg(); this.renderPanel();
+      // zoom in on it (once the layout has settled; counts as the user moving the map, so no re-fit)
+      const zoom = () => {
+        const r = this.svg.getBoundingClientRect(); if (!r.width) return;
+        // close enough to read the aisle around it, never closer than a whole-store view needs
+        const fitK = Math.min((r.width - 32) / this.floor.width, (r.height - 32) / this.floor.height);
+        const k = Math.max(fitK, Math.min(r.width / 900, r.height / 600));
+        this.views[this.floorId] = { k, x: r.width / 2 - (o.x + o.w / 2) * k, y: r.height * 0.42 - (o.y + o.h / 2) * k };
+        this.userMoved = true; this.applyView();
+      };
+      zoom(); requestAnimationFrame(() => requestAnimationFrame(zoom));
+      return { index: this.tourIdx + 1, total: list.length };
+    }
+    renderSpotlight() {
+      const host = this.el || this.root;
+      let card = host.querySelector('.sm-spotlight');
+      const o = this.present && this.sel ? this.objects.find(x => x.id === this.sel) : null;
+      if (!o || !this.presentKind(o)) { if (card) card.classList.remove('on'); return; }
+      if (!card) { card = document.createElement('div'); card.className = 'sm-spotlight'; host.appendChild(card); }
+      const i = this.spotInfo(o);
+      card.dataset.kind = i.kind;
+      card.innerHTML = `<div class="sm-sl-kind">${i.kind === 'av' ? 'Available space' : i.kind === 'soon' ? 'Available soon' : 'Rented space'}</div>
+        <div class="sm-sl-name">${esc(i.kind === 'av' ? i.type : i.name)}</div>
+        <div class="sm-sl-meta">${[i.kind === 'av' ? '' : esc(i.type), i.label ? esc(i.label) : '', i.near ? 'next to ' + esc(i.near) : '', esc(i.floor)].filter(Boolean).join(' · ')}</div>
+        <div class="sm-sl-when">${esc(i.when)}</div>`;
+      card.classList.add('on');
+    }
+
     // Big hover card (owner, 2026-10-02): who is on this spot, in large letters — no amounts.
     hoverCard(e) {
       if (e.pointerType !== 'mouse' || this.editing || this.gesture) return this.hideHoverCard();
@@ -622,12 +701,18 @@
       if (card.dataset.id !== o.id) {
         const status = this.statusOf(o), active = this.activeContract(o.id);
         const next = !active ? this.contractsFor(o.id).filter(c => c.start > this.today()).pop() : null;
-        const name = this.displayName(o);
-        const where = [t.name, o.label && o.label !== name ? o.label : '', this.floor ? this.floor.name : ''].filter(Boolean).join(' · ');
-        const when = active ? `Until ${fmtD(active.end)}` : next ? `${esc(next.supplier)} from ${fmtD(next.start)}` : '';
+        let name = this.displayName(o);
+        let where = [t.name, o.label && o.label !== name ? o.label : '', this.floor ? this.floor.name : ''].filter(Boolean).join(' · ');
+        let when = active ? `Until ${fmtD(active.end)}` : next ? `${esc(next.supplier)} from ${fmtD(next.start)}` : '';
+        if (this.present) {        // for potential renters: is it available, and from when
+          const i = this.spotInfo(o);
+          name = i.kind === 'av' ? 'Available' : i.name;
+          where = [i.type, i.label, i.near ? 'next to ' + i.near : '', i.floor].filter(Boolean).join(' · ');
+          when = i.kind === 'taken' ? '' : esc(i.when);
+        }
         card.innerHTML = `<div class="sm-hc-name">${esc(name || 'Available')}</div>
           <div class="sm-hc-where">${esc(where)}</div>
-          <div class="sm-hc-foot"><span class="sm-badge" style="background:var(--st-${status});border-color:var(--st-${status}-s);color:var(--st-${status}-t)">${esc(STATUS[status].label)}</span>${when ? `<span class="sm-hc-when">${when}</span>` : ''}</div>`;
+          <div class="sm-hc-foot">${this.present ? `<span class="sm-pv-badge sm-pv-badge-${this.presentKind(o)}">${{ av: 'Available', soon: 'Available soon', taken: 'Rented' }[this.presentKind(o)]}</span>` : `<span class="sm-badge" style="background:var(--st-${status});border-color:var(--st-${status}-s);color:var(--st-${status}-t)">${esc(STATUS[status].label)}</span>`}${when ? `<span class="sm-hc-when">${when}</span>` : ''}</div>`;
         card.dataset.id = o.id;
       }
       // Beside the pointer, kept inside the window.
@@ -893,6 +978,7 @@
       const rentLike = kind === 'spot' || (kind === 'fixture' && t.rentable);
       const focusable = !this.editing && rentLike;
       const aria = rentLike ? ` role="button" aria-label="${esc(`${t.name}: ${this.displayName(o) || 'free'}${status ? ', ' + STATUS[status].label : ''}`)}"` : '';
+      if (this.present) { const pk = this.presentKind(o); if (pk) cls.push('sm-pv-' + pk); }
       return `<g class="${cls.filter(Boolean).join(' ')}" data-id="${esc(o.id)}" transform="${tr}"${focusable ? ' tabindex="0"' : ''}${aria}>${inner}</g>`;
     }
 
@@ -1179,6 +1265,7 @@
       const P = this.panel;
       P.onclick = null;
       this.root.classList.toggle('sm-has-sel', !!this.sel && !this.editing);
+      if (this.present) this.renderSpotlight();
       if (this.editing) return this.renderEditPanel();
       const o = this.sel ? this.objects.find(x => x.id === this.sel) : null;
       if (!o) return this.renderOverview();
