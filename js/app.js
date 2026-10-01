@@ -1289,6 +1289,112 @@ document.getElementById('toggleCatalogBtn').addEventListener('click', () => {
 // Drag and drop (owner, 2026-09-30): a file dropped on the catalog card replaces the catalog;
 // dropped anywhere else on the promotion it is imported as the price sheet. Both reuse the
 // file inputs' own handlers, so the checks and confirmations are the same as choosing a file.
+/* Linked catalog file (owner, 2026-10-01). Instead of uploading the item catalog again after adding
+   items in Excel, the file is linked once (picked or dropped in Chrome / Edge on a computer): "Reload"
+   re-reads it without picking, and when the app comes back to the screen after the file was saved,
+   it reloads the catalog by itself. The link is kept in this browser (IndexedDB), per promotion, and
+   the last linked file is offered to a promotion that has none yet. Other browsers: normal upload. */
+const CatalogLink = (function () {
+  const supported = typeof window.showOpenFilePicker === 'function';
+  const KEY = id => 'catalog:' + id;
+  const modKey = id => 'lv:catalogMod:' + id;
+  const db = () => new Promise((res, rej) => { const r = indexedDB.open('lv-files', 1); r.onupgradeneeded = () => r.result.createObjectStore('h'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+  const op = async (mode, fn) => { const d = await db(); return new Promise((res, rej) => { const tx = d.transaction('h', mode); const q = fn(tx.objectStore('h')); tx.oncomplete = () => res(q && q.result); tx.onerror = () => rej(tx.error); }); };
+  const cache = new Map();
+  async function get(id) {
+    if (!supported || !id) return null;
+    if (cache.has(id)) return cache.get(id);
+    let h = null, own = true;
+    try { h = await op('readonly', st => st.get(KEY(id))); if (!h) { h = await op('readonly', st => st.get('catalog:last')); own = false; } } catch (e) { h = null; }
+    const v = h ? { handle: h, own } : null;
+    cache.set(id, v);
+    return v;
+  }
+  async function set(id, handle) {
+    cache.set(id, { handle, own: true });
+    try { await op('readwrite', st => { st.put(handle, KEY(id)); return st.put(handle, 'catalog:last'); }); } catch (e) { /* storage blocked */ }
+  }
+  async function unlink(id) {
+    cache.set(id, null);
+    try { await op('readwrite', st => st.delete(KEY(id))); } catch (e) { /* ignore */ }
+    try { localStorage.removeItem(modKey(id)); } catch (e) { /* ignore */ }
+  }
+  // Hand the file to the catalog upload (same checks and messages as choosing it).
+  function feed(file, id) {
+    const input = document.getElementById('catalogFileInput');
+    if (!input || input.disabled) return false;
+    const dt = new DataTransfer(); dt.items.add(file);
+    input.files = dt.files;
+    input.dispatchEvent(new Event('change'));
+    try { localStorage.setItem(modKey(id), String(file.lastModified)); } catch (e) { /* ignore */ }
+    return true;
+  }
+  async function readable(h, ask) {
+    let p = await h.queryPermission({ mode: 'read' });
+    if (p === 'prompt' && ask) p = await h.requestPermission({ mode: 'read' });
+    return p === 'granted';
+  }
+  async function reload(id, ask = true) {
+    const v = await get(id); if (!v) return false;
+    try {
+      if (!(await readable(v.handle, ask))) return false;
+      const file = await v.handle.getFile();
+      if (!v.own) await set(id, v.handle);
+      return feed(file, id);
+    } catch (e) {
+      showToast('Could not open the linked file — it may have been moved or renamed. Link it again.', true);
+      await unlink(id); renderBox();
+      return false;
+    }
+  }
+  // Clicking the catalog zone: pick the file AND link it.
+  async function pick(id) {
+    try {
+      const [h] = await window.showOpenFilePicker({ multiple: false, types: [{ description: 'Excel or CSV', accept: { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'], 'application/vnd.ms-excel': ['.xls'], 'text/csv': ['.csv'] } }] });
+      if (!h) return;
+      await set(id, h);
+      await reload(id, true);
+      renderBox();
+    } catch (e) { if (e && e.name !== 'AbortError') showToast('Could not open that file.', true); }
+  }
+  // A file dropped on the catalog zone is linked too (must be asked during the drop event itself).
+  function fromDrop(item, id) {
+    if (!supported || !item || typeof item.getAsFileSystemHandle !== 'function') return;
+    item.getAsFileSystemHandle().then(h => { if (h && h.kind === 'file') { set(id, h).then(renderBox); try { localStorage.setItem(modKey(id), String(Date.now())); } catch (e) { /* ignore */ } } }).catch(() => {});
+  }
+  async function renderBox() {
+    const box = document.getElementById('catLinkBox'); if (!box) return;
+    if (!supported || !currentPromoId || !canEditPromotions()) { box.innerHTML = ''; return; }
+    const v = await get(currentPromoId);
+    box.innerHTML = v
+      ? `<span class="dz-linked" title="Saved in Excel? It reloads by itself when you come back to the app.">🔗 ${escapeHtml(v.handle.name)}${v.own ? '' : ' <em>(last linked file)</em>'}</span>
+         <button type="button" class="btn small dz-reload" data-cl="reload">↻ Reload</button>
+         ${v.own ? '<button type="button" class="link-btn" data-cl="unlink">Unlink</button>' : ''}`
+      : '<span class="muted-note">Pick or drop the file once: it stays linked, then ↻ Reload reads it again.</span>';
+  }
+  // Back on the app after saving the file in Excel: reload by itself (when the browser already allows it).
+  async function autoCheck() {
+    if (!supported || !currentPromoId || document.visibilityState !== 'visible') return;
+    if (!document.getElementById('panel-promotions')?.classList.contains('active') || !canEditPromotions()) return;
+    const v = await get(currentPromoId); if (!v || !v.own) return;
+    try {
+      if ((await v.handle.queryPermission({ mode: 'read' })) !== 'granted') return;
+      const file = await v.handle.getFile();
+      const last = Number(localStorage.getItem(modKey(currentPromoId)) || 0);
+      if (file.lastModified > last) { feed(file, currentPromoId); showToast(`Catalog reloaded from ${file.name} (the file was saved).`); }
+    } catch (e) { /* moved or no access: the Reload button says so */ }
+  }
+  document.addEventListener('visibilitychange', autoCheck);
+  window.addEventListener('focus', autoCheck);
+  document.addEventListener('click', e => {
+    const b = e.target.closest('#catLinkBox [data-cl]'); if (!b) return;
+    e.stopPropagation();
+    if (b.dataset.cl === 'reload') reload(currentPromoId, true).then(ok => { if (ok === false) showToast('Allow the browser to read the file to reload it.', true); });
+    if (b.dataset.cl === 'unlink') unlink(currentPromoId).then(renderBox);
+  }, true);
+  return { supported, pick, fromDrop, renderBox };
+})();
+
 (function wirePromoDrop() {
   const panel = document.getElementById('panel-promotions');
   const zoneFor = e => {
@@ -1316,6 +1422,7 @@ document.getElementById('toggleCatalogBtn').addEventListener('click', () => {
     const file = e.dataTransfer.files[0];
     if (!file) return;
     if (!/\.(xlsx|xls|csv)$/i.test(file.name)) { showToast('Drop an Excel or CSV file (.xlsx, .xls, .csv).', true); return; }
+    if (z.input === 'catalogFileInput') CatalogLink.fromDrop(e.dataTransfer.items[0], currentPromoId);
     const input = document.getElementById(z.input);
     if (!input || input.disabled) return;
     const dt = new DataTransfer(); dt.items.add(file);
@@ -1876,6 +1983,7 @@ async function renderPromoWorkspace() {
             <b>Item catalog</b>
             <span class="dz-info" id="catZoneInfo">${catalogZoneInfo(promo)}</span>
             <span class="dz-hint">Drop the catalog file here or click to choose</span>
+            <span class="dz-link" id="catLinkBox"></span>
           </div>
           <label class="dz-threshold" title="Flag an item when its Balance is below this">Low stock under
             <input type="text" inputmode="numeric" id="lowStockZoneInput" value="${escapeHtml(String(lowStockThreshold))}"></label>
@@ -2885,10 +2993,16 @@ function wirePromoWorkspaceEvents(promo) {
       const input = document.getElementById(inputId);
       if (input && !input.disabled) input.click();
     };
-    zone.addEventListener('click', e => { if (!e.target.closest('.dz-threshold')) open(); });
+    zone.addEventListener('click', e => {
+      if (e.target.closest('.dz-threshold, .dz-link')) return;
+      // The catalog: pick it so it stays linked (Chrome / Edge); otherwise the normal file chooser.
+      if (inputId === 'catalogFileInput' && CatalogLink.supported && can('promotions.edit')) return CatalogLink.pick(currentPromoId);
+      open();
+    });
     zone.addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && e.target === zone) { e.preventDefault(); open(); } });
   };
   zonePick('catalogDropZone', 'catalogFileInput');
+  CatalogLink.renderBox();
   zonePick('priceDropZone', 'priceSheetInput');
   // The threshold box in the catalog zone hands its value to the original setting input.
   document.getElementById('lowStockZoneInput').addEventListener('change', e => {

@@ -1246,3 +1246,9 @@ table.promo th.rownum-col:hover,table.promo td.rownum-col:hover{color:var(--pine
 #promoRowsBody tr.row-selected td.rownum-col{color:var(--paper-raised);background:var(--pine) !important;font-weight:700;}
 .gap-min-input{width:52px !important;padding:3px 6px !important;margin:0 2px;text-align:right;font-family:var(--font-mono);}
 [data-role="promo-undo"]:disabled{opacity:.45;}
+
+/* Linked catalog file */
+.dz-link{display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px;margin-top:6px;font-size:12.5px;}
+.dz-linked{font-weight:600;color:var(--pine);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%;}
+.dz-linked em{font-weight:400;color:var(--ink-faint);}
+.dz-reload{padding:4px 10px !important;}
