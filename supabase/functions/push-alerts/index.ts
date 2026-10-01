@@ -234,6 +234,12 @@ async function buildAlerts(today: string): Promise<Alert[]> {
     const { count } = await db.from('label_items').select('id', { count: 'exact', head: true }).eq('list_id', l.id);
     add({ key: `labels:${l.id}`, perms: ['labels.print'], title: 'Labels to print', url: '#labels', body: `${l.created_by_name || 'A shelf worker'} sent ${count ?? 0} item${count === 1 ? '' : 's'} for new shelf labels.` });
   }
+  // A supervisor sent the draft schedule for review (cashier page, migration 024): HR reviews and publishes it.
+  const { data: sent } = await db.from('schedule_weeks').select('week_start, submitted_at, submitted_by').eq('published', false).not('submitted_at', 'is', null);
+  for (const w of sent ?? [])
+    add({ key: `sched-sent:${w.week_start}:${w.submitted_at}`, perms: ['schedule.manage'], title: 'Schedule draft ready', url: '#schedule',
+      body: `${w.submitted_by || 'A supervisor'} sent the schedule of the week of ${fmt(w.week_start)} for review — check it and publish it.` });
+
   return out;
 }
 

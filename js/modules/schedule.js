@@ -129,7 +129,8 @@
         <h3>Week of ${esc(weekTitle(w))}</h3>
         <button class="icon-btn" data-w="7" aria-label="Next week"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></button>
         <button class="btn ghost small" data-w="0">This week</button>
-        ${row ? `<span class="badge ${row.published ? 'active' : 'warn'}">${row.published ? 'Published' : 'Draft — not visible to staff'}</span>` : ''}
+        ${row ? `<span class="badge ${row.published ? 'active' : 'warn'}">${row.published ? 'Published' : row.submitted_at ? 'Sent by ' + esc(row.submitted_by || 'a supervisor') + ' for review' : 'Draft — not visible to staff'}</span>` : ''}
+        ${row && row.last_editor && !row.published ? `<span class="muted-note">Last change by ${esc(row.last_editor)}</span>` : ''}
         <span style="flex:1"></span>
         ${row ? `<button class="btn ghost small" id="shCopy" ${S.prev ? '' : 'disabled'} title="${S.prev ? 'Replace this week with last week’s schedule' : 'Last week has no schedule'}">Copy last week</button>
           <button class="btn secondary small" id="shPrint">Print</button>
@@ -368,7 +369,7 @@
   function save(now) {
     clearTimeout(timer);
     const go = async () => {
-      const { error } = await sb.from('schedule_weeks').update({ assignments: S.row.assignments, published: S.row.published }).eq('week_start', S.row.week_start);
+      const { error } = await sb.from('schedule_weeks').update({ assignments: S.row.assignments, published: S.row.published, last_editor: Session.profile?.display_name || Session.profile?.username || 'HR' }).eq('week_start', S.row.week_start);
       if (error) showToast('Not saved — ' + friendlyError(error), true);
     };
     if (now) return go();

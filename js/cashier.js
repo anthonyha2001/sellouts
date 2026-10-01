@@ -117,6 +117,101 @@
         ${!groups.am.length && !groups.pm.length && !groups.full.length ? '<p class="empty-note" style="margin:6px 0;">Nobody is scheduled this day.</p>' : ''}
       </div>`;
   }
+  // ---- Supervisors: the shared draft (cashier-view draft_*; migration 024). All supervisors edit the
+  // same unpublished week, one cell at a time; "Send to HR", and HR publishes it in the app.
+  const draft = { on: false, weeks: [], week: null, staff: [], canCopy: false, w: null, d: 0, busy: false };
+  const WEEK_NAMES = ['This week', 'Next week', 'In 2 weeks', 'In 3 weeks'];
+  const STATUS = { none: 'Not started', draft: 'Draft', sent: 'Sent to HR', published: 'Published' };
+  async function loadDraft(week) {
+    if (!session) return;
+    try {
+      const ask = w => call({ action: 'draft_get', cashier_id: session.cashier_id, pin: session.pin, week_start: w });
+      let r = await ask(week || draft.w || undefined);
+      if (!week && !draft.w) {     // first time: open the first week that is not published yet
+        const first = r.weeks.find(x => x.status !== 'published') || r.weeks[0];
+        draft.w = first.week_start;
+        if (first.week_start !== r.weeks[0].week_start) r = await ask(draft.w);
+      }
+      draft.on = true; draft.weeks = r.weeks; draft.week = r.week; draft.staff = r.staff; draft.canCopy = r.can_copy;
+      renderDraft();
+    } catch (err) { draft.on = false; $('cpDraft').innerHTML = ''; }
+  }
+  // Same rules as the HR page: a shift keeps the station (or takes the usual one); Front / Back keep the shift and times.
+  function applyTool(p, cur, tool) {
+    const x = parseCode(cur), main = String(cur || '').split('|'), times = main[1] ? '|' + main[1] : '';
+    if (tool === 'front' || tool === 'back') return SHIFTS[x.shift] ? `${x.shift}:${tool}${times}` : cur;
+    if (!SHIFTS[tool]) return tool;
+    if (x.shift === tool) return cur;
+    const st = x.station || p.default_station || '';
+    return tool + (st ? ':' + st : '');
+  }
+  function renderDraft() {
+    const box = $('cpDraft');
+    if (!draft.on) { box.innerHTML = ''; return; }
+    const info = draft.weeks.find(x => x.week_start === draft.w) || draft.weeks[0];
+    const tabs = `<div class="cp-dr-weeks">${draft.weeks.map((x, i) => `<button type="button" data-dw="${x.week_start}" class="${x.week_start === draft.w ? 'on' : ''}"><b>${WEEK_NAMES[i]}</b><span class="cp-dr-st cp-dr-${x.status}">${STATUS[x.status]}</span></button>`).join('')}</div>`;
+    let body = '';
+    if (info.status === 'published') {
+      body = '<p class="muted-note cp-dr-note">HR has published this week — staff can see it. To change it, ask HR to unpublish it.</p>';
+    } else if (!draft.week) {
+      body = `<p class="muted-note cp-dr-note">Nobody has started this week yet.</p>
+        <div class="cp-dr-start">${draft.canCopy ? '<button type="button" class="btn small" data-dstart="copy">Start — copy the week before</button>' : ''}
+        <button type="button" class="btn ${draft.canCopy ? 'ghost' : ''} small" data-dstart="empty">Start empty</button></div>`;
+    } else {
+      const wk = draft.week, a = wk.assignments || {};
+      const dates = DAYS.map((_, i) => addDays(draft.w, i));
+      const day = draft.d;
+      const cnt = { am: 0, pm: 0, front: 0, back: 0 };
+      draft.staff.forEach(p => { const x = parseCode((a[p.id] || [])[day]); if (!SHIFTS[x.shift]) return; if (x.shift !== 'pm') cnt.am++; if (x.shift !== 'am') cnt.pm++; const st = x.station || p.default_station; if (st === 'front') cnt.front++; else if (st === 'back') cnt.back++; });
+      const row = p => {
+        const code = (a[p.id] || [])[day] || '', x = parseCode(code), working = !!SHIFTS[x.shift];
+        const seg = [['', '—'], ['am', 'AM'], ['pm', 'PM'], ['full', 'Full'], ['off', 'Off']].map(([v, l]) => `<button type="button" data-dset="${v}" class="${x.shift === v ? 'on' : ''} cp-dr-${v || 'none'}">${l}</button>`).join('');
+        const st = [['front', 'Front'], ['back', 'Back']].map(([v, l]) => `<button type="button" data-dset="${v}" class="${working && x.station === v ? 'on' : ''}" ${working ? '' : 'disabled'}>${l}</button>`).join('');
+        return `<li data-pid="${p.id}"><div class="cp-dr-who"><b>${esc(p.name)}</b>${p.position === 'supervisor' ? '<em>Supervisor</em>' : ''}${x.times ? `<span class="cp-custom">${x.times}</span>` : ''}</div>
+          <div class="cp-dr-seg">${seg}</div><div class="cp-dr-seg cp-dr-stn">${st}</div></li>`;
+      };
+      const sups = draft.staff.filter(p => p.position === 'supervisor'), cash = draft.staff.filter(p => p.position !== 'supervisor');
+      body = `<p class="muted-note cp-dr-note">${info.status === 'sent' ? `Sent to HR by ${esc(info.submitted_by || '')} — you can still change it until HR publishes it.` : 'Draft — staff cannot see it yet.'}${wk.last_editor ? ` Last change by ${esc(wk.last_editor)}.` : ''}</p>
+        <div class="cp-cal-strip">${dates.map((d, i) => `<button type="button" data-dd="${i}" class="${i === day ? 'on' : ''}"><span>${DAYS[i]}</span><b>${d.getDate()}</b></button>`).join('')}</div>
+        <p class="cp-dr-count">${dates[day].toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })} · <b>AM ${cnt.am} · PM ${cnt.pm}</b> · Front ${cnt.front} · Back ${cnt.back}</p>
+        ${sups.length ? `<p class="cp-dr-grp">Supervisors</p><ul class="cp-dr-list">${sups.map(row).join('')}</ul>` : ''}
+        ${cash.length ? `<p class="cp-dr-grp">Cashiers</p><ul class="cp-dr-list">${cash.map(row).join('')}</ul>` : ''}
+        <div class="cp-dr-send"><button type="button" class="btn" id="cpDraftSend">${info.status === 'sent' ? 'Send to HR again' : 'Send to HR'}</button>
+          <span class="muted-note">HR reviews it and publishes it to everyone.</span></div>`;
+    }
+    box.innerHTML = `<h3 class="cp-sec">Draft schedule <span class="muted-note">(supervisors)</span></h3><div class="card cp-dr">${tabs}${body}<p class="login-err" id="cpDraftErr"></p></div>`;
+  }
+  $('cpDraft').addEventListener('click', async e => {
+    const t = e.target.closest('button'); if (!t || draft.busy) return;
+    const err = m => { const p = $('cpDraftErr'); if (p) p.textContent = m || ''; };
+    if (t.dataset.dw) { draft.w = t.dataset.dw; draft.d = 0; return loadDraft(draft.w); }
+    if (t.dataset.dd) { draft.d = Number(t.dataset.dd); return renderDraft(); }
+    if (t.dataset.dstart) {
+      draft.busy = true;
+      try { await call({ action: 'draft_create', cashier_id: session.cashier_id, pin: session.pin, week_start: draft.w, copy: t.dataset.dstart === 'copy' }); }
+      catch (x) { err(x.message); } finally { draft.busy = false; }
+      return loadDraft(draft.w);
+    }
+    if (t.id === 'cpDraftSend') {
+      if (!confirm('Send this week to HR? They review it and publish it to everyone.')) return;
+      draft.busy = true;
+      try { await call({ action: 'draft_submit', cashier_id: session.cashier_id, pin: session.pin, week_start: draft.w }); }
+      catch (x) { err(x.message); } finally { draft.busy = false; }
+      return loadDraft(draft.w);
+    }
+    if (t.dataset.dset !== undefined) {
+      const li = t.closest('li[data-pid]'), p = draft.staff.find(x => x.id === li.dataset.pid);
+      const a = draft.week.assignments, days = (a[p.id] = a[p.id] || ['', '', '', '', '', '', '']);
+      const before = days[draft.d] || '', code = applyTool(p, before, t.dataset.dset);
+      if (code === before) return;
+      days[draft.d] = code; renderDraft();          // right away; the server confirms
+      try {
+        const r = await call({ action: 'draft_set', cashier_id: session.cashier_id, pin: session.pin, week_start: draft.w, staff_id: p.id, day: draft.d, code });
+        if (Array.isArray(r.days)) a[p.id] = r.days;
+      } catch (x) { days[draft.d] = before; renderDraft(); err(x.message); }
+    }
+  });
+
   $('cpTeam').addEventListener('click', e => {
     const b = e.target.closest('[data-tw], [data-td]'); if (!b) return;
     if (b.dataset.tw !== undefined) { team.w = Number(b.dataset.tw); team.d = null; }
@@ -175,6 +270,7 @@
     renderNotify();
     renderSchedule(d.schedule);
     renderTeam(d.team);
+    if (d.cashier.position === 'supervisor') loadDraft(); else { draft.on = false; $('cpDraft').innerHTML = ''; }
     currency = lv.currency || 'LBP';
     const level = a => Math.abs(a) >= lv.danger ? 'lv-danger' : Math.abs(a) >= lv.warning ? 'lv-warn' : '';
     $('cpWho').textContent = d.cashier.name;

@@ -12,6 +12,13 @@
 //   notifications (schedule published, difference entered; sent by push-alerts, migration 023)
 // POST { action: 'unsubscribe', endpoint }                -> { ok }  this phone stops getting them
 //
+// Supervisors' shared draft (migration 024): every call carries cashier_id + pin of a SUPERVISOR.
+// POST { action: 'draft_get', week_start? }       -> { weeks: [{ week_start, status, submitted_by, last_editor }], week, staff }
+//   status: 'none' | 'draft' | 'sent' | 'published' (published = read-only); weeks = this week and the next three
+// POST { action: 'draft_create', week_start, copy } -> { ok }  start a week (copy of the week before, or empty)
+// POST { action: 'draft_set', week_start, staff_id, day, code } -> { days }  one cell (schedule_set_cell)
+// POST { action: 'draft_submit', week_start }     -> { ok }  "Send to HR": HR is notified (push-alerts) and publishes
+//
 // Deploy with JWT verification OFF (the page has no user session).
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
@@ -62,6 +69,19 @@ async function teamOf() {
       .map(p => ({ name: p.name, position: p.position ?? 'cashier', days: (a[p.id] ?? []).slice(0, 7) }));
     return { week_start: w.week_start, people };
   });
+}
+// The supervisors' editable weeks: this week and the next three (Beirut).
+function draftWeeks() {
+  const [w0] = beirutWeeks();
+  return [0, 7, 14, 21].map(n => { const d = new Date(w0 + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); });
+}
+// PIN right AND an active supervisor: their name, otherwise the error response.
+async function supervisorOf(body: Record<string, unknown>): Promise<{ name: string } | Response> {
+  const bad = await pinError(body);
+  if (bad) return bad;
+  const { data: me } = await db.from('cashiers').select('name, position, active').eq('id', String(body.cashier_id)).maybeSingle();
+  if (!me || !me.active || me.position !== 'supervisor') return json({ error: 'Only supervisors can work on the draft schedule.' }, 403);
+  return { name: me.name };
 }
 function monthEnd(ym: string) {
   const [y, m] = ym.split('-').map(Number);
@@ -139,6 +159,67 @@ Deno.serve(async req => {
       }, { onConflict: 'endpoint' });
       if (error) throw error;
       return json({ ok: true });
+    }
+
+    if (typeof body.action === 'string' && body.action.startsWith('draft_')) {
+      const me = await supervisorOf(body);
+      if (me instanceof Response) return me;
+      const weeks = draftWeeks();
+      const week = String(body.week_start ?? weeks[0]);
+      if (!weeks.includes(week)) return json({ error: 'That week cannot be edited here.' }, 400);
+
+      if (body.action === 'draft_get') {
+        const [{ data: rows, error }, { data: staff }] = await Promise.all([
+          db.from('schedule_weeks').select('week_start, published, submitted_at, submitted_by, last_editor, assignments').in('week_start', weeks),
+          db.from('cashiers').select('id, name, position, default_station').eq('active', true).order('sort_order').order('name'),
+        ]);
+        if (error) throw error;
+        const byWeek = new Map((rows ?? []).map(r => [r.week_start, r]));
+        const prevOf = (w: string) => { const d = new Date(w + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - 7); return d.toISOString().slice(0, 10); };
+        const { data: prev } = await db.from('schedule_weeks').select('week_start').eq('week_start', prevOf(week)).maybeSingle();
+        const cur = byWeek.get(week);
+        return json({
+          weeks: weeks.map(w => { const r = byWeek.get(w); return { week_start: w, status: !r ? 'none' : r.published ? 'published' : r.submitted_at ? 'sent' : 'draft', submitted_by: r?.submitted_by ?? null, submitted_at: r?.submitted_at ?? null, last_editor: r?.last_editor ?? null }; }),
+          week: cur ? { week_start: week, published: cur.published, submitted_at: cur.submitted_at, submitted_by: cur.submitted_by, last_editor: cur.last_editor, assignments: cur.assignments ?? {} } : null,
+          staff: staff ?? [], can_copy: !!prev,
+        });
+      }
+
+      if (body.action === 'draft_create') {
+        const { data: exists } = await db.from('schedule_weeks').select('week_start').eq('week_start', week).maybeSingle();
+        if (exists) return json({ ok: true });
+        let assignments: Record<string, string[]> = {};
+        if (body.copy) {
+          const d = new Date(week + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - 7);
+          const [{ data: prev }, { data: active }] = await Promise.all([
+            db.from('schedule_weeks').select('assignments').eq('week_start', d.toISOString().slice(0, 10)).maybeSingle(),
+            db.from('cashiers').select('id').eq('active', true),
+          ]);
+          const ids = new Set((active ?? []).map(c => c.id));
+          for (const [id, days] of Object.entries((prev?.assignments ?? {}) as Record<string, string[]>)) if (ids.has(id)) assignments[id] = days.slice(0, 7);
+        }
+        const { error } = await db.from('schedule_weeks').insert({ week_start: week, assignments, published: false, last_editor: me.name });
+        if (error && !/duplicate/i.test(error.message)) throw error;
+        return json({ ok: true });
+      }
+
+      if (body.action === 'draft_set') {
+        const staffId = String(body.staff_id ?? ''), day = Number(body.day), code = String(body.code ?? '');
+        const { data: person } = await db.from('cashiers').select('id').eq('id', staffId).eq('active', true).maybeSingle();
+        if (!person) return json({ error: 'Unknown person.' }, 400);
+        const { data, error } = await db.rpc('schedule_set_cell', { p_week: week, p_staff: staffId, p_day: day, p_code: code, p_editor: me.name });
+        if (error) return json({ error: /published/i.test(error.message) ? 'This week is published — ask HR to unpublish it to change it.' : 'Not saved: ' + error.message }, 409);
+        return json({ days: data });
+      }
+
+      if (body.action === 'draft_submit') {
+        const { data, error } = await db.from('schedule_weeks').update({ submitted_at: new Date().toISOString(), submitted_by: me.name })
+          .eq('week_start', week).eq('published', false).select('week_start');
+        if (error) throw error;
+        if (!data?.length) return json({ error: 'This week is already published.' }, 409);
+        return json({ ok: true });
+      }
+      return json({ error: 'Unknown action' }, 400);
     }
 
     if (body.action === 'unsubscribe') {
