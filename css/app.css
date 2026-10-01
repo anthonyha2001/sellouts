@@ -1153,3 +1153,10 @@ tr.sh-dragging th,tr.sh-dragging td{background:var(--pine-tint);}
 .sh-cell button .sh-time{display:block;font:600 11px var(--font-mono);color:var(--gold);margin-top:1px;}
 .sh-time-box input[type=time]{width:100%;padding:9px 10px;border:1px solid var(--line-strong);border-radius:var(--radius-sm);background:var(--paper-raised);color:var(--ink);font:500 15px var(--font-mono);}
 .sh-chip.sh-time{border-style:dashed;}
+
+/* Staff schedule: step 1 shifts, step 2 station */
+.sh-step{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:var(--pine);color:#fff;font:700 11px var(--font-mono);margin-left:6px;}
+.sh-step:first-child{margin-left:0;}
+.sh-brush .sh-step + .sh-brush-t{margin-left:2px;}
+.sh-chip.sh-front,.sh-chip.sh-back{min-width:64px;}
+.sh-brush-sep{width:1px;height:22px;background:var(--line-strong);margin:0 6px;}

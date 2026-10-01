@@ -7,6 +7,8 @@
    count of who works each day: AM / PM, Front / Back (owner,
    2026-10-01: no "needed each day"). Publish (then each person sees
    it on the cashier page after their PIN), print.
+   Filling (owner, 2026-10-01): step 1 paint the shifts (AM / PM / Full /
+   Off), step 2 paint Front or Back over them — one tool at a time.
    Exact times (owner, 2026-10-01): someone arrives late or leaves early —
    right-click a cell (or the "Times…" brush, or T) to set its start / end;
    the cell, the printout and the cashier page show them, hours follow.
@@ -22,7 +24,7 @@
   const esc = escapeHtml;
   const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   const SHIFT = { am: { label: 'AM', time: '07:30–14:30', hours: 7 }, pm: { label: 'PM', time: '14:30–22:00', hours: 7.5 }, full: { label: 'Full', time: '07:30–22:00', hours: 14.5 } };
-  const S = { brush: { shift: 'am', station: 'usual' }, started: false, tab: 'week', week: null, staff: [], row: null, prev: null, missing: false };
+  const S = { brush: { tool: 'am' }, started: false, tab: 'week', week: null, staff: [], row: null, prev: null, missing: false };
 
   const iso = d => d.toLocaleDateString('en-CA');
   const mondayOf = s => { const d = new Date(s + 'T00:00:00'); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return iso(d); };
@@ -47,17 +49,27 @@
     const main = x.shift + (x.station ? ':' + x.station : '');
     return start === DEF[x.shift][0] && end === DEF[x.shift][1] ? main : `${main}|${start}-${end}`;
   };
-  // The code a shift gets for this person ("usual" = their usual station; supervisors too).
-  const codeFor = (p, shift, station) => {
-    if (!SHIFT[shift]) return shift;   // '' (clear) or 'off'
-    return `${shift}:${station === 'usual' ? (p.default_station || 'front') : station}`;
-  };
   const cellLabel = code => { const { shift, station } = parse(code); if (shift === 'off') return 'Off'; if (!SHIFT[shift]) return '—'; return SHIFT[shift].label + (station ? ' · ' + (station === 'front' ? 'Front' : 'Back') : ''); };
   // The cell: the shift, and its exact times when someone arrives late or leaves early.
   const cellHtml = code => { const t = custom(code) ? timesOf(code) : null; return esc(cellLabel(code)) + (t ? `<small class="sh-time">${t[0]}–${t[1]}</small>` : ''); };
-  const KEYS = { a: 'am', p: 'pm', f: 'full', o: 'off', Delete: '', Backspace: '' };
-  const BRUSHES = [['am', 'AM'], ['pm', 'PM'], ['full', 'Full'], ['off', 'Off'], ['', 'Clear'], ['time', 'Times…']];
-  const STATIONS = [['usual', 'Usual'], ['front', 'Front'], ['back', 'Back']];
+  // What a tool does to a cell. A shift keeps the cell's station (or takes the person's usual one);
+  // Front / Back only change the station of a cell that already has a shift (and keep its times).
+  const applyTool = (p, cur, tool) => {
+    const x = parse(cur);
+    if (tool === 'front' || tool === 'back') {
+      if (!SHIFT[x.shift]) return cur;
+      const t = x.start || x.end ? `|${x.start || DEF[x.shift][0]}-${x.end || DEF[x.shift][1]}` : '';
+      return `${x.shift}:${tool}${t}`;
+    }
+    if (!SHIFT[tool]) return tool;               // 'off', or '' to clear
+    if (x.shift === tool) return cur;            // same shift: keep station and times
+    const st = x.station || p.default_station || '';
+    return tool + (st ? ':' + st : '');
+  };
+  const KEYS = { a: 'am', p: 'pm', f: 'full', o: 'off', 1: 'front', 2: 'back', Delete: '', Backspace: '' };
+  const SHIFT_TOOLS = [['am', 'AM'], ['pm', 'PM'], ['full', 'Full'], ['off', 'Off']];
+  const STATION_TOOLS = [['front', 'Front'], ['back', 'Back']];
+  const OTHER_TOOLS = [['', 'Clear'], ['time', 'Times…']];
 
   /* ---------------- data ---------------- */
   async function loadStaff() {
@@ -152,11 +164,13 @@
       return `<td><b>AM ${c.am} · PM ${c.pm}</b><small>Front ${c.front} · Back ${c.back}</small></td>`; }).join('')}<td></td></tr>`;
     el('shBody').innerHTML = `${nav}
       <div class="card"><div class="sh-brush" id="shBrush">
-          <span class="sh-brush-t">Brush</span>
-          ${BRUSHES.map(([v, l]) => `<button type="button" class="sh-chip sh-${v || 'none'} ${S.brush.shift === v ? 'on' : ''}" data-bs="${v}">${l}</button>`).join('')}
-          <span class="sh-brush-t">Station</span>
-          ${STATIONS.map(([v, l]) => `<button type="button" class="sh-chip ${S.brush.station === v ? 'on' : ''}" data-bst="${v}">${l}</button>`).join('')}
-          <span class="muted-note">Click or drag across the days. Arrives late / leaves early: right-click the cell (or the Times… brush). On a cell: A = AM, P = PM, F = Full, O = Off, T = times, Delete clears, arrows move.</span>
+          <span class="sh-step">1</span><span class="sh-brush-t">Shift</span>
+          ${SHIFT_TOOLS.map(([v, l]) => `<button type="button" class="sh-chip sh-${v || 'none'} ${S.brush.tool === v ? 'on' : ''}" data-tool="${v}">${l}</button>`).join('')}
+          <span class="sh-step">2</span><span class="sh-brush-t">Station</span>
+          ${STATION_TOOLS.map(([v, l]) => `<button type="button" class="sh-chip sh-${v || 'none'} ${S.brush.tool === v ? 'on' : ''}" data-tool="${v}">${l}</button>`).join('')}
+          <span class="sh-brush-sep"></span>
+          ${OTHER_TOOLS.map(([v, l]) => `<button type="button" class="sh-chip sh-${v || 'none'} ${S.brush.tool === v ? 'on' : ''}" data-tool="${v}">${l}</button>`).join('')}
+          <span class="muted-note">1 — pick a shift and click or drag across the days. 2 — pick Front or Back and go over the same days. Right-click a cell for exact times (arrives late / leaves early). Keys on a cell: A P F O, 1 = Front, 2 = Back, T = times, Delete.</span>
         </div>
         <div class="items-scroll" style="margin-bottom:0;"><table class="sh-grid">
         <thead><tr><th></th>${dates.map((d, i) => `<th>${DAYS[i]}<small>${dayLabel(d, { day: 'numeric', month: 'short' })}</small></th>`).join('')}<th class="num">Week</th></tr></thead>
@@ -224,17 +238,16 @@
 
   function wireGrid(row) {
     el('shBrush').onclick = e => {
-      const b = e.target.closest('[data-bs], [data-bst]'); if (!b) return;
-      if (b.dataset.bst) S.brush.station = b.dataset.bst; else S.brush.shift = b.dataset.bs;
-      el('shBrush').querySelectorAll('[data-bs]').forEach(x => x.classList.toggle('on', x.dataset.bs === S.brush.shift));
-      el('shBrush').querySelectorAll('[data-bst]').forEach(x => x.classList.toggle('on', x.dataset.bst === S.brush.station));
+      const b = e.target.closest('[data-tool]'); if (!b) return;
+      S.brush.tool = b.dataset.tool;
+      el('shBrush').querySelectorAll('[data-tool]').forEach(x => x.classList.toggle('on', x.dataset.tool === S.brush.tool));
     };
     const tbody = el('shBody').querySelector('.sh-grid tbody');
-    const set = (btn, shift, station) => {
-      if (shift === 'time') return false;   // the Times… brush opens the dialog instead
+    const set = (btn, tool) => {
+      if (tool === 'time') return false;   // the Times… tool opens the dialog instead
       const id = btn.closest('tr').dataset.p, p = S.staff.find(x => x.id === id); if (!p) return false;
       const days = (row.assignments[id] = row.assignments[id] || Array(7).fill(''));
-      const code = codeFor(p, shift, station), i = Number(btn.dataset.day);
+      const i = Number(btn.dataset.day), code = applyTool(p, days[i] || '', tool);
       if ((days[i] || '') === code) return false;
       days[i] = code;
       btn.innerHTML = cellHtml(code);
@@ -245,13 +258,13 @@
     tbody.onpointerdown = e => {
       const b = e.target.closest('button[data-day]'); if (!b || e.button !== 0) return;
       e.preventDefault(); b.focus();
-      if (S.brush.shift === 'time') return editTimes(b, row);
-      painting = true; changed = set(b, S.brush.shift, S.brush.station) || changed;
+      if (S.brush.tool === 'time') return editTimes(b, row);
+      painting = true; changed = set(b, S.brush.tool) || changed;
     };
     tbody.onpointermove = e => {
       if (!painting) return;
       const b = document.elementFromPoint(e.clientX, e.clientY)?.closest('.sh-grid tbody button[data-day]');
-      if (b) changed = set(b, S.brush.shift, S.brush.station) || changed;
+      if (b) changed = set(b, S.brush.tool) || changed;
     };
     const stop = () => { if (!painting) return; painting = false; if (changed) { changed = false; save(); renderWeek(); } };
     window.onpointerup = stop; tbody.onpointercancel = stop;
@@ -262,8 +275,8 @@
       let r = ids.indexOf(b.closest('tr').dataset.p), d = Number(b.dataset.day), edit = false;
       const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
       if (key === 't') { e.preventDefault(); return editTimes(b, row); }
-      if (key in KEYS) { if (set(b, KEYS[key], S.brush.station)) save(); d = Math.min(6, d + 1); edit = true; }
-      else if (key === 'Enter' || key === ' ') { if (set(b, S.brush.shift, S.brush.station)) save(); d = Math.min(6, d + 1); edit = true; }
+      if (key in KEYS) { if (set(b, KEYS[key])) save(); d = Math.min(6, d + 1); edit = true; }
+      else if (key === 'Enter' || key === ' ') { if (set(b, S.brush.tool)) save(); d = Math.min(6, d + 1); edit = true; }
       else if (key === 'ArrowRight') d = Math.min(6, d + 1);
       else if (key === 'ArrowLeft') d = Math.max(0, d - 1);
       else if (key === 'ArrowDown') r = Math.min(ids.length - 1, r + 1);
@@ -281,8 +294,9 @@
     const days = (row.assignments[id] = row.assignments[id] || Array(7).fill(''));
     let x = parse(days[i]);
     if (!SHIFT[x.shift]) {   // empty or Off: start from the brush's shift (or AM)
-      const sh = SHIFT[S.brush.shift] ? S.brush.shift : 'am';
-      x = parse(codeFor(p, sh, S.brush.station));
+      const sh = SHIFT[S.brush.tool] ? S.brush.tool : 'am';
+      x = parse(applyTool(p, '', sh));
+      if (!x.station) x.station = p.default_station || 'front';
     }
     if (!el('shTimeOverlay')) document.body.insertAdjacentHTML('beforeend', `
       <div class="modal-overlay" id="shTimeOverlay">
