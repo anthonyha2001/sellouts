@@ -324,3 +324,22 @@
 .sm-left b{font-size:26px;line-height:1;}
 .sm-left span{margin-left:auto;font-size:12.5px;opacity:.8;}
 .sm-left.soon{background:var(--st-ending, #FFF3DC);color:var(--st-ending-t, #8A5A00);}
+
+/* Store counters and elevator (owner, 2026-10-01) */
+.sm-svg, .sm{ --sm-tint-fish:#DCEEFB; --sm-tint-fish-s:#3A7CC4; --sm-tint-meat:#F9DEDA; --sm-tint-meat-s:#B8433A; --sm-tint-veg:#DDF2DA; --sm-tint-veg-s:#3E8E3A;
+  --sm-tint-deli:#FBEFD2; --sm-tint-deli-s:#B57F14; --sm-tint-elev:#E7E4F5; --sm-tint-elev-s:#6B5BB8; }
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]) .sm{ --sm-tint-fish:#17304A; --sm-tint-fish-s:#7DB6EE; --sm-tint-meat:#43201D; --sm-tint-meat-s:#EF8C83;
+  --sm-tint-veg:#1C3A1B; --sm-tint-veg-s:#86CF80; --sm-tint-deli:#3D3014; --sm-tint-deli-s:#E7BC5C; --sm-tint-elev:#2A2546; --sm-tint-elev-s:#B3A6F0; } }
+:root[data-theme="dark"] .sm{ --sm-tint-fish:#17304A; --sm-tint-fish-s:#7DB6EE; --sm-tint-meat:#43201D; --sm-tint-meat-s:#EF8C83;
+  --sm-tint-veg:#1C3A1B; --sm-tint-veg-s:#86CF80; --sm-tint-deli:#3D3014; --sm-tint-deli-s:#E7BC5C; --sm-tint-elev:#2A2546; --sm-tint-elev-s:#B3A6F0; }
+.sm-fixedbase.sm-tint-fish{ fill:var(--sm-tint-fish); stroke:var(--sm-tint-fish-s); }
+.sm-fixedbase.sm-tint-meat{ fill:var(--sm-tint-meat); stroke:var(--sm-tint-meat-s); }
+.sm-fixedbase.sm-tint-veg{ fill:var(--sm-tint-veg); stroke:var(--sm-tint-veg-s); }
+.sm-fixedbase.sm-tint-deli{ fill:var(--sm-tint-deli); stroke:var(--sm-tint-deli-s); }
+.sm-fixedbase.sm-tint-elev{ fill:var(--sm-tint-elev); stroke:var(--sm-tint-elev-s); }
+.sm-o:has(.sm-tint-fish) .sm-tint-ic{ stroke:var(--sm-tint-fish-s); } .sm-o:has(.sm-tint-fish) .sm-tint-tx{ fill:var(--sm-tint-fish-s) !important; }
+.sm-o:has(.sm-tint-meat) .sm-tint-ic{ stroke:var(--sm-tint-meat-s); } .sm-o:has(.sm-tint-meat) .sm-tint-tx{ fill:var(--sm-tint-meat-s) !important; }
+.sm-o:has(.sm-tint-veg) .sm-tint-ic{ stroke:var(--sm-tint-veg-s); } .sm-o:has(.sm-tint-veg) .sm-tint-tx{ fill:var(--sm-tint-veg-s) !important; }
+.sm-o:has(.sm-tint-deli) .sm-tint-ic{ stroke:var(--sm-tint-deli-s); } .sm-o:has(.sm-tint-deli) .sm-tint-tx{ fill:var(--sm-tint-deli-s) !important; }
+.sm-o:has(.sm-tint-elev) .sm-tint-ic{ stroke:var(--sm-tint-elev-s); } .sm-o:has(.sm-tint-elev) .sm-tint-tx{ fill:var(--sm-tint-elev-s) !important; }
+.sm-tint-ic{ fill:none; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }

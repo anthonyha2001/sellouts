@@ -52,6 +52,12 @@
     promo_zone:     { name: 'Promo zone',              kind: 'spot', rentable: true, w: 160, h: 60 },
     checkout:       { name: 'Checkout',                kind: 'fixed', rentable: false, w: 136, h: 27 },
     entrance:       { name: 'Entrance / door',         kind: 'fixed', rentable: false, w: 300, h: 60 },
+    // Store counters and the elevator (owner, 2026-10-01): fixed, each with its colour and icon.
+    fishery:        { name: 'Fishery',                 kind: 'fixed', rentable: false, w: 320, h: 120, icon: 'fish',     tint: 'fish' },
+    butchery:       { name: 'Butchery',                kind: 'fixed', rentable: false, w: 320, h: 120, icon: 'meat',     tint: 'meat' },
+    vegetables:     { name: 'Vegetables & fruits',     kind: 'fixed', rentable: false, w: 320, h: 200, icon: 'veg',      tint: 'veg' },
+    deli_counter:   { name: 'Deli counter',            kind: 'fixed', rentable: false, w: 320, h: 100, icon: 'deli',     tint: 'deli' },
+    elevator:       { name: 'Elevator',                kind: 'fixed', rentable: false, w: 120, h: 120, icon: 'elevator', tint: 'elev' },
     fixed:          { name: 'Other fixed element',     kind: 'fixed', rentable: false, w: 120, h: 60 },
     wall:           { name: 'Wall',                    kind: 'wall', rentable: false, w: 300, h: 10 },
     note:           { name: 'Text label',              kind: 'text', rentable: false, w: 220, h: 40 },
@@ -116,7 +122,13 @@
     wall_spot: 'M12 21s-6.5-6-6.5-11a6.5 6.5 0 0 1 13 0c0 5-6.5 11-6.5 11Z M12 7.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 1 0 0-5',
     screen: 'M3 4h18v12H3Z M8 21h8 M12 16v5',
     promo_table: 'M3 12V3h9l9 9-9 9Z M7.5 7.5a.5.5 0 1 0 0 .01 M15 9l-6 6',
-    promo_zone: 'M3 10v4h4l8 5V5l-8 5Z M18 9a4 4 0 0 1 0 6 M7 14l1.5 6'
+    promo_zone: 'M3 10v4h4l8 5V5l-8 5Z M18 9a4 4 0 0 1 0 6 M7 14l1.5 6',
+    /* counters */
+    fish: 'M6.5 12c3-5 9.5-6 14-0-4.5 6-11 5-14 0Z M6.5 12 2 8v8Z M16.5 10.5h.01',
+    meat: 'M15.5 3.5a5 5 0 0 1 3 9L14 14l-3.5 3.5a2.5 2.5 0 1 1-3.5 3.5 2.5 2.5 0 1 1-3.5-3.5L7 14l1.5-4.5a5 5 0 0 1 7-6Z',
+    veg: 'M3 21s6.5-1.5 10.5-5.5 3.5-8 1-10.5S9 4.5 5 8.5 3 21 3 21Z M15 9l6-6 M16.5 3.5c1 1 1.2 2.5.5 3.5 M20.5 7.5c-1-1-2.5-1.2-3.5-.5 M8.5 13.5l2 2 M6.5 16.5l1.5 1.5',
+    deli: 'M3 17 21 9v9H3Z M3 17 13.5 5 21 9 M8 14.5h.01 M14 15h.01 M17.5 12.5h.01',
+    elevator: 'M4 3h16v18H4Z M12 3v18 M6.5 10l1.75-2.5L10 10 M14 14l1.75 2.5L17.5 14'
   };
   const iconSvg = (name, x, y, s, cls = 'sm-icon', extra = '') => {
     const d = ICONS[name] || ICONS.other;
@@ -794,6 +806,13 @@
         const rx = Math.min(8, Math.min(w, h) * 0.25);
         inner += shadow(rx) + `<rect class="sm-fixedbase" x="0" y="0" width="${f1(w)}" height="${f1(h)}" rx="${f1(rx)}"/>`;
         if (look === 'checkout') inner += `<rect class="sm-belt" x="${f1(w * 0.06)}" y="${f1(h * 0.28)}" width="${f1(w * 0.52)}" height="${f1(h * 0.44)}" rx="${f1(h * 0.2)}"/>` + textSvg(o.label || t.name, w * 0.6, 0, w * 0.4, h, { max: 18, cls: 'sm-fixedtext' });
+        else if (t.icon) {
+          // Counter / elevator: its colour, the icon, the name (rotated text when tall and narrow).
+          const s = Math.min(64, Math.min(w, h) * 0.5);
+          inner = shadow(rx) + `<rect class="sm-fixedbase sm-tint-${esc(t.tint || 'other')}" x="0" y="0" width="${f1(w)}" height="${f1(h)}" rx="${f1(rx)}"/>`;
+          if (h >= s * 2.2) inner += iconSvg(t.icon, w / 2 - s / 2, h * 0.5 - s * 1.05, s, 'sm-icon sm-tint-ic') + textSvg(o.label || t.name, 0, h * 0.5, w, h * 0.45, { max: 22, cls: 'sm-fixedtext sm-tint-tx' });
+          else inner += iconSvg(t.icon, Math.max(6, w * 0.06), h / 2 - s / 2, s, 'sm-icon sm-tint-ic') + textSvg(o.label || t.name, s + w * 0.1, 0, w - s - w * 0.12, h, { max: 22, flip, cls: 'sm-fixedtext sm-tint-tx' });
+        }
         else if (look === 'entrance') inner += `<path class="sm-arrow" d="M ${f1(w / 2 - 28)} ${f1(h * 0.28)} L ${f1(w / 2)} ${f1(h * 0.1)} L ${f1(w / 2 + 28)} ${f1(h * 0.28)}"/>` + textSvg(o.label || t.name, 0, h * 0.3, w, h * 0.7, { max: 26, cls: 'sm-fixedtext' });
         else inner += textSvg(o.label || t.name, 0, 0, w, h, { max: 20, flip, cls: 'sm-fixedtext' });
       }
