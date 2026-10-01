@@ -341,7 +341,8 @@ $('#dtNav').addEventListener('click', e => { const b = e.target.closest('button'
 // window.can = the app-wide permission check (js/core/permissions.js); this local \`can\` shadows it here.
 const perm = (...p) => window.can(...p);
 const can = {
-  deleteOrder: () => perm('delivery.manage'),
+  // Same rule as editing (owner, 2026-10-01): the delivery team can delete orders dated today.
+  deleteOrder: o => perm('delivery.manage') || (perm('delivery.orders') && !!o && o.date === today()),
   // delivery.manage: any order; delivery.orders: only orders dated today (Beirut); others: none.
   editOrder: o => perm('delivery.manage') || (perm('delivery.orders') && o.date === today()),
   createOrder: () => perm('delivery.orders', 'delivery.manage'),
@@ -417,7 +418,7 @@ function renderOrders(){
       <td><span class="tag ${platClass(o.platform)}">${esc(o.platform)}</span></td>
       <td>${esc(o.payment)}</td>
       <td><button class="status ${o.paid?'paid':'unpaid'}" data-act="toggle" ${can.markPaid() ? 'title="Click to change"' : 'disabled'}>${o.paid?'Paid':'Unpaid'}</button></td>
-      <td class="actions">${can.editOrder(o) ? `<button data-act="edit" title="Edit">${ic('edit')}</button>` : ''}${can.deleteOrder() ? `<button data-act="del" title="Delete">${ic('trash')}</button>` : ''}</td>
+      <td class="actions">${can.editOrder(o) ? `<button data-act="edit" title="Edit">${ic('edit')}</button>` : ''}${can.deleteOrder(o) ? `<button data-act="del" title="Delete">${ic('trash')}</button>` : ''}</td>
     </tr>
     <tr class="detail" data-for="${o.id}" ${openIds.has(o.id)?'':'hidden'}><td></td><td colspan="8"><div class="detail-grid">
       <div><span>Phone</span>${o.cPhone ? `<a href="tel:${esc(normPhone(o.cPhone))}">${esc(o.cPhone)}</a>` : '—'}</div>
@@ -443,7 +444,7 @@ function togglePaid(o){
   logOrder(o.paid ? 'marked_paid' : 'marked_unpaid', o, `${o.cName} (${money(o.amount)}) marked ${o.paid ? 'paid' : 'unpaid'}`);
 }
 async function deleteOrder(o){
-  if(!can.deleteOrder()) return;
+  if(!can.deleteOrder(o)) return;
   if(!(await uiConfirm(`Delete the order for ${o.cName} (${money(o.amount)})?`, {title:'Delete order', ok:'Delete', danger:true}))) return;
   const i = orderIds.indexOf(o.id);
   db.orders = db.orders.filter(x => x !== o); save();
