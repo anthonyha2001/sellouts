@@ -251,7 +251,13 @@
           <ul class="cp-dr-list">${dates.map((dt, d) => line(p, d, `<b>${DAYS[d]}</b><em>${dt.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</em>`)).join('')}</ul>` : '<p class="empty-note">No staff.</p>') + send;
       } else body = note + modes + `
         <div class="cp-cal-strip">${dates.map((d, i) => `<button type="button" data-dd="${i}" class="${i === day ? 'on' : ''}"><span>${DAYS[i]}</span><b>${d.getDate()}</b></button>`).join('')}</div>
-        <p class="cp-dr-count">${dates[day].toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })} · <b>AM ${cnt.am} · PM ${cnt.pm}</b> · Front ${cnt.front} · Back ${cnt.back}</p>
+        <p class="cp-dr-count"><b>${dates[day].toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}</b></p>
+        <p class="cp-dr-counts">${(() => {
+          // Per group (owner, 2026-10-01): "Supervisors 1 AM · 1 PM | Cashiers 3 AM · 3 PM".
+          const k = list => { const n = { am: 0, pm: 0 }; list.forEach(p => { const x = parseCode((a[p.id] || [])[day]); if (!SHIFTS[x.shift]) return; if (x.shift !== 'pm') n.am++; if (x.shift !== 'am') n.pm++; }); return n; };
+          const g = (label, list) => { if (!list.length) return ''; const n = k(list); return `<span><b>${label}</b> ${n.am} AM · ${n.pm} PM</span>`; };
+          return g('Supervisors', sups) + g('Cashiers', cash) + `<span>Front ${cnt.front} · Back ${cnt.back}</span>`;
+        })()}</p>
         ${sups.length ? `<p class="cp-dr-grp">Supervisors</p><ul class="cp-dr-list">${sups.map(row).join('')}</ul>` : ''}
         ${cash.length ? `<p class="cp-dr-grp">Cashiers</p><ul class="cp-dr-list">${cash.map(row).join('')}</ul>` : ''}` + send;
     }

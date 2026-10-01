@@ -1232,3 +1232,7 @@ tr.sh-dragging th,tr.sh-dragging td{background:var(--pine-tint);}
 .sh-rq-am{background:var(--sh-am);} .sh-rq-pm{background:var(--sh-pm);} .sh-rq-full{background:var(--sh-full);} .sh-rq-off{color:var(--ink-soft);}
 .sh-rq.ok{box-shadow:inset 0 0 0 2px var(--pine);}
 .sh-rq-note{font-size:12.5px;color:var(--ink-soft);min-width:160px;white-space:normal;}
+/* By day: counts per group */
+.sh-le-counts{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 6px;}
+.sh-le-grpcount{font-size:12.5px;padding:4px 10px;border-radius:999px;background:var(--paper);border:1px solid var(--line);}
+.sh-le-grpcount b{color:var(--pine);margin-right:2px;}

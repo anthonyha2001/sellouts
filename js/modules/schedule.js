@@ -354,11 +354,13 @@
     };
     if (S.view === 'day') {
       const d = S.vday;
-      const c = { am: 0, pm: 0, front: 0, back: 0 };
-      everyone.forEach(p => { const k = groupCount([p], a, d); c.am += k.am; c.pm += k.pm; c.front += k.front; c.back += k.back; });
+      // Counted per group (owner, 2026-10-01): "Supervisors 1 AM · 1 PM | Cashiers 3 AM · 3 PM".
+      const cs = groupCount(sups, a, d), cc = groupCount(cash, a, d);
+      const grp = (label, k) => `<span class="sh-le-grpcount"><b>${label}</b> ${k.am} AM · ${k.pm} PM</span>`;
       const line = p => `<li data-pid="${p.id}" data-day="${d}"><div class="sh-le-who"><b>${esc(p.name)} ${askTag(p.id, d, (a[p.id] || [])[d])}</b><small>${isSup(p) ? 'Supervisor' : 'Cashier'}${p.default_station ? ' · usually ' + (p.default_station === 'front' ? 'Front' : 'Back') : ''}</small></div>${seg((a[p.id] || [])[d], p)}</li>`;
       return `<div class="sh-le-strip">${dates.map((dt, i) => `<button type="button" data-vday="${i}" class="${i === d ? 'on' : ''}${dt === today ? ' today' : ''}"><span>${DAYS[i]}</span><b>${Number(dt.slice(8))}</b></button>`).join('')}</div>
-        <p class="sh-le-count"><b>${dayLabel(dates[d], { weekday: 'long', day: 'numeric', month: 'long' })}</b> · AM ${c.am} · PM ${c.pm} · Front ${c.front} · Back ${c.back}</p>
+        <p class="sh-le-count"><b>${dayLabel(dates[d], { weekday: 'long', day: 'numeric', month: 'long' })}</b></p>
+        <p class="sh-le-counts">${sups.length ? grp('Supervisors', cs) : ''}${cash.length ? grp('Cashiers', cc) : ''}<span class="sh-le-grpcount">Front ${cs.front + cc.front} · Back ${cs.back + cc.back}</span></p>
         ${sups.length ? `<p class="sh-le-grp">Supervisors</p><ul class="sh-le">${sups.map(line).join('')}</ul>` : ''}
         ${cash.length ? `<p class="sh-le-grp">Cashiers</p><ul class="sh-le">${cash.map(line).join('')}</ul>` : ''}`;
     }
