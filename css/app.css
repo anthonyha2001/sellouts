@@ -1263,3 +1263,14 @@ body.no-promotions-edit #addRowTopBtn{display:none !important;}
 .to-order-count{display:inline-flex;align-items:center;gap:5px;font-size:13px;color:var(--pine);}
 .to-order-count svg{width:16px;height:16px;stroke:currentColor;}
 body.no-promotions-edit #orderSelectedBtn{display:none !important;}
+/* Promotions: the "+" (insert a row below) is a small round button on the line under the row,
+   shown when the row is hovered or focused (owner, 2026-10-01). The bulk + delete buttons stay. */
+table.promo td.rowact-col{position:relative;}
+table.promo td.rowact-col [data-role="insert-row"]{position:absolute;left:50%;bottom:-10px;transform:translateX(-50%);width:20px;height:20px;padding:0;border-radius:50%;z-index:3;
+  background:var(--pine);border-color:var(--pine);color:var(--paper-raised);opacity:0;pointer-events:none;transition:opacity .12s;box-shadow:0 1px 3px rgba(0,0,0,.25);}
+table.promo td.rowact-col [data-role="insert-row"] svg{width:12px;height:12px;stroke-width:2.6;}
+table.promo tr:hover td.rowact-col [data-role="insert-row"],table.promo tr:focus-within td.rowact-col [data-role="insert-row"]{opacity:1;pointer-events:auto;}
+table.promo td.rowact-col [data-role="insert-row"]:hover{transform:translateX(-50%) scale(1.15);}
+table.promo tr:has(+ tr:hover) td.rowact-col [data-role="insert-row"]{opacity:1;pointer-events:auto;}
+table.promo tr:hover td.rowact-col,table.promo tr:focus-within td.rowact-col,table.promo tr:has(+ tr:hover) td.rowact-col{z-index:4;}
+table.promo tr:has(+ tr:hover) td.rowact-col{z-index:5;}
