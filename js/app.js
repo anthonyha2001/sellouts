@@ -1668,6 +1668,35 @@ function refreshPromoTableView() {
 // this builds its inner markup from the combined Country + Code-issue +
 // Flagged-only count — shared by the initial render and the lightweight
 // refresh path below so the two never drift out of sync.
+// Promotions table: arrows move between the fields like a spreadsheet (owner, 2026-10-01).
+// Up / Down: same column, row above / below. Left / Right: the field before / after in the row,
+// once the cursor is at the start / end of the text (or the whole value is selected).
+document.addEventListener('keydown', e => {
+  const inp = e.target.closest && e.target.closest('#promoRowsBody input[data-field]');
+  if (!inp || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+  const k = e.key;
+  if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(k)) return;
+  const tr = inp.closest('tr[data-row-id]');
+  let next = null;
+  if (k === 'ArrowUp' || k === 'ArrowDown') {
+    let row = tr;
+    do { row = k === 'ArrowUp' ? row.previousElementSibling : row.nextElementSibling; } while (row && !row.matches('tr[data-row-id]'));
+    next = row && row.querySelector(`input[data-field="${inp.dataset.field}"]`);
+  } else {
+    let len = 0, start = 0, end = 0;
+    try { len = inp.value.length; start = inp.selectionStart; end = inp.selectionEnd; } catch (err) { /* no caret on this input type */ }
+    const all = start === 0 && end === len;
+    if (k === 'ArrowLeft' && !all && start > 0) return;
+    if (k === 'ArrowRight' && !all && end < len) return;
+    const fields = [...tr.querySelectorAll('input[data-field]')].filter(x => !x.disabled && x.offsetParent !== null);
+    next = fields[fields.indexOf(inp) + (k === 'ArrowLeft' ? -1 : 1)];
+  }
+  if (!next) return;
+  e.preventDefault();
+  next.focus();
+  try { next.select(); } catch (err) { /* ignore */ }
+});
+
 let lastClickedRowId = null;
 function updateSelectionUi() {
   const selBar = document.getElementById('promoSelActions');
