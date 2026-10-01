@@ -1314,3 +1314,6 @@ table.promo input[data-field="discount"]{color:var(--ok-green);font-weight:600;}
 /* Store map full screen: the selected spot shows as a strip at the bottom (time left…) */
 body.rentals-map-expanded #rentalsMap.sm-has-sel .sm-panel{display:block !important;position:fixed;left:12px;right:12px;bottom:12px;max-height:42vh;overflow:auto;z-index:20;
   background:var(--paper-raised);border:1px solid var(--line-strong);border-radius:14px;box-shadow:0 10px 30px -10px rgba(0,0,0,.45);width:auto;}
+
+/* Store map full screen = presentation: no money (owner, 2026-10-02) */
+body.rentals-map-expanded #rentalsMap .sm-money{display:none !important;}

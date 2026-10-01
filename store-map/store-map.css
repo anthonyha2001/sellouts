@@ -343,3 +343,14 @@
 .sm-o:has(.sm-tint-deli) .sm-tint-ic{ stroke:var(--sm-tint-deli-s); } .sm-o:has(.sm-tint-deli) .sm-tint-tx{ fill:var(--sm-tint-deli-s) !important; }
 .sm-o:has(.sm-tint-elev) .sm-tint-ic{ stroke:var(--sm-tint-elev-s); } .sm-o:has(.sm-tint-elev) .sm-tint-tx{ fill:var(--sm-tint-elev-s) !important; }
 .sm-tint-ic{ fill:none; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+
+/* Big hover card for presentations (owner, 2026-10-02) */
+.sm-hovercard{position:fixed;z-index:200;min-width:260px;max-width:min(520px,90vw);padding:18px 22px;border-radius:18px;background:var(--sm-panel-bg, #fff);color:var(--sm-text, #1b1f1c);
+  border:1px solid rgba(0,0,0,.08);box-shadow:0 18px 50px -12px rgba(0,0,0,.45);pointer-events:none;opacity:0;transform:translateY(4px) scale(.98);transition:opacity .12s, transform .12s;}
+.sm-hovercard.on{opacity:1;transform:none;}
+.sm-hc-name{font-size:34px;font-weight:700;line-height:1.1;letter-spacing:-.01em;word-break:break-word;}
+.sm-hc-where{margin-top:6px;font-size:15px;opacity:.7;}
+.sm-hc-foot{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:12px;font-size:14px;}
+.sm-hc-when{opacity:.8;}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]) .sm-hovercard{ background:#1f251f; color:#E6ECE3; border-color:rgba(255,255,255,.1); } }
+:root[data-theme="dark"] .sm-hovercard{ background:#1f251f; color:#E6ECE3; border-color:rgba(255,255,255,.1); }

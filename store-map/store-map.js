@@ -526,6 +526,9 @@
       this.svg.addEventListener('pointermove', e => this.onMove(e));
       this.svg.addEventListener('pointerup', e => this.onUp(e));
       this.svg.addEventListener('pointercancel', e => this.onUp(e));
+      // Presentation card on hover (mouse only; not while editing or dragging).
+      this.svg.addEventListener('pointermove', e => this.hoverCard(e));
+      this.svg.addEventListener('pointerleave', () => this.hideHoverCard());
       this.svg.addEventListener('wheel', e => {
         e.preventDefault();
         const rect = this.svg.getBoundingClientRect();
@@ -605,6 +608,37 @@
       }
       return { dx: bx ? bx.d : 0, dy: by ? by.d : 0, lines };
     }
+
+    // Big hover card (owner, 2026-10-02): who is on this spot, in large letters — no amounts.
+    hoverCard(e) {
+      if (e.pointerType !== 'mouse' || this.editing || this.gesture) return this.hideHoverCard();
+      const g = e.target.closest && e.target.closest('.sm-o[data-id]');
+      const o = g && this.objects.find(x => x.id === g.dataset.id);
+      const t = o && this.typeOf(o);
+      if (!o || !t || !(t.kind === 'spot' || (t.kind === 'fixture' && t.rentable))) return this.hideHoverCard();
+      const host = this.el || this.root;
+      let card = host.querySelector('.sm-hovercard');
+      if (!card) { card = document.createElement('div'); card.className = 'sm-hovercard'; card.setAttribute('role', 'tooltip'); host.appendChild(card); }
+      if (card.dataset.id !== o.id) {
+        const status = this.statusOf(o), active = this.activeContract(o.id);
+        const next = !active ? this.contractsFor(o.id).filter(c => c.start > this.today()).pop() : null;
+        const name = this.displayName(o);
+        const where = [t.name, o.label && o.label !== name ? o.label : '', this.floor ? this.floor.name : ''].filter(Boolean).join(' · ');
+        const when = active ? `Until ${fmtD(active.end)}` : next ? `${esc(next.supplier)} from ${fmtD(next.start)}` : '';
+        card.innerHTML = `<div class="sm-hc-name">${esc(name || 'Available')}</div>
+          <div class="sm-hc-where">${esc(where)}</div>
+          <div class="sm-hc-foot"><span class="sm-badge" style="background:var(--st-${status});border-color:var(--st-${status}-s);color:var(--st-${status}-t)">${esc(STATUS[status].label)}</span>${when ? `<span class="sm-hc-when">${when}</span>` : ''}</div>`;
+        card.dataset.id = o.id;
+      }
+      // Beside the pointer, kept inside the window.
+      const pad = 18, cw = card.offsetWidth || 360, ch = card.offsetHeight || 150;
+      let x = e.clientX + pad, y = e.clientY + pad;
+      if (x + cw > window.innerWidth - 8) x = e.clientX - cw - pad;
+      if (y + ch > window.innerHeight - 8) y = e.clientY - ch - pad;
+      card.style.left = Math.max(8, x) + 'px'; card.style.top = Math.max(8, y) + 'px';
+      card.classList.add('on');
+    }
+    hideHoverCard() { const c = this.root && (this.el || this.root).querySelector('.sm-hovercard'); if (c) { c.classList.remove('on'); c.dataset.id = ''; } }
 
     // Sticking (owner, 2026-10-01): which elements stick to which, and on which faces.
     //   end cap      -> the two short ends of a gondola
@@ -1176,10 +1210,10 @@
             <dl class="sm-kv">
               <dt>Supplier</dt><dd>${esc(shown.supplier)}</dd>
               <dt>Period</dt><dd>${fmtD(shown.start)} → ${fmtD(shown.end)}</dd>
-              <dt>${shown.term === 'contract' ? 'Contract amount' : shown.term === 'yearly' ? 'Yearly amount' : 'Monthly amount'}</dt><dd>${this.money(shown.amount)}${shown.term === 'contract' ? ' <span class="sm-hint">for the whole period</span>' : ''}</dd>
+              <dt class="sm-money">${shown.term === 'contract' ? 'Contract amount' : shown.term === 'yearly' ? 'Yearly amount' : 'Monthly amount'}</dt><dd class="sm-money">${this.money(shown.amount)}${shown.term === 'contract' ? ' <span class="sm-hint">for the whole period</span>' : ''}</dd>
               ${active ? `<dt>Time left</dt><dd>${left} day${left === 1 ? '' : 's'}</dd>` : ''}
-              <dt>Billed</dt><dd>${shown.billed ? `Yes${shown.billedAt ? ' · ' + fmtD(shown.billedAt) : ''}` : '<span style="color:var(--st-unbilled-s)">Not yet</span>'}</dd>
-              <dt>Paid</dt><dd>${shown.paid ? `Yes${shown.paidAt ? ' · ' + fmtD(shown.paidAt) : ''}` : 'Not yet'}</dd>
+              <dt class="sm-money">Billed</dt><dd class="sm-money">${shown.billed ? `Yes${shown.billedAt ? ' · ' + fmtD(shown.billedAt) : ''}` : '<span style="color:var(--st-unbilled-s)">Not yet</span>'}</dd>
+              <dt class="sm-money">Paid</dt><dd class="sm-money">${shown.paid ? `Yes${shown.paidAt ? ' · ' + fmtD(shown.paidAt) : ''}` : 'Not yet'}</dd>
               ${shown.note ? `<dt>Note</dt><dd style="font-weight:400">${esc(shown.note)}</dd>` : ''}
             </dl>
             ${can ? `<div class="sm-actions">
@@ -1199,7 +1233,7 @@
               <button class="sm-btn ${status === 'expired' ? '' : 'primary'}" data-c="new">${status === 'nocontract' ? `Add contract for ${esc(o.occupant)}` : 'Rent this spot'}</button>
             </div>` : ''}</div>`;
         }
-        body += `<div class="sm-p-sec"><h4>History</h4>${list.length ? `<ul class="sm-list sm-hist">${list.map(c => `
+        body += `<div class="sm-p-sec sm-money"><h4>History</h4>${list.length ? `<ul class="sm-list sm-hist">${list.map(c => `
           <li><span class="sm-dot" style="background:var(--st-${c.end < this.today() ? 'expired' : c.start > this.today() ? 'upcoming' : 'rented'});border-color:var(--st-${c.end < this.today() ? 'expired' : c.start > this.today() ? 'upcoming' : 'rented'}-s)"></span>
             <div class="sm-li-main"><div>${esc(c.supplier)} · ${this.money(c.amount)}${c.term === 'monthly' ? '/mo' : c.term === 'contract' ? ' contract' : '/yr'}</div><div class="sm-li-sub">${fmtD(c.start)} → ${fmtD(c.end)}${c.billed ? ' · billed' : ''}${c.paid ? ' · paid' : ''}</div></div>
             ${can ? `<button class="sm-mini" data-c="edit" data-id="${c.id}" title="Edit" aria-label="Edit contract">${ic('edit')}</button><button class="sm-mini" data-c="del" data-id="${c.id}" title="Delete" aria-label="Delete contract">${ic('trash')}</button>` : ''}
