@@ -32,8 +32,8 @@
        wall    → solid wall segment
        text    → free text label on the map                              */
   const DEFAULT_TYPES = {
-    // LV Ajaltoun rents whole gondolas too (owner, 2026-09-29), so gondolas are rentable fixtures.
-    gondola:        { name: 'Gondola',                 kind: 'fixture', rentable: true,  lanes: 2, w: 600, h: 110, std: true },
+    // Gondolas are not rented (owner, 2026-10-02): their end caps, pillars, side gondolas and baskets are.
+    gondola:        { name: 'Gondola',                 kind: 'fixture', rentable: false, lanes: 2, w: 600, h: 110, std: true },
     shelf:          { name: 'Shelf',                   kind: 'fixture', rentable: false, lanes: 1, w: 300, h: 30 },
     fridge_wall:    { name: 'Wall fridge',             kind: 'fixture', rentable: false, lanes: 1, w: 300, h: 60 },
     freezer_island: { name: 'Island freezer',          kind: 'fixture', rentable: false, lanes: 2, w: 400, h: 200 },
