@@ -400,7 +400,7 @@
     revenueInYear(c, year) {
       const y0 = `${year}-01-01`, y1 = `${year}-12-31`;
       if (!c.start || !c.end || c.end < y0 || c.start > y1) return 0;
-      if (c.term === 'yearly') return c.start.slice(0, 4) === String(year) ? Number(c.amount) || 0 : 0;
+      if (c.term === 'yearly' || c.term === 'contract') return c.start.slice(0, 4) === String(year) ? Number(c.amount) || 0 : 0;
       const s = c.start > y0 ? c.start : y0, e = c.end < y1 ? c.end : y1;
       const months = (parseD(e).getFullYear() - parseD(s).getFullYear()) * 12 + parseD(e).getMonth() - parseD(s).getMonth() + 1;
       return Math.max(0, months) * (Number(c.amount) || 0);
@@ -1077,6 +1077,7 @@
     renderPanel() {
       const P = this.panel;
       P.onclick = null;
+      this.root.classList.toggle('sm-has-sel', !!this.sel && !this.editing);
       if (this.editing) return this.renderEditPanel();
       const o = this.sel ? this.objects.find(x => x.id === this.sel) : null;
       if (!o) return this.renderOverview();
@@ -1103,11 +1104,12 @@
         const shown = active || upcoming[upcoming.length - 1] || null;
         if (shown) {
           const left = daysBetween(this.today(), shown.end);
+          if (active) body += `<div class="sm-left ${left <= 30 ? 'soon' : ''}"><b>${left}</b> day${left === 1 ? '' : 's'} left<span>ends ${fmtD(shown.end)}</span></div>`;
           body += `<div class="sm-p-sec"><h4>${active ? 'Current contract' : 'Next contract'}</h4>
             <dl class="sm-kv">
               <dt>Supplier</dt><dd>${esc(shown.supplier)}</dd>
               <dt>Period</dt><dd>${fmtD(shown.start)} → ${fmtD(shown.end)}</dd>
-              <dt>${shown.term === 'yearly' ? 'Yearly amount' : 'Monthly amount'}</dt><dd>${this.money(shown.amount)}</dd>
+              <dt>${shown.term === 'contract' ? 'Contract amount' : shown.term === 'yearly' ? 'Yearly amount' : 'Monthly amount'}</dt><dd>${this.money(shown.amount)}${shown.term === 'contract' ? ' <span class="sm-hint">for the whole period</span>' : ''}</dd>
               ${active ? `<dt>Time left</dt><dd>${left} day${left === 1 ? '' : 's'}</dd>` : ''}
               <dt>Billed</dt><dd>${shown.billed ? `Yes${shown.billedAt ? ' · ' + fmtD(shown.billedAt) : ''}` : '<span style="color:var(--st-unbilled-s)">Not yet</span>'}</dd>
               <dt>Paid</dt><dd>${shown.paid ? `Yes${shown.paidAt ? ' · ' + fmtD(shown.paidAt) : ''}` : 'Not yet'}</dd>
@@ -1132,7 +1134,7 @@
         }
         body += `<div class="sm-p-sec"><h4>History</h4>${list.length ? `<ul class="sm-list sm-hist">${list.map(c => `
           <li><span class="sm-dot" style="background:var(--st-${c.end < this.today() ? 'expired' : c.start > this.today() ? 'upcoming' : 'rented'});border-color:var(--st-${c.end < this.today() ? 'expired' : c.start > this.today() ? 'upcoming' : 'rented'}-s)"></span>
-            <div class="sm-li-main"><div>${esc(c.supplier)} · ${this.money(c.amount)}${c.term === 'monthly' ? '/mo' : '/yr'}</div><div class="sm-li-sub">${fmtD(c.start)} → ${fmtD(c.end)}${c.billed ? ' · billed' : ''}${c.paid ? ' · paid' : ''}</div></div>
+            <div class="sm-li-main"><div>${esc(c.supplier)} · ${this.money(c.amount)}${c.term === 'monthly' ? '/mo' : c.term === 'contract' ? ' contract' : '/yr'}</div><div class="sm-li-sub">${fmtD(c.start)} → ${fmtD(c.end)}${c.billed ? ' · billed' : ''}${c.paid ? ' · paid' : ''}</div></div>
             ${can ? `<button class="sm-mini" data-c="edit" data-id="${c.id}" title="Edit" aria-label="Edit contract">${ic('edit')}</button><button class="sm-mini" data-c="del" data-id="${c.id}" title="Delete" aria-label="Delete contract">${ic('trash')}</button>` : ''}
           </li>`).join('')}</ul>` : '<p class="sm-empty">No contracts yet.</p>'}</div>`;
       }
@@ -1213,10 +1215,10 @@
           <datalist id="sm-suppliers">${suppliers.map(s => `<option value="${esc(s)}">`).join('')}</datalist>
           <p class="sm-hint full" data-role="supwarn" hidden style="margin:-4px 0 0;color:var(--st-ending-s)">Not in the Vendors list. Pick a vendor, or keep this name if it is right.</p>
           <label class="full">Billing
-            <select class="sm-select" name="term"><option value="yearly" ${c.term === 'yearly' ? 'selected' : ''}>Yearly — one amount, billed once</option><option value="monthly" ${c.term === 'monthly' ? 'selected' : ''}>Monthly — amount each month</option></select></label>
+            <select class="sm-select" name="term"><option value="yearly" ${c.term === 'yearly' ? 'selected' : ''}>Yearly — one amount, billed once</option><option value="monthly" ${c.term === 'monthly' ? 'selected' : ''}>Monthly — amount each month</option><option value="contract" ${c.term === 'contract' ? 'selected' : ''}>Contractual — one amount for the whole contract</option></select></label>
           <label>Start<input class="sm-input" type="date" name="start" required value="${esc(c.start || '')}"></label>
           <label>End<input class="sm-input" type="date" name="end" required value="${esc(c.end || '')}"></label>
-          <label class="full" data-role="amountlbl">${c.term === 'monthly' ? 'Amount per month' : 'Amount for the year'}<input class="sm-input" name="amount" inputmode="decimal" required value="${c.amount ?? ''}"></label>
+          <label class="full" data-role="amountlbl">${c.term === 'monthly' ? 'Amount per month' : c.term === 'contract' ? 'Amount for the whole contract' : 'Amount for the year'}<input class="sm-input" name="amount" inputmode="decimal" required value="${c.amount ?? ''}"></label>
           <label class="chk"><input type="checkbox" name="billed" ${c.billed ? 'checked' : ''}> Billed</label>
           <label class="chk"><input type="checkbox" name="paid" ${c.paid ? 'checked' : ''}> Paid</label>
           <label class="full">Note<input class="sm-input" name="note" value="${esc(c.note || '')}"></label>
@@ -1238,7 +1240,7 @@
         const check = () => { const v = f.supplier.value.trim(); warn.hidden = !v || known.has(v.toLowerCase()); };
         f.supplier.addEventListener('input', check); f.supplier.addEventListener('change', check); check();
       }
-      f.term.onchange = () => { f.querySelector('[data-role="amountlbl"]').firstChild.textContent = f.term.value === 'monthly' ? 'Amount per month' : 'Amount for the year'; };
+      f.term.onchange = () => { f.querySelector('[data-role="amountlbl"]').firstChild.textContent = f.term.value === 'monthly' ? 'Amount per month' : f.term.value === 'contract' ? 'Amount for the whole contract' : 'Amount for the year'; };
       f.start.onchange = () => { if (f.start.value && (!f.end.value || f.end.value < f.start.value)) f.end.value = addDays(addYears(f.start.value, 1), -1); };
       f.querySelector('[data-role="cancelc"]').onclick = () => { this.contractForm = null; this.renderPanel(); };
       f.onsubmit = async (e) => {

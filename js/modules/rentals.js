@@ -184,6 +184,7 @@ const Rentals = (function () {
       g.items = [...byType.entries()].sort((a, b) => (a[0].startsWith('not placed')) - (b[0].startsWith('not placed')) || a[0].localeCompare(b[0]));
       g.yearly = live.filter(c => c.term === 'yearly').reduce((s, c) => s + (Number(c.amount) || 0), 0);
       g.monthly = live.filter(c => c.term === 'monthly').reduce((s, c) => s + (Number(c.amount) || 0), 0);
+      g.contract = live.filter(c => c.term === 'contract').reduce((s, c) => s + (Number(c.amount) || 0), 0);
       g.ending = live.filter(c => statusOf(c) === 'ending').length;
       g.unbilled = live.filter(c => c.start <= t && !c.billed).length;
       g.unplaced = live.filter(c => !spotOf(c)).length;
@@ -221,8 +222,9 @@ const Rentals = (function () {
   const plural = (n, word) => n === 1 || /^not placed/.test(word) || /s$/i.test(word) ? `${n} ${word}` : `${n} ${word}s`;
   function totalHtml(g) {
     const parts = [];
-    if (g.yearly || !g.monthly) parts.push(`<strong>${money(g.yearly)}</strong> / year`);
+    if (g.yearly || (!g.monthly && !g.contract)) parts.push(`<strong>${money(g.yearly)}</strong> / year`);
     if (g.monthly) parts.push(`<strong>${money(g.monthly)}</strong> / month`);
+    if (g.contract) parts.push(`<strong>${money(g.contract)}</strong> by contract`);
     return parts.join(' + ');
   }
   function cardHtml(g) {
@@ -255,7 +257,7 @@ const Rentals = (function () {
             return `<tr data-contract="${esc(c.id)}">
               <td>${where}</td>
               <td>${fmtDate(c.start)} → ${fmtDate(c.end)}</td>
-              <td class="num">${money(c.amount)}${c.term === 'monthly' ? '/mo' : '/yr'}</td>
+              <td class="num">${money(c.amount)}${c.term === 'monthly' ? '/mo' : c.term === 'contract' ? ' contract' : '/yr'}</td>
               <td>${c.billed ? 'Billed' : '<span style="color:var(--brick)">Not billed</span>'} · ${c.paid ? 'Paid' : 'Not paid'}</td>
               <td><span class="badge ${STATUS[st].cls}">${STATUS[st].label}</span></td>
               <td>${sp ? '<button class="btn ghost small" data-role="show">Show on map</button>'
