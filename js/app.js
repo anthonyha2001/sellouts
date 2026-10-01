@@ -138,7 +138,7 @@ async function loadCatalogFor(promoId) {
   if (!promoId) { catalogItems = []; catalogMap = new Map(); catalogBarcodeMap = new Map(); return; }
   const { data, error } = await sb.from('catalog_items').select('*').eq('promotion_id', promoId).order('code', { ascending: true });
   if (error) { console.error(error); showToast('Could not load this promotion\u2019s catalog \u2014 ' + sbErrText(error), true); return; }
-  catalogItems = (data || []).map(r => ({ code: r.code, description: r.description || '', balance: r.balance, salePrice: r.sale_price === undefined ? null : r.sale_price, supplier: r.supplier || '', country: r.country || '', outYtd: r.out_ytd === undefined ? null : r.out_ytd, barcodes: Array.isArray(r.barcodes) ? r.barcodes : [] }));
+  catalogItems = (data || []).map(r => ({ code: r.code, description: r.description || '', balance: r.balance, salePrice: r.sale_price === undefined ? null : r.sale_price, supplier: r.supplier || '', country: r.country || '', outYtd: r.out_ytd === undefined ? null : r.out_ytd, lastPurchase: r.last_purchase_date || '', lastInvoice: r.last_invoice_date || '', barcodes: Array.isArray(r.barcodes) ? r.barcodes : [] }));
   catalogMap = new Map(catalogItems.map(i => [normalizeCatalogCode(i.code), i]));
   catalogBarcodeMap = new Map();
   catalogItems.forEach(i => i.barcodes.forEach(b => catalogBarcodeMap.set(b, i)));
@@ -151,6 +151,7 @@ async function replaceCatalog(rows, fileName, promoId) {
   if (delErr) { console.error(delErr); showToast('Could not clear the old catalog \u2014 ' + sbErrText(delErr), true); return false; }
   const now = new Date().toISOString();
   const payload = rows.map(r => ({ id: `${promoId}::${r.code}`, code: r.code, promotion_id: promoId, description: r.description, balance: r.balance, sale_price: r.salePrice, supplier: r.supplier || null, country: r.country || null, out_ytd: r.outYtd === undefined ? null : r.outYtd, updated_at: now,
+    ...(r.lastPurchase ? { last_purchase_date: r.lastPurchase } : {}), ...(r.lastInvoice ? { last_invoice_date: r.lastInvoice } : {}),
     ...(r.barcodes && r.barcodes.length ? { barcodes: r.barcodes } : {}) }));
   const chunkSize = 500;
   for (let i = 0; i < payload.length; i += chunkSize) {
@@ -230,6 +231,7 @@ async function fetchPromoRows(promoId) {
     priceType: r.price_type || '',
     supplier: r.supplier || '',
     flagged: !!r.flagged,
+    toOrder: !!r.to_order,
     reviewed: !!r.reviewed,
     cost: r.cost === undefined ? null : r.cost,
     country: r.country || '',
@@ -267,6 +269,7 @@ function promoRowPayload(row) {
     price_type: row.priceType || null,
     supplier: row.supplier || null,
     flagged: !!row.flagged,
+    to_order: !!row.toOrder,
     reviewed: !!row.reviewed,
     cost: (row.cost === null || row.cost === undefined || row.cost === '') ? null : String(row.cost),
     country: row.country || null,
@@ -711,6 +714,7 @@ let selectedAuditSuppliers = new Set(); // Supplier filter, scoped to the Audit 
 let auditSupplierFilterOpen = false;
 let auditTypeFilter = ''; // Audit type filter: '' (all), 'sellout', 'cn', 'rightprice' or 'none', both Audit sub-views
 let auditFilteredRows = []; // what the Audit view shows after its filters; Copy codes copies exactly these
+let showToOrderOnly = false;  // Filter: only the rows marked To order
 let gapFilterMin = null;     // Filter: only rows whose price gap is at least this % (null = off) — owner, 2026-10-01
 let showFlaggedOnly = false; // Flagged-only toggle, scoped to the Table view only
 let tableSearchQuery = ''; // Search box, scoped to the Table view only
@@ -735,6 +739,7 @@ const ICONS = {
   supplier: svgIcon('<path d="M3 21V8l9-5 9 5v13"/><path d="M9 21v-6h6v6"/><path d="M3 21h18"/>'),
   x: svgIcon('<path d="M18 6 6 18M6 6l12 12"/>'),
   plus: svgIcon('<path d="M12 5v14M5 12h14"/>'),
+  cart: svgIcon('<circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/><path d="M2 3h3l2.7 12.2a1.5 1.5 0 0 0 1.5 1.2h8.6a1.5 1.5 0 0 0 1.5-1.1L21 8H6.2"/>'),
   undo: svgIcon('<path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-1"/>'),
   print: svgIcon('<path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>'),
 };
@@ -1475,6 +1480,17 @@ document.getElementById('catalogFileInput').addEventListener('change', async (e)
   const countryIdx = findExactIdx('countrydesc', 'country', 'countryname', 'countryoforigin', 'origincountry');
   const outIdx = findExactIdx('out', 'outytd', 'ytdout', 'salesytd', 'ytdsales', 'qtyout', 'unitsout', 'totalout', 'soldytd');
   const barcodeIdx = findExactIdx(...BARCODE_HEADERS);
+  const lastPurchaseIdx = findExactIdx('lastpurchasedate', 'lastpurchase', 'lastpurchdate', 'lastpurchased', 'lastreceiptdate');
+  const lastInvoiceIdx = findExactIdx('lastinvoicedate', 'lastinvoice', 'lastinvdate', 'lastsaledate', 'lastsalesdate');
+  // A date cell as dd/mm/yyyy: Excel keeps dates as day numbers (e.g. 46022); text stays as typed.
+  const dateCellText = (r, c) => {
+    const cell = ws[XLSX.utils.encode_cell({ r, c })];
+    if (!cell || cell.v === '' || cell.v === null || cell.v === undefined) return '';
+    const p2 = n => String(n).padStart(2, '0');
+    if (cell.v instanceof Date) return `${p2(cell.v.getDate())}/${p2(cell.v.getMonth() + 1)}/${cell.v.getFullYear()}`;
+    if (typeof cell.v === 'number' && cell.v > 20000 && cell.v < 80000) { const d = XLSX.SSF.parse_date_code(cell.v); if (d) return `${p2(d.d)}/${p2(d.m)}/${d.y}`; }
+    return String(cell.w || cell.v).trim();
+  };
   const balanceKey = balanceIdx > -1, saleKey = saleIdx > -1, supplierKey = supplierIdx > -1, countryKey = countryIdx > -1, outKey = outIdx > -1;
 
   // Item codes are the join key against price-sheet/pasted codes, so they
@@ -1502,6 +1518,8 @@ document.getElementById('catalogFileInput').addEventListener('change', async (e)
       supplier: supplierKey ? String(line[supplierIdx] ?? '').trim() : '',
       country: countryKey ? String(line[countryIdx] ?? '').trim() : '',
       outYtd: (outKey && line[outIdx] !== '' && !isNaN(Number(line[outIdx]))) ? Number(line[outIdx]) : null,
+      lastPurchase: lastPurchaseIdx > -1 ? dateCellText(i, lastPurchaseIdx) : '',
+      lastInvoice: lastInvoiceIdx > -1 ? dateCellText(i, lastInvoiceIdx) : '',
       // Several barcodes per item: in one cell ("/ , ;" or spaces) or on repeated rows of the same code.
       barcodes: barcodeIdx > -1 ? splitBarcodes(barcodeCellText(ws, i, barcodeIdx)) : []
     });
@@ -1572,7 +1590,7 @@ function lockPromotionsViewOnly() {
   const root = document.getElementById('panel-promotions');
   if (!can('promotions.edit')) {
     root.querySelectorAll('input[data-field], #promoName, #promoFrom, #promoTo').forEach(i => { if (!i.readOnly) i.readOnly = true; });
-    root.querySelectorAll('select[data-field], #catalogFileInput, #lowStockInput, #lowStockZoneInput, [data-role="toggle-flag"]').forEach(i => { if (!i.disabled) i.disabled = true; });
+    root.querySelectorAll('select[data-field], #catalogFileInput, #lowStockInput, #lowStockZoneInput, [data-role="toggle-order"]').forEach(i => { if (!i.disabled) i.disabled = true; });
   }
   if (!can('promotions.archive')) root.querySelectorAll('#promoAutoArchive').forEach(i => { if (!i.disabled) i.disabled = true; });
   if (!can('promotions.audit')) {
@@ -1662,6 +1680,7 @@ async function selectPromotion(id) {
   currentPromoId = id;
   resetPromoUndo();
   gapFilterMin = null;
+  showToOrderOnly = false;
   selectedRowIds.clear();
   selectedCountries.clear();
   selectedCodeIssues.clear();
@@ -1726,6 +1745,7 @@ function computeVisibleRows() {
     rows = rows.filter(r => { const issue = codeIssueOf(r); return issue && selectedCodeIssues.has(issue); });
   }
   if (gapFilterMin !== null) rows = rows.filter(r => { const g = computeAutoDiscountPct(r); return g !== null && g >= gapFilterMin; });
+  if (showToOrderOnly) rows = rows.filter(r => r.toOrder);
   return rows;
 }
 // The Flagged-only toggle and search box in the Table view's own toolbar
@@ -1805,6 +1825,35 @@ document.addEventListener('keydown', e => {
   try { next.select(); } catch (err) { /* ignore */ }
 });
 
+// The "To order" box in the sticky bar: how many, Copy codes (grouped by supplier), Export.
+function updateToOrderUi() {
+  const box = document.getElementById('promoToOrderBox'); if (!box) return;
+  const n = currentRows.filter(r => r.toOrder).length;
+  box.innerHTML = n ? `<span class="to-order-count">${ICONS.cart}<b>${n}</b> to order</span>
+    <button type="button" class="btn ghost small" data-role="copy-to-order" title="Copy their codes, grouped by supplier">Copy</button>
+    <button type="button" class="btn ghost small" data-role="export-to-order" title="Excel: supplier, code, description, balance, out">Export</button>` : '';
+}
+function exportToOrder() {
+  const rows = currentRows.filter(r => r.toOrder);
+  if (!rows.length) return showToast('Nothing marked To order.', true);
+  const promo = promotions.find(p => p.id === currentPromoId);
+  const sorted = rows.slice().sort((a, b) => (a.supplier || '').localeCompare(b.supplier || '') || String(a.code).localeCompare(String(b.code)));
+  const aoa = [['Supplier', 'Code', 'Description', 'Balance', 'Out', 'Last purchase', 'Last invoice'], ...sorted.map(r => {
+    const cat = r.code ? catalogMap.get(normalizeCatalogCode(r.code)) : null;
+    return [r.supplier || '', String(r.code || ''), r.description || '', r.balance ?? cat?.balance ?? '', r.outYtd ?? cat?.outYtd ?? '', cat?.lastPurchase || '', cat?.lastInvoice || ''];
+  })];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  for (let i = 1; i < aoa.length; i++) { const ref = XLSX.utils.encode_cell({ r: i, c: 1 }); if (ws[ref]) { ws[ref].t = 's'; ws[ref].v = String(aoa[i][1]); } }
+  ws['!cols'] = [{ wch: 24 }, { wch: 14 }, { wch: 40 }, { wch: 9 }, { wch: 9 }, { wch: 13 }, { wch: 13 }];
+  const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'To order');
+  XLSX.writeFile(wb, `${(promo?.name || 'promotion').replace(/[\\/:*?"<>|]+/g, ' ').trim()} - to order.xlsx`);
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest('#promoToOrderBox [data-role]'); if (!b) return;
+  if (b.dataset.role === 'copy-to-order') copyCodesBySupplier(currentRows.filter(r => r.toOrder));
+  if (b.dataset.role === 'export-to-order') exportToOrder();
+});
+
 let lastClickedRowId = null;
 function updateSelectionUi() {
   const selBar = document.getElementById('promoSelActions');
@@ -1823,7 +1872,7 @@ function filterButtonInnerHtml(count) {
 function updateFilterButtonLabel() {
   const btn = document.getElementById('countryFilterBtn');
   if (!btn) return;
-  const count = selectedCountries.size + selectedCodeIssues.size + (showFlaggedOnly ? 1 : 0) + (gapFilterMin !== null ? 1 : 0);
+  const count = selectedCountries.size + selectedCodeIssues.size + (showFlaggedOnly ? 1 : 0) + (gapFilterMin !== null ? 1 : 0) + (showToOrderOnly ? 1 : 0);
   btn.innerHTML = filterButtonInnerHtml(count);
 }
 function wireTableFilterStatus() {
@@ -1842,6 +1891,19 @@ function wireTableFilterStatus() {
   }
 }
 
+// Balance / Out / Last purchase / Last invoice from the item catalog, in the supplier line of a row
+// (the building button) — owner, 2026-10-01.
+function catalogExtrasHtml(row) {
+  const cat = row.code ? catalogMap.get(normalizeCatalogCode(row.code)) : null;
+  const out = row.outYtd ?? cat?.outYtd ?? null;
+  const bal = row.balance ?? cat?.balance ?? null;
+  const v = x => `<strong style="color:var(--ink);">${x}</strong>`;
+  const num = n => n === null || n === undefined || n === '' ? '—' : Number(n).toLocaleString('en-US');
+  return `&nbsp;&middot;&nbsp; Balance: ${v(num(bal))}
+      &nbsp;&middot;&nbsp; Out: ${v(num(out))}
+      &nbsp;&middot;&nbsp; Last purchase: ${v(escapeHtml(cat?.lastPurchase || '—'))}
+      &nbsp;&middot;&nbsp; Last invoice: ${v(escapeHtml(cat?.lastInvoice || '—'))}`;
+}
 function buildPromoRowHtml(row) {
   const priceRisk = isPriceRisk(row);
   const needsFlag = rowNeedsFlag(row);
@@ -1856,10 +1918,11 @@ function buildPromoRowHtml(row) {
     <td colspan="11" style="background:var(--paper);font-size:12.5px;color:var(--ink-soft);padding:6px 10px 8px 40px;">
       Supplier: <strong style="color:var(--ink);">${escapeHtml(row.supplier || 'Not listed in the catalog')}</strong>
       &nbsp;&middot;&nbsp; Country: <strong style="color:var(--ink);">${escapeHtml(row.country || 'Not listed in the catalog')}</strong>
+      ${catalogExtrasHtml(row)}
     </td>
   </tr>` : '';
   return `
-  <tr data-row-id="${row.id}" class="${selectedRowIds.has(row.id) ? 'row-selected' : ''}">
+  <tr data-row-id="${row.id}" class="${selectedRowIds.has(row.id) ? 'row-selected' : ''} ${row.toOrder ? 'row-to-order' : ''}">
     <td class="rowact-col">
       <div class="icon-actions">
         <button class="icon-btn" data-role="insert-row" tabindex="-1" title="Insert row below" aria-label="Insert row below">
@@ -1907,8 +1970,8 @@ function buildPromoRowHtml(row) {
         <button class="icon-btn ${supplierOpen ? 'flag-on' : ''}" data-role="toggle-supplier" tabindex="-1" title="${supplierOpen ? 'Hide supplier' : 'Show supplier'}" aria-label="Show supplier">
           <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 20V6a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v14"/><path d="M6 20h12"/><path d="M9 9h1M14 9h1M9 13h1M14 13h1"/><path d="M10 20v-4h4v4"/></svg>
         </button>
-        <button class="icon-btn ${needsFlag ? 'flag-on' : ''}" data-role="toggle-flag" tabindex="-1" title="${flagTitle}" aria-label="Flag row">
-          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21V4a1 1 0 0 1 1-1h11.2a.6.6 0 0 1 .45 1l-3.15 4 3.15 4a.6.6 0 0 1-.45 1H6"/></svg>
+        <button class="icon-btn order-btn ${row.toOrder ? 'on' : ''}" data-role="toggle-order" tabindex="-1" title="${row.toOrder ? 'To order — click to remove' : 'Mark to order'}" aria-label="To order" aria-pressed="${!!row.toOrder}">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/><path d="M2 3h3l2.7 12.2a1.5 1.5 0 0 0 1.5 1.2h8.6a1.5 1.5 0 0 0 1.5-1.1L21 8H6.2"/></svg>
         </button>
       </div>
     </td>
@@ -2021,12 +2084,14 @@ async function renderPromoWorkspace() {
           <div class="promo-sel-actions" id="promoSelActions" style="display:${selectedRowIds.size ? 'flex' : 'none'};">
             <span class="promo-sel-count" id="promoSelCount">${selectedRowIds.size} selected</span>
             <button class="btn secondary small ibtn" id="copySelectedBtn">${ICONS.copy}Copy codes</button>
+            <button class="btn secondary small ibtn" id="orderSelectedBtn" title="Mark the selected rows To order">${ICONS.cart}To order</button>
             <button class="btn secondary small ibtn" id="applyDiscountSelectedBtn">${ICONS.percent}Discount</button>
             <button class="btn ghost small ibtn danger" id="deleteSelectedBtn">${ICONS.trash}Delete rows</button>
             <button class="icon-btn" id="clearSelectionBtn" title="Clear the selection" aria-label="Clear the selection">${ICONS.x}</button>
           </div>
           <span class="muted-note" id="promoSelHint" style="display:${selectedRowIds.size ? 'none' : ''};">${promoStats.total} row${promoStats.total === 1 ? '' : 's'} · ${promoStats.flagged} flagged · ${promoStats.empty} empty</span>` : `<span class="muted-note">${promoStats.total} row${promoStats.total === 1 ? '' : 's'} · ${promoStats.flagged} flagged · ${promoStats.empty} empty</span>`}
         </div>
+        <div class="promo-sticky-mid" id="promoToOrderBox"></div>
         <div class="promo-sticky-right">
           ${promoViewMode === 'table' && tableSubView === 'rows' ? `<button type="button" class="btn small ibtn" id="addRowTopBtn" title="Insert an empty row at the top of the table">${ICONS.plus}Row at top</button>` : ''}
           <button type="button" class="btn secondary small ibtn" data-role="promo-undo" disabled>${ICONS.undo}Undo</button>
@@ -2040,13 +2105,14 @@ async function renderPromoWorkspace() {
             <button class="${auditSubView === 'supplier' ? 'active' : ''}" data-audit-sub="supplier">${ICONS.supplier}By supplier</button>
           </div>`}
           <div class="filter-dropdown-wrap" id="countryFilterWrap">
-            <button class="icon-btn" id="countryFilterBtn" title="Filter" aria-label="Filter">${filterButtonInnerHtml(selectedCountries.size + selectedCodeIssues.size + (showFlaggedOnly ? 1 : 0) + (gapFilterMin !== null ? 1 : 0))}</button>
+            <button class="icon-btn" id="countryFilterBtn" title="Filter" aria-label="Filter">${filterButtonInnerHtml(selectedCountries.size + selectedCodeIssues.size + (showFlaggedOnly ? 1 : 0) + (gapFilterMin !== null ? 1 : 0) + (showToOrderOnly ? 1 : 0))}</button>
             <div class="filter-panel" id="countryFilterPanel" style="display:${countryFilterOpen ? 'block' : 'none'};right:0;left:auto;">
               <div class="filter-panel-head">
                 <span>Filters</span>
                 <button class="link-btn" id="clearAllFiltersBtn">Clear all</button>
               </div>
               <div class="filter-panel-section">
+                <label class="filter-panel-option"><input type="checkbox" data-role="to-order-option" ${showToOrderOnly ? 'checked' : ''}> To order only</label>
                 <label class="filter-panel-option"><input type="checkbox" data-role="flagged-only-option" ${showFlaggedOnly ? 'checked' : ''}> Flagged only</label>
               </div>
               <div class="filter-panel-section">
@@ -2770,21 +2836,17 @@ function wirePromoRowElement(tr) {
       refreshRowValidationUi(tr, row);
     });
 
-    tr.querySelector('[data-role="toggle-flag"]').addEventListener('click', async () => {
-      // A manually-flagged row toggles off normally. An auto-flagged row
-      // (price risk or an unusual price gap, never manually flagged) can't
-      // be unflagged that way — rowNeedsFlag() would just recompute the same
-      // auto-condition and flip it right back on — so this marks it
-      // "reviewed" instead, which dismisses it until the price changes again.
-      if (row.flagged) {
-        row.flagged = false;
-      } else if (isPriceRisk(row) || isPriceGapUnusual(row)) {
-        row.reviewed = true;
-      } else {
-        row.flagged = true;
-      }
+    // To order (owner, 2026-10-01: instead of the flag): mark / unmark the item.
+    tr.querySelector('[data-role="toggle-order"]').addEventListener('click', async e => {
+      e.stopPropagation();
+      if (!canEditPromotions()) return refuseViewOnly('promotions');
+      row.toOrder = !row.toOrder;
+      const b = e.currentTarget;
+      b.classList.toggle('on', row.toOrder); b.setAttribute('aria-pressed', String(row.toOrder));
+      b.title = row.toOrder ? 'To order — click to remove' : 'Mark to order';
+      tr.classList.toggle('row-to-order', row.toOrder);
+      updateToOrderUi();
       await savePromoRow(row);
-      await renderPromoWorkspace();
     });
 
     tr.querySelector('[data-role="toggle-supplier"]').addEventListener('click', () => {
@@ -2901,6 +2963,8 @@ function wirePromoWorkspaceEvents(promo) {
         await renderPromoWorkspace();
       });
     }
+    const toOrderOption = countryFilterPanel.querySelector('[data-role="to-order-option"]');
+    if (toOrderOption) toOrderOption.addEventListener('change', async () => { showToOrderOnly = toOrderOption.checked; countryFilterOpen = true; await renderPromoWorkspace(); });
     const gapOption = countryFilterPanel.querySelector('[data-role="gap-option"]');
     const gapMin = countryFilterPanel.querySelector('[data-role="gap-min"]');
     const readGap = () => { const n = parseFloat(String(gapMin.value).replace(',', '.')); return Number.isFinite(n) ? n : 30; };
@@ -2913,6 +2977,7 @@ function wirePromoWorkspaceEvents(promo) {
       selectedCodeIssues.clear();
       showFlaggedOnly = false;
       gapFilterMin = null;
+      showToOrderOnly = false;
       countryFilterSearchQuery = '';
       countryFilterOpen = true;
       await renderPromoWorkspace();
@@ -3014,6 +3079,16 @@ function wirePromoWorkspaceEvents(promo) {
   });
 
   document.querySelectorAll('[data-role="promo-undo"]').forEach(b => b.addEventListener('click', undoPromoChange));
+  updateToOrderUi();
+  document.getElementById('orderSelectedBtn')?.addEventListener('click', async () => {
+    if (!canEditPromotions()) return refuseViewOnly('promotions');
+    const rows = currentRows.filter(r => selectedRowIds.has(r.id));
+    const on = !rows.every(r => r.toOrder);          // all already marked: unmark them
+    rows.forEach(r => { r.toOrder = on; });
+    await persistRowsBulk(rows);
+    await renderPromoWorkspace();
+    showToast(`${rows.length} row${rows.length === 1 ? '' : 's'} ${on ? 'marked To order' : 'removed from To order'}.`);
+  });
   updateUndoButton();
   // A new empty row at the very top (owner, 2026-10-01); the rows below move down one place.
   document.getElementById('addRowTopBtn')?.addEventListener('click', async () => {

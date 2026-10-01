@@ -952,7 +952,7 @@ body.no-promotions-delete #deletePromoBtn { display: none !important; }
 body.no-promotions-edit #panel-promotions input[data-field]:read-only,
 body.no-promotions-audit #panel-promotions .audit-note-input:read-only { background: transparent; border-color: transparent; box-shadow: none; cursor: default; }
 body.no-promotions-audit #panel-promotions [data-role="audit-type-btn"]:disabled,
-body.no-promotions-edit #panel-promotions [data-role="toggle-flag"]:disabled { cursor: default; }
+body.no-promotions-edit #panel-promotions [data-role="toggle-order"]:disabled { cursor: default; }
 
 /* Rentals: the store map fills the page (store-map/store-map.css styles its inside). */
 .rentals-map{ display:flex; flex-direction:column; height:calc(100vh - 230px); min-height:620px; }
@@ -1253,3 +1253,13 @@ table.promo th.rownum-col:hover,table.promo td.rownum-col:hover{color:var(--pine
 .dz-linked em{font-weight:400;color:var(--ink-faint);}
 .dz-reload{padding:4px 10px !important;}
 body.no-promotions-edit #addRowTopBtn{display:none !important;}
+
+/* Promotions: To order (instead of the flag) */
+.icon-btn.order-btn.on{background:var(--pine);border-color:var(--pine);color:var(--paper-raised);}
+#promoRowsBody tr.row-to-order > td{background:color-mix(in srgb, var(--pine-tint) 55%, transparent);}
+#promoRowsBody tr.row-to-order > td.rownum-col{box-shadow:inset 3px 0 0 var(--pine);}
+.promo-sticky-mid{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+.promo-sticky-mid:empty{display:none;}
+.to-order-count{display:inline-flex;align-items:center;gap:5px;font-size:13px;color:var(--pine);}
+.to-order-count svg{width:16px;height:16px;stroke:currentColor;}
+body.no-promotions-edit #orderSelectedBtn{display:none !important;}
