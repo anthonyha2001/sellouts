@@ -1899,7 +1899,8 @@ function catalogExtrasHtml(row) {
   const bal = row.balance ?? cat?.balance ?? null;
   const v = x => `<strong style="color:var(--ink);">${x}</strong>`;
   const num = n => n === null || n === undefined || n === '' ? '—' : Number(n).toLocaleString('en-US');
-  return `&nbsp;&middot;&nbsp; Balance: ${v(num(bal))}
+  return `&nbsp;&middot;&nbsp; Gap: ${v(gapPctDisplay(row))}
+      &nbsp;&middot;&nbsp; Balance: ${v(num(bal))}
       &nbsp;&middot;&nbsp; Out: ${v(num(out))}
       &nbsp;&middot;&nbsp; Last purchase: ${v(escapeHtml(cat?.lastPurchase || '—'))}
       &nbsp;&middot;&nbsp; Last invoice: ${v(escapeHtml(cat?.lastInvoice || '—'))}`;
