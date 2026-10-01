@@ -465,7 +465,7 @@
     const s = S.settings;
     body.innerHTML = `
       <div class="card">
-        <div class="cash-card-head"><h3 style="margin:0;">Cashiers</h3><span class="muted-note">The grid shows active cashiers in this order.</span></div>
+        <div class="cash-card-head"><h3 style="margin:0;">Cashiers</h3><span class="muted-note">The grid shows active cashiers in this order. Drag a row by its handle to move it.</span></div>
         <form id="cashAddForm" class="cash-add">
           <input type="text" id="cashNewName" placeholder="New cashier's name" required>
           <button class="btn small" type="submit">+ Add cashier</button>
@@ -477,6 +477,7 @@
               const locked = c.locked_until && new Date(c.locked_until).getTime() > now;
               return `<tr data-id="${esc(c.id)}">
                 <td><div class="icon-actions">
+                  <span class="cash-drag" data-drag title="Drag to move" aria-label="Drag to move"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="6" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="18" r="1"/></svg></span>
                   <button class="icon-btn" data-act="up" ${i === 0 ? 'disabled' : ''} title="Move up" aria-label="Move up"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 15l-6-6-6 6"/></svg></button>
                   <button class="icon-btn" data-act="down" ${i === S.cashiers.length - 1 ? 'disabled' : ''} title="Move down" aria-label="Move down"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>
                 </div></td>
@@ -527,6 +528,7 @@
       showToast(`${name} added. Set a PIN so they can open the cashier page.`);
     };
     el('cashCopyUrl').onclick = async () => showToast((await copyTextToClipboard(pageUrl)) ? 'Link copied.' : 'Could not copy — select the link and copy it.', false);
+    wireDrag(body.querySelector('tbody'));
     body.querySelector('tbody').onclick = e => { const b = e.target.closest('[data-act]'); if (b) cashierAction(b.dataset.act, b.closest('tr').dataset.id); };
     // Cashier / Supervisor (the Staff schedule uses it; both keep their cash differences).
     body.querySelector('tbody').onchange = async e => {
@@ -542,20 +544,54 @@
     el('cashSettingsForm').onsubmit = saveSettings;
   }
 
+  // Saves sort_order for the rows whose place changed (the grid and the Staff schedule follow it).
+  async function saveOrder(summary) {
+    const updates = S.cashiers.map((x, k) => ({ x, k })).filter(({ x, k }) => x.sort_order !== k);
+    renderCashiers();
+    for (const { x, k } of updates) {
+      const { error } = await sb.from('cashiers').update({ sort_order: k }).eq('id', x.id);
+      if (error) { await loadCashiers(); renderCashiers(); return fail('Could not reorder', error); }
+      x.sort_order = k;
+    }
+    if (updates.length) logActivity('cash', 'reorder_cashiers', null, summary, { order: S.cashiers.map(x => x.name) });
+  }
+
+  // Drag by the handle: the row follows the pointer; dropped, it takes that place.
+  function wireDrag(tbody) {
+    tbody.addEventListener('pointerdown', e => {
+      const h = e.target.closest('[data-drag]'); if (!h || e.button !== 0) return;
+      e.preventDefault();
+      const row = h.closest('tr'), id = row.dataset.id;
+      const rows = () => [...tbody.querySelectorAll('tr[data-id]')];
+      row.classList.add('cash-dragging');
+      tbody.classList.add('cash-drag-on');
+      const move = ev => {
+        const over = rows().filter(r => r !== row).find(r => { const b = r.getBoundingClientRect(); return ev.clientY < b.top + b.height / 2; });
+        if (over) { if (over.previousElementSibling !== row) tbody.insertBefore(row, over); }
+        else if (tbody.lastElementChild !== row) tbody.appendChild(row);
+      };
+      const up = () => {
+        window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up);
+        row.classList.remove('cash-dragging'); tbody.classList.remove('cash-drag-on');
+        const order = rows().map(r => r.dataset.id);
+        const before = S.cashiers.map(c => c.id);
+        if (order.join() === before.join()) return;
+        const c = S.cashiers.find(x => x.id === id);
+        S.cashiers.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
+        saveOrder(`Moved ${c.name} to place ${order.indexOf(id) + 1}`);
+      };
+      // On the window: the row moves in the page while dragging, so the handle would lose the pointer.
+      window.addEventListener('pointermove', move); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
+    });
+  }
+
   async function cashierAction(act, id) {
     const c = S.cashiers.find(x => x.id === id); if (!c) return;
     if (act === 'up' || act === 'down') {
       const i = S.cashiers.indexOf(c), j = act === 'up' ? i - 1 : i + 1;
       if (j < 0 || j >= S.cashiers.length) return;
       [S.cashiers[i], S.cashiers[j]] = [S.cashiers[j], S.cashiers[i]];
-      const updates = S.cashiers.map((x, k) => ({ x, k })).filter(({ x, k }) => x.sort_order !== k);
-      for (const { x, k } of updates) {
-        const { error } = await sb.from('cashiers').update({ sort_order: k }).eq('id', x.id);
-        if (error) { await loadCashiers(); renderCashiers(); return fail('Could not reorder', error); }
-        x.sort_order = k;
-      }
-      logActivity('cash', 'reorder_cashiers', null, `Moved ${c.name} ${act}`, { order: S.cashiers.map(x => x.name) });
-      return renderCashiers();
+      return saveOrder(`Moved ${c.name} ${act}`);
     }
     if (act === 'rename') {
       const v = await showPrompt(`New name for ${c.name}:`, { defaultValue: c.name, confirmLabel: 'Rename' });

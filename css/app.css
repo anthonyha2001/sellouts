@@ -1133,3 +1133,10 @@ body.rentals-map-expanded #rentalsMap .sm-canvas{ min-height:0; height:100%; bor
 .sh-count td{text-align:center;font-size:12px;white-space:nowrap;}
 .sh-count td b{font:600 12px var(--font-mono);color:var(--pine);}
 .sh-count td small{display:block;color:var(--ink-soft);font-size:11px;}
+
+/* Cash › Cashiers & settings: drag handle (js/modules/cash.js) */
+.cash-drag{display:flex;align-items:center;justify-content:center;width:24px;height:32px;color:var(--ink-faint);cursor:grab;touch-action:none;}
+.cash-drag svg{width:16px;height:16px;stroke:currentColor;}
+.cash-drag:hover{color:var(--pine);}
+.cash-drag-on,.cash-drag-on *{cursor:grabbing !important;user-select:none;}
+tr.cash-dragging td{background:var(--pine-tint);}
