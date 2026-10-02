@@ -1368,5 +1368,5 @@ body.rentals-present #rentalsMap .sm-zoom, body.rentals-present #rentalsMap .sm-
 .so-online-check input{width:16px;height:16px;accent-color:var(--so-purple);margin:0;}
 
 /* Online icon (owner, 2026-10-02) */
-.online-ic{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;width:20px;height:20px;border-radius:50%;background:var(--so-purple);color:#fff;vertical-align:middle;margin:0 4px;}
-.online-ic svg{width:13px;height:13px;stroke:currentColor;}
+.online-ic{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;width:18px;height:18px;color:var(--so-purple);vertical-align:middle;margin:0 4px;}
+.online-ic svg{width:18px;height:18px;stroke:currentColor;}
