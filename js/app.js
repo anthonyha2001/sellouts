@@ -3558,6 +3558,14 @@ function parsePriceSheetRows(buf) {
     // workbook is read with cellNF turned on, so .w is the reliable signal.
     return !!(cell && typeof cell.w === 'string' && cell.w.includes('%'));
   };
+  // The discount a percentage cell shows, as a number of percent (20 for "20%"). A real Excel
+  // percentage holds 0.2; a cell typed as the text "20%", or a number with a literal "%" in its
+  // format, already holds 20 — multiplying that by 100 gave 2000 (owner, 2026-10-02).
+  const percentOf = (r, c, v) => {
+    const cell = ws[XLSX.utils.encode_cell({ r, c })];
+    if (cell && typeof cell.v === 'number') return round2(Math.abs(cell.v) <= 1.5 ? cell.v * 100 : cell.v);
+    return round2(v);
+  };
 
   const newRows = [];
   // Item codes are the join key against the catalog, so they need to match
@@ -3586,17 +3594,17 @@ function parsePriceSheetRows(buf) {
     const barcodes = barcodeCol > -1 ? splitBarcodes(barcodeCellText(ws, i, barcodeCol)) : [];
     let discountFromPercent = null;
     if (promoPrice !== null && isPercentCell(i, promoCol)) {
-      discountFromPercent = round2(promoPrice * 100);
+      discountFromPercent = percentOf(i, promoCol, promoPrice);
       promoPrice = null; // that cell held a discount rate, not a price
       percentAsDiscountCount++;
     } else if (beforePrice !== null && isPercentCell(i, beforeCol)) {
-      discountFromPercent = round2(beforePrice * 100);
+      discountFromPercent = percentOf(i, beforeCol, beforePrice);
       beforePrice = null;
       percentAsDiscountCount++;
     }
     if (promoPrice === null && discountFromPercent === null && discountCol > -1) {
       const d = toNum(line[discountCol]);
-      if (d !== null) discountFromPercent = isPercentCell(i, discountCol) ? round2(d * 100) : round2(d);
+      if (d !== null) discountFromPercent = isPercentCell(i, discountCol) ? percentOf(i, discountCol, d) : round2(d);
     }
     const isBlankLine = !rawCode && !desc && promoPrice === null && beforePrice === null && cost === null && discountFromPercent === null && !barcodes.length;
     if (isBlankLine) continue;
