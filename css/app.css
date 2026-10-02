@@ -1400,3 +1400,8 @@ table.op-table td.mono{font-family:var(--font-mono);white-space:nowrap;}
   table.op-table th,table.op-table td{padding-left:8px;padding-right:8px;}
   table.op-table td:nth-child(3){white-space:normal;}
 }
+
+/* Click the dot to mark fixed, click Fixed to undo (owner, 2026-10-02) */
+#promoRowsBody .big-discount-dot,#promoRowsBody .fixed-tag{cursor:pointer;}
+#promoRowsBody .big-discount-dot:before{content:"";position:absolute;inset:-8px;}
+#promoRowsBody .fixed-tag:hover{background:color-mix(in srgb, var(--ok-green) 25%, transparent);}

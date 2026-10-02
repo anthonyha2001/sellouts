@@ -1863,12 +1863,22 @@ document.addEventListener('click', e => {
   if (b.dataset.role === 'export-to-order') exportToOrder();
 });
 
-// Supplier line buttons: stop / restart the blinking (big discount), override the sell-out mark.
+// The blinking dot (big discount): click it to mark the row fixed; click "✓ Fixed" to bring the warning back.
 document.addEventListener('click', async e => {
-  const b = e.target.closest('[data-role="quiet-blink"], [data-role="sellout-ok"]'); if (!b) return;
+  const m = e.target.closest('#promoRowsBody [data-role="big-discount-dot"], #promoRowsBody [data-role="fixed-tag"]'); if (!m) return;
+  e.stopPropagation();
+  if (!canEditPromotions()) return refuseViewOnly('promotions');
+  const tr = m.closest('tr[data-row-id]'), row = tr && currentRows.find(r => r.id === tr.dataset.rowId); if (!row) return;
+  row.reviewed = m.dataset.role === 'big-discount-dot';
+  refreshDiscountUi(tr, row);
+  await savePromoRow(row);
+});
+// Supplier line button: override the sell-out mark.
+document.addEventListener('click', async e => {
+  const b = e.target.closest('[data-role="sellout-ok"]'); if (!b) return;
   if (!canEditPromotions()) return refuseViewOnly('promotions');
   const row = currentRows.find(r => r.id === b.dataset.row); if (!row) return;
-  if (b.dataset.role === 'quiet-blink') row.reviewed = !row.reviewed; else row.selloutOk = !row.selloutOk;
+  row.selloutOk = !row.selloutOk;
   await savePromoRow(row);
   await renderPromoWorkspace();
 });
@@ -1975,7 +1985,6 @@ function catalogExtrasHtml(row) {
       &nbsp;&middot;&nbsp; Out: ${v(num(out))}
       &nbsp;&middot;&nbsp; Last purchase: ${v(escapeHtml(cat?.lastPurchase || '—'))}
       &nbsp;&middot;&nbsp; Last invoice: ${v(escapeHtml(cat?.lastInvoice || '—'))}
-      ${isBigDiscount(row) ? `<span class="sl-actions"><button type="button" class="icon-btn fix-btn ${row.reviewed ? 'on' : ''}" data-role="quiet-blink" data-row="${row.id}" title="${row.reviewed ? 'Fixed — click to show the warning again' : 'Discount over 25% checked: mark it fixed (removes the blinking dot)'}" aria-label="${row.reviewed ? 'Show the warning again' : 'Mark fixed'}" aria-pressed="${!!row.reviewed}">${ICONS.check}</button></span>` : ''}
       ${onSelloutOf(row).length ? `<div class="sl-sellout ${row.selloutOk ? 'ok' : ''}">On sell-out: ${onSelloutOf(row).map(x => `${x.online ? onlineIcon('Online only') : ''}<strong>${escapeHtml(x.name)}</strong> (${fmtDate(x.from)} → ${fmtDate(x.to)}${x.price != null ? ' · ' + Number(x.price).toFixed(2) : ''})`).join(', ')}
         <button type="button" class="btn small ${row.selloutOk ? 'ghost' : ''}" data-role="sellout-ok" data-row="${row.id}">${row.selloutOk ? 'Mark as sell-out again' : 'Override the sell-out'}</button></div>` : ''}`;
 }
@@ -2026,8 +2035,8 @@ function buildPromoRowHtml(row) {
     <td class="balance-cell">
       <div class="discount-cell-wrap">
         <input type="text" inputmode="decimal" class="${isPromoPriceMissing(row) ? 'cell-missing' : ''}" value="${numToStr(row.promoPrice)}" data-field="promoPrice" placeholder="0.00" title="${isPromoPriceMissing(row) ? 'Missing the promo price' : ''}">
-        <span class="big-discount-dot" data-role="big-discount-dot" title="Promo price is more than 25% below the sale price — open the supplier line to mark it fixed" style="display:${isBigDiscount(row) && !row.reviewed ? 'inline-block' : 'none'};"></span>
-        <span class="fixed-tag" data-role="fixed-tag" title="Discount over 25% checked and marked fixed" style="display:${isBigDiscount(row) && row.reviewed ? 'inline-flex' : 'none'};">✓ Fixed</span>
+        <span class="big-discount-dot" data-role="big-discount-dot" role="button" tabindex="-1" title="Promo price is more than 25% below the sale price — click the dot to mark it fixed" style="display:${isBigDiscount(row) && !row.reviewed ? 'inline-block' : 'none'};"></span>
+        <span class="fixed-tag" data-role="fixed-tag" role="button" tabindex="-1" title="Discount over 25% checked and marked fixed — click to show the warning again" style="display:${isBigDiscount(row) && row.reviewed ? 'inline-flex' : 'none'};">✓ Fixed</span>
       </div>
     </td>
     <td class="balance-cell"><input type="text" inputmode="decimal" value="${numToStr(row.beforePrice)}" data-field="beforePrice" placeholder="0.00"></td>
