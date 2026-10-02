@@ -2021,13 +2021,17 @@ function buildPromoRowHtml(row) {
       </div>
     </td>
     <td class="desc-cell"><input type="text" value="${escapeHtml(row.description)}" data-field="description" placeholder="Description"></td>
-    <td class="balance-cell"><input type="text" inputmode="decimal" class="${isPromoPriceMissing(row) ? 'cell-missing' : ''}" value="${numToStr(row.promoPrice)}" data-field="promoPrice" placeholder="0.00" title="${isPromoPriceMissing(row) ? 'Missing the promo price' : ''}"></td>
+    <td class="balance-cell">
+      <div class="discount-cell-wrap">
+        <input type="text" inputmode="decimal" class="${isPromoPriceMissing(row) ? 'cell-missing' : ''}" value="${numToStr(row.promoPrice)}" data-field="promoPrice" placeholder="0.00" title="${isPromoPriceMissing(row) ? 'Missing the promo price' : ''}">
+        <span class="big-discount-dot" data-role="big-discount-dot" title="Promo price is more than 25% below the sale price — open the supplier line to mark it fixed" style="display:${isBigDiscount(row) && !row.reviewed ? 'inline-block' : 'none'};"></span>
+        <span class="fixed-tag" data-role="fixed-tag" title="Discount over 25% checked and marked fixed" style="display:${isBigDiscount(row) && row.reviewed ? 'inline-flex' : 'none'};">✓ Fixed</span>
+      </div>
+    </td>
     <td class="balance-cell"><input type="text" inputmode="decimal" value="${numToStr(row.beforePrice)}" data-field="beforePrice" placeholder="0.00"></td>
     <td class="balance-cell">
       <div class="discount-cell-wrap">
         <input type="text" inputmode="decimal" value="${numToStr(row.discount)}" data-field="discount" placeholder="0%">
-        <span class="big-discount-dot" data-role="big-discount-dot" title="Promo price is more than 25% below the sale price — open the supplier line to mark it fixed" style="display:${isBigDiscount(row) && !row.reviewed ? 'inline-block' : 'none'};"></span>
-        <span class="fixed-tag" data-role="fixed-tag" title="Discount over 25% checked and marked fixed" style="display:${isBigDiscount(row) && row.reviewed ? 'inline-flex' : 'none'};">✓ Fixed</span>
       </div>
     </td>
     <td class="balance-cell"><input type="text" inputmode="decimal" value="${numToStr(row.salePrice)}" data-field="salePrice" placeholder="0.00"></td>

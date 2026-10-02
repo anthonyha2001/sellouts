@@ -1370,3 +1370,4 @@ body.rentals-present #rentalsMap .sm-zoom, body.rentals-present #rentalsMap .sm-
 /* Online icon (owner, 2026-10-02) */
 .online-ic{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;width:18px;height:18px;color:var(--so-purple);vertical-align:middle;margin:0 4px;}
 .online-ic svg{width:18px;height:18px;stroke:currentColor;}
+.discount-cell-wrap input[data-field="promoPrice"]{min-width:64px;}
