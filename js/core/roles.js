@@ -8,19 +8,19 @@
 const ROLES = {
   admin: {
     label: 'Admin',
-    sections: ['sellouts', 'creditnotes', 'promotions', 'vendors', 'rentals', 'delivery', 'cash', 'floorcheck', 'promoladies', 'schedule', 'labels', 'tools', 'users', 'activity'],
+    sections: ['sellouts', 'onlinepromo', 'creditnotes', 'promotions', 'vendors', 'rentals', 'delivery', 'cash', 'floorcheck', 'promoladies', 'schedule', 'labels', 'tools', 'users', 'activity'],
     delivery: ['orders', 'settle', 'reports', 'customers', 'drivers', 'settings'],
     home: 'sellouts',
   },
   accountant: {
     label: 'Accountant',
-    sections: ['sellouts', 'promotions', 'cash', 'delivery', 'labels'],
+    sections: ['sellouts', 'onlinepromo', 'promotions', 'cash', 'delivery', 'labels'],
     delivery: ['settle'],
     home: 'sellouts',
   },
   delivery: {
     label: 'Delivery',
-    sections: ['delivery'],
+    sections: ['delivery', 'onlinepromo'],
     delivery: ['orders', 'settle', 'customers'],
     home: 'delivery',
   },
@@ -49,7 +49,7 @@ const ROLES = {
 // Set by auth.js once the profile is loaded.
 const Session = { user: null, profile: null, role: null, perms: null };
 
-const SECTION_ORDER = ['sellouts', 'creditnotes', 'promotions', 'vendors', 'rentals', 'delivery', 'cash', 'floorcheck', 'promoladies', 'schedule', 'labels', 'tools', 'users', 'activity'];
+const SECTION_ORDER = ['sellouts', 'onlinepromo', 'creditnotes', 'promotions', 'vendors', 'rentals', 'delivery', 'cash', 'floorcheck', 'promoladies', 'schedule', 'labels', 'tools', 'users', 'activity'];
 function roleInfo() {
   const r = ROLES[Session.role] || { label: '', sections: [], delivery: [], home: null };
   // Landing page: the role's usual one, or the first section this user can open.

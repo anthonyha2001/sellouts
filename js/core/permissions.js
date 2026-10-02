@@ -11,6 +11,7 @@ const PERMISSIONS = [
   ['sellouts.view',      'Sell-outs',     'See sell-outs, download and export',                 ['accountant']],
   ['sellouts.edit',      'Sell-outs',     'Add, edit, duplicate, turn on / off',                []],
   ['sellouts.activate',  'Sell-outs',     'Turn on / off',                                      ['accountant']],
+  ['sellouts.online',    'Sell-outs',     'Online promotion page (online-only sell-out items); told when one starts', ['delivery', 'accountant']],
   ['sellouts.price',     'Sell-outs',     'Set new prices',                                     []],
   ['sellouts.archive',   'Sell-outs',     'Archive / unarchive',                                ['accountant']],
   ['sellouts.delete',    'Sell-outs',     'Delete',                                             []],
@@ -50,7 +51,7 @@ const PERMISSION_KEYS = PERMISSIONS.map(p => p[0]);
 
 // Which permissions open which section of the app (any one of them is enough).
 const SECTION_PERMS = {
-  sellouts: ['sellouts.view'], creditnotes: ['creditnotes.view'], promotions: ['promotions.view'],
+  sellouts: ['sellouts.view'], onlinepromo: ['sellouts.online', 'sellouts.view'], creditnotes: ['creditnotes.view'], promotions: ['promotions.view'],
   vendors: ['vendors.manage'], rentals: ['rentals.view'],
   delivery: ['delivery.orders', 'delivery.settle', 'delivery.customers', 'delivery.reports', 'delivery.manage'],
   cash: ['cash.view'], floorcheck: ['floorcheck.do', 'floorcheck.manage', 'rentals.spotcheck'],

@@ -203,7 +203,7 @@ header.top .sub{color:var(--ink-soft);font-size:14px;margin:0;max-width:52ch;}
 .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px 16px;}
 .form-grid .full{grid-column:1/-1;}
 label{display:block;font-size:12px;font-weight:500;color:var(--ink-soft);margin-bottom:6px;letter-spacing:.01em;}
-input[type=text],input[type=date],textarea,select{
+input[type=text],input[type=search],input[type=date],textarea,select{
   width:100%;font-family:var(--font-body);font-size:14px;color:var(--ink);background:var(--paper);
   border:1px solid var(--line-strong);border-radius:var(--radius-sm);padding:10px 12px;transition:border-color .12s,box-shadow .12s;
 }
@@ -1371,3 +1371,22 @@ body.rentals-present #rentalsMap .sm-zoom, body.rentals-present #rentalsMap .sm-
 .online-ic{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;width:18px;height:18px;color:var(--so-purple);vertical-align:middle;margin:0 4px;}
 .online-ic svg{width:18px;height:18px;stroke:currentColor;}
 .discount-cell-wrap input[data-field="promoPrice"]{min-width:64px;}
+
+/* Online promotion page (owner, 2026-10-02) */
+.op-bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px;position:sticky;top:0;z-index:5;background:var(--paper);padding:6px 0;}
+.op-bar input[type="search"]{flex:1 1 280px;max-width:460px;}
+.op-group{padding:0;overflow:clip;margin-bottom:14px;}
+.op-head{display:flex;align-items:center;gap:12px;padding:12px 16px;background:var(--so-purple-tint);border-bottom:1px solid var(--line);}
+.op-head .online-ic{margin:0;}
+.op-who{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;}
+.op-who small{color:var(--pine);font-weight:600;font-size:12.5px;}
+.op-due{display:flex;flex-direction:column;align-items:flex-end;font-size:13px;text-align:right;}
+.op-due .muted-note{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;}
+.op-due small{color:var(--ink-soft);}
+.op-left{font:600 11.5px var(--font-mono);color:var(--ink-soft);}
+.op-left.soon{color:var(--brick);}
+.op-group .items-scroll{border:0;border-radius:0;}
+table.op-table td.num,table.op-table th.num{text-align:right;font-family:var(--font-mono);}
+table.op-table td.mono{font-family:var(--font-mono);white-space:nowrap;}
+.op-before{color:var(--ink-faint);text-decoration:line-through;}
+.op-promo{color:var(--so-purple);font-weight:700;}

@@ -1080,6 +1080,7 @@ function renderCreditNotes() {
    ============================================================ */
 const PAGES = {
   sellouts:    { eyebrow: 'Overview', title: 'Sell-outs', sub: 'Every sell-out you\u2019re tracking, with items and activation history.' },
+  onlinepromo: { eyebrow: 'Online shop', title: 'Online promotion', sub: 'Every item on an online-only sell-out, its promo price and its due date.' },
   creditnotes: { eyebrow: 'Tracker', title: 'Credit notes', sub: 'Every credit note logged against your suppliers, issued or signed.' },
   promotions:  { eyebrow: 'Builder', title: 'Promotions', sub: 'Look up items by code, build a flyer, and export it when it’s ready.' },
   vendors:     { eyebrow: 'Directory', title: 'Vendors', sub: 'Salesman contacts, delivery schedule, and placing orders.' },
@@ -1112,6 +1113,7 @@ function switchTab(name, sub) {
   if (name === 'cash' && window.Cash) Cash.show();
   if (name === 'floorcheck' && window.FloorCheck) FloorCheck.show();
   if (name === 'labels' && window.Labels) Labels.show();
+  if (name === 'onlinepromo' && window.OnlinePromo) OnlinePromo.show();
   if (name === 'tools' && window.Tools) Tools.show();
   if (name === 'promoladies' && window.PromoLadies) PromoLadies.show();
   if (name === 'schedule' && window.Schedule) Schedule.show();

@@ -55,7 +55,15 @@ async function buildAlerts(today: string): Promise<Alert[]> {
   const add = (a: Alert) => out.push(a);
 
   // Sell-outs (one query for every sell-out alert below).
-  const { data: sosFull } = await db.from('sellouts').select('id, name, from, to, active, archived, log, items').eq('archived', false);
+  const { data: sosFull } = await db.from('sellouts').select('id, name, from, to, active, archived, online, log, items').eq('archived', false);
+  // Online-only sell-out (migration 032): the delivery team prepares the online shop (Online promotion
+  // page). Once per sell-out and dates; again if its dates change (owner, 2026-10-02).
+  for (const so of sosFull ?? []) {
+    if (!so.online || so.to < today) continue;
+    const n = Array.isArray(so.items) ? so.items.length : 0;
+    add({ key: `so:${so.id}:online:${so.from}:${so.to}`, perms: ['sellouts.online'], title: 'Online promotion', url: '#onlinepromo',
+      body: `"${so.name}" is on the online shop${n ? ` (${n} items)` : ''} from ${fmt(so.from)} — due date ${fmt(so.to)}.` });
+  }
   // Not activated when it starts / still active when it ends: whoever follows sell-outs (accountant, admin).
   for (const so of sosFull ?? []) {
     const toStart = daysBetween(today, so.from), toEnd = daysBetween(today, so.to);
