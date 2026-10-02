@@ -13,6 +13,8 @@
   const el = id => document.getElementById(id);
   const esc = escapeHtml;
   const money = n => n === null || n === undefined || n === '' || isNaN(Number(n)) ? '—' : Number(n).toFixed(2);
+  // Every barcode of the item (a code can have several, kept when the file is merged by code).
+  const barcodesOf = p => [...new Set([...(p.barcodes || []), p.barcode].filter(Boolean).map(String))];
   const norm = v => String(v ?? '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 
   function shell() {
@@ -51,7 +53,7 @@
       const rows = pricedRowsOf(so).filter(p => p.code);
       total += rows.length;
       const head = norm(`${so.name} ${so.supplier}`);
-      const hit = rows.filter(p => { const t = head + ' ' + norm(`${p.code} ${p.barcode || ''} ${p.description || ''}`); return words.every(w => t.includes(w)); });
+      const hit = rows.filter(p => { const t = head + ' ' + norm(`${p.code} ${barcodesOf(p).join(' ')} ${p.description || ''}`); return words.every(w => t.includes(w)); });
       shown += hit.length;
       return { so, rows: hit };
     }).filter(g => g.rows.length);
@@ -71,9 +73,9 @@
           <div class="op-due"><span class="muted-note">Due date</span>${dueHtml(so)}</div>
         </div>
         <div class="items-scroll" style="margin-bottom:0;"><table class="items op-table">
-          <thead><tr><th>Code</th><th>Item</th><th class="num">Before</th><th class="num">Promo price</th><th>Due date</th></tr></thead>
-          <tbody>${rows.map(p => `<tr><td class="mono">${esc(p.code)}</td><td>${esc(p.description || '')}</td>
-            <td class="num op-before">${money(p.oldPrice)}</td><td class="num op-promo">${money(p.newPrice)}</td><td class="mono">${esc(fmtDate(so.to))}</td></tr>`).join('')}</tbody>
+          <thead><tr><th>Code</th><th class="op-bc">Barcode</th><th>Item</th><th class="num">Before</th><th class="num">Promo price</th><th class="op-due-col">Due date</th></tr></thead>
+          <tbody>${rows.map(p => `<tr><td class="mono">${esc(p.code)}${barcodesOf(p).length ? `<small class="op-bc-inline">${barcodesOf(p).map(esc).join('<br>')}</small>` : ''}</td><td class="mono op-bc">${barcodesOf(p).map(esc).join('<br>') || '<span class="muted-note">—</span>'}</td><td>${esc(p.description || '')}</td>
+            <td class="num op-before">${money(p.oldPrice)}</td><td class="num op-promo">${money(p.newPrice)}</td><td class="mono op-due-col">${esc(fmtDate(so.to))}</td></tr>`).join('')}</tbody>
         </table></div>
       </div>`).join('');
   }
