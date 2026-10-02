@@ -30,13 +30,15 @@
   async function todaysSources() {
     const today = todayStr();
     const [so, pr] = await Promise.all([
-      sb.from('sellouts').select('id, name, supplier, from, to, active, archived, items, priced_items, price_column'),
+      sb.from('sellouts').select('id, name, supplier, from, to, active, archived, online, items, priced_items, price_column'),
       sb.from('promotions').select('id, name, from_date, to_date, archived').eq('archived', false).lte('from_date', today).gte('to_date', today),
     ]);
     if (so.error) { fail('Could not load the sell-outs', so.error); return { sellouts: [], promotions: [] }; }
     if (pr.error) { fail('Could not load the promotions', pr.error); return { sellouts: [], promotions: [] }; }
+    // Online-only sell-outs (migration 032) change no shelf price: not part of the floor check.
+    S.onlineSellouts = new Set(so.data.filter(s => s.online).map(s => s.id));
     const sellouts = so.data
-      .filter(s => !s.archived && (s.active || (s.from <= today && today <= s.to)))
+      .filter(s => !s.archived && !s.online && (s.active || (s.from <= today && today <= s.to)))
       .map(s => ({ id: s.id, name: s.name, supplier: s.supplier || '', from: s.from, to: s.to, items: s.items || [], pricedItems: Array.isArray(s.priced_items) ? s.priced_items : null, priceColumn: s.price_column }));
     const promotions = pr.data.map(p => ({ id: p.id, name: p.name || 'Promotion', from: p.from_date, to: p.to_date, rows: [] }));
     if (promotions.length) {
@@ -281,7 +283,9 @@
     }
     // A sell-out whose file was replaced with fewer rows: its rows that are gone leave the check (not checked ones only).
     const liveSellouts = new Set(current.filter(x => x.source === 'sellout').map(x => x.sellout_id));
-    const gone = current.length ? S.items.filter(i => i.status === 'pending' && i.source === 'sellout' && liveSellouts.has(i.sellout_id) && !byKey.has(i.item_key)) : [];
+    // A sell-out marked Online only after the check started: its rows not checked yet leave too.
+    const gone = S.items.filter(i => i.status === 'pending' && i.source === 'sellout'
+      && ((current.length && liveSellouts.has(i.sellout_id) && !byKey.has(i.item_key)) || (S.onlineSellouts || new Set()).has(i.sellout_id)));
     if (gone.length) {
       const { error } = await sb.from('floor_check_items').delete().in('id', gone.map(i => i.id));
       if (!error) S.items = S.items.filter(i => !gone.includes(i));
