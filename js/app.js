@@ -1980,9 +1980,15 @@ function catalogExtrasHtml(row) {
   const bal = row.balance ?? cat?.balance ?? null;
   const v = x => `<strong style="color:var(--ink);">${x}</strong>`;
   const num = n => n === null || n === undefined || n === '' ? '—' : Number(n).toLocaleString('en-US');
+  // Average out (owner, 2026-10-02): Out is the year to date, so per week = Out / weeks since 1 January
+  // (same basis as the weeks of stock left), per day = per week / 7.
+  const outN = Number(out), hasOut = out !== null && out !== undefined && out !== '' && !isNaN(outN);
+  const rate = n => n >= 10 ? Math.round(n).toLocaleString('en-US') : (Math.round(n * 10) / 10).toString();
+  const perWeek = hasOut ? outN / weeksElapsedThisYear() : null;
   return `&nbsp;&middot;&nbsp; Gap: ${v(gapPctDisplay(row))}
       &nbsp;&middot;&nbsp; Balance: ${v(num(bal))}
       &nbsp;&middot;&nbsp; Out: ${v(num(out))}
+      ${hasOut ? `&nbsp;&middot;&nbsp; Avg out: ${v(rate(perWeek))} / week, ${v(rate(perWeek / 7))} / day` : ''}
       &nbsp;&middot;&nbsp; Last purchase: ${v(escapeHtml(cat?.lastPurchase || '—'))}
       &nbsp;&middot;&nbsp; Last invoice: ${v(escapeHtml(cat?.lastInvoice || '—'))}
       ${onSelloutOf(row).length ? `<div class="sl-sellout ${row.selloutOk ? 'ok' : ''}">On sell-out: ${onSelloutOf(row).map(x => `${x.online ? onlineIcon('Online only') : ''}<strong>${escapeHtml(x.name)}</strong> (${fmtDate(x.from)} → ${fmtDate(x.to)}${x.price != null ? ' · ' + Number(x.price).toFixed(2) : ''})`).join(', ')}
