@@ -180,6 +180,7 @@ function applyFilter(list) {
   if (currentFilter === 'active') return live.filter(s => s.active);
   if (currentFilter === 'upcoming') return live.filter(s => !s.active && s.from > today);
   if (currentFilter === 'needsaction') return live.filter(s => actionFlag(s));
+  if (currentFilter === 'online') return live.filter(s => s.online);
   return live;   // 'all' = everything not archived
 }
 
@@ -311,6 +312,7 @@ document.getElementById('selloutForm').addEventListener('submit', async (e) => {
   const to = document.getElementById('soTo').value;
   const note = document.getElementById('soNote').value.trim();
   const supplier = document.getElementById('soSupplier').value.trim();
+  const online = document.getElementById('soOnline').checked;
   const file = pendingImport?.file;
   if (!file || !pendingImport) { showToast('Choose or drop an Excel file with item rows.', true); return; }
   if (new Date(to) < new Date(from)) {
@@ -321,7 +323,7 @@ document.getElementById('selloutForm').addEventListener('submit', async (e) => {
   if (!map.code) { showToast('Pick the Code column.', true); return; }
 
   const record = {
-    id: uid(), name, from, to, note, supplier, fileName: file.name, fileBlob: file, items,
+    id: uid(), name, from, to, note, supplier, online, fileName: file.name, fileBlob: file, items,
     active: false, log: [], notifiedFlags: {},
     priceColumn: map.price, pricing: null, pricedItems: buildPricedItems(items, map),
     createdAt: new Date().toISOString()
@@ -423,7 +425,7 @@ document.getElementById('dupSelloutForm').addEventListener('submit', async e => 
   if (!name) { showToast('Name can’t be empty.', true); return; }
   if (new Date(to) < new Date(from)) { showToast('The "To" date is before the "From" date.', true); return; }
   const copy = {
-    id: uid(), name, from, to, note: src.note, supplier: src.supplier || '', fileName: src.fileName, fileBlob: src.fileBlob,
+    id: uid(), name, from, to, note: src.note, supplier: src.supplier || '', online: !!src.online, fileName: src.fileName, fileBlob: src.fileBlob,
     items: JSON.parse(JSON.stringify(src.items)),
     pricedItems: JSON.parse(JSON.stringify(pricedRowsOf(src))),
     pricing: src.pricing ? { ...src.pricing } : null, priceColumn: src.priceColumn,
@@ -666,6 +668,7 @@ function renderSellouts() {
     el.className = 'sellout'
       + (flag ? ' needs-action flag-' + (flag === 'deactivate' ? 'danger' : 'warn') : '')
       + (so.archived ? ' is-archived' : '')
+      + (so.online ? ' is-online' : '')
       + (openIds.has(so.id) ? ' open' : '');
     el.dataset.id = so.id;
 
@@ -704,6 +707,7 @@ function renderSellouts() {
               <label for="edit-note-${so.id}">Note</label>
               <textarea id="edit-note-${so.id}" data-field="note">${escapeHtml(so.note || '')}</textarea>
             </div>
+            <div class="full"><label class="so-online-check"><input type="checkbox" data-field="online" ${so.online ? 'checked' : ''}> <span><b>Online only</b> — this sell-out runs only on the online shop</span></label></div>
           </div>
           <div class="actions-row">
             <button type="button" class="btn ghost small" data-role="cancel-edit">Cancel</button>
@@ -739,7 +743,7 @@ function renderSellouts() {
         ${actionFlagHtml(so)}
         <span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></span>
         <div class="who">
-          <div class="name">${escapeHtml(so.name)}</div>
+          <div class="name">${escapeHtml(so.name)}${so.online ? ' <span class="so-online-badge">Online</span>' : ''}</div>
           ${so.supplier ? `<div class="so-supplier">${escapeHtml(so.supplier)}</div>` : ''}
           <div class="dates"><span>${fmtDate(so.from)}</span><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></svg><span>${fmtDate(so.to)}</span></div>
           ${so.note ? `<div class="so-note">${escapeHtml(so.note)}</div>` : ''}
@@ -870,13 +874,15 @@ function renderSellouts() {
         const to = el.querySelector('[data-field="to"]').value;
         const note = el.querySelector('[data-field="note"]').value.trim();
         const supplier = el.querySelector('[data-field="supplier"]').value.trim();
+        const online = el.querySelector('[data-field="online"]').checked;
         if (!name) { showToast('Name can’t be empty.', true); return; }
         if (!from || !to) { showToast('Please set both dates.', true); return; }
         if (new Date(to) < new Date(from)) { showToast('The "To" date is before the "From" date.', true); return; }
         const changed = {};
         [['name', name], ['from', from], ['to', to], ['note', note], ['supplier', supplier]].forEach(([k, v]) => { if ((so[k] || '') !== v) changed[k] = { from: so[k] || '', to: v }; });
-        so.name = name; so.from = from; so.to = to; so.note = note; so.supplier = supplier;
-        if (!(await updateSelloutFields(so.id, { name, from, to, note: note || null, supplier: supplier || null }))) return;
+        if (!!so.online !== online) changed.online = { from: !!so.online, to: online };
+        so.name = name; so.from = from; so.to = to; so.note = note; so.supplier = supplier; so.online = online;
+        if (!(await updateSelloutFields(so.id, { name, from, to, note: note || null, supplier: supplier || null, online }))) return;
         if (Object.keys(changed).length) logActivity('sellouts', 'edit', { type: 'sellout', id: so.id }, `Edited sell-out "${name}"`, { changed });
         editingSelloutId = null;
         await loadAll();

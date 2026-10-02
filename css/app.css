@@ -1359,3 +1359,10 @@ body.rentals-present #rentalsMap .sm-zoom, body.rentals-present #rentalsMap .sm-
 .sh-changes li{display:flex;flex-wrap:wrap;gap:4px 12px;padding:6px 0;border-top:1px solid var(--line);}
 .sh-changes li > .muted-note{flex-basis:100%;}
 .sh-chg s{color:var(--ink-faint);}
+
+/* Sell-outs: online only (owner, 2026-10-02) — purple card, badge, checkbox */
+.sellout.is-online{border-color:var(--so-purple);box-shadow:inset 4px 0 0 var(--so-purple);}
+.sellout.is-online .sellout-head{background:var(--so-purple-tint);}
+.so-online-badge{display:inline-block;vertical-align:middle;margin-left:6px;font:700 10px var(--font-mono);text-transform:uppercase;letter-spacing:.04em;padding:2px 8px;border-radius:999px;background:var(--so-purple);color:#fff;}
+.so-online-check{display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13.5px;text-transform:none;letter-spacing:0;color:var(--ink);}
+.so-online-check input{width:16px;height:16px;accent-color:var(--so-purple);margin:0;}

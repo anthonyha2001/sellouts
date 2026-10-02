@@ -42,6 +42,7 @@ async function idbAll(store) {
       createdAt: row.created_at,
       note: row.note || '',
       supplier: row.supplier || '',
+      online: !!row.online,
       archived: !!row.archived,
       archivedAt: row.archived_at || null,
       archivedBy: row.archived_by || null,
@@ -85,6 +86,7 @@ async function idbPut(store, val) {
       notified_flags: val.notifiedFlags,
       note: val.note || null,
       supplier: val.supplier || null,
+      online: !!val.online,
       archived: !!val.archived, archived_at: val.archivedAt || null, archived_by: val.archivedBy || null,
       price_column: val.priceColumn || null, pricing: val.pricing || null, priced_items: val.pricedItems || null
     };
