@@ -69,6 +69,8 @@ function canSeeDeliveryPage(page) { return can(...(DELIVERY_PAGE_PERMS[page] || 
 function isAdmin() { return Session.role === 'admin'; }
 // Sell-outs and promotions: which controls show is decided per permission (css: body.no-<perm>).
 function canEditSellouts() { return can('sellouts.edit'); }
+// Turning a sell-out on / off: editors, and the accountant (sellouts.activate, migration 033).
+function canToggleSellouts() { return can('sellouts.edit', 'sellouts.activate'); }
 function canEditPromotions() { return can('promotions.edit'); }
 function canArchiveSellouts() { return can('sellouts.archive'); }
 // One body class per permission the user does NOT have, e.g. body.no-sellouts-delete hides Delete.

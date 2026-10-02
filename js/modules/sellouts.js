@@ -734,7 +734,7 @@ function renderSellouts() {
       ? `<button class="icon-btn" data-role="unarchive" title="Unarchive" aria-label="Unarchive">
            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11h14V8"/><path d="M12 17v-6M9.5 13.5 12 11l2.5 2.5"/></svg>
          </button>`
-      : `<button class="icon-btn" data-role="archive" ${so.active ? `disabled title="${canEditSellouts() ? 'Deactivate it first' : 'It has to be turned off first'}"` : 'title="Archive (removed from the system)"'} aria-label="Archive">
+      : `<button class="icon-btn" data-role="archive" ${so.active ? `disabled title="${canToggleSellouts() ? 'Deactivate it first' : 'It has to be turned off first'}"` : 'title="Archive (removed from the system)"'} aria-label="Archive">
            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11h14V8"/><path d="M10 12h4"/></svg>
          </button>`;
 
@@ -765,8 +765,8 @@ function renderSellouts() {
             <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/><path d="M10 11v6M14 11v6"/></svg>
           </button>
         </div>
-        <label class="switch" title="${!canEditSellouts() ? (so.active ? 'Active (you cannot change this)' : 'Inactive (you cannot change this)') : so.archived ? 'Unarchive it to activate' : 'Toggle active'}">
-          <input type="checkbox" data-role="active-toggle" ${so.active ? 'checked' : ''} ${so.archived || !canEditSellouts() ? 'disabled' : ''}>
+        <label class="switch" title="${!canToggleSellouts() ? (so.active ? 'Active (you cannot change this)' : 'Inactive (you cannot change this)') : so.archived ? 'Unarchive it to activate' : 'Toggle active'}">
+          <input type="checkbox" data-role="active-toggle" ${so.active ? 'checked' : ''} ${so.archived || !canToggleSellouts() ? 'disabled' : ''}>
           <span class="track"></span>
         </label>
       </div>

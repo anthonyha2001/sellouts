@@ -10,6 +10,7 @@
 const PERMISSIONS = [
   ['sellouts.view',      'Sell-outs',     'See sell-outs, download and export',                 ['accountant']],
   ['sellouts.edit',      'Sell-outs',     'Add, edit, duplicate, turn on / off',                []],
+  ['sellouts.activate',  'Sell-outs',     'Turn on / off',                                      ['accountant']],
   ['sellouts.price',     'Sell-outs',     'Set new prices',                                     []],
   ['sellouts.archive',   'Sell-outs',     'Archive / unarchive',                                ['accountant']],
   ['sellouts.delete',    'Sell-outs',     'Delete',                                             []],

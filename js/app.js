@@ -108,8 +108,8 @@ async function idbPut(store, val) {
 
 // Saves only some sell-out columns (pricing, archive, note...) without re-uploading the file.
 async function updateSelloutFields(id, fields) {
-  const needed = Object.keys(fields).map(k => k in SELLOUT_FIELD_PERMS ? SELLOUT_FIELD_PERMS[k] : 'sellouts.edit').filter(Boolean);
-  if (!needed.every(p => can(p))) return refuseViewOnly('sell-outs');
+  const needed = Object.keys(fields).filter(k => k !== 'active').map(k => k in SELLOUT_FIELD_PERMS ? SELLOUT_FIELD_PERMS[k] : 'sellouts.edit').filter(Boolean);
+  if (!needed.every(p => can(p)) || ('active' in fields && !canToggleSellouts())) return refuseViewOnly('sell-outs');
   const { error } = await sb.from('sellouts').update(fields).eq('id', id);
   if (error) { console.error(error); showToast('Could not save that sell-out — ' + sbErrText(error), true); return false; }
   return true;
