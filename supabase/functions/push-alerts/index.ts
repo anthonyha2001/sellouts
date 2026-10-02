@@ -245,7 +245,10 @@ async function buildAlerts(today: string): Promise<Alert[]> {
   // A supervisor changed a PUBLISHED week (migration 031): HR is told once the editing has stopped
   // (5 minutes without a change), with what was changed per person and day.
   const lab = (c: string) => { if (!c) return '—'; if (c === 'off') return 'Off'; const [m, t] = c.split('|'); const [sh, st] = m.split(':');
-    return `${({ am: 'AM', pm: 'PM', full: 'Full' } as Record<string, string>)[sh] || sh}${st ? ' ' + (st === 'front' ? 'Front' : 'Back') : ''}${t ? ' ' + t : ''}`; };
+    // Station: "front", "back", or a split full day "front/back" (AM half / PM half, migration 035).
+    const ST = (x: string) => x === 'front' ? 'Front' : 'Back', [a, b] = (st || '').split('/');
+    const stn = !a ? '' : b && b !== a ? ` AM ${ST(a)} · PM ${ST(b)}` : ' ' + ST(a);
+    return `${({ am: 'AM', pm: 'PM', full: 'Full' } as Record<string, string>)[sh] || sh}${stn}${t ? ' ' + t : ''}`; };
   const { data: chg } = await db.from('schedule_changes').select('id, week_start, by_name, details, updated_at').is('notified_at', null)
     .lt('updated_at', new Date(Date.now() - 5 * 60 * 1000).toISOString());
   for (const c of chg ?? []) {

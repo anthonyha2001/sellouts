@@ -1405,3 +1405,8 @@ table.op-table td.mono{font-family:var(--font-mono);white-space:nowrap;}
 #promoRowsBody .big-discount-dot,#promoRowsBody .fixed-tag{cursor:pointer;}
 #promoRowsBody .big-discount-dot:before{content:"";position:absolute;inset:-8px;}
 #promoRowsBody .fixed-tag:hover{background:color-mix(in srgb, var(--ok-green) 25%, transparent);}
+
+/* Staff schedule: a full day split between two stations (owner, 2026-10-02) */
+.sh-split{display:block;font-size:10.5px;font-weight:600;opacity:.85;margin-top:1px;white-space:nowrap;}
+.sh-seg-half{align-items:center;}
+.sh-seg-half > span{font:700 10px var(--font-mono);color:var(--ink-faint);padding:0 4px 0 2px;}
