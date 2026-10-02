@@ -756,8 +756,10 @@
           const c = { x: fc.x + f.n.x * m.h / 2, y: fc.y + f.n.y * m.h / 2 };
           const dist = Math.hypot(mc.x - c.x, mc.y - c.y);
           if (dist > reach || (best && dist >= best.dist)) return;
-          let deg = Math.round(Math.atan2(f.tan.y, f.tan.x) * 180 / Math.PI);
-          deg = ((deg % 180) + 180) % 180;
+          // its front faces away from the gondola / end cap (owner, 2026-10-02: turned 180° from before):
+          // the element's local +y axis points along the face's outward normal
+          let deg = Math.round(Math.atan2(-f.n.x, f.n.y) * 180 / Math.PI);
+          deg = ((deg % 360) + 360) % 360;
           const a = { x: fc.x - f.tan.x * f.half, y: fc.y - f.tan.y * f.half }, b = { x: fc.x + f.tan.x * f.half, y: fc.y + f.tan.y * f.half };
           best = { dist, x: Math.round((c.x - m.w / 2) * 10) / 10, y: Math.round((c.y - m.h / 2) * 10) / 10, rot: deg, line: { x1: a.x, y1: a.y, x2: b.x, y2: b.y } };
         });
@@ -1752,6 +1754,8 @@
           <span style="display:flex;gap:2px"><button type="button" class="sm-mini" data-sec-mv="${key}" data-i="${i}" data-d="-1" aria-label="Move up">${ic('up')}</button><button type="button" class="sm-mini" data-sec-mv="${key}" data-i="${i}" data-d="1" aria-label="Move down">${ic('down')}</button><button type="button" class="sm-mini" data-sec-del="${key}" data-i="${i}" aria-label="Remove section">${ic('close')}</button></span>
         </div>`).join('') || '<p class="sm-empty">No sections.</p>'}</div>
         <p class="sm-hint" style="margin:6px 0 0">Length is relative: 2 is twice as long as 1.</p></div>`;
+      // Same size for all of this type (owner, 2026-10-02)
+      const sameCount = this.draft.filter(x => x !== o && x.type === o.type).length;
       P.innerHTML = `
         <div class="sm-p-head"><h3>${esc(o.label || o.occupant || t.name)}<button class="sm-close" data-p="close" aria-label="Close">${ic('close')}</button></h3><div class="sm-sub">${esc(t.name)}</div></div>
         <div class="sm-p-sec"><form class="sm-form" data-role="props" onsubmit="return false">
@@ -1764,6 +1768,7 @@
           <label>Width<input class="sm-input" name="w" inputmode="numeric" value="${Math.round(o.w)}"></label>
           <label>Height<input class="sm-input" name="h" inputmode="numeric" value="${Math.round(o.h)}"></label>
           <label class="full">Rotation (degrees)<input class="sm-input" name="rot" inputmode="numeric" value="${normRot(o.rot)}"></label>
+          ${sameCount ? `<button type="button" class="sm-btn full" data-p="sizeall" title="Every other ${esc(t.name)} on this floor gets this width and height; each stays centred where it is (Undo reverses it)">${ic('fit')} Make the ${sameCount} other ${esc(t.name.toLowerCase())}${sameCount > 1 ? 's' : ''} ${Math.round(o.w)} × ${Math.round(o.h)}</button>` : ''}
         </form></div>
         ${t.kind === 'fixture' ? secEditor('sectionsA', (t.lanes || 1) > 1 || (o.sectionsB || []).length ? 'Side A sections' : 'Sections') : ''}
         ${t.kind === 'fixture' && ((t.lanes || 1) > 1 || (o.sectionsB || []).length) ? secEditor('sectionsB', 'Side B sections') : ''}
@@ -1772,6 +1777,15 @@
           <button class="sm-btn danger" data-p="del">${ic('trash')} Delete</button></div></div>`;
       P.querySelector('[data-p="close"]').onclick = () => { this.sel = null; this.renderBar(); this.renderSvg(); this.renderPanel(); };
       ['dup', 'rot', 'del'].forEach(k => P.querySelector(`[data-p="${k}"]`).onclick = () => this.editAction(k));
+      const sizeAll = P.querySelector('[data-p="sizeall"]');
+      if (sizeAll) sizeAll.onclick = () => {
+        const same = this.draft.filter(x => x !== o && x.type === o.type && (x.w !== o.w || x.h !== o.h));
+        if (!same.length) return this.toast(`Every ${t.name.toLowerCase()} already has this size.`);
+        this.pushUndo();
+        same.forEach(x => { const cx = x.x + x.w / 2, cy = x.y + x.h / 2; x.w = o.w; x.h = o.h; x.x = Math.round((cx - o.w / 2) * 10) / 10; x.y = Math.round((cy - o.h / 2) * 10) / 10; });
+        this.dirty = true; this.renderSvg(); this.renderBar(); this.renderPanel();
+        this.toast(`${same.length} ${t.name.toLowerCase()}${same.length > 1 ? 's' : ''} resized to ${Math.round(o.w)} × ${Math.round(o.h)}. Undo to go back.`);
+      };
       const pf = P.querySelector('[data-role="props"]');
       pf.onchange = (e) => {
         const n = e.target.name; if (!n) return;
