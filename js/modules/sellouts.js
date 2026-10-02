@@ -743,7 +743,7 @@ function renderSellouts() {
         ${actionFlagHtml(so)}
         <span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></span>
         <div class="who">
-          <div class="name">${escapeHtml(so.name)}${so.online ? ' <span class="so-online-badge">Online</span>' : ''}</div>
+          <div class="name">${escapeHtml(so.name)}${so.online ? ' ' + onlineIcon('Online only') : ''}</div>
           ${so.supplier ? `<div class="so-supplier">${escapeHtml(so.supplier)}</div>` : ''}
           <div class="dates"><span>${fmtDate(so.from)}</span><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></svg><span>${fmtDate(so.to)}</span></div>
           ${so.note ? `<div class="so-note">${escapeHtml(so.note)}</div>` : ''}

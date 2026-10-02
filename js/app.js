@@ -1936,6 +1936,10 @@ function wireTableFilterStatus() {
   }
 }
 
+// The online icon: an online-only sell-out (migration 032), on the Sell-outs page and on promotion rows.
+const ONLINE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18"/></svg>';
+const onlineIcon = title => `<span class="online-ic" title="${escapeHtml(title)}" aria-label="${escapeHtml(title)}">${ONLINE_ICON}</span>`;
+
 // Sell-outs this item's code is on, running during the promotion's dates (or today when it has none).
 // Rebuilt when the sell-outs or the open promotion change (owner, 2026-10-01).
 let selloutCodeCache = { key: '', map: new Map() };
@@ -1943,13 +1947,13 @@ function onSelloutOf(row) {
   const code = String(row.code || '').trim(); if (!code) return [];
   const promo = promotions.find(p => p.id === currentPromoId);
   const list = typeof sellouts !== 'undefined' && Array.isArray(sellouts) ? sellouts : [];
-  const key = `${currentPromoId}|${promo?.from}|${promo?.to}|${list.length}|${list.map(x => x.id + x.from + x.to + (x.archived ? 1 : 0)).join(',')}`;
+  const key = `${currentPromoId}|${promo?.from}|${promo?.to}|${list.length}|${list.map(x => x.id + x.from + x.to + (x.archived ? 1 : 0) + (x.online ? 'o' : '')).join(',')}`;
   if (selloutCodeCache.key !== key) {
     const from = promo?.from || todayStr(), to = promo?.to || promo?.from || todayStr();
     const map = new Map();
     list.filter(so => !so.archived && so.from <= to && so.to >= from).forEach(so => {
       const rows = typeof pricedRowsOf === 'function' ? pricedRowsOf(so) : [];
-      rows.forEach(p => { const c = normalizeCatalogCode(String(p.code || '').trim()); if (!c) return; if (!map.has(c)) map.set(c, []); if (!map.get(c).some(x => x.id === so.id)) map.get(c).push({ id: so.id, name: so.name, from: so.from, to: so.to, price: p.newPrice }); });
+      rows.forEach(p => { const c = normalizeCatalogCode(String(p.code || '').trim()); if (!c) return; if (!map.has(c)) map.set(c, []); if (!map.get(c).some(x => x.id === so.id)) map.get(c).push({ id: so.id, name: so.name, from: so.from, to: so.to, price: p.newPrice, online: !!so.online }); });
     });
     selloutCodeCache = { key, map };
   }
@@ -1970,7 +1974,7 @@ function catalogExtrasHtml(row) {
       &nbsp;&middot;&nbsp; Last purchase: ${v(escapeHtml(cat?.lastPurchase || '—'))}
       &nbsp;&middot;&nbsp; Last invoice: ${v(escapeHtml(cat?.lastInvoice || '—'))}
       ${isBigDiscount(row) ? `<span class="sl-actions"><button type="button" class="icon-btn fix-btn ${row.reviewed ? 'on' : ''}" data-role="quiet-blink" data-row="${row.id}" title="${row.reviewed ? 'Fixed — click to show the warning again' : 'Discount over 25% checked: mark it fixed (removes the blinking dot)'}" aria-label="${row.reviewed ? 'Show the warning again' : 'Mark fixed'}" aria-pressed="${!!row.reviewed}">${ICONS.check}</button></span>` : ''}
-      ${onSelloutOf(row).length ? `<div class="sl-sellout ${row.selloutOk ? 'ok' : ''}">On sell-out: ${onSelloutOf(row).map(x => `<strong>${escapeHtml(x.name)}</strong> (${fmtDate(x.from)} → ${fmtDate(x.to)}${x.price != null ? ' · ' + Number(x.price).toFixed(2) : ''})`).join(', ')}
+      ${onSelloutOf(row).length ? `<div class="sl-sellout ${row.selloutOk ? 'ok' : ''}">On sell-out: ${onSelloutOf(row).map(x => `${x.online ? onlineIcon('Online only') : ''}<strong>${escapeHtml(x.name)}</strong> (${fmtDate(x.from)} → ${fmtDate(x.to)}${x.price != null ? ' · ' + Number(x.price).toFixed(2) : ''})`).join(', ')}
         <button type="button" class="btn small ${row.selloutOk ? 'ghost' : ''}" data-role="sellout-ok" data-row="${row.id}">${row.selloutOk ? 'Mark as sell-out again' : 'Override the sell-out'}</button></div>` : ''}`;
 }
 function buildPromoRowHtml(row) {
@@ -2006,6 +2010,7 @@ function buildPromoRowHtml(row) {
     <td class="code-cell">
       <div class="code-cell-wrap">
         ${onSelloutOf(row).length && !row.selloutOk ? `<span class="so-badge" title="Already on sell-out: ${escapeHtml(onSelloutOf(row).map(x => x.name).join(', '))} — open the supplier line to override">Sell-out</span>` : ''}
+        ${onSelloutOf(row).some(x => x.online) ? onlineIcon('Promoted online: ' + onSelloutOf(row).filter(x => x.online).map(x => x.name).join(', ')) : ''}
         <input type="text" class="${isDuplicateCodeInPromo(row) ? 'cell-duplicate' : ''}" value="${escapeHtml(row.code)}" data-field="code" placeholder="Code" title="${isDuplicateCodeInPromo(row) ? 'This code appears more than once in this promotion' : ''}">
         <span class="code-issue-icon mismatch-icon" data-role="mismatch-icon" title="${MISMATCH_TITLE}" style="display:${isCodeMissingFromCatalog(row) ? 'inline-flex' : 'none'};">
           <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
