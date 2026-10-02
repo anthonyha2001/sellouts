@@ -24,7 +24,7 @@ const Live = (function () {
     floorcheck:  { tables: ['floor_checks', 'floor_check_items', 'spot_checks'],  refresh: () => window.FloorCheck && FloorCheck.show() },
     labels:      { tables: ['label_lists', 'label_items'],                        refresh: () => window.Labels && Labels.show() },
     promoladies: { tables: ['promo_ladies', 'promo_lady_attendance'],             refresh: () => window.PromoLadies && PromoLadies.show() },
-    schedule:    { tables: ['schedule_weeks', 'schedule_requests'],                                    refresh: () => window.Schedule && Schedule.show() },
+    schedule:    { tables: ['schedule_weeks', 'schedule_requests', 'schedule_changes'],                                    refresh: () => window.Schedule && Schedule.show() },
     users:       { tables: ['profiles', 'user_permissions'],                      refresh: () => window.UsersPage && UsersPage.show() },
     activity:    { tables: ['activity_log'],                                      refresh: () => window.ActivityPage && ActivityPage.show() },
   };

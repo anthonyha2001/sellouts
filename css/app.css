@@ -1346,3 +1346,16 @@ body.rentals-present #rentalsMap .sm-panel{display:none !important;}
 .rp-exit{width:36px;height:36px;border-radius:50%;border:1px solid var(--line-strong);background:var(--paper-raised);color:var(--ink);font-size:16px;cursor:pointer;}
 body.rentals-present.rentals-map-expanded #rentalsMap.sm-has-sel .sm-panel{display:none !important;}
 body.rentals-present #rentalsMap .sm-zoom, body.rentals-present #rentalsMap .sm-zoombar{top:84px;}
+
+/* Staff schedule: week label, lock banner, past days, supervisors' changes (owner, 2026-10-02) */
+.sh-rel{display:inline-block;margin-right:8px;padding:3px 10px;border-radius:999px;font:700 11px var(--font-mono);text-transform:uppercase;letter-spacing:.04em;vertical-align:middle;background:var(--line);color:var(--ink-soft);}
+.sh-rel-this-week{background:var(--brick);color:#fff;}
+.sh-rel-next-week{background:var(--pine);color:var(--paper-raised);}
+.sh-lock{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:0 0 12px;padding:10px 14px;border-radius:var(--radius-sm);background:var(--gold-tint);border:1px solid var(--gold);font-size:13.5px;}
+.sh-lock.open{background:var(--brick-tint);border-color:var(--brick);}
+.sh-cell.sh-ro button{cursor:not-allowed;opacity:.55;}
+.sh-changes{border-left:4px solid var(--gold);font-size:13px;}
+.sh-changes ul{list-style:none;margin:8px 0 0;padding:0;}
+.sh-changes li{display:flex;flex-wrap:wrap;gap:4px 12px;padding:6px 0;border-top:1px solid var(--line);}
+.sh-changes li > .muted-note{flex-basis:100%;}
+.sh-chg s{color:var(--ink-faint);}

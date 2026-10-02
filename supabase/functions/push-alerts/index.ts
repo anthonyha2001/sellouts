@@ -234,6 +234,22 @@ async function buildAlerts(today: string): Promise<Alert[]> {
     const { count } = await db.from('label_items').select('id', { count: 'exact', head: true }).eq('list_id', l.id);
     add({ key: `labels:${l.id}`, perms: ['labels.print'], title: 'Labels to print', url: '#labels', body: `${l.created_by_name || 'A shelf worker'} sent ${count ?? 0} item${count === 1 ? '' : 's'} for new shelf labels.` });
   }
+  // A supervisor changed a PUBLISHED week (migration 031): HR is told once the editing has stopped
+  // (5 minutes without a change), with what was changed per person and day.
+  const lab = (c: string) => { if (!c) return '—'; if (c === 'off') return 'Off'; const [m, t] = c.split('|'); const [sh, st] = m.split(':');
+    return `${({ am: 'AM', pm: 'PM', full: 'Full' } as Record<string, string>)[sh] || sh}${st ? ' ' + (st === 'front' ? 'Front' : 'Back') : ''}${t ? ' ' + t : ''}`; };
+  const { data: chg } = await db.from('schedule_changes').select('id, week_start, by_name, details, updated_at').is('notified_at', null)
+    .lt('updated_at', new Date(Date.now() - 5 * 60 * 1000).toISOString());
+  for (const c of chg ?? []) {
+    const items = Object.values((c.details ?? {}) as Record<string, { name: string; day: string; dayIndex: number; from: string; to: string }>)
+      .sort((a, b) => a.name.localeCompare(b.name) || a.dayIndex - b.dayIndex);
+    if (!items.length) continue;
+    const lines = items.slice(0, 4).map(i => `${i.name} ${i.day}: ${lab(i.from)} → ${lab(i.to)}`);
+    add({ key: `sched-chg:${c.id}`, perms: ['schedule.manage'], title: `Schedule changed by ${c.by_name || 'a supervisor'}`, url: '#schedule',
+      body: `Week of ${fmt(c.week_start)} (published) — ${lines.join('; ')}${items.length > 4 ? `; …and ${items.length - 4} more` : ''}.` });
+    await db.from('schedule_changes').update({ notified_at: new Date().toISOString() }).eq('id', c.id);
+  }
+
   // A supervisor sent the draft schedule for review (cashier page, migration 024): HR reviews and publishes it.
   const { data: sent } = await db.from('schedule_weeks').select('week_start, submitted_at, submitted_by').eq('published', false).not('submitted_at', 'is', null);
   for (const w of sent ?? [])

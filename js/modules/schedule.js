@@ -81,6 +81,18 @@
     S.missing = !!error;
     S.staff = data || [];
   }
+  // Who may do what: HR (schedule.manage) everything; supervisors (schedule.edit) edit, not publish.
+  const isHR = () => can('schedule.manage');
+  const dayPast = i => addDays(S.week, i) < beirutToday();
+  // A published week is locked until "Unlock to edit" (per week); days already past never change.
+  const locked = () => !!(S.row && S.row.published && S.unlocked !== S.week);
+  const editableDay = i => !locked() && !dayPast(i);
+  const weekRel = w => {
+    const n = Math.round((new Date(w + 'T00:00:00') - new Date(mondayOf(beirutToday()) + 'T00:00:00')) / 604800000);
+    return n === 0 ? 'This week' : n === 1 ? 'Next week' : n === -1 ? 'Last week' : n > 1 ? `In ${n} weeks` : `${-n} weeks ago`;
+  };
+  const SH_LABEL = c => { const x = parse(c); if (x.shift === 'off') return 'Off'; if (!SHIFT[x.shift]) return '—'; return SHIFT[x.shift].label + (x.station ? ' ' + (x.station === 'front' ? 'Front' : 'Back') : '') + (x.start ? ` ${x.start}–${x.end}` : ''); };
+
   async function loadWeek() {
     const [cur, prev] = await Promise.all([
       sb.from('schedule_weeks').select('*').eq('week_start', S.week).maybeSingle(),
@@ -91,12 +103,28 @@
     // The cashiers' requests for this week (cashier page; migration 027). None before the migration.
     const { data: reqs } = await sb.from('schedule_requests').select('cashier_id, days, note, updated_at').eq('week_start', S.week);
     S.reqs = reqs || [];
+    // What supervisors changed on this published week (migration 031).
+    const { data: chg } = await sb.from('schedule_changes').select('*').eq('week_start', S.week).order('updated_at', { ascending: false }).limit(20);
+    S.changes = chg || [];
+  }
+  // The lock banner and, for a published week, what supervisors changed on it.
+  function topHtml(row) {
+    if (!row) return '';
+    let h = '';
+    if (row.published) h += locked()
+      ? `<div class="sh-lock"><span>🔒 <b>Published — staff can see this week.</b> ${isHR() ? 'Unlock it to make a change.' : 'Unlock it to make a change — HR is told about every change you make.'}</span><button type="button" class="btn small" id="shUnlock">Unlock to edit</button></div>`
+      : `<div class="sh-lock open"><span>🔓 <b>Unlocked</b> — changes reach staff straight away${isHR() ? '' : ' and HR is told about them'}.</span><button type="button" class="btn ghost small" id="shRelock">Lock again</button></div>`;
+    if (row.published && (S.changes || []).length) h += `<div class="card sh-changes"><b>Changes by supervisors since it was published</b><ul>${S.changes.map(c => {
+      const items = Object.values(c.details || {}).sort((a, b) => a.name.localeCompare(b.name) || a.dayIndex - b.dayIndex);
+      return `<li><span class="muted-note">${esc(c.by_name || 'A supervisor')} · ${new Date(c.updated_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}${c.notified_at ? ' · HR told' : ''}</span>
+        ${items.map(i => `<span class="sh-chg">${esc(i.name)} ${esc(i.day)}: <s>${esc(SH_LABEL(i.from))}</s> → <b>${esc(SH_LABEL(i.to))}</b></span>`).join('')}</li>`; }).join('')}</ul></div>`;
+    return h;
   }
 
   /* ---------------- shell ---------------- */
   function shell() {
     panel.innerHTML = `
-      <div class="filter-row" id="shTabs"><button data-tab="week">Week</button><button data-tab="staff">Staff</button></div>
+      <div class="filter-row" id="shTabs"><button data-tab="week">Week</button>${isHR() ? '<button data-tab="staff">Staff</button>' : ''}</div>
       <div id="shBody"></div>`;
     el('shTabs').onclick = async e => { const b = e.target.closest('[data-tab]'); if (!b) return; S.tab = b.dataset.tab; await refresh(); };
   }
@@ -133,7 +161,7 @@
     const w = S.week, row = S.row;
     const nav = `<div class="sh-weeknav">
         <button class="icon-btn" data-w="-7" aria-label="Previous week"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
-        <h3>Week of ${esc(weekTitle(w))}</h3>
+        <h3><span class="sh-rel sh-rel-${weekRel(w).toLowerCase().replace(/\s+/g, '-')}">${weekRel(w)}</span> Week of ${esc(weekTitle(w))}</h3>
         <button class="icon-btn" data-w="7" aria-label="Next week"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></button>
         <button class="btn ghost small" data-w="0">This week</button>
         ${row ? `<span class="badge ${row.published ? 'active' : 'warn'}">${row.published ? 'Published' : row.submitted_at ? 'Sent by ' + esc(row.submitted_by || 'a supervisor') + ' for review' : 'Draft — not visible to staff'}</span>` : ''}
@@ -142,7 +170,8 @@
         ${row ? `<button class="btn ghost small" id="shCopy" ${S.prev ? '' : 'disabled'} title="${S.prev ? 'Replace this week with last week’s schedule' : 'Last week has no schedule'}">Copy last week</button>
           <button class="btn ghost small sh-empty-btn" id="shEmpty" title="Clear every shift of this week">Empty table</button>
           <button class="btn secondary small" id="shPrint">Print</button>
-          <button class="btn small" id="shPublish">${row.published ? 'Unpublish' : 'Publish'}</button>` : ''}
+          ${isHR() ? `<button class="btn small" id="shPublish">${row.published ? 'Unpublish' : 'Publish'}</button>`
+            : !row.published ? `<button class="btn small" id="shSend">${row.submitted_at ? 'Send to HR again' : 'Send to HR'}</button>` : ''}` : ''}
       </div>`;
     if (!row) {
       el('shBody').innerHTML = `${nav}
@@ -163,7 +192,7 @@
       const off = days.filter(c => c === 'off').length;
       return `<tr data-p="${p.id}" data-grp="${isSup(p) ? 'sup' : 'cash'}">
         <th class="sh-name"><span class="sh-drag" data-drag title="Drag to move" aria-label="Drag to move"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="6" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="18" r="1"/></svg></span>${esc(p.name)}${p.active ? '' : ' <span class="muted-note">(inactive)</span>'}<small>${(isSup(p) ? 'Supervisor' : 'Cashier') + (p.default_station ? ' · ' + (p.default_station === 'front' ? 'Front' : 'Back') : '')}</small></th>
-        ${dates.map((d, i) => { const c = days[i] || '', { shift } = parse(c); const q = askOf(p.id, i); return `<td class="sh-cell sh-${shift || 'none'}"><button type="button" data-day="${i}" aria-label="${esc(p.name)} ${DAYS[i]}" ${q ? `title="Asked for ${ASK_LABEL[q]}"` : ''}>${cellHtml(c)}${q ? `<i class="sh-ask-dot ${shift === q ? 'ok' : ''}">${ASK_LABEL[q]}</i>` : ''}</button></td>`; }).join('')}
+        ${dates.map((d, i) => { const c = days[i] || '', { shift } = parse(c); const q = askOf(p.id, i); return `<td class="sh-cell sh-${shift || 'none'}${editableDay(i) ? '' : ' sh-ro'}"><button type="button" data-day="${i}" ${editableDay(i) ? '' : 'disabled'} aria-label="${esc(p.name)} ${DAYS[i]}" ${q ? `title="Asked for ${ASK_LABEL[q]}"` : ''}>${cellHtml(c)}${q ? `<i class="sh-ask-dot ${shift === q ? 'ok' : ''}">${ASK_LABEL[q]}</i>` : ''}</button></td>`; }).join('')}
         <td class="num sh-hours">${hours ? hours + 'h' : '—'}<small>${off} off</small></td></tr>`;
     };
     const sups = people().filter(isSup), cash = people().filter(p => !isSup(p));
@@ -175,24 +204,24 @@
     const viewSwitch = `<div class="filter-row sh-views" id="shViews">
         ${[['grid', 'Week grid'], ['day', 'By day'], ['person', 'By person'], ['requests', `Requests (${(S.reqs || []).length})`]].map(([v, l]) => `<button type="button" data-view="${v}" class="${S.view === v ? 'active' : ''}">${l}</button>`).join('')}</div>`;
     if (S.view === 'requests') {
-      el('shBody').innerHTML = `${nav}${viewSwitch}<div class="card">${requestsHtml(dates, sups, cash)}</div>`;
+      el('shBody').innerHTML = `${nav}${topHtml(row)}${viewSwitch}<div class="card">${requestsHtml(dates, sups, cash)}</div>`;
       wireNav(); wireViews();
       el('shCopy')?.addEventListener('click', copyLast);
       el('shEmpty')?.addEventListener('click', emptyWeek);
-      el('shPublish').onclick = togglePublish;
+      if (el('shPublish')) el('shPublish').onclick = togglePublish;
       el('shPrint').onclick = print;
       return;
     }
     if (S.view !== 'grid') {
-      el('shBody').innerHTML = `${nav}${viewSwitch}<div class="card">${listEditorHtml(row, dates, sups, cash)}</div>`;
+      el('shBody').innerHTML = `${nav}${topHtml(row)}${viewSwitch}<div class="card">${listEditorHtml(row, dates, sups, cash)}</div>`;
       wireNav(); wireViews(); wireListEditor(row);
       el('shCopy')?.addEventListener('click', copyLast);
       el('shEmpty')?.addEventListener('click', emptyWeek);
-      el('shPublish').onclick = togglePublish;
+      if (el('shPublish')) el('shPublish').onclick = togglePublish;
       el('shPrint').onclick = print;
       return;
     }
-    el('shBody').innerHTML = `${nav}${viewSwitch}
+    el('shBody').innerHTML = `${nav}${topHtml(row)}${viewSwitch}
       <div class="card"><div class="sh-brush" id="shBrush">
           <span class="sh-step">1</span><span class="sh-brush-t">Shift</span>
           ${SHIFT_TOOLS.map(([v, l]) => `<button type="button" class="sh-chip sh-${v || 'none'} ${S.brush.tool === v ? 'on' : ''}" data-tool="${v}">${l}</button>`).join('')}
@@ -217,7 +246,7 @@
     wireRowDrag();
     el('shCopy')?.addEventListener('click', copyLast);
     el('shEmpty')?.addEventListener('click', emptyWeek);
-    el('shPublish').onclick = togglePublish;
+    if (el('shPublish')) el('shPublish').onclick = togglePublish;
     el('shPrint').onclick = print;
   }
   // Brush painting (click / drag) and keyboard entry on the grid.
@@ -277,6 +306,7 @@
     const tbody = el('shBody').querySelector('.sh-grid tbody');
     const set = (btn, tool) => {
       if (tool === 'time') return false;   // the Times… tool opens the dialog instead
+      if (!editableDay(Number(btn.dataset.day))) return false;   // locked week or a day already past
       const id = btn.closest('tr').dataset.p, p = S.staff.find(x => x.id === id); if (!p) return false;
       const days = (row.assignments[id] = row.assignments[id] || Array(7).fill(''));
       const i = Number(btn.dataset.day), code = applyTool(p, days[i] || '', tool);
@@ -350,18 +380,18 @@
     if (S.vday === null) { const t = dates.findIndex(d => d === today); S.vday = t >= 0 ? t : 0; }
     const everyone = [...sups, ...cash];
     if (!S.vperson || !everyone.some(p => p.id === S.vperson)) S.vperson = everyone[0]?.id || null;
-    const seg = (code, p) => {
-      const x = parse(code), working = !!SHIFT[x.shift], t = custom(code) ? timesOf(code) : null;
-      return `<div class="sh-seg">${[['', '—'], ['am', 'AM'], ['pm', 'PM'], ['full', 'Full'], ['off', 'Off']].map(([v, l]) => `<button type="button" data-set="${v}" class="sh-seg-${v || 'none'} ${x.shift === v ? 'on' : ''}">${l}</button>`).join('')}</div>
-        <div class="sh-seg sh-seg-st">${[['front', 'Front'], ['back', 'Back']].map(([v, l]) => `<button type="button" data-set="${v}" class="${working && x.station === v ? 'on' : ''}" ${working ? '' : 'disabled'}>${l}</button>`).join('')}</div>
-        <button type="button" class="btn ghost small sh-le-time ${t ? 'has' : ''}" data-set="time" ${working ? '' : 'disabled'} title="Arrives late / leaves early">${t ? `${t[0]}–${t[1]}` : 'Times…'}</button>`;
+    const seg = (code, p, day) => {
+      const x = parse(code), working = !!SHIFT[x.shift], t = custom(code) ? timesOf(code) : null, ro = !editableDay(day);
+      return `<div class="sh-seg">${[['', '—'], ['am', 'AM'], ['pm', 'PM'], ['full', 'Full'], ['off', 'Off']].map(([v, l]) => `<button type="button" data-set="${v}" class="sh-seg-${v || 'none'} ${x.shift === v ? 'on' : ''}" ${ro ? 'disabled' : ''}>${l}</button>`).join('')}</div>
+        <div class="sh-seg sh-seg-st">${[['front', 'Front'], ['back', 'Back']].map(([v, l]) => `<button type="button" data-set="${v}" class="${working && x.station === v ? 'on' : ''}" ${working && !ro ? '' : 'disabled'}>${l}</button>`).join('')}</div>
+        <button type="button" class="btn ghost small sh-le-time ${t ? 'has' : ''}" data-set="time" ${working && !ro ? '' : 'disabled'} title="Arrives late / leaves early">${t ? `${t[0]}–${t[1]}` : 'Times…'}</button>`;
     };
     if (S.view === 'day') {
       const d = S.vday;
       // Counted per group (owner, 2026-10-01): "Supervisors 1 AM · 1 PM | Cashiers 3 AM · 3 PM".
       const cs = groupCount(sups, a, d), cc = groupCount(cash, a, d);
       const grp = (label, k) => `<span class="sh-le-grpcount"><b>${label}</b> ${k.am} AM · ${k.pm} PM</span>`;
-      const line = p => `<li data-pid="${p.id}" data-day="${d}"><div class="sh-le-who"><b>${esc(p.name)} ${askTag(p.id, d, (a[p.id] || [])[d])}</b><small>${isSup(p) ? 'Supervisor' : 'Cashier'}${p.default_station ? ' · usually ' + (p.default_station === 'front' ? 'Front' : 'Back') : ''}</small></div>${seg((a[p.id] || [])[d], p)}</li>`;
+      const line = p => `<li data-pid="${p.id}" data-day="${d}"><div class="sh-le-who"><b>${esc(p.name)} ${askTag(p.id, d, (a[p.id] || [])[d])}</b><small>${isSup(p) ? 'Supervisor' : 'Cashier'}${p.default_station ? ' · usually ' + (p.default_station === 'front' ? 'Front' : 'Back') : ''}</small></div>${seg((a[p.id] || [])[d], p, d)}</li>`;
       return `<div class="sh-le-strip">${dates.map((dt, i) => `<button type="button" data-vday="${i}" class="${i === d ? 'on' : ''}${dt === today ? ' today' : ''}"><span>${DAYS[i]}</span><b>${Number(dt.slice(8))}</b></button>`).join('')}</div>
         <p class="sh-le-count"><b>${dayLabel(dates[d], { weekday: 'long', day: 'numeric', month: 'long' })}</b></p>
         <p class="sh-le-counts">${sups.length ? grp('Supervisors', cs) : ''}${cash.length ? grp('Cashiers', cc) : ''}<span class="sh-le-grpcount">Front ${cs.front + cc.front} · Back ${cs.back + cc.back}</span></p>
@@ -381,7 +411,7 @@
       </div>
       ${weekSummaryHtml(days, p)}
       ${(() => { const q = (S.reqs || []).find(r => r.cashier_id === p.id); return q?.note ? `<p class="sh-ask-note">${esc(p.name)} wrote: “${esc(q.note)}”</p>` : ''; })()}
-      <ul class="sh-le">${dates.map((dt, i) => `<li data-pid="${p.id}" data-day="${i}" class="${dt === today ? 'today' : ''}"><div class="sh-le-who"><b>${DAYS[i]} ${askTag(p.id, i, days[i])}</b><small>${dayLabel(dt, { day: 'numeric', month: 'short' })}</small></div>${seg(days[i], p)}</li>`).join('')}</ul>`;
+      <ul class="sh-le">${dates.map((dt, i) => `<li data-pid="${p.id}" data-day="${i}" class="${dt === today ? 'today' : ''}"><div class="sh-le-who"><b>${DAYS[i]} ${askTag(p.id, i, days[i])}</b><small>${dayLabel(dt, { day: 'numeric', month: 'short' })}</small></div>${seg(days[i], p, i)}</li>`).join('')}</ul>`;
   }
   // By person: what the week already has, e.g. 2 AM · 1 PM · 1 Full · 2 Off | 3 Front · 1 Back (owner, 2026-10-01).
   function weekSummaryHtml(days, p) {
@@ -409,6 +439,7 @@
       const li = b.closest('li[data-pid]'), id = li.dataset.pid, i = Number(li.dataset.day);
       const p = S.staff.find(x => x.id === id); if (!p) return;
       if (b.dataset.set === 'time') return editTimesAt(id, i, row);
+      if (!editableDay(i)) return;
       const days = (row.assignments[id] = row.assignments[id] || Array(7).fill(''));
       const code = applyTool(p, days[i] || '', b.dataset.set);
       if ((days[i] || '') === code) return;
@@ -421,6 +452,7 @@
   // Arrives late / leaves early: the cell's shift, station and exact start / end.
   function editTimes(btn, row) { editTimesAt(btn.closest('tr').dataset.p, Number(btn.dataset.day), row, btn); }
   function editTimesAt(id, i, row, btn) {
+    if (!editableDay(i)) return showToast(locked() ? 'This week is published — press Unlock to edit first.' : 'That day is already past.', true);
     const p = S.staff.find(x => x.id === id); if (!p) return;
     const days = (row.assignments[id] = row.assignments[id] || Array(7).fill(''));
     let x = parse(days[i]);
@@ -479,6 +511,19 @@
   }
 
   function wireNav() {
+    el('shUnlock')?.addEventListener('click', async () => {
+      if (!(await showConfirm(`Unlock the published week of ${weekTitle(S.week)}? Staff see your changes straight away${isHR() ? '' : ', and HR is told about them'}.`, 'Unlock'))) return;
+      S.unlocked = S.week; renderWeek();
+    });
+    el('shRelock')?.addEventListener('click', () => { S.unlocked = null; renderWeek(); });
+    el('shSend')?.addEventListener('click', async () => {
+      const who = (typeof Session !== 'undefined' && (Session.profile?.display_name || Session.profile?.username)) || 'A supervisor';
+      const { error } = await sb.from('schedule_weeks').update({ submitted_at: new Date().toISOString(), submitted_by: who }).eq('week_start', S.week);
+      if (error) return showToast('Not sent — ' + friendlyError(error), true);
+      S.row.submitted_at = new Date().toISOString(); S.row.submitted_by = who;
+      logActivity('schedule', 'submit', { type: 'schedule_week', id: S.week }, `Sent the schedule of the week ${weekTitle(S.week)} to HR`);
+      showToast('Sent to HR — they review it and publish it.'); renderWeek();
+    });
     el('shBody').querySelectorAll('[data-w]').forEach(b => b.onclick = async () => { S.week = b.dataset.w === '0' ? mondayOf(beirutToday()) : addDays(S.week, Number(b.dataset.w)); await loadWeek(); render(); });
   }
   // Last week's assignments for the people still active (inactive ones dropped).
@@ -493,6 +538,7 @@
   }
   // Empty table (owner, 2026-10-01): clears every shift of the week (the week itself stays).
   async function emptyWeek() {
+    if (locked()) return showToast('This week is published — press Unlock to edit first.', true);
     const n = Object.values(S.row.assignments || {}).reduce((t, d) => t + (d || []).filter(Boolean).length, 0);
     if (!n) return showToast('This week is already empty.');
     const what = `${n} shift${n === 1 ? '' : 's'} will be removed.`;
@@ -500,15 +546,22 @@
       ? `Empty the whole week of ${weekTitle(S.week)}? It is PUBLISHED — staff will see an empty schedule. ${what}`
       : `Empty the whole week of ${weekTitle(S.week)}? ${what}`;
     if (!(await showConfirm(msg, 'Empty table'))) return;
-    S.row.assignments = {};
+    // days already past keep what they had
+    const kept = {};
+    Object.entries(S.row.assignments || {}).forEach(([id, d]) => { const k = (d || []).map((c, i) => dayPast(i) ? c : ''); if (k.some(Boolean)) kept[id] = k; });
+    S.row.assignments = kept;
     await save(true);
     logActivity('schedule', 'empty', { type: 'schedule_week', id: S.week }, `Emptied the schedule of the week ${weekTitle(S.week)} (${n} shifts)`);
     renderWeek();
     showToast('The week is empty.');
   }
   async function copyLast() {
+    if (locked()) return showToast('This week is published — press Unlock to edit first.', true);
     if (!(await showConfirm(`Replace this week's schedule with last week's (${weekTitle(addDays(S.week, -7))})?`, 'Copy'))) return;
-    S.row.assignments = copied(); await save(true); renderWeek();
+    const cp = copied(), cur = S.row.assignments || {};
+    // days already past keep what they had
+    [...new Set([...Object.keys(cp), ...Object.keys(cur)])].forEach(id => { const n = (cp[id] || Array(7).fill('')).slice(); for (let i = 0; i < 7; i++) if (dayPast(i)) n[i] = (cur[id] || [])[i] || ''; cp[id] = n; });
+    S.row.assignments = cp; await save(true); renderWeek();
   }
   let timer = null;
   function save(now) {
@@ -608,9 +661,12 @@
 
   window.Schedule = {
     async show() {
-      if (!can('schedule.manage')) return;
-      if (!S.started) { S.started = true; S.week = mondayOf(beirutToday()); shell(); }
+      if (!can('schedule.manage', 'schedule.edit')) return;
+      let first = false;
+      if (!S.started) { S.started = true; S.week = mondayOf(beirutToday()); shell(); first = true; }
       await refresh();
+      // First open: this week is already published -> the week to plan is next week.
+      if (first && S.row && S.row.published) { S.week = addDays(S.week, 7); await loadWeek(); render(); }
     },
     _state: S,
   };
