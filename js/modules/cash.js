@@ -17,6 +17,8 @@
     locked: false, lockInfo: null,
     history: [],                 // last 12 months of rows (analysis)
     started: false, trendAsTable: false,
+    view: 'grid', person: null,  // Month grid | By cashier (owner, 2026-10-03)
+    jump: true,                  // next grid render: scroll to today (set on open / month change)
     importPlan: null,
   };
 
@@ -26,6 +28,9 @@
   // LBP, whole pounds: "-1,250,000 LBP" (money) and "-1,250,000" (inside a grid cell).
   const num = n => Math.round(Number(n) || 0).toLocaleString('en-US');
   const lbp = n => num(n) + ' LBP';
+  // Short form for small boxes (phone calendar): -1.55m, -293k, 0.
+  const short = n => { const v = Math.round(Number(n) || 0), a = Math.abs(v);
+    return a >= 1e6 ? (v / 1e6).toFixed(2).replace(/.?0+$/, '') + 'm' : a >= 1000 ? Math.round(v / 1000) + 'k' : String(v); };
   const daysIn = ym => { const [y, m] = ym.split('-').map(Number); return new Date(Date.UTC(y, m, 0)).getUTCDate(); };
   const addMonths = (ym, n) => { const [y, m] = ym.split('-').map(Number); const d = new Date(Date.UTC(y, m - 1 + n, 1)); return d.toISOString().slice(0, 7); };
   const monthLabel = ym => new Date(ym + '-01T00:00:00').toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
@@ -116,16 +121,19 @@
         <input type="month" id="cashMonth" aria-label="Month">
         <button class="icon-btn" id="cashNext" aria-label="Next month"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></button>
         <span class="muted-note" id="cashMonthNote"></span>
+        <div class="filter-row cash-views" id="cashViews" style="margin:0;"><button type="button" data-view="grid">Month grid</button><button type="button" data-view="person">By cashier</button></div>
         <span class="cash-monthbar-right" id="cashLockArea"></span>
       </div>
       <div id="cashBody"></div>`;
-    el('cashTabs').onclick = e => { const b = e.target.closest('button'); if (b) { S.tab = b.dataset.tab; render(); } };
+    el('cashTabs').onclick = e => { const b = e.target.closest('button'); if (b) { S.tab = b.dataset.tab; S.jump = true; render(); } };
+    el('cashViews').onclick = e => { const b = e.target.closest('[data-view]'); if (b) { S.view = b.dataset.view; S.jump = true; render(); } };
+    window.addEventListener('resize', fitBox);
     el('cashPrev').onclick = () => setMonth(addMonths(S.month, -1));
     el('cashNext').onclick = () => setMonth(addMonths(S.month, 1));
     el('cashMonth').onchange = e => { if (/^\d{4}-\d{2}$/.test(e.target.value)) setMonth(e.target.value); };
   }
   async function setMonth(ym) {
-    S.month = ym;
+    S.month = ym; S.jump = true;
     await loadMonth();
     if (S.tab === 'analysis') await loadHistory();
     render();
@@ -136,8 +144,10 @@
     el('cashMonthBar').hidden = !['grid', 'analysis'].includes(S.tab);
     el('cashMonth').value = S.month;
     el('cashMonthNote').textContent = S.month === todayStr().slice(0, 7) ? 'This month' : '';
+    el('cashViews').hidden = S.tab !== 'grid';
+    el('cashViews').querySelectorAll('[data-view]').forEach(b => b.classList.toggle('active', b.dataset.view === S.view));
     renderLockArea();
-    if (S.tab === 'grid') renderGrid();
+    if (S.tab === 'grid') renderBody();
     if (S.tab === 'analysis') renderAnalysis();
     if (S.tab === 'cashiers') renderCashiers();
     if (S.tab === 'import') renderImport();
@@ -169,8 +179,17 @@
   }
 
   /* ---------------- grid ---------------- */
+  // The grid tab shows the month grid or one cashier's month.
+  function renderBody() { if (S.view === 'person') renderPerson(); else renderGrid(); }
+  // The scrolling box fills the screen down to its bottom edge, so the totals row (frozen at the bottom)
+  // is always in sight and the page itself barely scrolls (owner, 2026-10-03).
+  function fitBox() {
+    const box = el('cashBody')?.querySelector('.cash-grid-wrap'); if (!box || !box.offsetParent) return;
+    box.style.maxHeight = Math.max(320, window.innerHeight - box.getBoundingClientRect().top - 14) + 'px';
+  }
   function renderGrid() {
     const body = el('cashBody');
+    const old = body.querySelector('.cash-grid-wrap'), keep = old && !S.jump ? [old.scrollTop, old.scrollLeft] : null;
     const cols = gridCashiers();
     if (!S.cashiers.length) {
       body.innerHTML = `<div class="empty-state"><p class="big">No cashiers yet</p><p>Add them under <b>Cashiers &amp; settings</b>, or bring in your old sheets under <b>Import old sheets</b>.</p></div>`;
@@ -197,7 +216,7 @@
       }).join('');
       grand += rowTotal;
       const isToday = day === today, weekday = new Date(day + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short' });
-      rowsHtml.push(`<tr class="${isToday ? 'is-today' : ''}"><th class="cash-day">${d} <span>${weekday}</span></th>${cells}<td class="cash-total ${any ? 'lv-' + (level(rowTotal) || 'none') : ''}">${any ? lbp(rowTotal) : ''}</td></tr>`);
+      rowsHtml.push(`<tr class="${isToday ? 'is-today' : ''}" data-d="${d}"><th class="cash-day">${d} <span>${weekday}</span></th>${cells}<td class="cash-total cash-daytot ${any ? 'lv-' + (level(rowTotal) || 'none') : ''}">${any ? lbp(rowTotal) : ''}</td></tr>`);
     }
     body.innerHTML = `
       ${S.locked ? `<div class="cash-banner"><b>${esc(monthLabel(S.month))} is locked.</b> Differences can't be changed${can('cash.unlock') ? ' until you unlock it' : '; ask the admin if something must be corrected'}.</div>` : ''}
@@ -211,14 +230,91 @@
       </div>
       <div class="items-scroll cash-grid-wrap">
         <table class="cash-grid">
-          <thead><tr><th class="cash-day">Day</th>${cols.map(c => `<th>${esc(c.name)}${c.active ? '' : ' <span class="muted-note">(inactive)</span>'}</th>`).join('')}<th class="cash-total">Day total</th></tr></thead>
+          <thead><tr><th class="cash-day">Day</th>${cols.map(c => `<th>${esc(c.name)}${c.active ? '' : ' <span class="muted-note">(inactive)</span>'}</th>`).join('')}<th class="cash-total cash-daytot">Day total</th></tr></thead>
           <tbody>${rowsHtml.join('')}</tbody>
-          <tfoot><tr><th class="cash-day">Total</th>${colTotals.map(t => `<td class="cash-total">${lbp(t)}</td>`).join('')}<td class="cash-total"><b>${lbp(grand)}</b></td></tr></tfoot>
+          <tfoot><tr><th class="cash-day">Total</th>${colTotals.map(t => `<td class="cash-total">${lbp(t)}</td>`).join('')}<td class="cash-total cash-daytot"><b>${lbp(grand)}</b></td></tr></tfoot>
         </table>
       </div>`;
     if (!cols.length) body.querySelector('.cash-grid-wrap').outerHTML = `<div class="empty-state"><p class="big">No entries in ${esc(monthLabel(S.month))}</p><p>Nobody has a difference recorded for this month.</p></div>`;
     el('cashIdleOff')?.addEventListener('click', () => deactivateIdle(idle));
     wireGrid(body);
+    fitBox();
+    const box = body.querySelector('.cash-grid-wrap');
+    if (box && keep) { box.scrollTop = keep[0]; box.scrollLeft = keep[1]; }
+    else if (box && S.jump) {
+      // Opens on today (this month): its row a couple of rows below the frozen names.
+      const row = S.month === today.slice(0, 7) ? box.querySelector(`tr[data-d="${Number(today.slice(8, 10))}"]`) : null;
+      box.scrollTop = row ? Math.max(0, row.offsetTop - box.querySelector('thead').offsetHeight - row.offsetHeight * 2) : 0;
+    }
+    S.jump = false;
+  }
+
+  /* ---------------- by cashier: one cashier's month as a calendar ---------------- */
+  function renderPerson() {
+    const body = el('cashBody');
+    const list = gridCashiers().length ? gridCashiers() : S.cashiers.filter(c => c.active);
+    if (!list.length) { body.innerHTML = '<div class="empty-state"><p class="big">No cashiers yet</p><p>Add them under <b>Cashiers &amp; settings</b>.</p></div>'; return; }
+    if (!list.some(c => c.id === S.person)) S.person = list[0].id;
+    const c = list.find(x => x.id === S.person), idx = list.indexOf(c);
+    const n = daysIn(S.month), today = todayStr(), ro = S.locked || !can('cash.enter');
+    const rows = [];
+    for (let d = 1; d <= n; d++) { const e = S.entries.get(key(c.id, dayStr(S.month, d))); if (e) rows.push(e); }
+    const total = rows.reduce((t, r) => t + r.amount, 0);
+    const shorts = rows.filter(r => r.amount < 0), overs = rows.filter(r => r.amount > 0);
+    const worst = shorts.slice().sort((a, b) => a.amount - b.amount)[0];
+    const sum = list => list.reduce((t, r) => t + r.amount, 0);
+    const lastDay = S.month === today.slice(0, 7) ? Number(today.slice(8, 10)) : S.month < today.slice(0, 7) ? n : 0;
+    const blank = Array.from({ length: lastDay }, (_, i) => i + 1).filter(d => !S.entries.has(key(c.id, dayStr(S.month, d)))).length;
+    const lead = (new Date(dayStr(S.month, 1) + 'T00:00:00').getDay() + 6) % 7;   // Monday first
+    const cells = [];
+    for (let i = 0; i < lead; i++) cells.push('<div class="cc-cell cc-out"></div>');
+    for (let d = 1; d <= n; d++) {
+      const day = dayStr(S.month, d), e = S.entries.get(key(c.id, day)), lv = e ? level(e.amount) : '';
+      cells.push(`<div class="cc-cell ${lv ? 'lv-' + lv : ''} ${day === today ? 'cc-today' : ''} ${e ? '' : 'cc-empty'}">
+        <span class="cc-d">${d}</span>
+        ${e ? `<span class="cc-short" aria-hidden="true">${short(e.amount)}</span>` : ''}
+        <input type="text" inputmode="numeric" data-c="${c.id}" data-day="${day}" data-row="${d}" data-col="0" value="${e ? num(e.amount) : ''}" ${ro ? 'readonly' : ''} aria-label="${esc(c.name)}, ${day}">
+        ${e ? `<button type="button" class="cash-note ${e.note ? 'has-note' : ''}" data-note="${esc(key(c.id, day))}" title="${e.note ? esc(e.note) : 'Add a note'}" tabindex="-1">${e.note ? '●' : '+'}</button>` : ''}
+      </div>`);
+    }
+    const stat = (label, value, cls = '') => `<div class="cc-stat ${cls}"><span>${label}</span><b>${value}</b></div>`;
+    body.innerHTML = `
+      ${S.locked ? `<div class="cash-banner"><b>${esc(monthLabel(S.month))} is locked.</b> Differences can't be changed.</div>` : ''}
+      <div class="cash-person">
+        <button type="button" class="icon-btn" data-pstep="-1" ${idx <= 0 ? 'disabled' : ''} aria-label="Previous cashier"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+        <select id="cashPerson" aria-label="Cashier">${list.map(x => `<option value="${x.id}" ${x.id === c.id ? 'selected' : ''}>${esc(x.name)}${x.active ? '' : ' (inactive)'}</option>`).join('')}</select>
+        <button type="button" class="icon-btn" data-pstep="1" ${idx >= list.length - 1 ? 'disabled' : ''} aria-label="Next cashier"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></button>
+        <span class="muted-note">${idx + 1} of ${list.length}</span>
+      </div>
+      <div class="cc-stats">
+        ${stat('Month total', lbp(total), total < 0 ? 'neg' : total > 0 ? 'pos' : '')}
+        ${stat('Short', `${shorts.length} day${shorts.length === 1 ? '' : 's'} · ${lbp(sum(shorts))}`, shorts.length ? 'neg' : '')}
+        ${stat('Over', `${overs.length} day${overs.length === 1 ? '' : 's'} · ${lbp(sum(overs))}`, overs.length ? 'pos' : '')}
+        ${stat('Biggest short', worst ? `${lbp(worst.amount)} · ${fmtDate(worst.day)}` : '—')}
+        ${lastDay ? stat('Not entered', `${blank} day${blank === 1 ? '' : 's'}`, blank ? 'warn' : '') : ''}
+      </div>
+      <div class="card cc-card">
+        <div class="cc-grid cc-head">${['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(w => `<span>${w}</span>`).join('')}</div>
+        <div class="cc-grid cash-cal">${cells.join('')}</div>
+        <p class="muted-note" style="margin:10px 0 0;">In LBP. Negative = short, positive = over. Arrows move between days (up / down = a week), Enter goes to the next day. Empty = not entered.</p>
+      </div>`;
+    const cal = body.querySelector('.cash-cal');
+    const go = d => { const t = cal.querySelector(`input[data-row="${d}"]`); if (t) { t.focus(); t.select(); return true; } return false; };
+    cal.addEventListener('keydown', e => {
+      const inp = e.target.closest('input[data-c]'); if (!inp) return;
+      const d = Number(inp.dataset.row), len = inp.value.length, all = inp.selectionStart === 0 && inp.selectionEnd === len;
+      const step = { Enter: 1, ArrowDown: 7, ArrowUp: -7, ArrowRight: 1, ArrowLeft: -1 }[e.key];
+      if (e.key === 'ArrowLeft' && !all && inp.selectionStart > 0) return;
+      if (e.key === 'ArrowRight' && !all && inp.selectionEnd < len) return;
+      if (step && !e.altKey && !e.ctrlKey && !e.metaKey) { e.preventDefault(); if (!go(d + step) && e.key === 'Enter') inp.blur(); }
+      if (e.key === 'Escape') { const r = S.entries.get(key(inp.dataset.c, inp.dataset.day)); inp.value = r ? num(r.amount) : ''; inp.blur(); }
+    });
+    cal.addEventListener('focusin', e => { if (e.target.matches('input[data-c]')) e.target.select(); });
+    cal.addEventListener('change', e => { const inp = e.target.closest('input[data-c]'); if (inp) saveCell(inp); });
+    cal.addEventListener('click', e => { const b = e.target.closest('[data-note]'); if (b) editNote(b.dataset.note); });
+    body.querySelectorAll('[data-pstep]').forEach(b => b.onclick = () => { const x = list[idx + Number(b.dataset.pstep)]; if (x) { S.person = x.id; renderPerson(); } });
+    el('cashPerson').onchange = e => { S.person = e.target.value; renderPerson(); };
+    S.jump = false;
   }
   async function deactivateIdle(list) {
     if (!(await showConfirm(`Mark ${list.length} cashier${list.length === 1 ? '' : 's'} inactive?\n\n${list.map(c => c.name).join(', ')}\n\nTheir past differences stay. They can be switched back on under Cashiers & settings.`, 'Mark inactive'))) return;
@@ -284,7 +380,7 @@
         `${cashierName(cid)} ${fmtDate(day)}: ${before ? lbp(before.amount) + ' → ' : ''}${lbp(v)}`, { cashier_id: cid, day, from: before?.amount ?? null, to: v });
     }
     const focusRow = document.activeElement?.dataset?.row, focusCol = document.activeElement?.dataset?.col;
-    renderGrid();
+    renderBody();
     if (focusRow) el('cashBody').querySelector(`input[data-row="${focusRow}"][data-col="${focusCol}"]`)?.focus();
   }
 
@@ -312,7 +408,7 @@
     if (error) return fail('Could not paste those values', error);
     logActivity('cash', 'paste', { type: 'cash_month', id: S.month }, `Pasted ${rows.length} values into ${monthLabel(S.month)}`, { cells: rows.length, skipped: bad.length });
     await loadMonth();
-    renderGrid();
+    renderBody();
     showToast(`Pasted ${rows.length} value${rows.length === 1 ? '' : 's'}` + (bad.length ? ` — ${bad.length} cell${bad.length === 1 ? '' : 's'} skipped (not a number).` : '.'));
   }
 
@@ -326,7 +422,7 @@
     if (error) return fail('Could not save the note', error);
     e.note = note;
     logActivity('cash', 'note', { type: 'cash_difference', id: e.id }, `Note on ${cashierName(e.cashier_id)} ${fmtDate(e.day)}: ${note || '(removed)'}`);
-    renderGrid();
+    renderBody();
   }
 
   /* ---------------- analysis ---------------- */

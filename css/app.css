@@ -1410,3 +1410,41 @@ table.op-table td.mono{font-family:var(--font-mono);white-space:nowrap;}
 .sh-split{display:block;font-size:10.5px;font-weight:600;opacity:.85;margin-top:1px;white-space:nowrap;}
 .sh-seg-half{align-items:center;}
 .sh-seg-half > span{font:700 10px var(--font-mono);color:var(--ink-faint);padding:0 4px 0 2px;}
+
+/* Cash page, less scrolling (owner, 2026-10-03): frozen day total column, narrower cells, today's row,
+   and the By cashier calendar */
+.cash-views{margin-left:6px;}
+table.cash-grid .cash-daytot{position:sticky;right:0;z-index:1;box-shadow:inset 1px 0 0 var(--line-strong);}
+table.cash-grid thead .cash-daytot{z-index:3;}
+table.cash-grid tfoot th,table.cash-grid tfoot td{z-index:2;}
+table.cash-grid tfoot .cash-day,table.cash-grid tfoot .cash-daytot{z-index:4;}
+.cash-cell{min-width:104px;}
+.cash-cell input{padding:6px 20px 6px 8px;}
+table.cash-grid tr.is-today .cash-day{background:color-mix(in srgb, var(--pine) 12%, var(--paper-raised));box-shadow:inset 3px 0 0 var(--pine);}
+table.cash-grid tr.is-today td{box-shadow:inset 0 1px 0 var(--pine), inset 0 -1px 0 var(--pine);}
+.cash-person{display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap;}
+.cash-person select{width:auto;min-width:200px;}
+.cc-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:12px;}
+.cc-stat{background:var(--paper-raised);border:1px solid var(--line);border-radius:var(--radius-sm);padding:10px 12px;display:flex;flex-direction:column;gap:2px;}
+.cc-stat span{font:600 10.5px var(--font-mono);text-transform:uppercase;letter-spacing:.04em;color:var(--ink-faint);}
+.cc-stat b{font-family:var(--font-mono);font-size:14px;color:var(--ink);}
+.cc-stat.neg b{color:var(--brick);} .cc-stat.pos b{color:var(--ok-green, var(--pine));} .cc-stat.warn b{color:var(--gold);}
+.cc-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px;}
+.cc-head span{font:600 10.5px var(--font-mono);text-transform:uppercase;color:var(--ink-faint);text-align:center;padding-bottom:4px;}
+.cc-cell{position:relative;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--paper);min-height:58px;display:flex;flex-direction:column;justify-content:flex-end;}
+.cc-cell.cc-out{border:0;background:none;}
+.cc-cell.cc-empty{background:var(--paper-raised);border-style:dashed;}
+.cc-cell.lv-warn{background:var(--cash-warn);} .cc-cell.lv-danger{background:var(--cash-danger);}
+.cc-cell.cc-today{border-color:var(--pine);box-shadow:0 0 0 1px var(--pine);}
+.cc-d{position:absolute;top:5px;left:8px;font:600 11px var(--font-mono);color:var(--ink-faint);}
+.cc-cell input{width:100%;border:0;background:transparent;padding:20px 20px 7px 8px;text-align:right;font-family:var(--font-mono);font-size:13px;color:var(--ink);}
+.cc-cell input:focus{outline:2px solid var(--pine);outline-offset:-2px;border-radius:var(--radius-sm);box-shadow:none;}
+.cc-cell .cash-note{top:auto;bottom:8px;transform:none;}
+.cc-cell:hover .cash-note,.cc-cell:focus-within .cash-note{opacity:1;}
+@media (max-width:640px){ .cc-cell input{font-size:11px;padding:18px 4px 6px 4px;} .cc-cell .cash-note{display:none;} }
+.cc-short{display:none;}
+@media (max-width:640px){
+  .cc-short{display:block;position:absolute;right:3px;bottom:7px;font:600 10.5px var(--font-mono);color:var(--ink);pointer-events:none;}
+  .cc-cell:has(.cc-short) input:not(:focus){color:transparent;}
+  .cc-cell input:focus + .cash-note, .cc-cell:focus-within .cc-short{display:none;}
+}
