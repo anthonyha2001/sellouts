@@ -26,7 +26,7 @@ const ROLES = {
   },
   floor_manager: {
     label: 'Floor manager',
-    sections: ['floorcheck', 'promoladies'],
+    sections: ['floorcheck', 'promoladies', 'rentals'],
     delivery: [],
     home: 'floorcheck',
   },

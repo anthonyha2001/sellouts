@@ -45,7 +45,8 @@
       sb.from('store_floors').select('id, name, sort').order('sort'),
       sb.from('store_map_objects').select('id, floor_id, type, x, y, w, h, label, sections_a, sections_b'),
       sb.from('store_map_config').select('types').eq('id', 'singleton').maybeSingle(),
-      sb.from('rental_contracts').select('id, spot_id, supplier, start_date, end_date').lte('start_date', today).gte('end_date', today),
+      // Without amounts (migration 037): the money-free list, today's contracts kept below.
+      sb.rpc('rental_map_contracts'),
       sb.from('spot_checks').select('*').is('completed_at', null).maybeSingle(),
       sb.from('spot_checks').select('*').not('completed_at', 'is', null).order('completed_at', { ascending: false }).limit(12),
       S.vendors.length ? { data: null } : sb.from('vendors').select('name').order('name'),
@@ -53,7 +54,7 @@
     S.missing = !!(open.error || hist.error);
     S.floors = fl.data || []; S.objects = ob.data || [];
     S.types = Object.assign({}, (window.StoreMap && StoreMap.DEFAULT_TYPES) || {}, (cf.data && cf.data.types) || {});
-    S.contracts = ct.data || [];
+    S.contracts = (ct.data || []).filter(c => c.start_date <= today && c.end_date >= today);
     S.open = open.data || null; S.history = hist.data || [];
     if (vd.data) S.vendors = [...new Set(vd.data.map(v => String(v.name || '').trim()).filter(Boolean))];
   }

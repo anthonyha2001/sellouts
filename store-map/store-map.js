@@ -279,6 +279,7 @@
     constructor(root, opts) {
       this.root = root;
       this.opts = Object.assign({ canEdit: false, canManageRentals: false, currency: '$' }, opts || {});
+      if (this.opts.hideMoney) this.root.classList.add('sm-nomoney');   // map only (rentals.map): no amounts
       this.adapter = this.opts.adapter;
       if (!this.adapter) throw new Error('StoreMap: an adapter is required');
       this.types = clone(DEFAULT_TYPES);
@@ -369,7 +370,7 @@
       const active = list.find(c => c.start <= t && c.end >= t);
       if (active) {
         if (daysBetween(t, active.end) <= ENDING_DAYS && !list.some(c => c.start > active.end)) return 'ending';
-        if (!active.billed) return 'unbilled';
+        if (!active.billed && !this.opts.hideMoney) return 'unbilled';
         return 'rented';
       }
       if (list.some(c => c.start > t)) return 'upcoming';
@@ -435,7 +436,7 @@
               <button data-exp="print">Print this floor</button>
               <button data-exp="png">Download image (PNG)</button>
               <button data-exp="svg">Download drawing (SVG)</button>
-              <button data-exp="csv">Contracts list (CSV)</button>
+              ${this.opts.hideMoney ? '' : '<button data-exp="csv">Contracts list (CSV)</button>'}
             </div>
           </div>
           ${this.opts.canEdit ? `<button class="sm-btn" data-role="edit">${ic('edit')} Edit layout</button>` : ''}
@@ -815,7 +816,7 @@
       const spots = this.objects.filter(o => this.isRentable(o));
       const counts = {}; spots.forEach(o => { const s = this.statusOf(o); counts[s] = (counts[s] || 0) + 1; });
       const spotTypes = [...new Set(spots.map(o => o.type))];
-      bar.innerHTML = Object.entries(STATUS).map(([k, s]) => `
+      bar.innerHTML = Object.entries(STATUS).filter(([k]) => !(this.opts.hideMoney && k === 'unbilled')).map(([k, s]) => `
         <button class="sm-chip ${this.statusFilter.has(k) ? 'on' : ''}" data-st="${k}" aria-pressed="${this.statusFilter.has(k)}">
           <i style="background:var(--st-${k});border-color:var(--st-${k}-s)"></i>${esc(s.label)} <b>${counts[k] || 0}</b></button>`).join('') + `
         <select class="sm-select" data-role="typefilter" aria-label="Spot type">
@@ -838,7 +839,7 @@
       L.hidden = false;
       let items;
       if (this.mode === 'rentals') {
-        items = Object.entries(STATUS).map(([k, s]) => `<span><i style="background:var(--st-${k});border-color:var(--st-${k}-s)"></i>${esc(s.label)}</span>`).join('');
+        items = Object.entries(STATUS).filter(([k]) => !(this.opts.hideMoney && k === 'unbilled')).map(([k, s]) => `<span><i style="background:var(--st-${k});border-color:var(--st-${k}-s)"></i>${esc(s.label)}</span>`).join('');
       } else {
         const used = new Set(this.objects.flatMap(o => [...(o.sectionsA || []), ...(o.sectionsB || [])].map(s => s.cat || 'other')));
         items = Object.entries(this.cats).filter(([k]) => used.has(k)).map(([k, c]) => `<span>${iconHtml(c.icon || (ICONS[k] ? k : 'other'), `var(--catx-${k})`)}${esc(c.name)}</span>`).join('');
@@ -1375,9 +1376,9 @@
         <div class="sm-p-sec"><div class="sm-stats">
           <div class="sm-stat"><span>Rentable spots</span><b>${here.length}</b></div>
           <div class="sm-stat"><span>Occupancy</span><b>${here.length ? Math.round(occupied / here.length * 100) : 0}%</b></div>
-          <div class="sm-stat"><span>Rental income ${year}</span><b>${this.money(revenue)}</b></div>
-          <div class="sm-stat"><span>${year - 1}</span><b>${this.money(lastRevenue)}</b></div>
-        </div><p class="sm-hint" style="margin:8px 0 0">Income covers all floors: yearly contracts count in the year they start, monthly ones for each month in the year.</p></div>
+          <div class="sm-stat sm-money"><span>Rental income ${year}</span><b>${this.money(revenue)}</b></div>
+          <div class="sm-stat sm-money"><span>${year - 1}</span><b>${this.money(lastRevenue)}</b></div>
+        </div><p class="sm-hint sm-money" style="margin:8px 0 0">Income covers all floors: yearly contracts count in the year they start, monthly ones for each month in the year.</p></div>
         ${unplaced.length ? `<div class="sm-p-sec"><h4>Contracts not placed on the map <span>${unplaced.length}</span></h4><ul class="sm-list">${unplaced.map(c => `
           <li><div class="sm-li-main"><div>${esc(c.supplier)}</div><div class="sm-li-sub">${fmtD(c.start)} → ${fmtD(c.end)}${c.legacyLabel ? ' · ' + esc(c.legacyLabel) : ''}</div></div>
           ${this.opts.canManageRentals ? `<button class="sm-btn" data-assign="${esc(c.id)}">Place</button>` : ''}</li>`).join('')}</ul></div>` : ''}

@@ -1452,3 +1452,7 @@ table.cash-grid tr.is-today td{box-shadow:inset 0 1px 0 var(--pine), inset 0 -1p
 /* Cashier PINs (owner, 2026-10-03) */
 .cash-pin-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 12px;}
 .cash-pin{font:700 13px var(--font-mono);letter-spacing:.12em;background:var(--gold-tint);color:var(--ink);padding:2px 6px;border-radius:4px;}
+
+/* Rentals, map only (floor managers, owner 2026-10-03): no amounts, no List tab */
+.sm-nomoney .sm-money{display:none !important;}
+body.rentals-map-only #rentalViewTabs [data-view="list"]{display:none;}

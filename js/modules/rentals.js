@@ -22,15 +22,19 @@ const Rentals = (function () {
   const esc = escapeHtml;
   const money = n => '$' + Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
   const today = () => beirutToday();
+  // Map only (rentals.map without rentals.view — floor managers): the map, who rents what and until when,
+  // no amounts, billing, payments, list or reminders (owner, 2026-10-03).
+  const mapOnly = () => !can('rentals.view') && can('rentals.map');
 
   function adapter() {
-    if (!S.adapter) S.adapter = StoreMapSupabaseAdapter(sb, { userName: Session.profile?.display_name || Session.profile?.username || null, bucket: 'store-maps' });
+    if (!S.adapter) S.adapter = StoreMapSupabaseAdapter(sb, { userName: Session.profile?.display_name || Session.profile?.username || null, bucket: 'store-maps', mapOnly: mapOnly() });
     return S.adapter;
   }
 
   /* ---------------- start (after sign-in) and show ---------------- */
   // Reminders need only the contracts, so they run without opening the page.
   async function start() {
+    if (mapOnly()) return;   // no renewal reminders without the contracts
     try { S.contracts = await adapter().listContracts(); }
     catch (e) { console.error('Rentals: could not load contracts', e); return; }
     runReminders();
@@ -40,8 +44,9 @@ const Rentals = (function () {
   }
 
   async function show() {
+    if (mapOnly()) { S.view = 'map'; document.body.classList.add('rentals-map-only'); }
     renderTabs();
-    if (!S.map) await Promise.all([mountMap(), loadSales()]);
+    if (!S.map) await Promise.all([mountMap(), mapOnly() ? null : loadSales()]);
     renderList();
   }
   const keyOf = name => String(name || '').trim().toLowerCase();
@@ -80,6 +85,7 @@ const Rentals = (function () {
       adapter: adapter(),
       canEdit: can('rentals.layout'),
       canManageRentals: can('rentals.contracts'),
+      hideMoney: mapOnly(),
       currency: '$',
       today,
       toast: (msg, isError) => showToast(msg, isError),

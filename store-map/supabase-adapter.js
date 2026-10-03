@@ -117,6 +117,8 @@
       },
 
       async listContracts() {
+        // Map only (rentals.map, migration 037): supplier, spot, term and dates — no amounts, billing or payments.
+        if (opts.mapOnly) return must(await sb.rpc('rental_map_contracts')).map(r => Object.assign(rowToC(r), { amount: null, billed: true, paid: true, note: '' }));
         let out = [];
         for (let from = 0; ; from += 1000) {
           const rows = must(await sb.from('rental_contracts').select('*').order('start_date').range(from, from + 999));

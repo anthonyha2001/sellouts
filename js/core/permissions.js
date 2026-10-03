@@ -23,6 +23,7 @@ const PERMISSIONS = [
   ['promotions.archive', 'Promotions',    'Archive / unarchive',                                []],
   ['promotions.delete',  'Promotions',    'Delete promotions',                                  []],
   ['vendors.manage',     'Vendors',       'See and manage vendors and orders',                  []],
+  ['rentals.map',        'Rentals',       'See the store map: who rents each spot and until when (no amounts)', ['floor_manager']],
   ['rentals.view',       'Rentals',       'See the store map and contracts',                    []],
   ['rentals.contracts',  'Rentals',       'Add and change contracts, billing, sales',           []],
   ['rentals.layout',     'Rentals',       'Edit the map layout',                                []],
@@ -52,7 +53,7 @@ const PERMISSION_KEYS = PERMISSIONS.map(p => p[0]);
 // Which permissions open which section of the app (any one of them is enough).
 const SECTION_PERMS = {
   sellouts: ['sellouts.view'], onlinepromo: ['sellouts.online', 'sellouts.view'], creditnotes: ['creditnotes.view'], promotions: ['promotions.view'],
-  vendors: ['vendors.manage'], rentals: ['rentals.view'],
+  vendors: ['vendors.manage'], rentals: ['rentals.view', 'rentals.map'],
   delivery: ['delivery.orders', 'delivery.settle', 'delivery.customers', 'delivery.reports', 'delivery.manage'],
   cash: ['cash.view'], floorcheck: ['floorcheck.do', 'floorcheck.manage', 'rentals.spotcheck'],
   labels: ['labels.scan', 'labels.print'], activity: ['activity.view'], tools: ['tools.convert'], promoladies: ['promoladies.manage'], schedule: ['schedule.manage', 'schedule.edit'],
