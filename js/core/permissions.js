@@ -47,6 +47,7 @@ const PERMISSIONS = [
   ['promoladies.manage', 'Promo ladies',  'See and manage promo ladies',                        ['floor_manager']],
   ['schedule.manage',    'Staff schedule', 'Make the weekly schedule; staff list and PINs',       ['hr']],
   ['schedule.edit',      'Staff schedule', 'Edit the schedule (drafts and published weeks); HR is told about changes', []],
+  ['staff.manage',       'Staff',         'Staff list: every employee, job, phone, salary; create their app login', []],
 ];
 const PERMISSION_KEYS = PERMISSIONS.map(p => p[0]);
 
@@ -56,7 +57,7 @@ const SECTION_PERMS = {
   vendors: ['vendors.manage'], rentals: ['rentals.view', 'rentals.map'],
   delivery: ['delivery.orders', 'delivery.settle', 'delivery.customers', 'delivery.reports', 'delivery.manage'],
   cash: ['cash.view'], floorcheck: ['floorcheck.do', 'floorcheck.manage', 'rentals.spotcheck'],
-  labels: ['labels.scan', 'labels.print'], activity: ['activity.view'], tools: ['tools.convert'], promoladies: ['promoladies.manage'], schedule: ['schedule.manage', 'schedule.edit'],
+  labels: ['labels.scan', 'labels.print'], activity: ['activity.view'], tools: ['tools.convert'], promoladies: ['promoladies.manage'], schedule: ['schedule.manage', 'schedule.edit'], staff: ['staff.manage'],
 };
 // Within a group, the first permission ("view") is needed by the others (the Users editor keeps that true).
 const PERMISSION_GROUPS = [...new Set(PERMISSIONS.map(p => p[1]))];

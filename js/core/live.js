@@ -26,6 +26,7 @@ const Live = (function () {
     labels:      { tables: ['label_lists', 'label_items'],                        refresh: () => window.Labels && Labels.show() },
     promoladies: { tables: ['promo_ladies', 'promo_lady_attendance'],             refresh: () => window.PromoLadies && PromoLadies.show() },
     schedule:    { tables: ['schedule_weeks', 'schedule_requests', 'schedule_changes'],                                    refresh: () => window.Schedule && Schedule.show() },
+    staff:       { tables: ['staff'],                                             refresh: () => window.Staff && Staff.show() },
     users:       { tables: ['profiles', 'user_permissions'],                      refresh: () => window.UsersPage && UsersPage.show() },
     activity:    { tables: ['activity_log'],                                      refresh: () => window.ActivityPage && ActivityPage.show() },
   };

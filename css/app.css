@@ -1456,3 +1456,14 @@ table.cash-grid tr.is-today td{box-shadow:inset 0 1px 0 var(--pine), inset 0 -1p
 /* Rentals, map only (floor managers, owner 2026-10-03): no amounts, no List tab */
 .sm-nomoney .sm-money{display:none !important;}
 body.rentals-map-only #rentalViewTabs [data-view="list"]{display:none;}
+
+/* Staff page (owner, 2026-10-03) */
+.st-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;}
+.st-bar input[type="search"]{flex:1 1 220px;max-width:340px;}
+.st-count{margin:0 0 10px;}
+.st-table td{vertical-align:middle;}
+.st-table td.num,.st-table th.num{text-align:right;}
+.st-table .mono{font-family:var(--font-mono);font-size:12.5px;}
+.st-table a{color:inherit;}
+.st-note{display:block;color:var(--ink-soft);font-size:12px;white-space:normal;max-width:320px;}
+.st-table tr.st-left td{opacity:.6;}
