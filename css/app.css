@@ -1467,3 +1467,6 @@ body.rentals-map-only #rentalViewTabs [data-view="list"]{display:none;}
 .st-table a{color:inherit;}
 .st-note{display:block;color:var(--ink-soft);font-size:12px;white-space:normal;max-width:320px;}
 .st-table tr.st-left td{opacity:.6;}
+
+/* Staff schedule by department (owner, 2026-10-03) */
+.sh-drag.sh-drag-off{visibility:hidden;}

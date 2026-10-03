@@ -16,6 +16,10 @@
    Full day split (owner, 2026-10-02): "full:front/back" = AM at the front, PM at the back.
    Staff tab: the staff list (the cashiers table): position, usual
    station, PIN, active.
+   Everyone (owner, 2026-10-03; migration 043): the people come from the Staff list only, grouped
+   by department — Cashier supervisors, Cashiers, Floor & shelves, Warehouse, Delivery, Deli, Meat,
+   Fish, Bakery, Office. Front / Back only for cashiers and cashier supervisors. A person's key in
+   the week is their cashiers-list id (cashiers, supervisors, pickers) or their staff id (others).
    Permission: schedule.manage (role HR; admin). Migration 020.
    Public API: window.Schedule = { show }.
    ============================================================ */
@@ -33,6 +37,17 @@
   const dayLabel = (s, opts) => new Date(s + 'T00:00:00').toLocaleDateString('en-GB', opts);
   const weekTitle = w => `${dayLabel(w, { day: 'numeric', month: 'short' })} – ${dayLabel(addDays(w, 6), { day: 'numeric', month: 'short', year: 'numeric' })}`;
   const isSup = p => p.position === 'supervisor';
+  // Departments (owner, 2026-10-03), by job on the Staff page.
+  const DEPTS = [
+    ['sup', 'Cashier supervisors', ['cashier supervisor', 'supervisor']], ['cash', 'Cashiers', ['cashier']],
+    ['floor', 'Floor & shelves', ['floor manager', 'shelf worker']], ['wh', 'Warehouse', ['warehouse keeper', 'warehouse worker']],
+    ['delivery', 'Delivery', ['delivery supervisor', 'picker']], ['deli', 'Deli counter', ['deli counter']],
+    ['meat', 'Meat counter', ['meat counter']], ['fish', 'Fish counter', ['fish counter']], ['bakery', 'Bakery', ['bakery']],
+    ['office', 'Office', ['purchasing', 'senior accountant', 'hr']], ['other', 'Other', []]];
+  const deptOf = p => DEPTS.find(([, , jobs]) => jobs.includes(String(p.job || '').trim().toLowerCase()))?.[0] || 'other';
+  const DEPT_LABEL = Object.fromEntries(DEPTS.map(([k, l]) => [k, l]));
+  // Front / Back: cashiers and cashier supervisors only.
+  const hasStation = p => p.dept === 'sup' || p.dept === 'cash';
   // "am:front|08:30-13:00" -> shift, station, and the start / end when they differ from the shift's.
   const DEF = { am: ['07:30', '14:30'], pm: ['14:30', '22:00'], full: ['07:30', '22:00'] };
   const parse = code => {
@@ -66,13 +81,13 @@
   const applyTool = (p, cur, tool) => {
     const x = parse(cur);
     if (tool === 'front' || tool === 'back') {
-      if (!SHIFT[x.shift]) return cur;
+      if (!SHIFT[x.shift] || (p.dept && !hasStation(p))) return cur;
       const t = x.start || x.end ? `|${x.start || DEF[x.shift][0]}-${x.end || DEF[x.shift][1]}` : '';
       return `${x.shift}:${tool}${t}`;
     }
     if (!SHIFT[tool]) return tool;               // 'off', or '' to clear
     if (x.shift === tool) return cur;            // same shift: keep station and times
-    let st = x.station || p.default_station || '';
+    let st = p.dept && !hasStation(p) ? '' : x.station || p.default_station || '';
     if (isSplit(st) && tool !== 'full') st = halves(st)[tool === 'am' ? 0 : 1];
     return tool + (st ? ':' + st : '');
   };
@@ -86,11 +101,18 @@
   const OTHER_TOOLS = [['', 'Clear'], ['time', 'Times…']];
 
   /* ---------------- data ---------------- */
+  // The people: the Staff list only (schedule_staff(), migration 043). id = their key in the week.
   async function loadStaff() {
-    const { data, error } = await sb.from('cashiers').select('id, name, active, sort_order, has_pin, position, default_station').order('sort_order').order('name');
+    const { data, error } = await sb.rpc('schedule_staff');
     S.missing = !!error;
-    S.staff = (data || []).filter(p => p.position !== 'picker');   // pickers: Cash page only, not the schedule (migration 042)
+    S.staff = (data || []).map(r => ({ id: r.key, staffId: r.staff_id, cashierId: r.cashier_id, name: r.name, job: r.job, active: r.active,
+      sort_order: r.sort_order, position: r.pos || null, default_station: r.default_station, has_pin: r.has_pin }));
+    S.staff.forEach(p => { p.dept = deptOf(p); });
   }
+  // The groups shown, in department order, with who is in them this week.
+  const groups = () => DEPTS.map(([k, label]) => ({ k, label, list: people().filter(p => p.dept === k) })).filter(g => g.list.length);
+  // Staff tab: the cashiers list part (cashiers and cashier supervisors: usual station, PIN).
+  const tillStaff = () => S.staff.filter(p => p.cashierId && hasStation(p));
   // Who may do what: HR (schedule.manage) everything; supervisors (schedule.edit) edit, not publish.
   const isHR = () => can('schedule.manage');
   const dayPast = i => addDays(S.week, i) < beirutToday();
@@ -162,7 +184,7 @@
       if (!SHIFT[shift]) return;
       if (shift === 'am' || shift === 'full') c.am++;
       if (shift === 'pm' || shift === 'full') c.pm++;
-      stationsOf(station || p.default_station).forEach(st => { if (st === 'front') c.front++; else if (st === 'back') c.back++; });
+      if (hasStation(p)) stationsOf(station || p.default_station).forEach(st => { if (st === 'front') c.front++; else if (st === 'back') c.back++; });
     });
     return c;
   }
@@ -199,21 +221,22 @@
       const days = a[p.id] || [];
       const hours = Math.round(days.reduce((t, c) => t + hoursOf(c), 0) * 100) / 100;
       const off = days.filter(c => c === 'off').length;
-      return `<tr data-p="${p.id}" data-grp="${isSup(p) ? 'sup' : 'cash'}">
-        <th class="sh-name"><span class="sh-drag" data-drag title="Drag to move" aria-label="Drag to move"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="6" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="18" r="1"/></svg></span>${esc(p.name)}${p.active ? '' : ' <span class="muted-note">(inactive)</span>'}<small>${(isSup(p) ? 'Supervisor' : 'Cashier') + (p.default_station ? ' · ' + (p.default_station === 'front' ? 'Front' : 'Back') : '')}</small></th>
+      return `<tr data-p="${p.id}" data-grp="${p.dept}">
+        <th class="sh-name">${hasStation(p) ? `<span class="sh-drag" data-drag title="Drag to move" aria-label="Drag to move">`
+          : '<span class="sh-drag sh-drag-off" aria-hidden="true">'}<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="6" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="18" r="1"/></svg></span>${esc(p.name)}${p.active ? '' : ' <span class="muted-note">(inactive)</span>'}<small>${esc(p.job || '') + (hasStation(p) && p.default_station ? ' · ' + (p.default_station === 'front' ? 'Front' : 'Back') : '')}</small></th>
         ${dates.map((d, i) => { const c = days[i] || '', { shift } = parse(c); const q = askOf(p.id, i); return `<td class="sh-cell sh-${shift || 'none'}${editableDay(i) ? '' : ' sh-ro'}"><button type="button" data-day="${i}" ${editableDay(i) ? '' : 'disabled'} aria-label="${esc(p.name)} ${DAYS[i]}" ${q ? `title="Asked for ${ASK_LABEL[q]}"` : ''}>${cellHtml(c)}${q ? `<i class="sh-ask-dot ${shift === q ? 'ok' : ''}">${ASK_LABEL[q]}</i>` : ''}</button></td>`; }).join('')}
         <td class="num sh-hours">${hours ? hours + 'h' : '—'}<small>${off} off</small></td></tr>`;
     };
-    const sups = people().filter(isSup), cash = people().filter(p => !isSup(p));
-    // The count row under a group: how many work each day.
-    const countRow = (list, label) => `<tr class="sh-count"><th class="sh-name">${label} working</th>${dates.map((_, i) => {
-      const c = groupCount(list, a, i);
-      return `<td><b>AM ${c.am} · PM ${c.pm}</b><small>Front ${c.front} · Back ${c.back}</small></td>`; }).join('')}<td></td></tr>`;
+    const gs = groups();
+    // The count row under a group: how many work each day (Front / Back for the tills).
+    const countRow = g => `<tr class="sh-count"><th class="sh-name">${esc(g.label)} working</th>${dates.map((_, i) => {
+      const c = groupCount(g.list, a, i);
+      return `<td><b>AM ${c.am} · PM ${c.pm}</b>${g.k === 'sup' || g.k === 'cash' ? `<small>Front ${c.front} · Back ${c.back}</small>` : ''}</td>`; }).join('')}<td></td></tr>`;
     // Fill the week: the whole grid, one day for everyone, or one person's 7 days.
     const viewSwitch = `<div class="filter-row sh-views" id="shViews">
         ${[['grid', 'Week grid'], ['day', 'By day'], ['person', 'By person'], ['requests', `Requests (${(S.reqs || []).length})`]].map(([v, l]) => `<button type="button" data-view="${v}" class="${S.view === v ? 'active' : ''}">${l}</button>`).join('')}</div>`;
     if (S.view === 'requests') {
-      el('shBody').innerHTML = `${nav}${topHtml(row)}${viewSwitch}<div class="card">${requestsHtml(dates, sups, cash)}</div>`;
+      el('shBody').innerHTML = `${nav}${topHtml(row)}${viewSwitch}<div class="card">${requestsHtml(dates, gs)}</div>`;
       wireNav(); wireViews();
       el('shCopy')?.addEventListener('click', copyLast);
       el('shEmpty')?.addEventListener('click', emptyWeek);
@@ -222,7 +245,7 @@
       return;
     }
     if (S.view !== 'grid') {
-      el('shBody').innerHTML = `${nav}${topHtml(row)}${viewSwitch}<div class="card">${listEditorHtml(row, dates, sups, cash)}</div>`;
+      el('shBody').innerHTML = `${nav}${topHtml(row)}${viewSwitch}<div class="card">${listEditorHtml(row, dates, gs)}</div>`;
       wireNav(); wireViews(); wireListEditor(row);
       el('shCopy')?.addEventListener('click', copyLast);
       el('shEmpty')?.addEventListener('click', emptyWeek);
@@ -238,14 +261,13 @@
           ${STATION_TOOLS.map(([v, l]) => `<button type="button" class="sh-chip sh-${v || 'none'} ${S.brush.tool === v ? 'on' : ''}" data-tool="${v}">${l}</button>`).join('')}
           <span class="sh-brush-sep"></span>
           ${OTHER_TOOLS.map(([v, l]) => `<button type="button" class="sh-chip sh-${v || 'none'} ${S.brush.tool === v ? 'on' : ''}" data-tool="${v}">${l}</button>`).join('')}
-          <span class="muted-note">1 — pick a shift and click or drag across the days. 2 — pick Front or Back and go over the same days. Right-click a cell for exact times (arrives late / leaves early) or, on a full day, a different station for the AM and the PM. Keys on a cell: A P F O, 1 = Front, 2 = Back, T = times, Delete.</span>
+          <span class="muted-note">1 — pick a shift and click or drag across the days. 2 — pick Front or Back and go over the same days (cashiers and cashier supervisors). Right-click a cell for exact times (arrives late / leaves early) or, on a full day, a different station for the AM and the PM. Keys on a cell: A P F O, 1 = Front, 2 = Back, T = times, Delete.</span>
         </div>
         <div class="items-scroll" style="margin-bottom:0;"><table class="sh-grid">
         <thead><tr><th></th>${dates.map((d, i) => `<th>${DAYS[i]}<small>${dayLabel(d, { day: 'numeric', month: 'short' })}</small></th>`).join('')}<th class="num">Week</th></tr></thead>
         <tbody>
-          ${sups.length ? `<tr class="sh-group"><td colspan="9">Supervisors</td></tr>${sups.map(personRow).join('')}${countRow(sups, 'Supervisors')}` : ''}
-          ${cash.length ? `<tr class="sh-group"><td colspan="9">Cashiers</td></tr>${cash.map(personRow).join('')}${countRow(cash, 'Cashiers')}` : ''}
-          ${!people().length ? '<tr><td colspan="9" class="empty-note">No staff yet — add them in the Staff tab.</td></tr>' : ''}
+          ${gs.map(g => `<tr class="sh-group"><td colspan="9">${esc(g.label)}</td></tr>${g.list.map(personRow).join('')}${countRow(g)}`).join('')}
+          ${!people().length ? '<tr><td colspan="9" class="empty-note">No staff yet — add them on the Staff page.</td></tr>' : ''}
         </tbody>
       </table></div>
       <p class="muted-note" style="margin:10px 0 0;">AM ${SHIFT.am.time} · PM ${SHIFT.pm.time} · Full ${SHIFT.full.time}. Changes save by themselves; staff see the week once it is published.</p></div>`;
@@ -290,17 +312,17 @@
   }
   // The group's members take the group's slots of the whole list in their new order.
   async function saveGroupOrder(ids, movedId) {
-    const list = [...S.staff].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+    const list = S.staff.filter(p => p.cashierId).sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
     const set = new Set(ids);
     let k = 0;
     const next = list.map(p => { if (!set.has(p.id)) return p; const id = ids[k++]; return S.staff.find(x => x.id === id); });
     const changed = next.map((p, i) => ({ p, i })).filter(({ p, i }) => p.sort_order !== i);
     for (const { p, i } of changed) {
-      const { error } = await sb.from('cashiers').update({ sort_order: i }).eq('id', p.id);
+      const { error } = await sb.from('cashiers').update({ sort_order: i }).eq('id', p.cashierId);
       if (error) { showToast('Order not saved — ' + friendlyError(error), true); await loadStaff(); return renderWeek(); }
       p.sort_order = i;
     }
-    S.staff.sort((a, b) => a.sort_order - b.sort_order);
+    S.staff.sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
     const moved = S.staff.find(x => x.id === movedId);
     if (changed.length) logActivity('schedule', 'reorder_staff', { type: 'cashier', id: movedId }, `Moved ${moved?.name || 'a person'} to place ${ids.indexOf(movedId) + 1} of the ${isSup(moved || {}) ? 'supervisors' : 'cashiers'}`);
     renderWeek();
@@ -359,7 +381,7 @@
     };
   }
   // Everyone's requests for the week in one table (what used to come on WhatsApp), with their notes.
-  function requestsHtml(dates, sups, cash) {
+  function requestsHtml(dates, gs) {
     const reqs = S.reqs || [];
     if (!reqs.length) return '<div class="empty-state" style="padding:26px 16px;"><p class="big">No requests for this week yet</p><p>Cashiers send them from the cashier page (My requests), after their PIN.</p></div>';
     const a = S.row?.assignments || {};
@@ -371,11 +393,10 @@
           return `<td class="sh-rq sh-rq-${v || 'any'} ${v && cur === v ? 'ok' : ''}" title="${v ? (cur === v ? 'Given' : 'Not given yet') : ''}">${v ? ASK_LABEL[v] : '<span class="muted-note">any</span>'}</td>`; }).join('')}
         <td class="sh-rq-note">${q.note ? esc(q.note) : ''}</td></tr>`;
     };
-    const waiting = [...sups, ...cash].filter(p => !reqs.some(r => r.cashier_id === p.id));
+    const waiting = gs.filter(g => g.k === 'sup' || g.k === 'cash').flatMap(g => g.list).filter(p => !reqs.some(r => r.cashier_id === p.id));
     return `<div class="items-scroll" style="margin-bottom:0;"><table class="sh-grid sh-rq-table">
         <thead><tr><th></th>${dates.map((d, i) => `<th>${DAYS[i]}<small>${dayLabel(d, { day: 'numeric', month: 'short' })}</small></th>`).join('')}<th>Note</th></tr></thead>
-        <tbody>${sups.some(p => reqs.some(r => r.cashier_id === p.id)) ? '<tr class="sh-group"><td colspan="9">Supervisors</td></tr>' + sups.map(rowOf).join('') : ''}
-          ${cash.some(p => reqs.some(r => r.cashier_id === p.id)) ? '<tr class="sh-group"><td colspan="9">Cashiers</td></tr>' + cash.map(rowOf).join('') : ''}</tbody>
+        <tbody>${gs.filter(g => g.list.some(p => reqs.some(r => r.cashier_id === p.id))).map(g => `<tr class="sh-group"><td colspan="9">${esc(g.label)}</td></tr>` + g.list.map(rowOf).join('')).join('')}</tbody>
       </table></div>
       <p class="muted-note" style="margin:10px 0 0;">Outlined = already given in the schedule. ${waiting.length ? `No request yet from: ${waiting.map(p => esc(p.name)).join(', ')}.` : 'Everyone sent a request.'}</p>`;
   }
@@ -383,30 +404,30 @@
     el('shViews').onclick = e => { const b = e.target.closest('[data-view]'); if (!b) return; S.view = b.dataset.view; renderWeek(); };
   }
   // By day: everyone on one day. By person: one person's 7 days. Same buttons as the cashier page.
-  function listEditorHtml(row, dates, sups, cash) {
+  function listEditorHtml(row, dates, gs) {
     const a = row.assignments || {};
     const today = beirutToday();
     if (S.vday === null) { const t = dates.findIndex(d => d === today); S.vday = t >= 0 ? t : 0; }
-    const everyone = [...sups, ...cash];
+    const everyone = gs.flatMap(g => g.list);
     if (!S.vperson || !everyone.some(p => p.id === S.vperson)) S.vperson = everyone[0]?.id || null;
     const seg = (code, p, day) => {
       const x = parse(code), working = !!SHIFT[x.shift], t = custom(code) ? timesOf(code) : null, ro = !editableDay(day);
       return `<div class="sh-seg">${[['', '—'], ['am', 'AM'], ['pm', 'PM'], ['full', 'Full'], ['off', 'Off']].map(([v, l]) => `<button type="button" data-set="${v}" class="sh-seg-${v || 'none'} ${x.shift === v ? 'on' : ''}" ${ro ? 'disabled' : ''}>${l}</button>`).join('')}</div>
-        ${x.shift === 'full' ? ['am', 'pm'].map((h, k) => `<div class="sh-seg sh-seg-st sh-seg-half"><span>${h.toUpperCase()}</span>${[['front', 'Front'], ['back', 'Back']].map(([v, l]) => `<button type="button" data-set="half:${h}:${v}" class="${halves(x.station || p.default_station)[k] === v ? 'on' : ''}" ${ro ? 'disabled' : ''}>${l}</button>`).join('')}</div>`).join('')
+        ${!hasStation(p) ? '' : x.shift === 'full' ? ['am', 'pm'].map((h, k) => `<div class="sh-seg sh-seg-st sh-seg-half"><span>${h.toUpperCase()}</span>${[['front', 'Front'], ['back', 'Back']].map(([v, l]) => `<button type="button" data-set="half:${h}:${v}" class="${halves(x.station || p.default_station)[k] === v ? 'on' : ''}" ${ro ? 'disabled' : ''}>${l}</button>`).join('')}</div>`).join('')
           : `<div class="sh-seg sh-seg-st">${[['front', 'Front'], ['back', 'Back']].map(([v, l]) => `<button type="button" data-set="${v}" class="${working && x.station === v ? 'on' : ''}" ${working && !ro ? '' : 'disabled'}>${l}</button>`).join('')}</div>`}
         <button type="button" class="btn ghost small sh-le-time ${t ? 'has' : ''}" data-set="time" ${working && !ro ? '' : 'disabled'} title="Arrives late / leaves early">${t ? `${t[0]}–${t[1]}` : 'Times…'}</button>`;
     };
     if (S.view === 'day') {
       const d = S.vday;
       // Counted per group (owner, 2026-10-01): "Supervisors 1 AM · 1 PM | Cashiers 3 AM · 3 PM".
-      const cs = groupCount(sups, a, d), cc = groupCount(cash, a, d);
-      const grp = (label, k) => `<span class="sh-le-grpcount"><b>${label}</b> ${k.am} AM · ${k.pm} PM</span>`;
-      const line = p => `<li data-pid="${p.id}" data-day="${d}"><div class="sh-le-who"><b>${esc(p.name)} ${askTag(p.id, d, (a[p.id] || [])[d])}</b><small>${isSup(p) ? 'Supervisor' : 'Cashier'}${p.default_station ? ' · usually ' + (p.default_station === 'front' ? 'Front' : 'Back') : ''}</small></div>${seg((a[p.id] || [])[d], p, d)}</li>`;
+      const counts = gs.map(g => ({ g, c: groupCount(g.list, a, d) }));
+      const till = counts.filter(x => x.g.k === 'sup' || x.g.k === 'cash').reduce((t, x) => ({ front: t.front + x.c.front, back: t.back + x.c.back }), { front: 0, back: 0 });
+      const grp = (label, k) => `<span class="sh-le-grpcount"><b>${esc(label)}</b> ${k.am} AM · ${k.pm} PM</span>`;
+      const line = p => `<li data-pid="${p.id}" data-day="${d}"><div class="sh-le-who"><b>${esc(p.name)} ${askTag(p.id, d, (a[p.id] || [])[d])}</b><small>${esc(p.job || '')}${hasStation(p) && p.default_station ? ' · usually ' + (p.default_station === 'front' ? 'Front' : 'Back') : ''}</small></div>${seg((a[p.id] || [])[d], p, d)}</li>`;
       return `<div class="sh-le-strip">${dates.map((dt, i) => `<button type="button" data-vday="${i}" class="${i === d ? 'on' : ''}${dt === today ? ' today' : ''}"><span>${DAYS[i]}</span><b>${Number(dt.slice(8))}</b></button>`).join('')}</div>
         <p class="sh-le-count"><b>${dayLabel(dates[d], { weekday: 'long', day: 'numeric', month: 'long' })}</b></p>
-        <p class="sh-le-counts">${sups.length ? grp('Supervisors', cs) : ''}${cash.length ? grp('Cashiers', cc) : ''}<span class="sh-le-grpcount">Front ${cs.front + cc.front} · Back ${cs.back + cc.back}</span></p>
-        ${sups.length ? `<p class="sh-le-grp">Supervisors</p><ul class="sh-le">${sups.map(line).join('')}</ul>` : ''}
-        ${cash.length ? `<p class="sh-le-grp">Cashiers</p><ul class="sh-le">${cash.map(line).join('')}</ul>` : ''}`;
+        <p class="sh-le-counts">${counts.map(x => grp(x.g.label, x.c)).join('')}${till.front + till.back ? `<span class="sh-le-grpcount">Tills: Front ${till.front} · Back ${till.back}</span>` : ''}</p>
+        ${gs.map(g => `<p class="sh-le-grp">${esc(g.label)}</p><ul class="sh-le">${g.list.map(line).join('')}</ul>`).join('')}`;
     }
     const p = everyone.find(x => x.id === S.vperson);
     if (!p) return '<p class="empty-note">No staff yet — add them in the Staff tab.</p>';
@@ -415,7 +436,7 @@
     const idx = everyone.indexOf(p);
     return `<div class="sh-le-person">
         <button type="button" class="icon-btn" data-vstep="-1" ${idx <= 0 ? 'disabled' : ''} aria-label="Previous person"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
-        <select id="shVPerson" aria-label="Person">${sups.length ? `<optgroup label="Supervisors">${sups.map(x => `<option value="${x.id}" ${x.id === p.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</optgroup>` : ''}${cash.length ? `<optgroup label="Cashiers">${cash.map(x => `<option value="${x.id}" ${x.id === p.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</optgroup>` : ''}</select>
+        <select id="shVPerson" aria-label="Person">${gs.map(g => `<optgroup label="${esc(g.label)}">${g.list.map(x => `<option value="${x.id}" ${x.id === p.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</optgroup>`).join('')}</select>
         <button type="button" class="icon-btn" data-vstep="1" ${idx >= everyone.length - 1 ? 'disabled' : ''} aria-label="Next person"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></button>
         <span class="muted-note">${hours ? hours + 'h this week' : 'Nothing yet this week'} · ${days.filter(c => c === 'off').length} off</span>
       </div>
@@ -428,11 +449,11 @@
     const n = { am: 0, pm: 0, full: 0, off: 0, front: 0, back: 0, none: 0 };
     for (let i = 0; i < 7; i++) {
       const x = parse(days[i]);
-      if (SHIFT[x.shift]) { n[x.shift]++; stationsOf(x.station || p.default_station).forEach(st => { if (st in n) n[st]++; }); }
+      if (SHIFT[x.shift]) { n[x.shift]++; if (hasStation(p)) stationsOf(x.station || p.default_station).forEach(st => { if (st in n) n[st]++; }); }
       else if (x.shift === 'off') n.off++; else n.none++;
     }
     const chip = (k, label) => `<span class="sh-sum-chip sh-sum-${k} ${n[k] ? '' : 'zero'}"><b>${n[k]}</b> ${label}</span>`;
-    return `<div class="sh-sum">${chip('am', 'AM')}${chip('pm', 'PM')}${chip('full', 'Full')}${chip('off', 'Off')}<span class="sh-sum-sep"></span>${chip('front', 'Front')}${chip('back', 'Back')}${n.none ? `<span class="sh-sum-left">${n.none} day${n.none === 1 ? '' : 's'} not set</span>` : ''}</div>`;
+    return `<div class="sh-sum">${chip('am', 'AM')}${chip('pm', 'PM')}${chip('full', 'Full')}${chip('off', 'Off')}${hasStation(p) ? `<span class="sh-sum-sep"></span>${chip('front', 'Front')}${chip('back', 'Back')}` : ''}${n.none ? `<span class="sh-sum-left">${n.none} day${n.none === 1 ? '' : 's'} not set</span>` : ''}</div>`;
   }
   function wireListEditor(row) {
     const box = el('shBody').querySelector('.card:last-child');
@@ -440,7 +461,7 @@
       const b = e.target.closest('button'); if (!b) return;
       if (b.dataset.vday !== undefined) { S.vday = Number(b.dataset.vday); return renderWeek(); }
       if (b.dataset.vstep) {
-        const all = people().filter(isSup).concat(people().filter(p => !isSup(p)));
+        const all = groups().flatMap(g => g.list);
         const i = all.findIndex(x => x.id === S.vperson) + Number(b.dataset.vstep);
         if (all[i]) { S.vperson = all[i].id; renderWeek(); }
         return;
@@ -476,7 +497,7 @@
     if (!SHIFT[x.shift]) {   // empty or Off: start from the brush's shift (or AM)
       const sh = SHIFT[S.brush.tool] ? S.brush.tool : 'am';
       x = parse(applyTool(p, '', sh));
-      if (!x.station) x.station = p.default_station || 'front';
+      if (!x.station && hasStation(p)) x.station = p.default_station || 'front';
     }
     if (!el('shTimeOverlay')) document.body.insertAdjacentHTML('beforeend', `
       <div class="modal-overlay" id="shTimeOverlay">
@@ -505,7 +526,8 @@
       if (!keepTimes) { el('shTFrom').value = DEF[shift][0]; el('shTTo').value = DEF[shift][1]; }
       el('shTNote').textContent = `Usual ${SHIFT[shift].label}: ${DEF[shift][0]}–${DEF[shift][1]}.`;
       // A full day: one station for the AM half, one for the PM half.
-      el('shTStation2W').hidden = shift !== 'full';
+      el('shTStation2W').hidden = shift !== 'full' || !hasStation(p);
+      el('shTStation').parentElement.hidden = !hasStation(p);
       el('shTStationL').textContent = shift === 'full' ? 'AM station' : 'Station';
     };
     el('shTimeTitle').textContent = `${p.name} — ${DAYS[i]} ${dayLabel(addDays(S.week, i), { day: 'numeric', month: 'short' })}`;
@@ -523,8 +545,8 @@
       e.preventDefault();
       const shift = el('shTShift').value, from = el('shTFrom').value, to = el('shTTo').value;
       if (!from || !to || mins(to) <= mins(from)) return showToast('"Leaves at" must be after "Arrives at".', true);
-      const st = shift === 'full' ? joinSt(el('shTStation').value, el('shTStation2').value) : el('shTStation').value;
-      days[i] = withTimes(`${shift}:${st}`, from, to);
+      const st = !hasStation(p) ? '' : shift === 'full' ? joinSt(el('shTStation').value, el('shTStation2').value) : el('shTStation').value;
+      days[i] = withTimes(`${shift}${st ? ':' + st : ''}`, from, to);
       ov.classList.remove('open');
       save(); renderWeek();
       el('shBody').querySelector(`.sh-grid tr[data-p="${id}"] button[data-day="${i}"]`)?.focus();
@@ -620,7 +642,7 @@
       @media print{body{margin:8mm}}</style></head><body>
       <h1>La Valeur — Staff schedule</h1><p>Week of ${esc(weekTitle(w))} · AM ${SHIFT.am.time} · PM ${SHIFT.pm.time} · Full ${SHIFT.full.time}</p>
       <table><thead><tr><th></th>${dates.map((d, i) => `<th>${DAYS[i]}<br><small>${dayLabel(d, { day: 'numeric', month: 'short' })}</small></th>`).join('')}</tr></thead>
-      <tbody>${sect('Supervisors', people().filter(isSup))}${sect('Cashiers', people().filter(p => !isSup(p)))}</tbody></table>
+      <tbody>${groups().map(g => sect(esc(g.label), g.list)).join('')}</tbody></table>
       <script>setTimeout(()=>print(),300)<\/script></body></html>`);
     win.document.close();
   }
@@ -635,19 +657,19 @@
         <button class="btn small" type="submit">+ Add</button></form></div>
       <div class="card"><div class="items-scroll" style="margin-bottom:0;"><table class="items">
         <thead><tr><th>Name</th><th>Position</th><th>Usual station</th><th>PIN (cashier page)</th><th>Status</th><th></th></tr></thead>
-        <tbody id="shStaff">${S.staff.map(p => `<tr data-id="${p.id}">
+        <tbody id="shStaff">${tillStaff().map(p => `<tr data-id="${p.id}">
           <td><b>${esc(p.name)}</b></td>
           <td><select data-f="position"><option value="cashier" ${!isSup(p) ? 'selected' : ''}>Cashier</option><option value="supervisor" ${isSup(p) ? 'selected' : ''}>Supervisor</option></select></td>
           <td>${`<select data-f="default_station"><option value="">—</option><option value="front" ${p.default_station === 'front' ? 'selected' : ''}>Front</option><option value="back" ${p.default_station === 'back' ? 'selected' : ''}>Back</option></select>`}</td>
           <td>${p.has_pin ? '<span class="badge active">Set</span>' : '<span class="badge warn">No PIN</span>'} <button class="btn ghost small" data-act="pin">${p.has_pin ? 'Reset' : 'Set PIN'}</button></td>
           <td>${p.active ? '<span class="badge active">Active</span>' : '<span class="badge inactive">Inactive</span>'}</td>
           <td><button class="btn ghost small" data-act="toggle">${p.active ? 'Deactivate' : 'Activate'}</button></td></tr>`).join('') || '<tr><td colspan="6" class="empty-note">No staff yet.</td></tr>'}</tbody>
-      </table></div><p class="muted-note" style="margin:10px 0 0;">This is the same list as the cashiers in Cash; supervisors keep their cash differences too.</p></div>`;
+      </table></div><p class="muted-note" style="margin:10px 0 0;">Cashiers and cashier supervisors (the same people as on the Cash page). Everyone else is added on the Staff page and appears in the schedule by department.</p></div>`;
     el('shAdd').onsubmit = async e => {
       e.preventDefault();
       const name = el('shName').value.trim(); if (!name) return;
       const position = el('shPos').value;
-      const sort = Math.max(0, ...S.staff.map(p => p.sort_order || 0)) + 1;
+      const sort = Math.max(0, ...tillStaff().map(p => p.sort_order || 0)) + 1;
       const { error } = await sb.from('cashiers').insert({ name, sort_order: sort, position, default_station: el('shSt').value });
       if (error) return showToast(/duplicate|unique/i.test(error.message) ? `"${name}" is already on the list.` : 'Could not add — ' + friendlyError(error), true);
       logActivity('schedule', 'add_staff', { type: 'cashier', id: null }, `Added ${position} ${name}`);
@@ -659,7 +681,7 @@
       const patch = { [f]: e.target.value || null };
       const { error } = await sb.from('cashiers').update(patch).eq('id', p.id);
       if (error) return showToast('Not saved — ' + friendlyError(error), true);
-      Object.assign(p, patch); renderStaff();
+      Object.assign(p, patch); await loadStaff(); renderStaff();
     };
     el('shStaff').onclick = async e => {
       const b = e.target.closest('[data-act]'); if (!b) return;
@@ -668,7 +690,7 @@
         const { error } = await sb.from('cashiers').update({ active: !p.active }).eq('id', p.id);
         if (error) return showToast('Not saved — ' + friendlyError(error), true);
         p.active = !p.active; logActivity('schedule', p.active ? 'activate_staff' : 'deactivate_staff', { type: 'cashier', id: p.id }, `${p.active ? 'Activated' : 'Deactivated'} ${p.name}`);
-        return renderStaff();
+        await loadStaff(); return renderStaff();
       }
       const suggestion = String(crypto.getRandomValues(new Uint16Array(1))[0] % 10000).padStart(4, '0');
       const pin = await showPrompt(`4-digit PIN for ${p.name}:`, { defaultValue: suggestion, confirmLabel: 'Set PIN', placeholder: '4 digits' });

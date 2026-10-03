@@ -268,11 +268,13 @@ Deno.serve(async req => {
         let assignments: Record<string, string[]> = {};
         if (body.copy) {
           const d = new Date(week + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - 7);
-          const [{ data: prev }, { data: active }] = await Promise.all([
+          // Everyone still working: cashiers-list ids, and the staff ids of the other departments (migration 043).
+          const [{ data: prev }, { data: active }, { data: others }] = await Promise.all([
             db.from('schedule_weeks').select('assignments').eq('week_start', d.toISOString().slice(0, 10)).maybeSingle(),
             db.from('cashiers').select('id').eq('active', true),
+            db.from('staff').select('id').eq('active', true).is('cashier_id', null),
           ]);
-          const ids = new Set((active ?? []).map(c => c.id));
+          const ids = new Set([...(active ?? []), ...(others ?? [])].map(c => c.id));
           for (const [id, days] of Object.entries((prev?.assignments ?? {}) as Record<string, string[]>)) if (ids.has(id)) assignments[id] = days.slice(0, 7);
         }
         const { error } = await db.from('schedule_weeks').insert({ week_start: week, assignments, published: false, last_editor: me.name });
