@@ -84,6 +84,19 @@
     fresh: { name: 'Fresh & eggs', color: '#D6ECCF' },
     ethnic: { name: 'World food', color: '#F0D8C0' },
     alcohol: { name: 'Wines & spirits', color: '#DCCCE0' },
+    // Non food (owner, 2026-10-04; the Mezzanine plan)
+    babycare: { name: 'Baby care', color: '#F5C9C2' },
+    paper: { name: 'Paper & tissues', color: '#F2D3C9' },
+    femcare: { name: 'Feminine & adult care', color: '#F3CFDF' },
+    beauty: { name: 'Beauty', color: '#C9DCDE' },
+    bath: { name: 'Bath & soap', color: '#DDD3F0' },
+    haircare: { name: 'Hair care', color: '#CDDFF3' },
+    deodorant: { name: 'Deodorants', color: '#D3EACC' },
+    oralcare: { name: 'Oral care', color: '#CBE3E9' },
+    laundry: { name: 'Laundry', color: '#D2DEF5' },
+    homecare: { name: 'Kitchen & home', color: '#E8E1C6' },
+    detergents: { name: 'Detergents & cleaners', color: '#C7E6DA' },
+    cleaningtools: { name: 'Cleaning tools', color: '#E4DBCF' },
     other: { name: 'Other', color: '#E1E3DE' }
   };
   /* ---------------- icons (24×24, drawn as strokes) ----------------
@@ -110,6 +123,19 @@
     ethnic: 'M12 3a9 9 0 1 0 0 18 9 9 0 1 0 0-18 M3 12h18 M12 3c3.2 3.2 3.2 14.8 0 18 M12 3c-3.2 3.2-3.2 14.8 0 18',
     alcohol: 'M7 3h10v4.5a5 5 0 0 1-10 0Z M7 6h10 M12 12.5V20 M8 21h8',
     other: 'M3 7.5 12 3l9 4.5v9L12 21l-9-4.5Z M3 7.5l9 4.5 9-4.5 M12 12v9',
+    // Non food (owner, 2026-10-04)
+    babycare: 'M10 2h4v3h-4Z M9 5h6l1.5 3v11.5A2.5 2.5 0 0 1 14 22h-4a2.5 2.5 0 0 1-2.5-2.5V8Z M7.5 12h9 M7.5 16h9',
+    paper: 'M17 4H9a4 4 0 0 0 0 8h8 M17 4a4 4 0 0 1 0 8 4 4 0 0 1 0-8Z M17 7.5v1 M5 8v12h12v-8',
+    femcare: 'M12 3c3.3 0 5.5 3.6 5.5 9S15.3 21 12 21s-5.5-3.6-5.5-9S8.7 3 12 3Z M12 8v8 M9.5 12h5',
+    beauty: 'M9 22h6V12H9Z M10 12V7.5L14 4v8 M9 16h6',
+    bath: 'M3 15a3 3 0 0 1 3-3h10a3 3 0 0 1 0 6H6a3 3 0 0 1-3-3Z M14 9.5a2 2 0 1 0 0-4 2 2 0 1 0 0 4 M19 7a1.4 1.4 0 1 0 0-2.8 1.4 1.4 0 1 0 0 2.8 M9 9a1.2 1.2 0 1 0 0-2.4 1.2 1.2 0 1 0 0 2.4',
+    haircare: 'M3 8h18v4H3Z M5 12v7 M8 12v7 M11 12v7 M14 12v7 M17 12v7 M20 12v5',
+    deodorant: 'M8 9h8v12a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1Z M9.5 9V6h5v3 M12 6V3.5h3.5 M18 3l2-1 M18 5h2.5 M8 14h8',
+    oralcare: 'M7 3c-2.5 0-4 2-4 4.5 0 3 1.5 4.5 2 7 .5 3 1 6.5 2.5 6.5s1.5-3 2.5-5c.6-1.2 1.4-1.2 2 0 1 2 1 5 2.5 5s2-3.5 2.5-6.5c.5-2.5 2-4 2-7C21 5 19.5 3 17 3c-2 0-3 1-5 1S9 3 7 3Z',
+    laundry: 'M4 3h16v18H4Z M4 7h16 M7 5h1.5 M11 5h1 M12 10a4 4 0 1 0 0 8 4 4 0 1 0 0-8 M9.5 14.5c1.2-.8 2.4.8 5 0',
+    homecare: 'M3 11.5 12 4l9 7.5 M5 10v11h14V10 M10 21v-6h4v6',
+    detergents: 'M9 10h6l1.5 11h-9Z M10 10V7h4v3 M10 7 9 4h5.5L18 6 M19.5 5h2 M19.5 7.5l1.5 1 M19.5 2.5l1.5-1',
+    cleaningtools: 'M16 2 10 13 M5 13h9l-1.5 9h-6Z M8.5 13l-1 9 M11.5 13l-.5 9',
     /* spot types */
     endcap: 'M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9Z',
     side_gondola: 'M4 4v16 M20 4v16 M4 8h16 M4 13h16 M4 18h16',
