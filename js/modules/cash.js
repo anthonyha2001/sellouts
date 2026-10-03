@@ -44,11 +44,19 @@
   };
   const beirutHour = () => Number(new Date().toLocaleString('en-GB', { timeZone: 'Asia/Beirut', hour: '2-digit', hour12: false }));
   const CASHIER_COLS = 'id, name, active, sort_order, has_pin, failed_attempts, locked_until';
+  // When a cashier last opened the cashier page (migration 039): "today 09:14", "3 days ago", "never".
+  const seenLabel = at => {
+    if (!at) return 'never';
+    const d = new Date(at), days = Math.floor((new Date(todayStr()) - new Date(d.toLocaleDateString('en-CA', { timeZone: 'Asia/Beirut' }))) / 86400000);
+    const time = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Beirut' });
+    return days <= 0 ? 'today ' + time : days === 1 ? 'yesterday ' + time : days < 30 ? days + ' days ago' : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  };
   const fail = (what, error) => { console.error(error); showToast(`${what} — ${friendlyError(error)}`, true); };
 
   /* ---------------- data ---------------- */
   async function loadCashiers() {
-    let { data, error } = await sb.from('cashiers').select(CASHIER_COLS + ', position').order('sort_order').order('name');
+    let { data, error } = await sb.from('cashiers').select(CASHIER_COLS + ', position, last_seen_at').order('sort_order').order('name');
+    if (error && /last_seen_at/.test(error.message)) ({ data, error } = await sb.from('cashiers').select(CASHIER_COLS + ', position').order('sort_order').order('name'));   // before migration 039
     if (error && /position/.test(error.message)) ({ data, error } = await sb.from('cashiers').select(CASHIER_COLS).order('sort_order').order('name'));   // before migration 020
     if (error) return fail('Could not load cashiers', error);
     // Supervisors are cashiers too (owner, 2026-10-01): they stay in the grid with their differences.
@@ -575,7 +583,7 @@
         </form>
         <div class="items-scroll" style="margin-bottom:0;">
           <table class="items">
-            <thead><tr><th>Order</th><th>Name</th><th>Position</th><th>Status</th><th>PIN</th><th></th></tr></thead>
+            <thead><tr><th>Order</th><th>Name</th><th>Position</th><th>Status</th><th>PIN</th><th>Last opened the cashier page</th><th></th></tr></thead>
             <tbody>${S.cashiers.map((c, i) => {
               const locked = c.locked_until && new Date(c.locked_until).getTime() > now;
               return `<tr data-id="${esc(c.id)}">
@@ -590,13 +598,14 @@
                   <option value="supervisor" ${c.position === 'supervisor' ? 'selected' : ''}>Supervisor</option></select></td>
                 <td>${c.active ? '<span class="badge active">Active</span>' : '<span class="badge inactive">Inactive</span>'}</td>
                 <td>${locked ? `<span class="badge danger">Locked out</span>` : c.has_pin ? '<span class="badge active">Set</span>' : '<span class="badge warn">Not set</span>'}${S.pins && c.has_pin ? (S.pins.get(c.id) ? ` <code class="cash-pin">${esc(S.pins.get(c.id))}</code>` : ' <span class="muted-note">not visible</span>') : ''}</td>
+                <td class="muted-note" style="white-space:nowrap;">${esc(seenLabel(c.last_seen_at))}</td>
                 <td><div class="icon-actions" style="justify-content:flex-end;">
                   <button class="btn secondary small" data-act="pin">${c.has_pin ? 'Reset PIN' : 'Set PIN'}</button>
                   ${locked ? '<button class="btn secondary small" data-act="unlock">Unlock</button>' : ''}
                   <button class="btn ghost small" data-act="rename">Rename</button>
                   <button class="btn ghost small" data-act="toggle">${c.active ? 'Deactivate' : 'Activate'}</button>
                 </div></td></tr>`;
-            }).join('') || '<tr><td colspan="6" class="empty-note">No cashiers yet.</td></tr>'}</tbody>
+            }).join('') || '<tr><td colspan="7" class="empty-note">No cashiers yet.</td></tr>'}</tbody>
           </table>
         </div>
       </div>

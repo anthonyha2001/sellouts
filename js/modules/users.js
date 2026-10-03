@@ -385,17 +385,19 @@
     renderActivity();
   }
 
+  // cashier_page (migration 039): what cashiers do on the cashier page, under their own name.
+  const MODULE_LABEL = { cashier_page: 'Cashier page' };
   function renderActivity() {
-    const modules = [...new Set(entries.map(e => e.module))].sort();
-    document.getElementById('actModules').innerHTML = [['', 'All'], ...modules.map(m => [m, m])]
+    const modules = [...new Set(entries.map(e => e.module).concat('cashier_page'))].sort();
+    document.getElementById('actModules').innerHTML = [['', 'All'], ...modules.map(m => [m, MODULE_LABEL[m] || m])]
       .map(([v, l]) => `<button data-module="${escapeHtml(v)}" class="${actFilter.module === v ? 'active' : ''}">${escapeHtml(l)}</button>`).join('');
     const list = entries.filter(e => (!actFilter.module || e.module === actFilter.module) &&
       (!actFilter.q || [e.username, e.action, e.summary, e.entity_type].join(' ').toLowerCase().includes(actFilter.q)));
     document.getElementById('actBody').innerHTML = list.map((e, i) => `
       <tr data-i="${i}" style="cursor:${e.details ? 'pointer' : 'default'};">
         <td style="font-family:var(--font-mono);font-size:12px;">${escapeHtml(fmtWhen(e.at))}</td>
-        <td>${escapeHtml(e.username || '—')}${e.role ? ` <span class="muted-note">${escapeHtml(ROLES[e.role]?.label || e.role)}</span>` : ''}</td>
-        <td><span class="badge inactive">${escapeHtml(e.module)}</span></td>
+        <td>${escapeHtml(e.username || '—')}${e.role ? ` <span class="muted-note">${escapeHtml(ROLES[e.role]?.label || ({ cashier: 'Cashier', supervisor: 'Supervisor' })[e.role] || e.role)}</span>` : ''}</td>
+        <td><span class="badge ${e.module === 'cashier_page' ? 'warn' : 'inactive'}">${escapeHtml(MODULE_LABEL[e.module] || e.module)}</span></td>
         <td style="font-family:var(--font-mono);font-size:12px;">${escapeHtml(e.action)}</td>
         <td style="white-space:normal;">${escapeHtml(e.summary || '')}</td>
       </tr>

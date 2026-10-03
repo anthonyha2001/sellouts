@@ -24,6 +24,11 @@
 // POST { action: 'req_save', week_start, days, note } -> { ok }  refused once the week is published
 // POST { action: 'draft_submit', week_start }     -> { ok }  "Send to HR": HR is notified (push-alerts) and publishes
 //
+// Activity (migration 039): what a cashier does here goes into activity_log (module "cashier_page", under
+// their name): opened the page (once per 30 minutes), wrong PIN / locked out, changed their PIN, sent
+// requests, turned notifications on, supervisors' draft (started, edited — once per 30 minutes, sent).
+// cashiers.last_seen_at = when they last opened the page.
+//
 // Deploy with JWT verification OFF (the page has no user session).
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
@@ -94,6 +99,22 @@ function monthEnd(ym: string) {
 }
 
 // The cashier's name + PIN: null when they are right, otherwise the error response to send.
+// One line in the activity log, under the cashier's name. `once`: not again for the same action within 30 minutes.
+async function logAs(cashierId: string, action: string, summary: string, details: Record<string, unknown> | null = null, once = false) {
+  try {
+    if (once) {
+      const since = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+      const { count } = await db.from('activity_log').select('id', { count: 'exact', head: true })
+        .eq('module', 'cashier_page').eq('action', action).eq('entity_id', cashierId).gte('at', since);
+      if (count) return;
+    }
+    const { data: c } = await db.from('cashiers').select('name, position').eq('id', cashierId).maybeSingle();
+    if (!c) return;
+    await db.from('activity_log').insert({ username: c.name, role: c.position === 'supervisor' ? 'supervisor' : 'cashier',
+      module: 'cashier_page', action, entity_type: 'cashier', entity_id: cashierId, summary: `${c.name} ${summary}`, details });
+  } catch (e) { console.error('activity log', e); }
+}
+
 async function pinError(body: Record<string, unknown>): Promise<Response | null> {
   const cashierId = String(body.cashier_id ?? '');
   const pin = String(body.pin ?? '');
@@ -102,8 +123,8 @@ async function pinError(body: Record<string, unknown>): Promise<Response | null>
   const { data: check, error: checkErr } = await db.rpc('cashier_verify_pin', { p_cashier: cashierId, p_pin: pin });
   if (checkErr) throw checkErr;
   const result = Array.isArray(check) ? check[0] : check;
-  if (result.status === 'locked') return json({ error: 'Too many wrong PINs. Try again later.', locked_until: result.locked_until }, 423);
-  if (result.status === 'wrong') return json({ error: 'Wrong PIN.', attempts_left: result.attempts_left }, 401);
+  if (result.status === 'locked') { await logAs(cashierId, 'locked_out', 'is locked out (too many wrong PINs)', { until: result.locked_until }, true); return json({ error: 'Too many wrong PINs. Try again later.', locked_until: result.locked_until }, 423); }
+  if (result.status === 'wrong') { await logAs(cashierId, 'wrong_pin', `typed a wrong PIN (${result.attempts_left} tries left)`); return json({ error: 'Wrong PIN.', attempts_left: result.attempts_left }, 401); }
   if (result.status === 'no_pin') return json({ error: 'No PIN has been set for you yet. Ask your manager.' }, 403);
   if (result.status !== 'ok') return json({ error: 'Choose your name.' }, 404);
   return null;
@@ -128,6 +149,10 @@ Deno.serve(async req => {
       const bad = await pinError(body);
       if (bad) return bad;
 
+      await Promise.all([
+        logAs(cashierId, 'opened', 'opened the cashier page', null, true),
+        db.from('cashiers').update({ last_seen_at: new Date().toISOString() }).eq('id', cashierId),
+      ]);
       const months = beirutMonths();
       const month = months.includes(String(body.month)) ? String(body.month) : months[0];
       // Always LBP, like the Cash page (js/modules/cash.js CURRENCY); the old USD rows stay in the
@@ -163,6 +188,7 @@ Deno.serve(async req => {
         return json({ error: 'That PIN is too easy to guess. Choose another one.' }, 400);
       const { error } = await db.rpc('cashier_change_pin', { p_cashier: String(body.cashier_id), p_pin: next });
       if (error) throw error;
+      await logAs(String(body.cashier_id), 'change_pin', 'changed their PIN');   // never the PIN itself
       return json({ ok: true });
     }
 
@@ -177,6 +203,7 @@ Deno.serve(async req => {
         user_agent: (req.headers.get('user-agent') ?? '').slice(0, 300), created_at: new Date().toISOString(), failures: 0,
       }, { onConflict: 'endpoint' });
       if (error) throw error;
+      await logAs(String(body.cashier_id), 'notifications_on', 'turned on notifications on their phone', null, true);
       return json({ ok: true });
     }
 
@@ -205,6 +232,8 @@ Deno.serve(async req => {
       const note = String(body.note ?? '').trim().slice(0, 300) || null;
       const { error } = await db.from('schedule_requests').upsert({ week_start: week, cashier_id: me, days, note, updated_at: new Date().toISOString() }, { onConflict: 'week_start,cashier_id' });
       if (error) throw error;
+      const asked = days.map((d, i) => d ? `${['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][i]} ${d === 'off' ? 'Off' : d === 'full' ? 'Full' : d.toUpperCase()}` : '').filter(Boolean);
+      await logAs(me, 'request', `sent their requests for the week of ${week}${asked.length ? ': ' + asked.join(', ') : ''}`, { week_start: week, days, note });
       return json({ ok: true });
     }
 
@@ -248,6 +277,7 @@ Deno.serve(async req => {
         }
         const { error } = await db.from('schedule_weeks').insert({ week_start: week, assignments, published: false, last_editor: me.name });
         if (error && !/duplicate/i.test(error.message)) throw error;
+        await logAs(String(body.cashier_id), 'draft_start', `started the draft schedule of the week of ${week}${body.copy ? ' (copied from the week before)' : ''}`, { week_start: week });
         return json({ ok: true });
       }
 
@@ -257,6 +287,7 @@ Deno.serve(async req => {
         if (!person) return json({ error: 'Unknown person.' }, 400);
         const { data, error } = await db.rpc('schedule_set_cell', { p_week: week, p_staff: staffId, p_day: day, p_code: code, p_editor: me.name });
         if (error) return json({ error: /published/i.test(error.message) ? 'This week is published — ask HR to unpublish it to change it.' : 'Not saved: ' + error.message }, 409);
+        await logAs(String(body.cashier_id), 'draft_edit', `edited the draft schedule of the week of ${week}`, { week_start: week }, true);
         return json({ days: data });
       }
 
@@ -265,6 +296,7 @@ Deno.serve(async req => {
           .eq('week_start', week).eq('published', false).select('week_start');
         if (error) throw error;
         if (!data?.length) return json({ error: 'This week is already published.' }, 409);
+        await logAs(String(body.cashier_id), 'draft_send', `sent the draft schedule of the week of ${week} to HR`, { week_start: week });
         return json({ ok: true });
       }
       return json({ error: 'Unknown action' }, 400);
