@@ -20,6 +20,7 @@
     view: 'grid', person: null,  // Month grid | By cashier (owner, 2026-10-03)
     jump: true,                  // next grid render: scroll to today (set on open / month change)
     importPlan: null,
+    pins: null,                  // id -> PIN while "Show PINs" is on (cashier_pins(), migration 036)
   };
 
   /* ---------------- helpers ---------------- */
@@ -562,6 +563,12 @@
     body.innerHTML = `
       <div class="card">
         <div class="cash-card-head"><h3 style="margin:0;">Cashiers</h3><span class="muted-note">The grid shows active cashiers in this order. Drag a row by its handle to move it.</span></div>
+        <div class="cash-pin-bar">
+          <button type="button" class="btn secondary small" id="cashShowPins">${S.pins ? 'Hide PINs' : 'Show PINs'}</button>
+          <button type="button" class="btn secondary small" id="cashExportPins">Export PINs (Excel)</button>
+          ${S.pins && S.cashiers.some(c => c.active && !S.pins.get(c.id)) ? `<button type="button" class="btn small" id="cashNewPins">New PINs for the ${S.cashiers.filter(c => c.active && !S.pins.get(c.id)).length} without a visible one</button>` : ''}
+          <span class="muted-note">PINs set before 3 Oct 2026 can't be shown — set them again (or use the button) to see them.</span>
+        </div>
         <form id="cashAddForm" class="cash-add">
           <input type="text" id="cashNewName" placeholder="New cashier's name" required>
           <button class="btn small" type="submit">+ Add cashier</button>
@@ -582,7 +589,7 @@
                   <option value="cashier" ${c.position !== 'supervisor' ? 'selected' : ''}>Cashier</option>
                   <option value="supervisor" ${c.position === 'supervisor' ? 'selected' : ''}>Supervisor</option></select></td>
                 <td>${c.active ? '<span class="badge active">Active</span>' : '<span class="badge inactive">Inactive</span>'}</td>
-                <td>${locked ? `<span class="badge danger">Locked out</span>` : c.has_pin ? '<span class="badge active">Set</span>' : '<span class="badge warn">Not set</span>'}</td>
+                <td>${locked ? `<span class="badge danger">Locked out</span>` : c.has_pin ? '<span class="badge active">Set</span>' : '<span class="badge warn">Not set</span>'}${S.pins && c.has_pin ? (S.pins.get(c.id) ? ` <code class="cash-pin">${esc(S.pins.get(c.id))}</code>` : ' <span class="muted-note">not visible</span>') : ''}</td>
                 <td><div class="icon-actions" style="justify-content:flex-end;">
                   <button class="btn secondary small" data-act="pin">${c.has_pin ? 'Reset PIN' : 'Set PIN'}</button>
                   ${locked ? '<button class="btn secondary small" data-act="unlock">Unlock</button>' : ''}
@@ -612,6 +619,9 @@
         </form>
       </div>`;
 
+    el('cashShowPins').onclick = togglePins;
+    el('cashExportPins').onclick = exportPins;
+    el('cashNewPins')?.addEventListener('click', renewPins);
     el('cashAddForm').onsubmit = async e => {
       e.preventDefault();
       const name = el('cashNewName').value.trim(); if (!name) return;
@@ -724,8 +734,52 @@
       c.has_pin = true; c.failed_attempts = 0; c.locked_until = null;
       logActivity('cash', 'set_cashier_pin', { type: 'cashier', id }, `Set a new PIN for ${c.name}`);   // never the PIN itself
       renderCashiers();
-      await showConfirm(`PIN set. Give it to ${c.name} privately:\n\n${pin.trim()}\n\nIt can't be looked up later; set a new one if it's forgotten.`, 'Done');
+      if (S.pins) S.pins.set(id, pin.trim());
+      await showConfirm(`PIN set. Give it to ${c.name} privately:\n\n${pin.trim()}\n\nYou can see it again with Show PINs or Export PINs.`, 'Done');
     }
+  }
+
+  /* ---------------- PINs: show, export, renew (migration 036) ---------------- */
+  async function loadPins() {
+    const { data, error } = await sb.rpc('cashier_pins');
+    if (error) { fail('Could not load the PINs', error); return null; }
+    return new Map((data || []).map(r => [r.id, r.pin || '']));
+  }
+  async function togglePins() {
+    if (S.pins) { S.pins = null; return renderCashiers(); }
+    S.pins = await loadPins(); if (!S.pins) return;
+    logActivity('cash', 'view_cashier_pins', { type: 'cashier', id: 'all' }, 'Looked at the cashier PINs');
+    renderCashiers();
+  }
+  async function exportPins() {
+    const pins = await loadPins(); if (!pins) return;
+    const aoa = [['Name', 'Position', 'Status', 'PIN']];
+    S.cashiers.forEach(c => aoa.push([c.name, c.position === 'supervisor' ? 'Supervisor' : 'Cashier', c.active ? 'Active' : 'Inactive',
+      pins.get(c.id) || (c.has_pin ? 'set before 3 Oct 2026 — set it again to see it' : 'no PIN')]));
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = [{ wch: 24 }, { wch: 12 }, { wch: 10 }, { wch: 18 }];
+    // The PIN column as text, so 0042 keeps its zeros.
+    for (let r = 1; r < aoa.length; r++) { const cell = ws[XLSX.utils.encode_cell({ r, c: 3 })]; if (cell) { cell.t = 's'; cell.z = '@'; } }
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'PINs');
+    XLSX.writeFile(wb, `cashier-pins-${todayStr()}.xlsx`);
+    logActivity('cash', 'export_cashier_pins', { type: 'cashier', id: 'all' }, 'Exported the cashier PINs');
+  }
+  // Active cashiers whose PIN can't be shown (set before 036, or none): a new random PIN each.
+  async function renewPins() {
+    const list = S.cashiers.filter(c => c.active && !S.pins?.get(c.id));
+    if (!list.length) return;
+    if (!(await showConfirm(`Give a new PIN to ${list.length} cashier${list.length === 1 ? '' : 's'} (${list.map(c => c.name).join(', ')})? Their old PIN stops working — give them the new one.`, 'New PINs'))) return;
+    let done = 0;
+    for (const c of list) {
+      const pin = String(crypto.getRandomValues(new Uint16Array(1))[0] % 10000).padStart(4, '0');
+      const { error } = await sb.rpc('set_cashier_pin', { p_cashier: c.id, p_pin: pin });
+      if (error) { fail(`Could not set the PIN of ${c.name}`, error); break; }
+      c.has_pin = true; c.failed_attempts = 0; c.locked_until = null; done++;
+    }
+    logActivity('cash', 'renew_cashier_pins', { type: 'cashier', id: 'all' }, `Set new PINs for ${done} cashier${done === 1 ? '' : 's'}`);
+    S.pins = await loadPins();
+    renderCashiers();
+    showToast(`${done} new PIN${done === 1 ? '' : 's'} set — export them to hand them out.`);
   }
 
   async function saveSettings(e) {
