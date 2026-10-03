@@ -75,7 +75,7 @@ async function teamOf() {
   if (error) { console.error(error); return []; }
   return (weeks ?? []).map(w => {
     const a = (w.assignments ?? {}) as Record<string, string[]>;
-    const people = (staff ?? []).filter(p => p.position !== 'picker' && (p.active || (a[p.id] ?? []).some(Boolean)))
+    const people = (staff ?? []).filter(p => ['cashier', 'supervisor'].includes(p.position ?? 'cashier') && (p.active || (a[p.id] ?? []).some(Boolean)))
       .map(p => ({ name: p.name, position: p.position ?? 'cashier', days: (a[p.id] ?? []).slice(0, 7) }));
     return { week_start: w.week_start, people };
   });
@@ -247,7 +247,7 @@ Deno.serve(async req => {
       if (body.action === 'draft_get') {
         const [{ data: rows, error }, { data: staff }, { data: reqs }] = await Promise.all([
           db.from('schedule_weeks').select('week_start, published, submitted_at, submitted_by, last_editor, assignments').in('week_start', weeks),
-          db.from('cashiers').select('id, name, position, default_station').eq('active', true).neq('position', 'picker').order('sort_order').order('name'),
+          db.from('cashiers').select('id, name, position, default_station').eq('active', true).in('position', ['cashier', 'supervisor']).order('sort_order').order('name'),
           db.from('schedule_requests').select('cashier_id, days, note').eq('week_start', week),
         ]);
         if (error) throw error;

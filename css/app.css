@@ -1479,3 +1479,8 @@ body.row-drag-on,body.row-drag-on *{cursor:grabbing !important;user-select:none;
 .row-dragging > th,.row-dragging > td,.row-dragging{background:var(--pine-tint) !important;}
 .sh-grid .sh-name .row-drag{margin:0 4px 0 -4px;}
 .st-table td.st-drag{width:30px;padding-right:0;}
+
+/* Staff schedule: a tab per department (owner, 2026-10-04) */
+.sh-dept-tabs{flex-wrap:wrap;}
+.sh-tab-n{display:inline-block;min-width:18px;padding:0 5px;margin-left:4px;border-radius:999px;font:700 10px/16px var(--font-mono);background:var(--line);color:var(--ink-soft);text-align:center;}
+.sh-dept-tabs button.active .sh-tab-n{background:rgba(255,255,255,.25);color:inherit;}

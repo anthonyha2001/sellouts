@@ -17,12 +17,14 @@
   const el = id => document.getElementById(id);
   const esc = escapeHtml;
   // The store's jobs (owner, 2026-10-03; migration 041). Cashier and Cashier supervisor are also in the cashiers list.
-  const JOBS = ['Cashier', 'Cashier supervisor', 'Delivery supervisor', 'Deli counter', 'Meat counter', 'Fish counter', 'Bakery',
+  const JOBS = ['Cashier', 'Cashier supervisor', 'Delivery supervisor', 'Deli counter', 'Meat counter', 'Fish counter', 'Vegetables', 'Bakery',
     'Picker', 'Warehouse keeper', 'Warehouse worker', 'Shelf worker', 'Purchasing', 'Senior accountant', 'HR', 'Floor manager'];
   // The app role a job usually gets (the admin can change it when creating the login).
   const ROLE_OF = { 'senior accountant': 'accountant', 'delivery supervisor': 'delivery', 'floor manager': 'floor_manager', hr: 'hr' };
   const roleFor = job => ROLE_OF[String(job || '').trim().toLowerCase()] || 'shelf';
-  const inCashList = job => ['cashier', 'cashier supervisor', 'supervisor', 'picker'].includes(String(job || '').trim().toLowerCase());
+  const inCashList = job => ['cashier', 'cashier supervisor', 'supervisor', 'picker', 'delivery supervisor'].includes(String(job || '').trim().toLowerCase());
+  // Front / Back at the tills: cashiers and cashier supervisors.
+  const atTills = job => ['cashier', 'cashier supervisor', 'supervisor'].includes(String(job || '').trim().toLowerCase());
   const isShelf = job => String(job || '').trim().toLowerCase() === 'shelf worker';
   const salaryText = n => n === null || n === undefined || n === '' ? '' : Number(n).toLocaleString('en-US');
 
@@ -50,6 +52,9 @@
     S.missing = !!error;
     if (error) { console.warn('Staff: not set up (migration 040?)', error.message); S.list = []; return; }
     S.list = data || [];
+    // PIN and usual station live in the cashiers list (migration 045: readable with staff.manage).
+    const { data: cs } = await sb.from('cashiers').select('id, has_pin, default_station, locked_until');
+    S.cash = new Map((cs || []).map(c => [c.id, c]));
     if (isAdmin() && !S.users.size) {
       try { const { users } = await callAdmin('list', {}); S.users = new Map(users.map(u => [u.id, u])); } catch (e) { /* logins column stays short */ }
     }
@@ -87,7 +92,7 @@
       <p class="muted-note st-count">${S.list.filter(p => p.active).length} working · ${Object.entries(jobs).sort((a, b) => b[1] - a[1]).map(([j, n]) => `${n} ${esc(j)}`).join(' · ')}</p>
       <div class="card" style="padding:0;"><div class="items-scroll" style="margin:0;border:0;">
         <table class="items st-table">
-          <thead><tr><th></th><th>Name</th><th>Job</th><th>Phone</th><th>Started</th><th class="num">Salary</th><th>App login</th><th></th></tr></thead>
+          <thead><tr><th></th><th>Name</th><th>Job</th><th>Phone</th><th>Started</th><th class="num">Salary</th><th>PIN</th><th>App login</th><th></th></tr></thead>
           <tbody>${list.map(p => `<tr data-id="${esc(p.id)}" class="${p.active ? '' : 'st-left'}">
             <td class="st-drag">${canDrag() ? RowDrag.handle() : ''}</td>
             <td><b>${esc(p.name)}</b>${p.active ? '' : ' <span class="badge inactive">Left</span>'}${p.note ? `<small class="st-note">${esc(p.note)}</small>` : ''}</td>
@@ -95,11 +100,12 @@
             <td class="mono">${p.phone ? `<a href="tel:${esc(p.phone.replace(/[^\d+]/g, ''))}">${esc(p.phone)}</a>` : ''}</td>
             <td class="mono">${p.start_date ? esc(fmtDate(p.start_date)) : ''}</td>
             <td class="num mono">${esc(salaryText(p.salary))}</td>
+            <td>${pinCell(p)}</td>
             <td>${p.user_id ? `<span class="badge active">${esc(loginName(p))}</span>` : isAdmin() && p.active ? '<button type="button" class="btn secondary small" data-act="login">Create login</button>' : '<span class="muted-note">—</span>'}</td>
             <td><div class="icon-actions" style="justify-content:flex-end;">
               <button type="button" class="btn ghost small" data-act="edit">Edit</button>
               <button type="button" class="btn ghost small" data-act="toggle">${p.active ? 'Left' : 'Back'}</button>
-            </div></td></tr>`).join('') || `<tr><td colspan="8" class="empty-note">${S.list.length ? 'Nobody matches.' : 'No staff yet — add the first person.'}</td></tr>`}</tbody>
+            </div></td></tr>`).join('') || `<tr><td colspan="9" class="empty-note">${S.list.length ? 'Nobody matches.' : 'No staff yet — add the first person.'}</td></tr>`}</tbody>
         </table></div></div>
       ${canDrag() ? '<p class="muted-note" style="margin:8px 0 0;">Drag a row by its handle (⋮⋮) to change the order.</p>' : ''}`;
     if (canDrag()) RowDrag.attach(el('stBody').querySelector('.st-table tbody'), { onDrop: saveOrder });
@@ -111,6 +117,26 @@
     if (error) showToast('Order not saved — ' + friendlyError(error), true);
     else { const p = S.list.find(x => x.id === movedId); logActivity('staff', 'reorder', { type: 'staff', id: movedId }, `Moved ${p?.name || 'a person'} to place ${ids.indexOf(movedId) + 1}`); }
     await load(); render();
+  }
+
+  // PIN for the cashier page: cashiers, cashier supervisors, pickers and delivery supervisors.
+  function pinCell(p) {
+    const c = p.cashier_id && S.cash?.get(p.cashier_id);
+    if (!c) return inCashList(p.job) && p.active ? '<span class="muted-note">saving…</span>' : '';
+    const locked = c.locked_until && new Date(c.locked_until) > new Date();
+    return `${locked ? '<span class="badge danger">Locked out</span>' : c.has_pin ? '<span class="badge active">Set</span>' : '<span class="badge warn">No PIN</span>'}
+      ${p.active ? `<button type="button" class="btn ghost small" data-act="pin">${c.has_pin ? 'Reset' : 'Set PIN'}</button>` : ''}`;
+  }
+  async function setPin(p) {
+    const suggestion = String(crypto.getRandomValues(new Uint16Array(1))[0] % 10000).padStart(4, '0');
+    const pin = await showPrompt(`4-digit PIN for ${p.name} (cashier page):`, { defaultValue: suggestion, confirmLabel: 'Set PIN', placeholder: '4 digits' });
+    if (pin === null) return;
+    if (!/^\d{4}$/.test(pin.trim())) return showToast('The PIN must be exactly 4 digits.', true);
+    const { error } = await sb.rpc('set_cashier_pin', { p_cashier: p.cashier_id, p_pin: pin.trim() });
+    if (error) return showToast('Could not set the PIN — ' + friendlyError(error), true);
+    logActivity('staff', 'set_pin', { type: 'cashier', id: p.cashier_id }, `Set a new PIN for ${p.name}`);   // never the PIN itself
+    await load(); render();
+    await showConfirm(`PIN set. Give it to ${p.name} privately:\n\n${pin.trim()}\n\nThey open the cashier page, choose their name and type it.${isAdmin() ? '' : ' Only the admin can look it up later.'}`, 'Done');
   }
 
   /* ---------------- add / edit ---------------- */
@@ -129,9 +155,10 @@
               <div><label for="stStart">Start date <span style="opacity:.6;">(optional)</span></label><input type="date" id="stStart"></div>
               <div><label for="stSalary">Monthly salary <span style="opacity:.6;">(optional)</span></label><input type="text" id="stSalary" inputmode="decimal" placeholder="e.g. 600"></div>
               <div class="full"><label for="stNote">Note <span style="opacity:.6;">(optional)</span></label><textarea id="stNote"></textarea></div>
+              <div id="stStationW" hidden><label for="stStation">Usual station</label><select id="stStation"><option value="">—</option><option value="front">Front</option><option value="back">Back</option></select></div>
               <div class="full" id="stUserWrap" hidden><label for="stUser">App login</label><select id="stUser"></select></div>
             </div>
-            <p class="muted-note" id="stHint" style="margin:10px 0 0;">Cashiers, cashier supervisors and pickers also appear on the Cash page and the cashier page; cashiers and cashier supervisors in the staff schedule too.</p>
+            <p class="muted-note" id="stHint" style="margin:10px 0 0;">Cashiers, cashier supervisors, pickers and delivery supervisors also appear on the Cash page and the cashier page (with a PIN).</p>
             <div class="actions-row">
               <button type="button" class="btn ghost small" id="stCancel">Cancel</button>
               <button type="submit" class="btn small" id="stSave">Save</button>
@@ -150,7 +177,8 @@
     const jobs = p?.job && !JOBS.includes(p.job) ? [p.job, ...JOBS] : JOBS;
     el('stJob').innerHTML = '<option value="">Choose…</option>' + jobs.map(j => `<option ${j === p?.job ? 'selected' : ''}>${esc(j)}</option>`).join('');
     el('stSections').value = p?.sections || '';
-    const syncSections = () => { el('stSectionsW').hidden = !isShelf(el('stJob').value); };
+    el('stStation').value = (p?.cashier_id && S.cash?.get(p.cashier_id)?.default_station) || '';
+    const syncSections = () => { el('stSectionsW').hidden = !isShelf(el('stJob').value); el('stStationW').hidden = !atTills(el('stJob').value); };
     el('stJob').onchange = syncSections; syncSections();
     el('stPhone').value = p?.phone || ''; el('stStart').value = p?.start_date || '';
     el('stSalary').value = p?.salary ?? ''; el('stNote').value = p?.note || '';
@@ -184,6 +212,11 @@
     el('stSave').disabled = false;
     if (error) return showToast((/duplicate|unique/i.test(error.message) ? 'Someone with that name (or that login) is already in the list — ' : 'Not saved — ') + friendlyError(error), true);
     el('stOverlay').classList.remove('open');
+    // Usual station (cashiers list): for someone already there; a new cashier gets it on the next edit.
+    if (p?.cashier_id && atTills(row.job)) {
+      const st = el('stStation').value || null;
+      if ((S.cash?.get(p.cashier_id)?.default_station || null) !== st) await sb.from('cashiers').update({ default_station: st }).eq('id', p.cashier_id);
+    }
     logActivity('staff', p ? 'edit' : 'add', { type: 'staff', id: p?.id || null }, `${p ? 'Edited' : 'Added'} ${row.name} (${row.job})`);   // salary not logged
     await load(); render();
     showToast(p ? 'Saved.' : `${row.name} added.`);
@@ -203,6 +236,7 @@
       await load(); return render();
     }
     if (b.dataset.act === 'login') return createLogin(p);
+    if (b.dataset.act === 'pin') return setPin(p);
   }
   // The person's app login: username from their name, role from their job, a temporary password.
   function askLogin(p) {

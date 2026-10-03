@@ -590,9 +590,10 @@
                 <td>${RowDrag.handle()}</td>
                 <td><b>${esc(c.name)}</b></td>
                 <td><select data-f="position" aria-label="Position of ${esc(c.name)}" style="width:auto;padding:5px 8px;">
-                  <option value="cashier" ${!['supervisor', 'picker'].includes(c.position) ? 'selected' : ''}>Cashier</option>
+                  <option value="cashier" ${!['supervisor', 'picker', 'delivery_supervisor'].includes(c.position) ? 'selected' : ''}>Cashier</option>
                   <option value="supervisor" ${c.position === 'supervisor' ? 'selected' : ''}>Supervisor</option>
-                  <option value="picker" ${c.position === 'picker' ? 'selected' : ''}>Picker</option></select></td>
+                  <option value="picker" ${c.position === 'picker' ? 'selected' : ''}>Picker</option>
+                  <option value="delivery_supervisor" ${c.position === 'delivery_supervisor' ? 'selected' : ''}>Delivery supervisor</option></select></td>
                 <td>${c.active ? '<span class="badge active">Active</span>' : '<span class="badge inactive">Inactive</span>'}</td>
                 <td>${locked ? `<span class="badge danger">Locked out</span>` : c.has_pin ? '<span class="badge active">Set</span>' : '<span class="badge warn">Not set</span>'}${S.pins && c.has_pin ? (S.pins.get(c.id) ? ` <code class="cash-pin">${esc(S.pins.get(c.id))}</code>` : ' <span class="muted-note">not visible</span>') : ''}</td>
                 <td class="muted-note" style="white-space:nowrap;">${esc(seenLabel(c.last_seen_at))}</td>

@@ -16,9 +16,11 @@
    Full day split (owner, 2026-10-02): "full:front/back" = AM at the front, PM at the back.
    Staff tab: the staff list (the cashiers table): position, usual
    station, PIN, active.
-   Everyone (owner, 2026-10-03; migration 043): the people come from the Staff list only, grouped
-   by department — Cashier supervisors, Cashiers, Floor & shelves, Warehouse, Delivery, Deli, Meat,
-   Fish, Bakery, Office. Front / Back only for cashiers and cashier supervisors. A person's key in
+   Everyone (owner, 2026-10-03/04; migration 043): the people come from the Staff list only, one
+   tab per department. Cashiers (cashier supervisors + cashiers) is the full schedule — stations,
+   By day / By person, requests, publish for the cashier page. The others (Floor & shelves,
+   Warehouse, Delivery, Deli, Meat, Fish, Vegetables, Bakery, Office) are a basic grid: shifts,
+   times, print. PINs and usual stations are on the Staff page (the Staff tab here is gone). A person's key in
    the week is their cashiers-list id (cashiers, supervisors, pickers) or their staff id (others).
    Permission: schedule.manage (role HR; admin). Migration 020.
    Public API: window.Schedule = { show }.
@@ -29,7 +31,7 @@
   const esc = escapeHtml;
   const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   const SHIFT = { am: { label: 'AM', time: '07:30–14:30', hours: 7 }, pm: { label: 'PM', time: '14:30–22:00', hours: 7.5 }, full: { label: 'Full', time: '07:30–22:00', hours: 14.5 } };
-  const S = { brush: { tool: 'am' }, view: 'grid', vday: null, vperson: null, started: false, tab: 'week', week: null, staff: [], row: null, prev: null, missing: false };
+  const S = { brush: { tool: 'am' }, view: 'grid', vday: null, vperson: null, started: false, tab: 'tills', week: null, staff: [], row: null, prev: null, missing: false };
 
   const iso = d => d.toLocaleDateString('en-CA');
   const mondayOf = s => { const d = new Date(s + 'T00:00:00'); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return iso(d); };
@@ -42,12 +44,17 @@
     ['sup', 'Cashier supervisors', ['cashier supervisor', 'supervisor']], ['cash', 'Cashiers', ['cashier']],
     ['floor', 'Floor & shelves', ['floor manager', 'shelf worker']], ['wh', 'Warehouse', ['warehouse keeper', 'warehouse worker']],
     ['delivery', 'Delivery', ['delivery supervisor', 'picker']], ['deli', 'Deli counter', ['deli counter']],
-    ['meat', 'Meat counter', ['meat counter']], ['fish', 'Fish counter', ['fish counter']], ['bakery', 'Bakery', ['bakery']],
+    ['meat', 'Meat counter', ['meat counter']], ['fish', 'Fish counter', ['fish counter']], ['veg', 'Vegetables', ['vegetables']], ['bakery', 'Bakery', ['bakery']],
     ['office', 'Office', ['purchasing', 'senior accountant', 'hr']], ['other', 'Other', []]];
   const deptOf = p => DEPTS.find(([, , jobs]) => jobs.includes(String(p.job || '').trim().toLowerCase()))?.[0] || 'other';
   const DEPT_LABEL = Object.fromEntries(DEPTS.map(([k, l]) => [k, l]));
   // Front / Back: cashiers and cashier supervisors only.
   const hasStation = p => p.dept === 'sup' || p.dept === 'cash';
+  // The tabs: Cashiers holds two departments; every other department is its own tab.
+  const TABS = [['tills', 'Cashiers', ['sup', 'cash']], ...DEPTS.filter(([k]) => k !== 'sup' && k !== 'cash').map(([k, l]) => [k, l, [k]])];
+  const tabOf = k => TABS.find(t => t[0] === k) || TABS[0];
+  const isTills = () => S.tab === 'tills';
+  const inTab = p => tabOf(S.tab)[2].includes(p.dept);
   // "am:front|08:30-13:00" -> shift, station, and the start / end when they differ from the shift's.
   const DEF = { am: ['07:30', '14:30'], pm: ['14:30', '22:00'], full: ['07:30', '22:00'] };
   const parse = code => {
@@ -156,26 +163,30 @@
   /* ---------------- shell ---------------- */
   function shell() {
     panel.innerHTML = `
-      <div class="filter-row" id="shTabs"><button data-tab="week">Week</button>${isHR() ? '<button data-tab="staff">Staff</button>' : ''}</div>
+      <div class="filter-row sh-dept-tabs" id="shTabs"></div>
       <div id="shBody"></div>`;
-    el('shTabs').onclick = async e => { const b = e.target.closest('[data-tab]'); if (!b) return; S.tab = b.dataset.tab; await refresh(); };
+    el('shTabs').onclick = e => { const b = e.target.closest('[data-tab]'); if (!b) return; S.tab = b.dataset.tab; render(); };
   }
   async function refresh() {
     await loadStaff();
-    if (S.tab === 'week' && !S.missing) await loadWeek();
+    if (!S.missing) await loadWeek();
     render();
   }
   function render() {
-    panel.querySelectorAll('#shTabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === S.tab));
+    // A tab per department that has someone (Cashiers always), with how many people.
+    const tabs = TABS.map(([k, l, ds]) => [k, l, S.staff.filter(p => ds.includes(p.dept) && p.active).length]).filter(([k, , n]) => k === 'tills' || n);
+    if (!tabs.some(([k]) => k === S.tab)) S.tab = 'tills';
+    el('shTabs').innerHTML = tabs.map(([k, l, n]) => `<button type="button" data-tab="${k}" class="${k === S.tab ? 'active' : ''}">${esc(l)} <span class="sh-tab-n">${n}</span></button>`).join('');
     if (S.missing) { el('shBody').innerHTML = '<div class="card"><p style="margin:0;"><b>Not set up yet.</b> The staff schedule works once migration 020 is applied.</p></div>'; return; }
-    if (S.tab === 'staff') renderStaff(); else renderWeek();
+    renderWeek();
   }
 
   /* ---------------- week ---------------- */
-  const people = () => {
+  const peopleAll = () => {
     const assigned = new Set(Object.keys(S.row?.assignments || {}));
     return S.staff.filter(p => p.active || assigned.has(p.id));
   };
+  const people = () => peopleAll().filter(inTab);
   // Who of a group works that day: AM / PM (a full day counts in both) and by station.
   function groupCount(list, a, day) {
     const c = { am: 0, pm: 0, front: 0, back: 0 };
@@ -190,6 +201,7 @@
   }
   function renderWeek() {
     const w = S.week, row = S.row;
+    const view = isTills() ? S.view : 'grid';   // the other tabs: the basic grid only
     const nav = `<div class="sh-weeknav">
         <button class="icon-btn" data-w="-7" aria-label="Previous week"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
         <h3><span class="sh-rel sh-rel-${weekRel(w).toLowerCase().replace(/\s+/g, '-')}">${weekRel(w)}</span> Week of ${esc(weekTitle(w))}</h3>
@@ -231,10 +243,11 @@
     const countRow = g => `<tr class="sh-count"><th class="sh-name">${esc(g.label)} working</th>${dates.map((_, i) => {
       const c = groupCount(g.list, a, i);
       return `<td><b>AM ${c.am} · PM ${c.pm}</b>${g.k === 'sup' || g.k === 'cash' ? `<small>Front ${c.front} · Back ${c.back}</small>` : ''}</td>`; }).join('')}<td></td></tr>`;
+    const tabName = tabOf(S.tab)[1];
     // Fill the week: the whole grid, one day for everyone, or one person's 7 days.
-    const viewSwitch = `<div class="filter-row sh-views" id="shViews">
+    const viewSwitch = !isTills() ? '' : `<div class="filter-row sh-views" id="shViews">
         ${[['grid', 'Week grid'], ['day', 'By day'], ['person', 'By person'], ['requests', `Requests (${(S.reqs || []).length})`]].map(([v, l]) => `<button type="button" data-view="${v}" class="${S.view === v ? 'active' : ''}">${l}</button>`).join('')}</div>`;
-    if (S.view === 'requests') {
+    if (view === 'requests') {
       el('shBody').innerHTML = `${nav}${topHtml(row)}${viewSwitch}<div class="card">${requestsHtml(dates, gs)}</div>`;
       wireNav(); wireViews();
       el('shCopy')?.addEventListener('click', copyLast);
@@ -243,7 +256,7 @@
       el('shPrint').onclick = print;
       return;
     }
-    if (S.view !== 'grid') {
+    if (view !== 'grid') {
       el('shBody').innerHTML = `${nav}${topHtml(row)}${viewSwitch}<div class="card">${listEditorHtml(row, dates, gs)}</div>`;
       wireNav(); wireViews(); wireListEditor(row);
       el('shCopy')?.addEventListener('click', copyLast);
@@ -256,20 +269,20 @@
       <div class="card"><div class="sh-brush" id="shBrush">
           <span class="sh-step">1</span><span class="sh-brush-t">Shift</span>
           ${SHIFT_TOOLS.map(([v, l]) => `<button type="button" class="sh-chip sh-${v || 'none'} ${S.brush.tool === v ? 'on' : ''}" data-tool="${v}">${l}</button>`).join('')}
-          <span class="sh-step">2</span><span class="sh-brush-t">Station</span>
-          ${STATION_TOOLS.map(([v, l]) => `<button type="button" class="sh-chip sh-${v || 'none'} ${S.brush.tool === v ? 'on' : ''}" data-tool="${v}">${l}</button>`).join('')}
+          ${isTills() ? `<span class="sh-step">2</span><span class="sh-brush-t">Station</span>
+          ${STATION_TOOLS.map(([v, l]) => `<button type="button" class="sh-chip sh-${v || 'none'} ${S.brush.tool === v ? 'on' : ''}" data-tool="${v}">${l}</button>`).join('')}` : ''}
           <span class="sh-brush-sep"></span>
           ${OTHER_TOOLS.map(([v, l]) => `<button type="button" class="sh-chip sh-${v || 'none'} ${S.brush.tool === v ? 'on' : ''}" data-tool="${v}">${l}</button>`).join('')}
-          <span class="muted-note">1 — pick a shift and click or drag across the days. 2 — pick Front or Back and go over the same days (cashiers and cashier supervisors). Right-click a cell for exact times (arrives late / leaves early) or, on a full day, a different station for the AM and the PM. Keys on a cell: A P F O, 1 = Front, 2 = Back, T = times, Delete.</span>
+          <span class="muted-note">${isTills() ? '1 — pick a shift and click or drag across the days. 2 — pick Front or Back and go over the same days.' : `${esc(tabName)}: pick a shift and click or drag across the days.`}${isTills() ? ' Right-click a cell for exact times (arrives late / leaves early) or, on a full day, a different station for the AM and the PM. Keys on a cell: A P F O, 1 = Front, 2 = Back, T = times, Delete.' : ' Right-click a cell for exact times (arrives late / leaves early). Keys on a cell: A P F O, T = times, Delete.'}</span>
         </div>
         <div class="items-scroll" style="margin-bottom:0;"><table class="sh-grid">
         <thead><tr><th></th>${dates.map((d, i) => `<th>${DAYS[i]}<small>${dayLabel(d, { day: 'numeric', month: 'short' })}</small></th>`).join('')}<th class="num">Week</th></tr></thead>
         <tbody>
           ${gs.map(g => `<tr class="sh-group"><td colspan="9">${esc(g.label)}</td></tr>${g.list.map(personRow).join('')}${countRow(g)}`).join('')}
-          ${!people().length ? '<tr><td colspan="9" class="empty-note">No staff yet — add them on the Staff page.</td></tr>' : ''}
+          ${!people().length ? `<tr><td colspan="9" class="empty-note">Nobody in ${esc(tabName)} yet — add them on the Staff page with that job.</td></tr>` : ''}
         </tbody>
       </table></div>
-      <p class="muted-note" style="margin:10px 0 0;">AM ${SHIFT.am.time} · PM ${SHIFT.pm.time} · Full ${SHIFT.full.time}. Changes save by themselves; staff see the week once it is published.</p></div>`;
+      <p class="muted-note" style="margin:10px 0 0;">AM ${SHIFT.am.time} · PM ${SHIFT.pm.time} · Full ${SHIFT.full.time}. Changes save by themselves${isTills() ? '; cashiers see the week on the cashier page once it is published' : ''}.</p></div>`;
     wireNav();
     wireViews();
     wireGrid(row);
@@ -385,6 +398,7 @@
       <p class="muted-note" style="margin:10px 0 0;">Outlined = already given in the schedule. ${waiting.length ? `No request yet from: ${waiting.map(p => esc(p.name)).join(', ')}.` : 'Everyone sent a request.'}</p>`;
   }
   function wireViews() {
+    if (!el('shViews')) return;   // the basic tabs have no views
     el('shViews').onclick = e => { const b = e.target.closest('[data-view]'); if (!b) return; S.view = b.dataset.view; renderWeek(); };
   }
   // By day: everyone on one day. By person: one person's 7 days. Same buttons as the cashier page.
@@ -566,30 +580,37 @@
     renderWeek();
   }
   // Empty table (owner, 2026-10-01): clears every shift of the week (the week itself stays).
+  // The open tab's people only (the other departments keep their week).
   async function emptyWeek() {
     if (locked()) return showToast('This week is published — press Unlock to edit first.', true);
-    const n = Object.values(S.row.assignments || {}).reduce((t, d) => t + (d || []).filter(Boolean).length, 0);
-    if (!n) return showToast('This week is already empty.');
+    const ids = new Set(S.staff.filter(inTab).map(p => p.id)), tabName = tabOf(S.tab)[1];
+    const n = Object.entries(S.row.assignments || {}).filter(([id]) => ids.has(id)).reduce((t, [, d]) => t + (d || []).filter(Boolean).length, 0);
+    if (!n) return showToast(`${tabName}: this week is already empty.`);
     const what = `${n} shift${n === 1 ? '' : 's'} will be removed.`;
-    const msg = S.row.published
-      ? `Empty the whole week of ${weekTitle(S.week)}? It is PUBLISHED — staff will see an empty schedule. ${what}`
-      : `Empty the whole week of ${weekTitle(S.week)}? ${what}`;
+    const msg = S.row.published && isTills()
+      ? `Empty ${tabName} for the week of ${weekTitle(S.week)}? It is PUBLISHED — they will see an empty schedule. ${what}`
+      : `Empty ${tabName} for the week of ${weekTitle(S.week)}? ${what}`;
     if (!(await showConfirm(msg, 'Empty table'))) return;
     // days already past keep what they had
     const kept = {};
-    Object.entries(S.row.assignments || {}).forEach(([id, d]) => { const k = (d || []).map((c, i) => dayPast(i) ? c : ''); if (k.some(Boolean)) kept[id] = k; });
+    Object.entries(S.row.assignments || {}).forEach(([id, d]) => { if (!ids.has(id)) { kept[id] = d; return; } const k = (d || []).map((c, i) => dayPast(i) ? c : ''); if (k.some(Boolean)) kept[id] = k; });
     S.row.assignments = kept;
     await save(true);
     logActivity('schedule', 'empty', { type: 'schedule_week', id: S.week }, `Emptied the schedule of the week ${weekTitle(S.week)} (${n} shifts)`);
     renderWeek();
-    showToast('The week is empty.');
+    showToast(`${tabName} is empty for this week.`);
   }
   async function copyLast() {
     if (locked()) return showToast('This week is published — press Unlock to edit first.', true);
-    if (!(await showConfirm(`Replace this week's schedule with last week's (${weekTitle(addDays(S.week, -7))})?`, 'Copy'))) return;
-    const cp = copied(), cur = S.row.assignments || {};
+    const ids = new Set(S.staff.filter(inTab).map(p => p.id));
+    if (!(await showConfirm(`Replace ${tabOf(S.tab)[1]} for this week with last week's (${weekTitle(addDays(S.week, -7))})?`, 'Copy'))) return;
+    const all = copied(), cur = S.row.assignments || {};
+    // this tab from last week, the other departments as they are
+    const cp = {};
+    Object.entries(cur).forEach(([id, d]) => { if (!ids.has(id)) cp[id] = d; });
+    Object.entries(all).forEach(([id, d]) => { if (ids.has(id)) cp[id] = d; });
     // days already past keep what they had
-    [...new Set([...Object.keys(cp), ...Object.keys(cur)])].forEach(id => { const n = (cp[id] || Array(7).fill('')).slice(); for (let i = 0; i < 7; i++) if (dayPast(i)) n[i] = (cur[id] || [])[i] || ''; cp[id] = n; });
+    [...new Set([...Object.keys(cp), ...Object.keys(cur)])].filter(id => ids.has(id)).forEach(id => { const n = (cp[id] || Array(7).fill('')).slice(); for (let i = 0; i < 7; i++) if (dayPast(i)) n[i] = (cur[id] || [])[i] || ''; cp[id] = n; });
     S.row.assignments = cp; await save(true); renderWeek();
   }
   let timer = null;
@@ -605,12 +626,12 @@
   async function togglePublish() {
     const on = !S.row.published;
     if (on) {
-      const empty = people().filter(p => !(S.row.assignments[p.id] || []).some(Boolean)).map(p => p.name);
-      if (empty.length && !(await showConfirm(`${empty.length} ${empty.length === 1 ? 'person has' : 'people have'} nothing this week (${empty.slice(0, 5).join(', ')}${empty.length > 5 ? '…' : ''}). Publish anyway?`, 'Publish'))) return;
+      const empty = peopleAll().filter(p => p.active && hasStation(p) && !(S.row.assignments[p.id] || []).some(Boolean)).map(p => p.name);
+      if (empty.length && !(await showConfirm(`${empty.length} cashier${empty.length === 1 ? ' has' : 's have'} nothing this week (${empty.slice(0, 5).join(', ')}${empty.length > 5 ? '…' : ''}). Publish anyway?`, 'Publish'))) return;
     }
     S.row.published = on; await save(true);
     logActivity('schedule', on ? 'publish' : 'unpublish', { type: 'schedule_week', id: S.week }, `${on ? 'Published' : 'Unpublished'} the schedule of the week ${weekTitle(S.week)}`);
-    showToast(on ? 'Published — staff see it on the cashier page.' : 'Unpublished.');
+    showToast(on ? 'Published — cashiers see it on the cashier page.' : 'Unpublished.');
     renderWeek();
   }
   function print() {
@@ -618,74 +639,17 @@
     const cell = (p, i) => { const { shift, station } = parse((a[p.id] || [])[i]); if (shift === 'off') return '<td class="off">Off</td>'; if (!SHIFT[shift]) return '<td></td>'; const code = (a[p.id] || [])[i], t = custom(code) ? timesOf(code) : null; return `<td class="${shift}"><b>${SHIFT[shift].label}</b>${station ? `<br><small>${esc(stLabel(station))}</small>` : ''}${t ? `<br><small class="t">${t[0]}–${t[1]}</small>` : ''}</td>`; };
     const sect = (title, list) => list.length ? `<tr class="g"><td colspan="8">${title}</td></tr>${list.map(p => `<tr><th>${esc(p.name)}</th>${dates.map((_, i) => cell(p, i)).join('')}</tr>`).join('')}` : '';
     const win = window.open('', '_blank'); if (!win) return showToast('Allow pop-ups to print.', true);
-    win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Schedule ${esc(weekTitle(w))}</title><style>
+    win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(tabOf(S.tab)[1])} schedule ${esc(weekTitle(w))}</title><style>
       body{font:13px Arial,sans-serif;margin:24px;color:#111}h1{font-size:18px;margin:0 0 4px;color:#1943AF}p{margin:0 0 14px;color:#555}
       table{border-collapse:collapse;width:100%}th,td{border:1px solid #bbb;padding:6px;text-align:center}th{text-align:left;white-space:nowrap}
       thead th{text-align:center;background:#eef1ff}tr.g td{background:#1943AF;color:#fff;text-align:left;font-weight:700}
       small.t{color:#b25b00;font-weight:700}td.am{background:#e6f0ff}td.pm{background:#fff3dc}td.full{background:#e8f6ec}td.off{color:#999}small{color:#555}
       @media print{body{margin:8mm}}</style></head><body>
-      <h1>La Valeur — Staff schedule</h1><p>Week of ${esc(weekTitle(w))} · AM ${SHIFT.am.time} · PM ${SHIFT.pm.time} · Full ${SHIFT.full.time}</p>
+      <h1>La Valeur — ${esc(tabOf(S.tab)[1])} schedule</h1><p>Week of ${esc(weekTitle(w))} · AM ${SHIFT.am.time} · PM ${SHIFT.pm.time} · Full ${SHIFT.full.time}</p>
       <table><thead><tr><th></th>${dates.map((d, i) => `<th>${DAYS[i]}<br><small>${dayLabel(d, { day: 'numeric', month: 'short' })}</small></th>`).join('')}</tr></thead>
       <tbody>${groups().map(g => sect(esc(g.label), g.list)).join('')}</tbody></table>
       <script>setTimeout(()=>print(),300)<\/script></body></html>`);
     win.document.close();
-  }
-
-  /* ---------------- staff ---------------- */
-  function renderStaff() {
-    el('shBody').innerHTML = `
-      <div class="card"><form id="shAdd" class="sh-add">
-        <input type="text" id="shName" placeholder="Name" required>
-        <select id="shPos"><option value="cashier">Cashier</option><option value="supervisor">Supervisor</option></select>
-        <select id="shSt"><option value="front">Front</option><option value="back">Back</option></select>
-        <button class="btn small" type="submit">+ Add</button></form></div>
-      <div class="card"><div class="items-scroll" style="margin-bottom:0;"><table class="items">
-        <thead><tr><th>Name</th><th>Position</th><th>Usual station</th><th>PIN (cashier page)</th><th>Status</th><th></th></tr></thead>
-        <tbody id="shStaff">${tillStaff().map(p => `<tr data-id="${p.id}">
-          <td><b>${esc(p.name)}</b></td>
-          <td><select data-f="position"><option value="cashier" ${!isSup(p) ? 'selected' : ''}>Cashier</option><option value="supervisor" ${isSup(p) ? 'selected' : ''}>Supervisor</option></select></td>
-          <td>${`<select data-f="default_station"><option value="">—</option><option value="front" ${p.default_station === 'front' ? 'selected' : ''}>Front</option><option value="back" ${p.default_station === 'back' ? 'selected' : ''}>Back</option></select>`}</td>
-          <td>${p.has_pin ? '<span class="badge active">Set</span>' : '<span class="badge warn">No PIN</span>'} <button class="btn ghost small" data-act="pin">${p.has_pin ? 'Reset' : 'Set PIN'}</button></td>
-          <td>${p.active ? '<span class="badge active">Active</span>' : '<span class="badge inactive">Inactive</span>'}</td>
-          <td><button class="btn ghost small" data-act="toggle">${p.active ? 'Deactivate' : 'Activate'}</button></td></tr>`).join('') || '<tr><td colspan="6" class="empty-note">No staff yet.</td></tr>'}</tbody>
-      </table></div><p class="muted-note" style="margin:10px 0 0;">Cashiers and cashier supervisors (the same people as on the Cash page). Everyone else is added on the Staff page and appears in the schedule by department.</p></div>`;
-    el('shAdd').onsubmit = async e => {
-      e.preventDefault();
-      const name = el('shName').value.trim(); if (!name) return;
-      const position = el('shPos').value;
-      const sort = Math.max(0, ...tillStaff().map(p => p.sort_order || 0)) + 1;
-      const { error } = await sb.from('cashiers').insert({ name, sort_order: sort, position, default_station: el('shSt').value });
-      if (error) return showToast(/duplicate|unique/i.test(error.message) ? `"${name}" is already on the list.` : 'Could not add — ' + friendlyError(error), true);
-      logActivity('schedule', 'add_staff', { type: 'cashier', id: null }, `Added ${position} ${name}`);
-      await loadStaff(); renderStaff(); showToast(`${name} added. Set a PIN so they can see their schedule.`);
-    };
-    el('shStaff').onchange = async e => {
-      const f = e.target.dataset.f; if (!f) return;
-      const p = S.staff.find(x => x.id === e.target.closest('tr').dataset.id);
-      const patch = { [f]: e.target.value || null };
-      const { error } = await sb.from('cashiers').update(patch).eq('id', p.id);
-      if (error) return showToast('Not saved — ' + friendlyError(error), true);
-      Object.assign(p, patch); await loadStaff(); renderStaff();
-    };
-    el('shStaff').onclick = async e => {
-      const b = e.target.closest('[data-act]'); if (!b) return;
-      const p = S.staff.find(x => x.id === b.closest('tr').dataset.id);
-      if (b.dataset.act === 'toggle') {
-        const { error } = await sb.from('cashiers').update({ active: !p.active }).eq('id', p.id);
-        if (error) return showToast('Not saved — ' + friendlyError(error), true);
-        p.active = !p.active; logActivity('schedule', p.active ? 'activate_staff' : 'deactivate_staff', { type: 'cashier', id: p.id }, `${p.active ? 'Activated' : 'Deactivated'} ${p.name}`);
-        await loadStaff(); return renderStaff();
-      }
-      const suggestion = String(crypto.getRandomValues(new Uint16Array(1))[0] % 10000).padStart(4, '0');
-      const pin = await showPrompt(`4-digit PIN for ${p.name}:`, { defaultValue: suggestion, confirmLabel: 'Set PIN', placeholder: '4 digits' });
-      if (pin === null) return;
-      if (!/^\d{4}$/.test(pin.trim())) return showToast('The PIN must be exactly 4 digits.', true);
-      const { error } = await sb.rpc('set_cashier_pin', { p_cashier: p.id, p_pin: pin.trim() });
-      if (error) return showToast('Could not set the PIN — ' + friendlyError(error), true);
-      p.has_pin = true; logActivity('schedule', 'set_pin', { type: 'cashier', id: p.id }, `Set a new PIN for ${p.name}`);
-      renderStaff();
-      await showConfirm(`PIN set. Give it to ${p.name} privately:\n\n${pin.trim()}\n\nThey open the cashier page, choose their name and type it to see their schedule.`, 'Done');
-    };
   }
 
   window.Schedule = {
