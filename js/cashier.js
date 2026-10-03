@@ -32,6 +32,9 @@
   const pushFor = () => { try { return localStorage.getItem(PUSH_KEY); } catch (e) { return null; } };
   const setPushFor = v => { try { v ? localStorage.setItem(PUSH_KEY, v) : localStorage.removeItem(PUSH_KEY); } catch (e) { /* ignore */ } };
   const b64uBytes = str => Uint8Array.from(atob(str.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((str.length + 3) % 4)), c => c.charCodeAt(0));
+  // Icons (SVG, no emojis — owner, 2026-10-03).
+  const icon = d => `<svg class="cp-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+  const IC = { bell: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>', check: '<path d="M20 6 9 17l-5-5"/>' };
   const SAVED = 'lv:cashierLogin';
   const saved = () => { try { const v = JSON.parse(localStorage.getItem(SAVED)); return v && v.cashier_id && v.pin ? v : null; } catch (e) { return null; } };
   const setSaved = v => { try { v ? localStorage.setItem(SAVED, JSON.stringify(v)) : localStorage.removeItem(SAVED); } catch (e) { /* storage blocked */ } };   // { cashier_id, pin, name, data }
@@ -203,7 +206,7 @@
       try {
         await call({ action: 'req_save', cashier_id: session.cashier_id, pin: session.pin, week_start: req.w, days: req.edit.days, note: req.edit.note });
         await loadReq(true);
-        const p = $('cpReqErr'); if (p) { p.style.color = 'var(--pine)'; p.textContent = 'Sent ✓'; }
+        const p = $('cpReqErr'); if (p) { p.style.color = 'var(--pine)'; p.innerHTML = 'Sent ' + icon(IC.check); }
       } catch (x) { t.disabled = false; const p = $('cpReqErr'); if (p) p.textContent = x.message; }
     }
   });
@@ -337,8 +340,8 @@
     box.innerHTML = Notification.permission === 'denied'
       ? '<p class="muted-note">Notifications are blocked for this page. Allow them in the phone settings to be told about your schedule and differences.</p>'
       : on
-        ? `<span class="cp-notify-on">🔔 Notifications on</span><span class="muted-note">You are told when your schedule is out and when a difference is entered.</span><button type="button" class="link-btn" id="cpPushOff">Turn off</button>`
-        : `<button type="button" class="btn secondary small" id="cpPushOn">🔔 Turn on notifications</button><span class="muted-note">Get told when your schedule is out and when a difference is entered.</span>`;
+        ? `<span class="cp-notify-on">${icon(IC.bell)} Notifications on</span><span class="muted-note">You are told when your schedule is out and when a difference is entered.</span><button type="button" class="link-btn" id="cpPushOff">Turn off</button>`
+        : `<button type="button" class="btn secondary small" id="cpPushOn">${icon(IC.bell)} Turn on notifications</button><span class="muted-note">Get told when your schedule is out and when a difference is entered.</span>`;
     $('cpPushOn')?.addEventListener('click', pushOn);
     $('cpPushOff')?.addEventListener('click', async () => { await pushOff(); renderNotify(); });
   }

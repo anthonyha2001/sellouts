@@ -156,6 +156,7 @@ body.cashier-page{display:block;min-height:100vh;}
 .cp-pin{margin-top:14px;}
 .cp-pin summary{cursor:pointer;font-weight:600;list-style:none;}
 .cp-pin summary::-webkit-details-marker{display:none;}
-.cp-pin summary::before{content:'🔑 ';}
+.cp-ic{width:1.05em;height:1.05em;vertical-align:-.15em;flex:0 0 auto;}
+.cp-pin summary{display:flex;align-items:center;gap:8px;}
 .cp-pin form{display:flex;flex-direction:column;gap:6px;margin-top:12px;max-width:320px;}
 .cp-pin input{font-size:20px;letter-spacing:.4em;text-align:center;}
