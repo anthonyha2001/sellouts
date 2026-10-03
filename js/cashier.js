@@ -431,6 +431,29 @@
     if (!b || !session || b.dataset.m === session.data.month) return;
     try { await load(b.dataset.m); } catch (err) { forget(); $('cpErr').textContent = err.message; }
   });
+  // Change my PIN (migration 038): the current PIN again, then the new one twice.
+  $('cpPinForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const old = $('cpPinOld').value.trim(), a = $('cpPinNew').value.trim(), b = $('cpPinNew2').value.trim();
+    const err = m => { $('cpPinErr').textContent = m || ''; };
+    err('');
+    if (!/^\d{4}$/.test(old)) return err('Type your current PIN.');
+    if (!/^\d{4}$/.test(a)) return err('The new PIN is 4 digits.');
+    if (a !== b) return err('The two new PINs are not the same.');
+    $('cpPinSave').disabled = true;
+    try {
+      await call({ action: 'change_pin', cashier_id: session.cashier_id, pin: old, new_pin: a });
+      session.pin = a;
+      const s = saved(); if (s && s.cashier_id === session.cashier_id) setSaved({ ...s, pin: a });
+      ['cpPinOld', 'cpPinNew', 'cpPinNew2'].forEach(id => { $(id).value = ''; });
+      $('cpPinBox').open = false;
+      err('');
+      alert('Your PIN is changed. Use the new one from now on.');
+    } catch (x) {
+      err(x.status === 401 && x.attempts_left != null ? `Wrong current PIN. ${x.attempts_left} tr${x.attempts_left === 1 ? 'y' : 'ies'} left before a 15-minute lock.`
+        : x.status === 423 ? 'Too many wrong PINs. Try again later.' : x.message);
+    } finally { $('cpPinSave').disabled = false; }
+  });
   $('cpDone').addEventListener('click', async () => { if (pushFor()) await pushOff(); setSaved(null); forget(); });
   // Remembered: refresh when the page comes back to the screen (new week published, new entries).
   document.addEventListener('visibilitychange', () => {

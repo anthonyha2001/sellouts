@@ -151,3 +151,11 @@ body.cashier-page{display:block;min-height:100vh;}
 /* A full day split between two stations (owner, 2026-10-02) */
 .cp-dr-half{align-items:center;}
 .cp-dr-half > span{font:700 10px var(--font-mono);color:var(--ink-faint);padding:0 4px 0 2px;}
+
+/* Change my PIN (owner, 2026-10-03) */
+.cp-pin{margin-top:14px;}
+.cp-pin summary{cursor:pointer;font-weight:600;list-style:none;}
+.cp-pin summary::-webkit-details-marker{display:none;}
+.cp-pin summary::before{content:'🔑 ';}
+.cp-pin form{display:flex;flex-direction:column;gap:6px;margin-top:12px;max-width:320px;}
+.cp-pin input{font-size:20px;letter-spacing:.4em;text-align:center;}

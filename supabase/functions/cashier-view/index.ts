@@ -11,6 +11,8 @@
 // POST { action: 'subscribe', cashier_id, pin, endpoint, p256dh, auth } -> { ok }  this phone gets the cashier's
 //   notifications (schedule published, difference entered; sent by push-alerts, migration 023)
 // POST { action: 'unsubscribe', endpoint }                -> { ok }  this phone stops getting them
+// POST { action: 'change_pin', cashier_id, pin, new_pin }  -> { ok }  the cashier's own new PIN (migration 038):
+//   the current PIN is checked first (same lock-out); 4 digits, not the same as before, not too easy
 //
 // Supervisors' shared draft (migration 024): every call carries cashier_id + pin of a SUPERVISOR.
 // POST { action: 'draft_get', week_start? }       -> { weeks: [{ week_start, status, submitted_by, last_editor }], week, staff }
@@ -148,6 +150,20 @@ Deno.serve(async req => {
         cashier: { name: cashier?.name ?? '', position: pos?.position ?? 'cashier' }, schedule, team, month, months, entries, total,
         levels: { warning: Number(settings?.warning_threshold ?? 0), danger: Number(settings?.danger_threshold ?? 0), currency },
       });
+    }
+
+    if (body.action === 'change_pin') {
+      const bad = await pinError(body);
+      if (bad) return bad;
+      const next = String(body.new_pin ?? '');
+      if (!/^\d{4}$/.test(next)) return json({ error: 'The new PIN must be 4 digits.' }, 400);
+      if (next === String(body.pin)) return json({ error: 'The new PIN is the same as the old one.' }, 400);
+      // Too easy to guess: 1111, 1234, 4321, 0000…
+      if (/^(\d)\1{3}$/.test(next) || '0123456789'.includes(next) || '9876543210'.includes(next))
+        return json({ error: 'That PIN is too easy to guess. Choose another one.' }, 400);
+      const { error } = await db.rpc('cashier_change_pin', { p_cashier: String(body.cashier_id), p_pin: next });
+      if (error) throw error;
+      return json({ ok: true });
     }
 
     if (body.action === 'subscribe') {

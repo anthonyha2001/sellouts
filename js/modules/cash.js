@@ -563,12 +563,12 @@
     body.innerHTML = `
       <div class="card">
         <div class="cash-card-head"><h3 style="margin:0;">Cashiers</h3><span class="muted-note">The grid shows active cashiers in this order. Drag a row by its handle to move it.</span></div>
-        <div class="cash-pin-bar">
+        ${isAdmin() ? `<div class="cash-pin-bar">
           <button type="button" class="btn secondary small" id="cashShowPins">${S.pins ? 'Hide PINs' : 'Show PINs'}</button>
           <button type="button" class="btn secondary small" id="cashExportPins">Export PINs (Excel)</button>
           ${S.pins && S.cashiers.some(c => c.active && !S.pins.get(c.id)) ? `<button type="button" class="btn small" id="cashNewPins">New PINs for the ${S.cashiers.filter(c => c.active && !S.pins.get(c.id)).length} without a visible one</button>` : ''}
-          <span class="muted-note">PINs set before 3 Oct 2026 can't be shown — set them again (or use the button) to see them.</span>
-        </div>
+          <span class="muted-note">Only you (admin) can see PINs. PINs set before 3 Oct 2026 can't be shown — set them again (or use the button). Cashiers can change their own PIN on the cashier page.</span>
+        </div>` : ''}
         <form id="cashAddForm" class="cash-add">
           <input type="text" id="cashNewName" placeholder="New cashier's name" required>
           <button class="btn small" type="submit">+ Add cashier</button>
@@ -619,8 +619,8 @@
         </form>
       </div>`;
 
-    el('cashShowPins').onclick = togglePins;
-    el('cashExportPins').onclick = exportPins;
+    el('cashShowPins')?.addEventListener('click', togglePins);
+    el('cashExportPins')?.addEventListener('click', exportPins);
     el('cashNewPins')?.addEventListener('click', renewPins);
     el('cashAddForm').onsubmit = async e => {
       e.preventDefault();
@@ -735,7 +735,7 @@
       logActivity('cash', 'set_cashier_pin', { type: 'cashier', id }, `Set a new PIN for ${c.name}`);   // never the PIN itself
       renderCashiers();
       if (S.pins) S.pins.set(id, pin.trim());
-      await showConfirm(`PIN set. Give it to ${c.name} privately:\n\n${pin.trim()}\n\nYou can see it again with Show PINs or Export PINs.`, 'Done');
+      await showConfirm(`PIN set. Give it to ${c.name} privately:\n\n${pin.trim()}\n\n${isAdmin() ? 'You can see it again with Show PINs or Export PINs.' : 'Only the admin can look it up later. The cashier can change it on the cashier page.'}`, 'Done');
     }
   }
 

@@ -55,6 +55,21 @@
       <div class="card cp-list-card"><table class="cp-list"><tbody id="cpList"></tbody></table></div>
       <p class="muted-note cp-foot">Negative = short, positive = over. Questions? Ask the accountant.</p>
     </div>
+    <!-- Change my PIN (migration 038) -->
+    <details class="card cp-pin" id="cpPinBox">
+      <summary>Change my PIN</summary>
+      <form id="cpPinForm" autocomplete="off">
+        <label for="cpPinOld">Current PIN</label>
+        <input type="password" id="cpPinOld" inputmode="numeric" pattern="\d{4}" maxlength="4" autocomplete="off" placeholder="••••">
+        <label for="cpPinNew">New PIN</label>
+        <input type="password" id="cpPinNew" inputmode="numeric" pattern="\d{4}" maxlength="4" autocomplete="off" placeholder="••••">
+        <label for="cpPinNew2">New PIN again</label>
+        <input type="password" id="cpPinNew2" inputmode="numeric" pattern="\d{4}" maxlength="4" autocomplete="off" placeholder="••••">
+        <p class="login-err" id="cpPinErr" role="alert"></p>
+        <button class="btn" id="cpPinSave" type="submit">Save my new PIN</button>
+        <p class="muted-note">4 digits that only you know. Not 1234 or 1111.</p>
+      </form>
+    </details>
   </section>
 
   <p class="muted-note" id="cpBoot">Loading…</p>
