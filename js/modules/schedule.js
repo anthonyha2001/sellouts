@@ -89,7 +89,7 @@
   async function loadStaff() {
     const { data, error } = await sb.from('cashiers').select('id, name, active, sort_order, has_pin, position, default_station').order('sort_order').order('name');
     S.missing = !!error;
-    S.staff = data || [];
+    S.staff = (data || []).filter(p => p.position !== 'picker');   // pickers: Cash page only, not the schedule (migration 042)
   }
   // Who may do what: HR (schedule.manage) everything; supervisors (schedule.edit) edit, not publish.
   const isHR = () => can('schedule.manage');

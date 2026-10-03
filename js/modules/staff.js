@@ -22,7 +22,7 @@
   // The app role a job usually gets (the admin can change it when creating the login).
   const ROLE_OF = { 'senior accountant': 'accountant', 'delivery supervisor': 'delivery', 'floor manager': 'floor_manager', hr: 'hr' };
   const roleFor = job => ROLE_OF[String(job || '').trim().toLowerCase()] || 'shelf';
-  const inCashList = job => ['cashier', 'cashier supervisor', 'supervisor'].includes(String(job || '').trim().toLowerCase());
+  const inCashList = job => ['cashier', 'cashier supervisor', 'supervisor', 'picker'].includes(String(job || '').trim().toLowerCase());
   const isShelf = job => String(job || '').trim().toLowerCase() === 'shelf worker';
   const salaryText = n => n === null || n === undefined || n === '' ? '' : Number(n).toLocaleString('en-US');
 
@@ -90,7 +90,7 @@
           <thead><tr><th>Name</th><th>Job</th><th>Phone</th><th>Started</th><th class="num">Salary</th><th>App login</th><th></th></tr></thead>
           <tbody>${list.map(p => `<tr data-id="${esc(p.id)}" class="${p.active ? '' : 'st-left'}">
             <td><b>${esc(p.name)}</b>${p.active ? '' : ' <span class="badge inactive">Left</span>'}${p.note ? `<small class="st-note">${esc(p.note)}</small>` : ''}</td>
-            <td>${esc(p.job)}${inCashList(p.job) ? ' <span class="muted-note" title="Also in the cashiers list: cash differences, schedule, cashier page">· cashiers list</span>' : ''}${p.sections ? `<small class="st-note">Sections: ${esc(p.sections)}</small>` : ''}</td>
+            <td>${esc(p.job)}${inCashList(p.job) ? ` <span class="muted-note" title="Also on the Cash page and the cashier page${String(p.job).toLowerCase() === 'picker' ? '' : ', and in the staff schedule'}">· cash</span>` : ''}${p.sections ? `<small class="st-note">Sections: ${esc(p.sections)}</small>` : ''}</td>
             <td class="mono">${p.phone ? `<a href="tel:${esc(p.phone.replace(/[^\d+]/g, ''))}">${esc(p.phone)}</a>` : ''}</td>
             <td class="mono">${p.start_date ? esc(fmtDate(p.start_date)) : ''}</td>
             <td class="num mono">${esc(salaryText(p.salary))}</td>
@@ -120,7 +120,7 @@
               <div class="full"><label for="stNote">Note <span style="opacity:.6;">(optional)</span></label><textarea id="stNote"></textarea></div>
               <div class="full" id="stUserWrap" hidden><label for="stUser">App login</label><select id="stUser"></select></div>
             </div>
-            <p class="muted-note" id="stHint" style="margin:10px 0 0;">Cashiers and cashier supervisors also appear in the cash differences, the staff schedule and the cashier page.</p>
+            <p class="muted-note" id="stHint" style="margin:10px 0 0;">Cashiers, cashier supervisors and pickers also appear on the Cash page and the cashier page; cashiers and cashier supervisors in the staff schedule too.</p>
             <div class="actions-row">
               <button type="button" class="btn ghost small" id="stCancel">Cancel</button>
               <button type="submit" class="btn small" id="stSave">Save</button>
