@@ -1,7 +1,8 @@
 /* ============================================================
    Staff (owner, 2026-10-03): one list of every employee — name, job,
    and optionally phone, start date, salary and a note; active or left.
-   Cashiers and supervisors are kept in step with the cashiers list
+   Jobs: the store's own list (migration 041); shelf workers have their
+   Sections. Cashiers and cashier supervisors are kept in step with the cashiers list
    (cash differences, schedule, cashier page) by the database
    (migration 040), so they are entered once, here or there.
    From a person, the admin creates their app login (admin-users
@@ -15,12 +16,14 @@
   const S = { started: false, list: [], users: new Map(), q: '', show: 'active', missing: false };
   const el = id => document.getElementById(id);
   const esc = escapeHtml;
-  const JOBS = ['Cashier', 'Supervisor', 'Shelf worker', 'Floor manager', 'Accountant', 'HR', 'Delivery', 'Butcher', 'Fishmonger',
-    'Vegetables', 'Deli counter', 'Bakery', 'Storekeeper', 'Security', 'Cleaner', 'Manager'];
+  // The store's jobs (owner, 2026-10-03; migration 041). Cashier and Cashier supervisor are also in the cashiers list.
+  const JOBS = ['Cashier', 'Cashier supervisor', 'Delivery supervisor', 'Deli counter', 'Meat counter', 'Fish counter', 'Bakery',
+    'Picker', 'Warehouse keeper', 'Warehouse worker', 'Shelf worker', 'Purchasing', 'Senior accountant', 'HR', 'Floor manager'];
   // The app role a job usually gets (the admin can change it when creating the login).
-  const ROLE_OF = { accountant: 'accountant', delivery: 'delivery', 'floor manager': 'floor_manager', hr: 'hr', manager: 'admin' };
+  const ROLE_OF = { 'senior accountant': 'accountant', 'delivery supervisor': 'delivery', 'floor manager': 'floor_manager', hr: 'hr' };
   const roleFor = job => ROLE_OF[String(job || '').trim().toLowerCase()] || 'shelf';
-  const inCashList = job => ['cashier', 'supervisor'].includes(String(job || '').trim().toLowerCase());
+  const inCashList = job => ['cashier', 'cashier supervisor', 'supervisor'].includes(String(job || '').trim().toLowerCase());
+  const isShelf = job => String(job || '').trim().toLowerCase() === 'shelf worker';
   const salaryText = n => n === null || n === undefined || n === '' ? '' : Number(n).toLocaleString('en-US');
 
   async function callAdmin(action, payload) {
@@ -56,7 +59,7 @@
   function shell() {
     panel.innerHTML = `
       <div class="st-bar">
-        <input type="search" id="stSearch" placeholder="Search name, job, phone…" autocomplete="off" aria-label="Search staff">
+        <input type="search" id="stSearch" placeholder="Search name, job, section, phone…" autocomplete="off" aria-label="Search staff">
         <div class="filter-row" id="stShow" style="margin:0;">
           <button type="button" data-show="active">Working</button><button type="button" data-show="left">Left</button><button type="button" data-show="all">All</button>
         </div>
@@ -64,8 +67,7 @@
         <button type="button" class="btn secondary small" id="stExport">Export (Excel)</button>
         <button type="button" class="btn small" id="stAdd">+ Add person</button>
       </div>
-      <div id="stBody"></div>
-      <datalist id="stJobs">${JOBS.map(j => `<option value="${esc(j)}">`).join('')}</datalist>`;
+      <div id="stBody"></div>`;
     el('stSearch').oninput = e => { S.q = e.target.value.trim().toLowerCase(); render(); };
     el('stShow').onclick = e => { const b = e.target.closest('[data-show]'); if (b) { S.show = b.dataset.show; render(); } };
     el('stAdd').onclick = () => openForm(null);
@@ -73,7 +75,7 @@
     el('stBody').onclick = onAction;
   }
   const shown = () => S.list.filter(p => (S.show === 'all' || (S.show === 'active' ? p.active : !p.active)) &&
-    (!S.q || [p.name, p.job, p.phone, p.note, loginName(p)].join(' ').toLowerCase().includes(S.q)));
+    (!S.q || [p.name, p.job, p.sections, p.phone, p.note, loginName(p)].join(' ').toLowerCase().includes(S.q)));
   const loginName = p => p.user_id ? (S.users.get(p.user_id)?.username || 'yes') : '';
 
   function render() {
@@ -88,7 +90,7 @@
           <thead><tr><th>Name</th><th>Job</th><th>Phone</th><th>Started</th><th class="num">Salary</th><th>App login</th><th></th></tr></thead>
           <tbody>${list.map(p => `<tr data-id="${esc(p.id)}" class="${p.active ? '' : 'st-left'}">
             <td><b>${esc(p.name)}</b>${p.active ? '' : ' <span class="badge inactive">Left</span>'}${p.note ? `<small class="st-note">${esc(p.note)}</small>` : ''}</td>
-            <td>${esc(p.job)}${inCashList(p.job) ? ' <span class="muted-note" title="Also in the cashiers list: cash differences, schedule, cashier page">· cashiers list</span>' : ''}</td>
+            <td>${esc(p.job)}${inCashList(p.job) ? ' <span class="muted-note" title="Also in the cashiers list: cash differences, schedule, cashier page">· cashiers list</span>' : ''}${p.sections ? `<small class="st-note">Sections: ${esc(p.sections)}</small>` : ''}</td>
             <td class="mono">${p.phone ? `<a href="tel:${esc(p.phone.replace(/[^\d+]/g, ''))}">${esc(p.phone)}</a>` : ''}</td>
             <td class="mono">${p.start_date ? esc(fmtDate(p.start_date)) : ''}</td>
             <td class="num mono">${esc(salaryText(p.salary))}</td>
@@ -110,14 +112,15 @@
           <form id="stForm" autocomplete="off">
             <div class="form-grid">
               <div class="full"><label for="stName">Name</label><input type="text" id="stName" required></div>
-              <div><label for="stJob">Job</label><input type="text" id="stJob" list="stJobs" placeholder="e.g. Cashier, Shelf worker" required></div>
+              <div><label for="stJob">Job</label><select id="stJob" required></select></div>
+              <div class="full" id="stSectionsW" hidden><label for="stSections">Sections <span style="opacity:.6;">(what they look after)</span></label><input type="text" id="stSections" placeholder="e.g. Detergents, Pasta, Rice"></div>
               <div><label for="stPhone">Phone <span style="opacity:.6;">(optional)</span></label><input type="text" id="stPhone" inputmode="tel" placeholder="e.g. 70 123 456"></div>
               <div><label for="stStart">Start date <span style="opacity:.6;">(optional)</span></label><input type="date" id="stStart"></div>
               <div><label for="stSalary">Monthly salary <span style="opacity:.6;">(optional)</span></label><input type="text" id="stSalary" inputmode="decimal" placeholder="e.g. 600"></div>
               <div class="full"><label for="stNote">Note <span style="opacity:.6;">(optional)</span></label><textarea id="stNote"></textarea></div>
               <div class="full" id="stUserWrap" hidden><label for="stUser">App login</label><select id="stUser"></select></div>
             </div>
-            <p class="muted-note" id="stHint" style="margin:10px 0 0;">Cashiers and supervisors also appear in the cash differences, the staff schedule and the cashier page.</p>
+            <p class="muted-note" id="stHint" style="margin:10px 0 0;">Cashiers and cashier supervisors also appear in the cash differences, the staff schedule and the cashier page.</p>
             <div class="actions-row">
               <button type="button" class="btn ghost small" id="stCancel">Cancel</button>
               <button type="submit" class="btn small" id="stSave">Save</button>
@@ -131,7 +134,13 @@
   function openForm(p) {
     ensureForm();
     el('stTitle').textContent = p ? `Edit ${p.name}` : 'Add a person';
-    el('stName').value = p?.name || ''; el('stJob').value = p?.job || '';
+    el('stName').value = p?.name || '';
+    // An older job not in the list (e.g. typed before) stays selectable.
+    const jobs = p?.job && !JOBS.includes(p.job) ? [p.job, ...JOBS] : JOBS;
+    el('stJob').innerHTML = '<option value="">Choose…</option>' + jobs.map(j => `<option ${j === p?.job ? 'selected' : ''}>${esc(j)}</option>`).join('');
+    el('stSections').value = p?.sections || '';
+    const syncSections = () => { el('stSectionsW').hidden = !isShelf(el('stJob').value); };
+    el('stJob').onchange = syncSections; syncSections();
     el('stPhone').value = p?.phone || ''; el('stStart').value = p?.start_date || '';
     el('stSalary').value = p?.salary ?? ''; el('stNote').value = p?.note || '';
     // Admin: link (or unlink) an existing login.
@@ -150,11 +159,13 @@
     const salaryRaw = el('stSalary').value.trim().replace(/,/g, '');
     if (salaryRaw && isNaN(Number(salaryRaw))) return showToast('Salary: numbers only, e.g. 600.', true);
     const row = {
-      name: el('stName').value.trim(), job: el('stJob').value.trim() || 'Cashier',
+      name: el('stName').value.trim(), job: el('stJob').value,
+      sections: isShelf(el('stJob').value) ? el('stSections').value.trim() || null : null,
       phone: el('stPhone').value.trim() || null, start_date: el('stStart').value || null,
       salary: salaryRaw ? Number(salaryRaw) : null, note: el('stNote').value.trim() || null,
     };
     if (!row.name) return showToast('Type the name.', true);
+    if (!row.job) return showToast('Choose the job.', true);
     if (isAdmin() && S.users.size) row.user_id = el('stUser').value || null;
     el('stSave').disabled = true;
     const q = p ? sb.from('staff').update(row).eq('id', p.id) : sb.from('staff').insert({ ...row, sort_order: S.list.length });
@@ -183,17 +194,44 @@
     if (b.dataset.act === 'login') return createLogin(p);
   }
   // The person's app login: username from their name, role from their job, a temporary password.
+  function askLogin(p) {
+    if (!el('stLoginOverlay')) document.body.insertAdjacentHTML('beforeend', `
+      <div class="modal-overlay" id="stLoginOverlay">
+        <div class="modal-box form-box">
+          <h3 id="stLoginTitle" style="margin:0 0 14px;font-family:var(--font-head);"></h3>
+          <form id="stLoginForm" autocomplete="off">
+            <div class="form-grid">
+              <div class="full"><label for="stLoginUser">Username <span style="opacity:.6;">(what they type to sign in)</span></label><input type="text" id="stLoginUser" autocapitalize="none" spellcheck="false" required></div>
+              <div class="full"><label for="stLoginRole">Role</label><select id="stLoginRole"></select></div>
+            </div>
+            <p class="muted-note" style="margin:10px 0 0;">A temporary password is made for them. Fine-tune what they can do afterwards in Users &gt; Permissions.</p>
+            <div class="actions-row">
+              <button type="button" class="btn ghost small" id="stLoginCancel">Cancel</button>
+              <button type="submit" class="btn small">Create login</button>
+            </div>
+          </form>
+        </div>
+      </div>`);
+    return new Promise(resolve => {
+      const ov = el('stLoginOverlay'), done = v => { ov.classList.remove('open'); resolve(v); };
+      el('stLoginTitle').textContent = `App login for ${p.name}`;
+      el('stLoginUser').value = usernameFor(p.name);
+      el('stLoginRole').innerHTML = Object.entries(ROLES).map(([k, r]) => `<option value="${k}" ${k === roleFor(p.job) ? 'selected' : ''}>${esc(r.label)}</option>`).join('');
+      el('stLoginCancel').onclick = () => done(null);
+      ov.onclick = e => { if (e.target === ov) done(null); };
+      el('stLoginForm').onsubmit = e => { e.preventDefault(); done({ username: el('stLoginUser').value.trim().toLowerCase(), role: el('stLoginRole').value }); };
+      ov.classList.add('open');
+      setTimeout(() => el('stLoginUser').select(), 30);
+    });
+  }
   async function createLogin(p) {
     if (!isAdmin()) return;
-    const username = await showPrompt(`Username for ${p.name} (what they type to sign in):`, { defaultValue: usernameFor(p.name), confirmLabel: 'Next' });
-    if (username === null) return;
-    const roles = Object.entries(ROLES).map(([k, r]) => `${k} = ${r.label}`).join(', ');
-    const role = await showPrompt(`Role for ${p.name} (${p.job}). One of: ${roles}`, { defaultValue: roleFor(p.job), confirmLabel: 'Create login' });
-    if (role === null) return;
-    if (!ROLES[role.trim()]) return showToast('Unknown role: ' + role, true);
+    const ask = await askLogin(p);
+    if (!ask) return;
+    const { username, role } = ask;
     const password = randomPassword();
     try {
-      const { user } = await callAdmin('create', { username: username.trim().toLowerCase(), display_name: p.name, role: role.trim(), password });
+      const { user } = await callAdmin('create', { username, display_name: p.name, role, password });
       S.users.set(user.id, user);
       const { error } = await sb.from('staff').update({ user_id: user.id }).eq('id', p.id);
       if (error) showToast('Login created, but not linked to the person — ' + friendlyError(error), true);
@@ -206,11 +244,11 @@
   /* ---------------- export ---------------- */
   function exportList() {
     const list = shown();
-    const aoa = [['Name', 'Job', 'Phone', 'Start date', 'Monthly salary', 'Status', 'App login', 'Note']];
-    list.forEach(p => aoa.push([p.name, p.job, p.phone || '', p.start_date || '', p.salary ?? '', p.active ? 'Working' : 'Left', loginName(p), p.note || '']));
+    const aoa = [['Name', 'Job', 'Sections', 'Phone', 'Start date', 'Monthly salary', 'Status', 'App login', 'Note']];
+    list.forEach(p => aoa.push([p.name, p.job, p.sections || '', p.phone || '', p.start_date || '', p.salary ?? '', p.active ? 'Working' : 'Left', loginName(p), p.note || '']));
     const ws = XLSX.utils.aoa_to_sheet(aoa);
-    ws['!cols'] = [{ wch: 26 }, { wch: 16 }, { wch: 16 }, { wch: 12 }, { wch: 14 }, { wch: 10 }, { wch: 16 }, { wch: 40 }];
-    for (let r = 1; r < aoa.length; r++) { const c = ws[XLSX.utils.encode_cell({ r, c: 2 })]; if (c) { c.t = 's'; c.z = '@'; } }   // phones as text
+    ws['!cols'] = [{ wch: 26 }, { wch: 20 }, { wch: 28 }, { wch: 16 }, { wch: 12 }, { wch: 14 }, { wch: 10 }, { wch: 16 }, { wch: 40 }];
+    for (let r = 1; r < aoa.length; r++) { const c = ws[XLSX.utils.encode_cell({ r, c: 3 })]; if (c) { c.t = 's'; c.z = '@'; } }   // phones as text
     const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Staff');
     XLSX.writeFile(wb, `staff-${todayStr()}.xlsx`);
     logActivity('staff', 'export', { type: 'staff', id: 'all' }, `Exported the staff list (${list.length} people)`);
