@@ -1470,3 +1470,12 @@ body.rentals-map-only #rentalViewTabs [data-view="list"]{display:none;}
 
 /* Staff schedule by department (owner, 2026-10-03) */
 .sh-drag.sh-drag-off{visibility:hidden;}
+
+/* Drag and drop to reorder — the same everywhere (owner, 2026-10-04; js/core/rowdrag.js) */
+.row-drag{display:inline-flex;align-items:center;justify-content:center;width:22px;height:28px;vertical-align:middle;color:var(--ink-faint);cursor:grab;touch-action:none;border-radius:6px;}
+.row-drag svg{width:15px;height:15px;stroke:currentColor;}
+.row-drag:hover{color:var(--pine);background:var(--pine-tint);}
+body.row-drag-on,body.row-drag-on *{cursor:grabbing !important;user-select:none;}
+.row-dragging > th,.row-dragging > td,.row-dragging{background:var(--pine-tint) !important;}
+.sh-grid .sh-name .row-drag{margin:0 4px 0 -4px;}
+.st-table td.st-drag{width:30px;padding-right:0;}

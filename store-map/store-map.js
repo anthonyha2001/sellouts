@@ -1748,11 +1748,12 @@
       const t = this.typeOf(o);
       const catOpts = (cur) => Object.entries(this.cats).map(([k, c]) => `<option value="${k}" ${k === (cur || 'other') ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
       const secEditor = (key, title) => `<div class="sm-p-sec"><h4>${title}<button type="button" class="sm-mini" data-sec-add="${key}" title="Add a section" aria-label="Add a section">${ic('plus')}</button></h4>
-        <div class="sm-sections">${(o[key] || []).map((s, i) => `<div class="sm-sec-row">
+        <div class="sm-sections" data-sec-list="${key}">${(o[key] || []).map((s, i) => `<div class="sm-sec-row" data-i="${i}">
+          <span class="row-drag sm-drag" data-drag title="Drag to move" aria-label="Drag to move"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="6" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="18" r="1"/></svg></span>
           <input class="sm-input" data-sec="${key}" data-i="${i}" data-f="label" value="${esc(s.label)}" aria-label="Section name">
           <input class="sm-input" data-sec="${key}" data-i="${i}" data-f="size" value="${s.size}" inputmode="decimal" title="Relative length" aria-label="Relative length">
           <select class="sm-select" data-sec="${key}" data-i="${i}" data-f="cat" aria-label="Department">${catOpts(s.cat)}</select>
-          <span style="display:flex;gap:2px"><button type="button" class="sm-mini" data-sec-mv="${key}" data-i="${i}" data-d="-1" aria-label="Move up">${ic('up')}</button><button type="button" class="sm-mini" data-sec-mv="${key}" data-i="${i}" data-d="1" aria-label="Move down">${ic('down')}</button><button type="button" class="sm-mini" data-sec-del="${key}" data-i="${i}" aria-label="Remove section">${ic('close')}</button></span>
+          <span style="display:flex;gap:2px"><button type="button" class="sm-mini" data-sec-del="${key}" data-i="${i}" aria-label="Remove section">${ic('close')}</button></span>
         </div>`).join('') || '<p class="sm-empty">No sections.</p>'}</div>
         <p class="sm-hint" style="margin:6px 0 0">Length is relative: 2 is twice as long as 1.</p></div>`;
       // Same size for all of this type (owner, 2026-10-02)
@@ -1806,10 +1807,30 @@
       });
       P.querySelectorAll('[data-sec-add]').forEach(b => b.onclick = () => { const k = b.dataset.secAdd; this.pushUndo(); o[k] = o[k] || []; o[k].push({ label: 'Section', size: 1, cat: 'other' }); this.dirty = true; this.renderSvg(); this.renderPanel(); });
       P.querySelectorAll('[data-sec-del]').forEach(b => b.onclick = () => { const k = b.dataset.secDel; this.pushUndo(); o[k].splice(Number(b.dataset.i), 1); this.dirty = true; this.renderSvg(); this.renderPanel(); });
-      P.querySelectorAll('[data-sec-mv]').forEach(b => b.onclick = () => {
-        const k = b.dataset.secMv, i = Number(b.dataset.i), j = i + Number(b.dataset.d), arr = o[k];
-        if (j < 0 || j >= arr.length) return; this.pushUndo(); [arr[i], arr[j]] = [arr[j], arr[i]]; this.dirty = true; this.renderSvg(); this.renderPanel();
-      });
+      // Drag and drop a section by its handle (owner, 2026-10-04: same as everywhere in the app).
+      P.querySelectorAll('[data-sec-list]').forEach(list => list.addEventListener('pointerdown', e => {
+        const h = e.target.closest('[data-drag]'); if (!h || e.button !== 0) return;
+        const row = h.closest('.sm-sec-row'); if (!row) return;
+        e.preventDefault();
+        const rows = () => [...list.querySelectorAll('.sm-sec-row')];
+        const before = rows().map(r => r.dataset.i).join();
+        row.classList.add('row-dragging'); document.body.classList.add('row-drag-on');
+        const move = ev => {
+          const others = rows().filter(r => r !== row);
+          const over = others.find(r => { const b = r.getBoundingClientRect(); return ev.clientY < b.top + b.height / 2; });
+          if (over) { if (over.previousElementSibling !== row) list.insertBefore(row, over); }
+          else if (others.length && others[others.length - 1].nextElementSibling !== row) others[others.length - 1].after(row);
+        };
+        const up = () => {
+          window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up);
+          row.classList.remove('row-dragging'); document.body.classList.remove('row-drag-on');
+          const order = rows().map(r => Number(r.dataset.i));
+          if (order.join() === before) return;
+          const k = list.dataset.secList, arr = o[k];
+          this.pushUndo(); o[k] = order.map(i => arr[i]); this.dirty = true; this.renderSvg(); this.renderPanel();
+        };
+        window.addEventListener('pointermove', move); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
+      }));
     }
 
     async addFloor() {

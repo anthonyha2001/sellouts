@@ -570,7 +570,7 @@
     const s = S.settings;
     body.innerHTML = `
       <div class="card">
-        <div class="cash-card-head"><h3 style="margin:0;">Cashiers</h3><span class="muted-note">The grid shows active cashiers in this order. Drag a row by its handle to move it.</span></div>
+        <div class="cash-card-head"><h3 style="margin:0;">Cashiers</h3><span class="muted-note">The grid shows active cashiers in this order. Drag a row by its handle (⋮⋮) to move it.</span></div>
         ${isAdmin() ? `<div class="cash-pin-bar">
           <button type="button" class="btn secondary small" id="cashShowPins">${S.pins ? 'Hide PINs' : 'Show PINs'}</button>
           <button type="button" class="btn secondary small" id="cashExportPins">Export PINs (Excel)</button>
@@ -583,15 +583,11 @@
         </form>
         <div class="items-scroll" style="margin-bottom:0;">
           <table class="items">
-            <thead><tr><th>Order</th><th>Name</th><th>Position</th><th>Status</th><th>PIN</th><th>Last opened the cashier page</th><th></th></tr></thead>
+            <thead><tr><th></th><th>Name</th><th>Position</th><th>Status</th><th>PIN</th><th>Last opened the cashier page</th><th></th></tr></thead>
             <tbody>${S.cashiers.map((c, i) => {
               const locked = c.locked_until && new Date(c.locked_until).getTime() > now;
               return `<tr data-id="${esc(c.id)}">
-                <td><div class="icon-actions">
-                  <span class="cash-drag" data-drag title="Drag to move" aria-label="Drag to move"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="6" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="18" r="1"/></svg></span>
-                  <button class="icon-btn" data-act="up" ${i === 0 ? 'disabled' : ''} title="Move up" aria-label="Move up"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 15l-6-6-6 6"/></svg></button>
-                  <button class="icon-btn" data-act="down" ${i === S.cashiers.length - 1 ? 'disabled' : ''} title="Move down" aria-label="Move down"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>
-                </div></td>
+                <td>${RowDrag.handle()}</td>
                 <td><b>${esc(c.name)}</b></td>
                 <td><select data-f="position" aria-label="Position of ${esc(c.name)}" style="width:auto;padding:5px 8px;">
                   <option value="cashier" ${!['supervisor', 'picker'].includes(c.position) ? 'selected' : ''}>Cashier</option>
@@ -674,41 +670,15 @@
 
   // Drag by the handle: the row follows the pointer; dropped, it takes that place.
   function wireDrag(tbody) {
-    tbody.addEventListener('pointerdown', e => {
-      const h = e.target.closest('[data-drag]'); if (!h || e.button !== 0) return;
-      e.preventDefault();
-      const row = h.closest('tr'), id = row.dataset.id;
-      const rows = () => [...tbody.querySelectorAll('tr[data-id]')];
-      row.classList.add('cash-dragging');
-      tbody.classList.add('cash-drag-on');
-      const move = ev => {
-        const over = rows().filter(r => r !== row).find(r => { const b = r.getBoundingClientRect(); return ev.clientY < b.top + b.height / 2; });
-        if (over) { if (over.previousElementSibling !== row) tbody.insertBefore(row, over); }
-        else if (tbody.lastElementChild !== row) tbody.appendChild(row);
-      };
-      const up = () => {
-        window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up);
-        row.classList.remove('cash-dragging'); tbody.classList.remove('cash-drag-on');
-        const order = rows().map(r => r.dataset.id);
-        const before = S.cashiers.map(c => c.id);
-        if (order.join() === before.join()) return;
-        const c = S.cashiers.find(x => x.id === id);
-        S.cashiers.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
-        saveOrder(`Moved ${c.name} to place ${order.indexOf(id) + 1}`);
-      };
-      // On the window: the row moves in the page while dragging, so the handle would lose the pointer.
-      window.addEventListener('pointermove', move); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
-    });
+    RowDrag.attach(tbody, { rows: 'tr[data-id]', onDrop: (order, id) => {
+      const c = S.cashiers.find(x => x.id === id);
+      S.cashiers.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
+      saveOrder(`Moved ${c.name} to place ${order.indexOf(id) + 1}`);
+    } });
   }
 
   async function cashierAction(act, id) {
     const c = S.cashiers.find(x => x.id === id); if (!c) return;
-    if (act === 'up' || act === 'down') {
-      const i = S.cashiers.indexOf(c), j = act === 'up' ? i - 1 : i + 1;
-      if (j < 0 || j >= S.cashiers.length) return;
-      [S.cashiers[i], S.cashiers[j]] = [S.cashiers[j], S.cashiers[i]];
-      return saveOrder(`Moved ${c.name} ${act}`);
-    }
     if (act === 'rename') {
       const v = await showPrompt(`New name for ${c.name}:`, { defaultValue: c.name, confirmLabel: 'Rename' });
       if (v === null || !v.trim() || v.trim() === c.name) return;

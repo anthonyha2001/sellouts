@@ -222,8 +222,7 @@
       const hours = Math.round(days.reduce((t, c) => t + hoursOf(c), 0) * 100) / 100;
       const off = days.filter(c => c === 'off').length;
       return `<tr data-p="${p.id}" data-grp="${p.dept}">
-        <th class="sh-name">${hasStation(p) ? `<span class="sh-drag" data-drag title="Drag to move" aria-label="Drag to move">`
-          : '<span class="sh-drag sh-drag-off" aria-hidden="true">'}<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="6" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="18" r="1"/></svg></span>${esc(p.name)}${p.active ? '' : ' <span class="muted-note">(inactive)</span>'}<small>${esc(p.job || '') + (hasStation(p) && p.default_station ? ' · ' + (p.default_station === 'front' ? 'Front' : 'Back') : '')}</small></th>
+        <th class="sh-name">${RowDrag.handle()}${esc(p.name)}${p.active ? '' : ' <span class="muted-note">(inactive)</span>'}<small>${esc(p.job || '') + (hasStation(p) && p.default_station ? ' · ' + (p.default_station === 'front' ? 'Front' : 'Back') : '')}</small></th>
         ${dates.map((d, i) => { const c = days[i] || '', { shift } = parse(c); const q = askOf(p.id, i); return `<td class="sh-cell sh-${shift || 'none'}${editableDay(i) ? '' : ' sh-ro'}"><button type="button" data-day="${i}" ${editableDay(i) ? '' : 'disabled'} aria-label="${esc(p.name)} ${DAYS[i]}" ${q ? `title="Asked for ${ASK_LABEL[q]}"` : ''}>${cellHtml(c)}${q ? `<i class="sh-ask-dot ${shift === q ? 'ok' : ''}">${ASK_LABEL[q]}</i>` : ''}</button></td>`; }).join('')}
         <td class="num sh-hours">${hours ? hours + 'h' : '—'}<small>${off} off</small></td></tr>`;
     };
@@ -285,34 +284,20 @@
   // among supervisors, cashiers among cashiers). The order is the staff list's (sort_order), the
   // same one the Cash grid uses; the other group keeps its places.
   function wireRowDrag() {
-    const tbody = el('shBody').querySelector('.sh-grid tbody');
-    tbody.addEventListener('pointerdown', e => {
-      const h = e.target.closest('[data-drag]'); if (!h || e.button !== 0) return;
-      e.preventDefault(); e.stopPropagation();
-      const row = h.closest('tr'), grp = row.dataset.grp;
-      const groupRows = () => [...tbody.querySelectorAll(`tr[data-grp="${grp}"]`)];
-      const before = groupRows().map(r => r.dataset.p);
-      row.classList.add('sh-dragging'); tbody.classList.add('sh-drag-on');
-      const move = ev => {
-        const others = groupRows().filter(r => r !== row);
-        if (!others.length) return;
-        const over = others.find(r => { const b = r.getBoundingClientRect(); return ev.clientY < b.top + b.height / 2; });
-        if (over) { if (over.previousElementSibling !== row) tbody.insertBefore(row, over); }
-        else { const last = others[others.length - 1]; if (last.nextElementSibling !== row) last.after(row); }
-      };
-      const up = async () => {
-        window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up);
-        row.classList.remove('sh-dragging'); tbody.classList.remove('sh-drag-on');
-        const after = groupRows().map(r => r.dataset.p);
-        if (after.join() === before.join()) return;
-        await saveGroupOrder(after, row.dataset.p);
-      };
-      window.addEventListener('pointermove', move); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
-    });
+    RowDrag.attach(el('shBody').querySelector('.sh-grid tbody'), { rows: 'tr[data-p]', id: r => r.dataset.p, group: r => r.dataset.grp, onDrop: saveGroupOrder });
   }
   // The group's members take the group's slots of the whole list in their new order.
   async function saveGroupOrder(ids, movedId) {
-    const list = S.staff.filter(p => p.cashierId).sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+    const moved = S.staff.find(x => x.id === movedId);
+    // Other departments (and pickers): the Staff list order (migration 044).
+    if (!hasStation(moved || {})) {
+      const staffIds = ids.map(id => S.staff.find(x => x.id === id)?.staffId).filter(Boolean);
+      const { error } = await sb.rpc('staff_reorder', { p_ids: staffIds });
+      if (error) showToast('Order not saved — ' + friendlyError(error), true);
+      else logActivity('schedule', 'reorder_staff', { type: 'staff', id: moved?.staffId || null }, `Moved ${moved?.name || 'a person'} to place ${ids.indexOf(movedId) + 1} of ${DEPT_LABEL[moved?.dept] || 'the list'}`);
+      await loadStaff(); return renderWeek();
+    }
+    const list = S.staff.filter(p => p.cashierId && hasStation(p)).sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
     const set = new Set(ids);
     let k = 0;
     const next = list.map(p => { if (!set.has(p.id)) return p; const id = ids[k++]; return S.staff.find(x => x.id === id); });
@@ -323,7 +308,6 @@
       p.sort_order = i;
     }
     S.staff.sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
-    const moved = S.staff.find(x => x.id === movedId);
     if (changed.length) logActivity('schedule', 'reorder_staff', { type: 'cashier', id: movedId }, `Moved ${moved?.name || 'a person'} to place ${ids.indexOf(movedId) + 1} of the ${isSup(moved || {}) ? 'supervisors' : 'cashiers'}`);
     renderWeek();
   }

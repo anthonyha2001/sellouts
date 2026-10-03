@@ -87,8 +87,9 @@
       <p class="muted-note st-count">${S.list.filter(p => p.active).length} working · ${Object.entries(jobs).sort((a, b) => b[1] - a[1]).map(([j, n]) => `${n} ${esc(j)}`).join(' · ')}</p>
       <div class="card" style="padding:0;"><div class="items-scroll" style="margin:0;border:0;">
         <table class="items st-table">
-          <thead><tr><th>Name</th><th>Job</th><th>Phone</th><th>Started</th><th class="num">Salary</th><th>App login</th><th></th></tr></thead>
+          <thead><tr><th></th><th>Name</th><th>Job</th><th>Phone</th><th>Started</th><th class="num">Salary</th><th>App login</th><th></th></tr></thead>
           <tbody>${list.map(p => `<tr data-id="${esc(p.id)}" class="${p.active ? '' : 'st-left'}">
+            <td class="st-drag">${canDrag() ? RowDrag.handle() : ''}</td>
             <td><b>${esc(p.name)}</b>${p.active ? '' : ' <span class="badge inactive">Left</span>'}${p.note ? `<small class="st-note">${esc(p.note)}</small>` : ''}</td>
             <td>${esc(p.job)}${inCashList(p.job) ? ` <span class="muted-note" title="Also on the Cash page and the cashier page${String(p.job).toLowerCase() === 'picker' ? '' : ', and in the staff schedule'}">· cash</span>` : ''}${p.sections ? `<small class="st-note">Sections: ${esc(p.sections)}</small>` : ''}</td>
             <td class="mono">${p.phone ? `<a href="tel:${esc(p.phone.replace(/[^\d+]/g, ''))}">${esc(p.phone)}</a>` : ''}</td>
@@ -98,8 +99,18 @@
             <td><div class="icon-actions" style="justify-content:flex-end;">
               <button type="button" class="btn ghost small" data-act="edit">Edit</button>
               <button type="button" class="btn ghost small" data-act="toggle">${p.active ? 'Left' : 'Back'}</button>
-            </div></td></tr>`).join('') || `<tr><td colspan="7" class="empty-note">${S.list.length ? 'Nobody matches.' : 'No staff yet — add the first person.'}</td></tr>`}</tbody>
-        </table></div></div>`;
+            </div></td></tr>`).join('') || `<tr><td colspan="8" class="empty-note">${S.list.length ? 'Nobody matches.' : 'No staff yet — add the first person.'}</td></tr>`}</tbody>
+        </table></div></div>
+      ${canDrag() ? '<p class="muted-note" style="margin:8px 0 0;">Drag a row by its handle (⋮⋮) to change the order.</p>' : ''}`;
+    if (canDrag()) RowDrag.attach(el('stBody').querySelector('.st-table tbody'), { onDrop: saveOrder });
+  }
+  // Reorder: the Working list without a search, so the order is the whole list's (migration 044).
+  const canDrag = () => S.show === 'active' && !S.q;
+  async function saveOrder(ids, movedId) {
+    const { error } = await sb.rpc('staff_reorder', { p_ids: ids });
+    if (error) showToast('Order not saved — ' + friendlyError(error), true);
+    else { const p = S.list.find(x => x.id === movedId); logActivity('staff', 'reorder', { type: 'staff', id: movedId }, `Moved ${p?.name || 'a person'} to place ${ids.indexOf(movedId) + 1}`); }
+    await load(); render();
   }
 
   /* ---------------- add / edit ---------------- */
