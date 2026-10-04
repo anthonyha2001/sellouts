@@ -113,7 +113,8 @@
     const { data, error } = await sb.rpc('schedule_staff');
     S.missing = !!error;
     S.staff = (data || []).map(r => ({ id: r.key, staffId: r.staff_id, cashierId: r.cashier_id, name: r.name, job: r.job, active: r.active,
-      sort_order: r.sort_order, position: r.pos || null, default_station: r.default_station, has_pin: r.has_pin }));
+      sort_order: r.sort_order, position: r.pos || null, default_station: r.default_station, has_pin: r.has_pin,
+      fixed: Array.isArray(r.fixed_days) ? r.fixed_days.slice(0, 7) : [] }));
     S.staff.forEach(p => { p.dept = deptOf(p); });
   }
   // The groups shown, in department order, with who is in them this week.
@@ -171,7 +172,7 @@
     el('shTabs').onclick = e => { const b = e.target.closest('[data-tab]'); if (!b) return; S.tab = b.dataset.tab; render(); };
   }
   async function refresh() {
-    await loadStaff();
+    await Promise.all([loadStaff(), loadDeptShifts()]);
     if (!S.missing) await loadWeek();
     render();
   }
@@ -203,6 +204,7 @@
     return c;
   }
   function renderWeek() {
+    if (!isPublishable()) return renderFixed();   // the other departments: a fixed week
     const w = S.week, row = S.row;
     const view = isTills() ? S.view : 'grid';   // the other tabs: the basic grid only
     const nav = `<div class="sh-weeknav">
@@ -638,6 +640,171 @@
     showToast(on ? 'Published — cashiers and the delivery team see it on the cashier page.' : 'Unpublished.');
     renderWeek();
   }
+  /* ---------------- fixed schedules (owner, 2026-10-04; migration 050) ----------------
+     Every department but Cashiers and Delivery works the same week every week, with its own shift
+     times. One grid Mon -> Sun per department, edited any time, never published — printed for the team. */
+  async function loadDeptShifts() {
+    const { data } = await sb.from('schedule_dept_shifts').select('dept, shifts');
+    S.deptShifts = new Map((data || []).map(r => [r.dept, r.shifts || {}]));
+  }
+  const deptDef = dept => { const d = S.deptShifts?.get(dept) || {}; return { am: d.am || DEF.am, pm: d.pm || DEF.pm, full: d.full || DEF.full }; };
+  const fixedTimes = (code, def) => { const x = parse(code); return SHIFT[x.shift] ? [x.start || def[x.shift][0], x.end || def[x.shift][1]] : null; };
+  const fixedHours = (code, def) => { const t = fixedTimes(code, def); return t ? Math.max(0, mins(t[1]) - mins(t[0])) / 60 : 0; };
+  const fixedCell = (code, def) => {
+    const x = parse(code);
+    if (x.shift === 'off') return 'Off';
+    if (!SHIFT[x.shift]) return '—';
+    const t = fixedTimes(code, def);
+    return `${SHIFT[x.shift].label}<small class="sh-time${x.start ? ' sh-time-own' : ''}">${t[0]}–${t[1]}</small>`;
+  };
+  const fixedSaveTimers = new Map();
+  function saveFixed(p) {
+    clearTimeout(fixedSaveTimers.get(p.id));
+    fixedSaveTimers.set(p.id, setTimeout(async () => {
+      const days = Array.from({ length: 7 }, (_, i) => p.fixed[i] || '');
+      const { error } = await sb.rpc('staff_set_fixed', { p_staff: p.staffId, p_days: days.some(Boolean) ? days : null });
+      if (error) showToast('Not saved — ' + friendlyError(error), true);
+    }, 400));
+  }
+  function renderFixed() {
+    const dept = S.tab, def = deptDef(dept), name = tabOf(S.tab)[1];
+    const list = people();
+    const tools = [...SHIFT_TOOLS, ...OTHER_TOOLS];
+    el('shBody').innerHTML = `
+      <div class="card sh-fixed-head">
+        <div class="sh-fixed-title"><h3>${esc(name)} <span class="muted-note">— fixed schedule, the same every week</span></h3>
+          <p class="muted-note">Not published (this team does not use the app): print it for them. Changes save by themselves.</p></div>
+        <div class="sh-fixed-times"><span class="sh-fixed-t">Shift times</span>${['am', 'pm', 'full'].map(k => `<span><b>${SHIFT[k].label}</b> ${def[k][0]}–${def[k][1]}</span>`).join('')}
+          <button type="button" class="btn ghost small" id="shDeptTimes">Change</button></div>
+        <button type="button" class="btn secondary small" id="shPrint">Print</button>
+      </div>
+      <div class="card"><div class="sh-brush" id="shBrush">
+          <span class="sh-brush-t">Shift</span>
+          ${tools.map(([v, l]) => `<button type="button" class="sh-chip sh-${v || 'none'} ${S.brush.tool === v ? 'on' : ''}" data-tool="${v}">${l}</button>`).join('')}
+          <span class="muted-note">Pick a shift and click or drag across the days. Right-click a cell (or T) for other times. Keys on a cell: A P F O, Delete.</span>
+        </div>
+        <div class="items-scroll" style="margin-bottom:0;"><table class="sh-grid sh-fixed">
+          <thead><tr><th></th>${DAYS.map(d => `<th>${d}</th>`).join('')}<th class="num">Week</th></tr></thead>
+          <tbody>${list.map(p => {
+            const hours = Math.round(p.fixed.reduce((t, c) => t + fixedHours(c, def), 0) * 100) / 100;
+            return `<tr data-p="${p.id}" data-grp="${p.dept}">
+              <th class="sh-name">${RowDrag.handle()}${esc(p.name)}<small>${esc(p.job || '')}</small></th>
+              ${DAYS.map((_, i) => { const c = p.fixed[i] || ''; return `<td class="sh-cell sh-${parse(c).shift || 'none'}"><button type="button" data-day="${i}" aria-label="${esc(p.name)} ${DAYS[i]}">${fixedCell(c, def)}</button></td>`; }).join('')}
+              <td class="num sh-hours">${hours ? hours + 'h' : '—'}<small>${p.fixed.filter(c => c === 'off').length} off</small></td></tr>`; }).join('')
+            || `<tr><td colspan="9" class="empty-note">Nobody in ${esc(name)} yet — add them on the Staff page with that job.</td></tr>`}</tbody>
+        </table></div></div>`;
+    el('shPrint').onclick = printFixed;
+    el('shDeptTimes').onclick = () => editDeptTimes(dept);
+    el('shBrush').onclick = e => {
+      const b = e.target.closest('[data-tool]'); if (!b) return;
+      S.brush.tool = b.dataset.tool;
+      el('shBrush').querySelectorAll('[data-tool]').forEach(x => x.classList.toggle('on', x.dataset.tool === S.brush.tool));
+    };
+    const tbody = el('shBody').querySelector('.sh-fixed tbody');
+    RowDrag.attach(tbody, { rows: 'tr[data-p]', id: r => r.dataset.p, group: r => r.dataset.grp, onDrop: saveGroupOrder });
+    const personOf = btn => S.staff.find(x => x.id === btn.closest('tr').dataset.p);
+    const set = (btn, tool) => {
+      if (tool === 'time') return false;
+      const p = personOf(btn); if (!p) return false;
+      const i = Number(btn.dataset.day), cur = p.fixed[i] || '';
+      const code = SHIFT[tool] && parse(cur).shift === tool ? cur : tool;   // same shift: keep its own times
+      if (cur === code) return false;
+      p.fixed[i] = code;
+      btn.innerHTML = fixedCell(code, def);
+      btn.parentElement.className = `sh-cell sh-${parse(code).shift || 'none'}`;
+      saveFixed(p);
+      return true;
+    };
+    let painting = false, changed = false;
+    tbody.onpointerdown = e => {
+      const b = e.target.closest('button[data-day]'); if (!b || e.button !== 0) return;
+      e.preventDefault(); b.focus();
+      if (S.brush.tool === 'time') return fixedTimesAt(personOf(b), Number(b.dataset.day), def);
+      painting = true; changed = set(b, S.brush.tool) || changed;
+    };
+    tbody.onpointermove = e => {
+      if (!painting) return;
+      const b = document.elementFromPoint(e.clientX, e.clientY)?.closest('.sh-fixed tbody button[data-day]');
+      if (b) changed = set(b, S.brush.tool) || changed;
+    };
+    window.onpointerup = () => { if (!painting) return; painting = false; if (changed) { changed = false; renderFixed(); } };
+    tbody.oncontextmenu = e => { const b = e.target.closest('button[data-day]'); if (!b) return; e.preventDefault(); fixedTimesAt(personOf(b), Number(b.dataset.day), def); };
+    tbody.onkeydown = e => {
+      const b = e.target.closest('button[data-day]'); if (!b || e.ctrlKey || e.metaKey || e.altKey) return;
+      const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+      if (key === 't') { e.preventDefault(); return fixedTimesAt(personOf(b), Number(b.dataset.day), def); }
+      const tool = { a: 'am', p: 'pm', f: 'full', o: 'off', Delete: '', Backspace: '' }[key];
+      if (tool === undefined) return;
+      e.preventDefault();
+      const id = b.closest('tr').dataset.p, d = Number(b.dataset.day);
+      set(b, tool); renderFixed();
+      el('shBody').querySelector(`.sh-fixed tr[data-p="${id}"] button[data-day="${Math.min(6, d + 1)}"]`)?.focus();
+    };
+  }
+  // One day's own times (arrives late / leaves early, or a different shift length).
+  async function fixedTimesAt(p, i, def) {
+    if (!p) return;
+    const x = parse(p.fixed[i] || '');
+    const shift = SHIFT[x.shift] ? x.shift : SHIFT[S.brush.tool] ? S.brush.tool : 'am';
+    const t = fixedTimes(p.fixed[i] && SHIFT[x.shift] ? p.fixed[i] : shift, def);
+    const v = await showPrompt(`${p.name} — ${DAYS[i]} (${SHIFT[shift].label}). Times, e.g. 06:00-13:00 (empty = the usual ${def[shift][0]}–${def[shift][1]}):`,
+      { defaultValue: x.start ? `${t[0]}-${t[1]}` : '', confirmLabel: 'Save', placeholder: `${def[shift][0]}-${def[shift][1]}` });
+    if (v === null) return;
+    const m = v.trim().match(/^(\d{1,2}):(\d{2})\s*[-–]\s*(\d{1,2}):(\d{2})$/);
+    if (v.trim() && !m) return showToast('Type the times like 06:00-13:00.', true);
+    const hhmm = (h, mi) => `${String(h).padStart(2, '0')}:${mi}`;
+    const from = m ? hhmm(m[1], m[2]) : '', to = m ? hhmm(m[3], m[4]) : '';
+    if (m && mins(to) <= mins(from)) return showToast('The end must be after the start.', true);
+    p.fixed[i] = !m || (from === def[shift][0] && to === def[shift][1]) ? shift : `${shift}|${from}-${to}`;
+    saveFixed(p); renderFixed();
+  }
+  // The department's AM / PM / Full times.
+  async function editDeptTimes(dept) {
+    const def = deptDef(dept), name = tabOf(dept)[1];
+    if (!el('shDeptOverlay')) document.body.insertAdjacentHTML('beforeend', `
+      <div class="modal-overlay" id="shDeptOverlay"><div class="modal-box form-box">
+        <h3 id="shDeptTitle" style="margin:0 0 14px;font-family:var(--font-head);"></h3>
+        <form id="shDeptForm" autocomplete="off"><div class="sh-dept-form" id="shDeptRows"></div>
+          <div class="actions-row"><button type="button" class="btn ghost small" id="shDeptCancel">Cancel</button><button type="submit" class="btn small">Save</button></div>
+        </form></div></div>`);
+    el('shDeptTitle').textContent = `${name} — shift times`;
+    el('shDeptRows').innerHTML = ['am', 'pm', 'full'].map(k => `<label>${SHIFT[k].label}</label>
+      <input type="time" data-k="${k}" data-e="0" value="${def[k][0]}" required><span>to</span><input type="time" data-k="${k}" data-e="1" value="${def[k][1]}" required>`).join('');
+    const ov = el('shDeptOverlay'), close = () => ov.classList.remove('open');
+    el('shDeptCancel').onclick = close;
+    ov.onclick = e => { if (e.target === ov) close(); };
+    el('shDeptForm').onsubmit = async e => {
+      e.preventDefault();
+      const shifts = {};
+      for (const k of ['am', 'pm', 'full']) {
+        const a = el('shDeptRows').querySelector(`[data-k="${k}"][data-e="0"]`).value, b = el('shDeptRows').querySelector(`[data-k="${k}"][data-e="1"]`).value;
+        if (!a || !b || mins(b) <= mins(a)) return showToast(`${SHIFT[k].label}: the end must be after the start.`, true);
+        shifts[k] = [a, b];
+      }
+      const { error } = await sb.from('schedule_dept_shifts').upsert({ dept, shifts, updated_at: new Date().toISOString() });
+      if (error) return showToast('Not saved — ' + friendlyError(error), true);
+      S.deptShifts.set(dept, shifts);
+      logActivity('schedule', 'dept_shifts', { type: 'department', id: dept }, `Shift times of ${name}: AM ${shifts.am.join('–')}, PM ${shifts.pm.join('–')}, Full ${shifts.full.join('–')}`);
+      close(); renderFixed();
+    };
+    ov.classList.add('open');
+  }
+  function printFixed() {
+    const dept = S.tab, def = deptDef(dept), name = tabOf(dept)[1], list = people();
+    const cell = c => { const x = parse(c); if (x.shift === 'off') return '<td class="off">Off</td>'; if (!SHIFT[x.shift]) return '<td></td>'; const t = fixedTimes(c, def); return `<td class="${x.shift}"><b>${SHIFT[x.shift].label}</b><br><small class="${x.start ? 't' : ''}">${t[0]}–${t[1]}</small></td>`; };
+    const win = window.open('', '_blank'); if (!win) return showToast('Allow pop-ups to print.', true);
+    win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(name)} schedule</title><style>
+      body{font:13px Arial,sans-serif;margin:24px;color:#111}h1{font-size:18px;margin:0 0 4px;color:#1943AF}p{margin:0 0 14px;color:#555}
+      table{border-collapse:collapse;width:100%}th,td{border:1px solid #bbb;padding:6px;text-align:center}th{text-align:left;white-space:nowrap}
+      thead th{text-align:center;background:#eef1ff}small.t{color:#b25b00;font-weight:700}td.am{background:#e6f0ff}td.pm{background:#fff3dc}td.full{background:#e8f6ec}td.off{color:#999}small{color:#555}
+      @media print{body{margin:8mm}}</style></head><body>
+      <h1>La Valeur — ${esc(name)} schedule</h1><p>The same every week · AM ${def.am.join('–')} · PM ${def.pm.join('–')} · Full ${def.full.join('–')}</p>
+      <table><thead><tr><th></th>${DAYS.map(d => `<th>${d}</th>`).join('')}</tr></thead>
+      <tbody>${list.map(p => `<tr><th>${esc(p.name)}</th>${DAYS.map((_, i) => cell(p.fixed[i] || '')).join('')}</tr>`).join('')}</tbody></table>
+      <script>setTimeout(()=>print(),300)<\/script></body></html>`);
+    win.document.close();
+  }
+
   function print() {
     const w = S.week, a = S.row.assignments || {}, dates = DAYS.map((_, i) => addDays(w, i));
     const cell = (p, i) => { const { shift, station } = parse((a[p.id] || [])[i]); if (shift === 'off') return '<td class="off">Off</td>'; if (!SHIFT[shift]) return '<td></td>'; const code = (a[p.id] || [])[i], t = custom(code) ? timesOf(code) : null; return `<td class="${shift}"><b>${SHIFT[shift].label}</b>${station ? `<br><small>${esc(stLabel(station))}</small>` : ''}${t ? `<br><small class="t">${t[0]}–${t[1]}</small>` : ''}</td>`; };
