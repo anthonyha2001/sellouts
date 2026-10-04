@@ -55,6 +55,10 @@
   <button class="menu-toggle" id="menuToggle" aria-label="Menu"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
 
   <ul class="sidenav" id="sidenav" style="list-style:none;">
+    <button class="nav-btn" data-tab="dashboard" title="Dashboard" hidden>
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="8" height="9" rx="1.5"/><rect x="13" y="3" width="8" height="5" rx="1.5"/><rect x="13" y="10" width="8" height="11" rx="1.5"/><rect x="3" y="14" width="8" height="7" rx="1.5"/></svg>
+      <span class="label">Dashboard</span>
+    </button>
     <button class="nav-btn" data-tab="onlinepromo" title="Online promotion" hidden>
       <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18"/></svg>
       <span class="label">Online promotion</span>
@@ -833,6 +837,9 @@
     <!-- TOOLS: PDF / photo to Excel (js/modules/tools.js) -->
     <section class="panel" id="panel-tools"></section>
 
+    <!-- DASHBOARD: the admin's view of everything (js/modules/dashboard.js) -->
+    <section class="panel" id="panel-dashboard"></section>
+
     <!-- CASH COUNT: the drawer count sheet and its reconciliation (js/modules/cashcount.js) -->
     <section class="panel" id="panel-cashcount"></section>
 
@@ -978,6 +985,7 @@
 <script src="js/modules/users.js"></script>
 <script src="js/modules/staff.js"></script>
 <script src="js/modules/cashcount.js"></script>
+<script src="js/modules/dashboard.js"></script>
 <script src="js/core/live.js"></script>
 <script src="js/core/auth.js"></script>
 </body>

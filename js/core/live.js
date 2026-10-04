@@ -15,6 +15,7 @@
 const Live = (function () {
   // Section -> the tables it shows, and how it reloads (all global functions / modules).
   const SECTIONS = {
+    dashboard:   { tables: ['cash_differences', 'cash_counts', 'sellouts', 'dt_orders', 'vendor_orders', 'floor_check_items', 'label_lists', 'promo_lady_attendance', 'schedule_weeks', 'activity_log'], refresh: () => window.Dashboard && Dashboard.show() },
     sellouts:    { tables: ['sellouts'],                                          refresh: () => loadAll() },
     onlinepromo: { tables: ['sellouts'],                                          refresh: () => window.OnlinePromo && OnlinePromo.show() },
     creditnotes: { tables: ['credit_notes'],                                      refresh: () => loadAll() },

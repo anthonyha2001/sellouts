@@ -8,9 +8,9 @@
 const ROLES = {
   admin: {
     label: 'Admin',
-    sections: ['sellouts', 'onlinepromo', 'creditnotes', 'promotions', 'vendors', 'rentals', 'delivery', 'cash', 'cashcount', 'floorcheck', 'promoladies', 'schedule', 'staff', 'labels', 'tools', 'users', 'activity'],
+    sections: ['dashboard', 'sellouts', 'onlinepromo', 'creditnotes', 'promotions', 'vendors', 'rentals', 'delivery', 'cash', 'cashcount', 'floorcheck', 'promoladies', 'schedule', 'staff', 'labels', 'tools', 'users', 'activity'],
     delivery: ['orders', 'settle', 'reports', 'customers', 'drivers', 'settings'],
-    home: 'sellouts',
+    home: 'dashboard',
   },
   accountant: {
     label: 'Accountant',
@@ -49,7 +49,7 @@ const ROLES = {
 // Set by auth.js once the profile is loaded.
 const Session = { user: null, profile: null, role: null, perms: null };
 
-const SECTION_ORDER = ['sellouts', 'onlinepromo', 'creditnotes', 'promotions', 'vendors', 'rentals', 'delivery', 'cash', 'cashcount', 'floorcheck', 'promoladies', 'schedule', 'staff', 'labels', 'tools', 'users', 'activity'];
+const SECTION_ORDER = ['dashboard', 'sellouts', 'onlinepromo', 'creditnotes', 'promotions', 'vendors', 'rentals', 'delivery', 'cash', 'cashcount', 'floorcheck', 'promoladies', 'schedule', 'staff', 'labels', 'tools', 'users', 'activity'];
 function roleInfo() {
   const r = ROLES[Session.role] || { label: '', sections: [], delivery: [], home: null };
   // Landing page: the role's usual one, or the first section this user can open.
@@ -57,7 +57,7 @@ function roleInfo() {
   return Object.assign({}, r, { home });
 }
 function canSee(section) {
-  if (section === 'users') return isAdmin();
+  if (section === 'users' || section === 'dashboard') return isAdmin();   // the dashboard: admin only (owner, 2026-10-04)
   const perms = SECTION_PERMS[section];
   return !!perms && can(...perms);
 }
