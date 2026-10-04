@@ -10,7 +10,7 @@
         the system's figures, each card line found / not found; the
         differences, line by line ("Visa Bankmed: short 50,000 LBP"),
         the cash difference, the allowed margin (1,000 LBP per
-        1,000,000 of cash, shown only) and the total.
+        1,000,000 of system cash) and the total.
    Differences grid (accountant / HR — cashcount.view): every count of
    a month, with an Excel export.
    Missing slips: when the count is reconciled, every card (LBP / USD)
@@ -111,9 +111,9 @@
     const notFoundLbp = missing.reduce((t, i) => t + (i.cur === 'usd' ? n(i.amount) * rate : n(i.amount)), 0);
     const cardsDiff = cards.reduce((t, x) => t + x.diff.lbp + x.diff.usd * rate, 0);
     const cashDiffLbpEq = cashDiff.lbp + cashDiff.usd * rate;
-    const cashTotalLbpEq = cashLbp + cashUsd * rate;
+    const sysCashLbpEq = n(sys.cash_lbp) + n(sys.cash_usd) * rate;
     const total = cashDiffLbpEq + cardsDiff;
-    const margin = Math.round(cashTotalLbpEq / 1e6 * 1000);     // 1,000 LBP allowed per 1,000,000 of cash
+    const margin = Math.round(sysCashLbpEq / 1e6 * 1000);     // 1,000 LBP allowed per 1,000,000 of cash in the system
     // Within the margin: nothing; beyond it: only what is beyond.
     const afterMargin = !hasSystem || Math.abs(total) <= margin ? 0 : Math.round(total - Math.sign(total) * margin);
     const posted = c.posted_at ? Math.round(n(c.posted_amount)) : null;
@@ -360,7 +360,7 @@
       ${r.foundSlips.length ? `<p class="cc-expnote">Found later: ${r.foundSlips.map(i => esc(i.label) + ' ' + amt(i) + ' (' + esc(fmtTs(i.found_at)) + ')').join(', ')}</p>` : ''}
       <div class="cc-res-row cc-res-sub"><span>Credit card difference</span><span>${diffWord(r.cardsDiff, lbp, 'LBP')}</span></div>
       <div class="cc-res-row cc-res-total"><span>Total difference</span><span>${diffWord(r.total, lbp, 'LBP')}</span></div>
-      <div class="cc-res-row"><span>Allowed margin (1,000 per 1,000,000 of cash)</span><span>± ${lbp(r.margin)} LBP</span></div>
+      <div class="cc-res-row"><span>Allowed margin (1,000 per 1,000,000 of system cash)</span><span>± ${lbp(r.margin)} LBP</span></div>
       <div class="cc-res-row cc-res-total cc-res-after"><span>Difference after the margin</span><span>${diffWord(r.afterMargin, lbp, 'LBP')}</span></div>
       <div class="cc-post">${postHtml(c, r)}</div>`;
   }
