@@ -88,6 +88,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/></svg>
       <span class="label">Cash</span>
     </button>
+    <button class="nav-btn" data-tab="cashcount" title="Cash count" hidden>
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 10v4M18 10v4"/></svg>
+      <span class="label">Cash count</span>
+    </button>
     <button class="nav-btn" data-tab="floorcheck" title="Floor check" hidden>
       <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1"/><path d="m9 13 2 2 4-4"/></svg>
       <span class="label">Floor check</span>
@@ -829,6 +833,9 @@
     <!-- TOOLS: PDF / photo to Excel (js/modules/tools.js) -->
     <section class="panel" id="panel-tools"></section>
 
+    <!-- CASH COUNT: the drawer count sheet and its reconciliation (js/modules/cashcount.js) -->
+    <section class="panel" id="panel-cashcount"></section>
+
     <!-- STAFF: every employee, job, phone, salary, app login (js/modules/staff.js) -->
     <section class="panel" id="panel-staff"></section>
 
@@ -970,6 +977,7 @@
 <script src="js/modules/delivery.js"></script>
 <script src="js/modules/users.js"></script>
 <script src="js/modules/staff.js"></script>
+<script src="js/modules/cashcount.js"></script>
 <script src="js/core/live.js"></script>
 <script src="js/core/auth.js"></script>
 </body>

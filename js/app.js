@@ -1086,6 +1086,7 @@ const PAGES = {
   vendors:     { eyebrow: 'Directory', title: 'Vendors', sub: 'Salesman contacts, delivery schedule, and placing orders.' },
   rentals:     { eyebrow: 'Store map', title: 'Rentals', sub: 'Every rented spot on the store map: its contract, billing, renewal and the supplier’s sales.' },
   delivery:    { eyebrow: 'Deliveries', title: 'Delivery', sub: 'Home-delivery orders, driver payments and customers.' },
+  cashcount:   { eyebrow: 'Cashiers', title: 'Cash count', sub: 'Count a drawer, have the cashier sign, reconcile it with the system.' },
   cash:        { eyebrow: 'Cashiers', title: 'Cash differences', sub: 'Daily over and short amounts per cashier.' },
   floorcheck:  { eyebrow: 'Store floor', title: 'Floor check', sub: 'Check that every sell-out and promotion item on the floor has the right price.' },
   labels:      { eyebrow: 'Shelves', title: 'Shelf labels', sub: 'Items that need a new shelf label: scanned on the floor, printed by the accountant.' },
@@ -1112,6 +1113,7 @@ function switchTab(name, sub) {
   else if (location.hash !== '#' + name) history.replaceState(null, '', '#' + name);
   if (name === 'users' && window.UsersPage) UsersPage.show();
   if (name === 'cash' && window.Cash) Cash.show();
+  if (name === 'cashcount' && window.CashCount) CashCount.show();
   if (name === 'floorcheck' && window.FloorCheck) FloorCheck.show();
   if (name === 'labels' && window.Labels) Labels.show();
   if (name === 'onlinepromo' && window.OnlinePromo) OnlinePromo.show();

@@ -47,6 +47,9 @@ const PERMISSIONS = [
   ['promoladies.manage', 'Promo ladies',  'See and manage promo ladies',                        ['floor_manager']],
   ['schedule.manage',    'Staff schedule', 'Make the weekly schedule; staff list and PINs',       ['hr']],
   ['schedule.edit',      'Staff schedule', 'Edit the schedule (drafts and published weeks); HR is told about changes', []],
+  ['cashcount.count',    'Cash count',    "Count a cashier's drawer (bills, cards) and have the cashier sign", []],
+  ['cashcount.reconcile', 'Cash count',   'Enter the system figures, card found / not found, reconcile', []],
+  ['cashcount.view',     'Cash count',    'See the cash count grid (differences)',               []],
   ['staff.manage',       'Staff',         'Staff list: every employee, job, phone, salary; create their app login', []],
 ];
 const PERMISSION_KEYS = PERMISSIONS.map(p => p[0]);
@@ -56,7 +59,7 @@ const SECTION_PERMS = {
   sellouts: ['sellouts.view'], onlinepromo: ['sellouts.online', 'sellouts.view'], creditnotes: ['creditnotes.view'], promotions: ['promotions.view'],
   vendors: ['vendors.manage'], rentals: ['rentals.view', 'rentals.map'],
   delivery: ['delivery.orders', 'delivery.settle', 'delivery.customers', 'delivery.reports', 'delivery.manage'],
-  cash: ['cash.view'], floorcheck: ['floorcheck.do', 'floorcheck.manage', 'rentals.spotcheck'],
+  cash: ['cash.view'], cashcount: ['cashcount.count', 'cashcount.reconcile', 'cashcount.view'], floorcheck: ['floorcheck.do', 'floorcheck.manage', 'rentals.spotcheck'],
   labels: ['labels.scan', 'labels.print'], activity: ['activity.view'], tools: ['tools.convert'], promoladies: ['promoladies.manage'], schedule: ['schedule.manage', 'schedule.edit'], staff: ['staff.manage'],
 };
 // Within a group, the first permission ("view") is needed by the others (the Users editor keeps that true).

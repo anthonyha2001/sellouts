@@ -1613,3 +1613,47 @@ td .lb-kind-chip{margin-left:0;cursor:default;}
 /* Sell-out calendar: the last day of a sell-out in red (owner, 2026-10-04) */
 .so-chip.so-chip-last{background:var(--brick) !important;color:#fff !important;border-left:3px solid var(--brick) !important;font-weight:700;}
 .pl-legend i.so-chip-last{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-1px;background:var(--brick);}
+
+/* Cash count (owner, 2026-10-04) */
+.cc-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;}
+.cc-rate{font-size:13px;color:var(--ink-soft);}
+.cc-rate b{font-family:var(--font-mono);color:var(--ink);}
+.cc-daybar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.cc-daybar input[type=date]{width:auto;}
+.cc-new-form{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;}
+.cc-new-form label{display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600;}
+.cc-new-form select{width:auto;min-width:140px;}
+.cc-new-actions{display:flex;gap:8px;margin-left:auto;}
+.cc-list{padding:0;overflow:hidden;}
+.cc-list .empty-note{padding:16px;}
+.cc-table tbody tr{cursor:pointer;}
+.cc-table tbody tr.on td{background:var(--pine-tint);}
+.cc-table td.num,.cc-table th.num{text-align:right;}
+.cc-sheet{display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:14px;align-items:start;}
+.cc-part-head{display:flex;gap:12px;align-items:flex-start;margin-bottom:6px;}
+.cc-part-head h3{margin:0;}
+.cc-part-head p{margin:2px 0 0;}
+.cc-step{flex:0 0 auto;width:28px;height:28px;border-radius:50%;background:var(--pine);color:#fff;display:grid;place-items:center;font:700 14px var(--font-mono);}
+.cc-h{margin:14px 0 6px;font:600 11px var(--font-mono);text-transform:uppercase;letter-spacing:.05em;color:var(--ink-faint);}
+.cc-bills{width:100%;border-collapse:collapse;font-size:13.5px;}
+.cc-bills th,.cc-bills td{padding:4px 6px;border-bottom:1px solid var(--line);}
+.cc-bills thead th{font:600 10.5px var(--font-mono);text-transform:uppercase;color:var(--ink-faint);text-align:left;}
+.cc-bills .num{text-align:right;font-family:var(--font-mono);}
+.cc-bills tfoot th{text-align:left;border-bottom:0;padding-top:8px;}
+.cc-bills tfoot th.num{text-align:right;font-family:var(--font-mono);font-size:14.5px;}
+.cc-in{width:100%;padding:6px 8px !important;text-align:right;font-family:var(--font-mono) !important;}
+.cc-sign{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:14px;padding-top:12px;border-top:1px solid var(--line);font-size:13px;}
+.cc-found{padding:4px 10px;border-radius:999px;border:1px solid var(--line-strong);background:var(--paper);font:600 11.5px var(--font-body);cursor:pointer;white-space:nowrap;}
+.cc-found.yes{border-color:var(--ok-green, var(--pine));color:var(--ok-green, var(--pine));}
+.cc-found.no{background:var(--brick);border-color:var(--brick);color:#fff;}
+.cc-result{margin-top:14px;padding:12px;border-radius:var(--radius-sm);background:var(--paper);border:1px solid var(--line);}
+.cc-res-row{display:flex;justify-content:space-between;gap:10px;padding:4px 0;font-size:13.5px;}
+.cc-res-sub{border-top:1px dashed var(--line);margin-top:4px;padding-top:8px;}
+.cc-res-total{border-top:2px solid var(--line-strong);margin-top:6px;padding-top:8px;font-size:15px;font-weight:700;}
+.ccx-short{color:var(--brick);font-weight:600;}
+.ccx-over{color:var(--ok-green, var(--pine));font-weight:600;}
+.ccx-ok{color:var(--ink-soft);}
+.cc-nf{margin:8px 0 0;font-size:12.5px;color:var(--brick);}
+.cc-rec{margin-top:12px;display:flex;align-items:center;gap:10px;}
+.cc-grid td.num,.cc-grid th.num{text-align:right;font-family:var(--font-mono);}
+.cc-grid tbody tr{cursor:pointer;}

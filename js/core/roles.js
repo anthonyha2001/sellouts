@@ -8,7 +8,7 @@
 const ROLES = {
   admin: {
     label: 'Admin',
-    sections: ['sellouts', 'onlinepromo', 'creditnotes', 'promotions', 'vendors', 'rentals', 'delivery', 'cash', 'floorcheck', 'promoladies', 'schedule', 'staff', 'labels', 'tools', 'users', 'activity'],
+    sections: ['sellouts', 'onlinepromo', 'creditnotes', 'promotions', 'vendors', 'rentals', 'delivery', 'cash', 'cashcount', 'floorcheck', 'promoladies', 'schedule', 'staff', 'labels', 'tools', 'users', 'activity'],
     delivery: ['orders', 'settle', 'reports', 'customers', 'drivers', 'settings'],
     home: 'sellouts',
   },
@@ -49,7 +49,7 @@ const ROLES = {
 // Set by auth.js once the profile is loaded.
 const Session = { user: null, profile: null, role: null, perms: null };
 
-const SECTION_ORDER = ['sellouts', 'onlinepromo', 'creditnotes', 'promotions', 'vendors', 'rentals', 'delivery', 'cash', 'floorcheck', 'promoladies', 'schedule', 'staff', 'labels', 'tools', 'users', 'activity'];
+const SECTION_ORDER = ['sellouts', 'onlinepromo', 'creditnotes', 'promotions', 'vendors', 'rentals', 'delivery', 'cash', 'cashcount', 'floorcheck', 'promoladies', 'schedule', 'staff', 'labels', 'tools', 'users', 'activity'];
 function roleInfo() {
   const r = ROLES[Session.role] || { label: '', sections: [], delivery: [], home: null };
   // Landing page: the role's usual one, or the first section this user can open.

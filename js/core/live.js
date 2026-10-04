@@ -22,6 +22,7 @@ const Live = (function () {
     vendors:     { tables: ['vendors', 'vendor_orders', 'vendor_skips'],          refresh: () => refreshVendors() },
     rentals:     { tables: ['rental_contracts', 'rental_supplier_sales'],         refresh: () => Rentals.refresh() },
     cash:        { tables: ['cash_differences', 'cash_months', 'cash_settings'],  refresh: () => window.Cash && Cash.refresh() },
+    cashcount:   { tables: ['cash_counts'],                                       refresh: () => window.CashCount && CashCount.show() },
     floorcheck:  { tables: ['floor_checks', 'floor_check_items', 'spot_checks'],  refresh: () => window.FloorCheck && FloorCheck.show() },
     labels:      { tables: ['label_lists', 'label_items'],                        refresh: () => window.Labels && Labels.show() },
     promoladies: { tables: ['promo_ladies', 'promo_lady_attendance'],             refresh: () => window.PromoLadies && PromoLadies.show() },
