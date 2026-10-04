@@ -391,3 +391,10 @@
 .sm-spotlight[data-kind="av"] .sm-sl-when{ background:var(--pv-av-fill); color:var(--pv-av); } .sm-spotlight[data-kind="soon"] .sm-sl-when{ background:var(--pv-soon-fill); color:var(--pv-soon); }
 @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]) .sm-spotlight{ background:#1f251f; color:#E6ECE3; } }
 :root[data-theme="dark"] .sm-spotlight{ background:#1f251f; color:#E6ECE3; }
+
+/* Temporary display: filled for now, still for rent (owner, 2026-10-04) */
+.sm{ --st-temp:#EFE8FB; --st-temp-s:#7A5BC4; --st-temp-t:#3F2A73; }
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]) .sm{ --st-temp:#2A2140; --st-temp-s:#B39BEA; --st-temp-t:#E4DAFA; } }
+:root[data-theme="dark"] .sm{ --st-temp:#2A2140; --st-temp-s:#B39BEA; --st-temp-t:#E4DAFA; }
+.sm-st-temp{ color:var(--st-temp-s); } .sm-st-temp rect.sm-sb{ fill:var(--st-temp); stroke:var(--st-temp-s); stroke-dasharray:3 4; } .sm-st-temp text{ fill:var(--st-temp-t); } .sm-st-temp .sm-pip{ fill:var(--st-temp-s); }
+.sm-temp-sec{ border-left:3px solid var(--st-temp-s); }

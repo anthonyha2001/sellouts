@@ -207,10 +207,10 @@ async function buildAlerts(today: string): Promise<Alert[]> {
 
   // Rentals: a spot rented (new contract, last 24 h — not to the person who entered it); a contract ending
   // (30, 14, 7, 3, 1 days before and the day itself) or expired yesterday, and not renewed.
-  const { data: rc } = await db.from('rental_contracts').select('id, spot_id, supplier, term, amount, start_date, end_date, created_by, created_at')
+  const { data: rc } = await db.from('rental_contracts').select('id, spot_id, supplier, term, amount, start_date, end_date, created_by, created_at').neq('term', 'temporary')   // a temporary display is not a rent (migration 054)
     .or(`created_at.gt.${new Date(dayAgo).toISOString()},and(end_date.gte.${addDays(today, -1)},end_date.lte.${addDays(today, 30)})`);
   if (rc?.length) {
-    const { data: later } = await db.from('rental_contracts').select('spot_id, supplier, start_date').gt('start_date', addDays(today, -1));
+    const { data: later } = await db.from('rental_contracts').select('spot_id, supplier, start_date').neq('term', 'temporary').gt('start_date', addDays(today, -1));
     const spotIds = rc.map(c => c.spot_id).filter(Boolean);
     const { data: spots } = spotIds.length ? await db.from('store_map_objects').select('id, type, label').in('id', spotIds) : { data: [] };
     const spot = new Map((spots ?? []).map(s => [s.id, s]));

@@ -22,6 +22,8 @@ const Rentals = (function () {
   const esc = escapeHtml;
   const money = n => '$' + Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
   const today = () => beirutToday();
+  // Rents only: a temporary display (term 'temporary', store-map.js) is not a rent — not in the list, totals or reminders.
+  const rents = list => (list || []).filter(c => c.term !== 'temporary');
   // Map only (rentals.map without rentals.view — floor managers): the map, who rents what and until when,
   // no amounts, billing, payments, list or reminders (owner, 2026-10-03).
   const mapOnly = () => !can('rentals.view') && can('rentals.map');
@@ -35,11 +37,11 @@ const Rentals = (function () {
   // Reminders need only the contracts, so they run without opening the page.
   async function start() {
     if (mapOnly()) return;   // no renewal reminders without the contracts
-    try { S.contracts = await adapter().listContracts(); }
+    try { S.contracts = rents(await adapter().listContracts()); }
     catch (e) { console.error('Rentals: could not load contracts', e); return; }
     runReminders();
     setInterval(async () => {
-      try { if (!S.map) S.contracts = await adapter().listContracts(); runReminders(); } catch (e) { /* next time */ }
+      try { if (!S.map) S.contracts = rents(await adapter().listContracts()); runReminders(); } catch (e) { /* next time */ }
     }, 60 * 60 * 1000);
   }
 
@@ -93,10 +95,10 @@ const Rentals = (function () {
       onActivity: (action, summary, details) => {
         const { sales, ...rest } = details || {};                 // keep the log light
         logActivity('rentals', action, { type: 'rental', id: rest.id || null }, summary, rest);
-        S.contracts = S.map.contracts;
+        S.contracts = rents(S.map.contracts);
         renderList();
       },
-      onLoad: () => { S.contracts = S.map.contracts; renderList(); },
+      onLoad: () => { S.contracts = rents(S.map.contracts); renderList(); },
       suppliers: () => S.vendorNames,
     });
     await S.map.ready;
@@ -400,7 +402,7 @@ const Rentals = (function () {
   // Live updates (js/core/live.js): contracts or supplier sales changed elsewhere. The map itself
   // keeps its own state (it is an editor); its list and the recap reload.
   async function refresh() {
-    try { S.contracts = await adapter().listContracts(); } catch (e) { return; }
+    try { S.contracts = rents(await adapter().listContracts()); } catch (e) { return; }
     await loadSales();
     renderList();
   }

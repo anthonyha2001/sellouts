@@ -169,8 +169,12 @@
     unbilled:   { label: 'Not billed yet',       order: 4 },
     nocontract: { label: 'Occupied, no contract', order: 5 },
     upcoming:   { label: 'Starts soon',          order: 6 },
-    free:       { label: 'Free',                 order: 7 }
+    temp:       { label: 'Temporary display (available)', order: 7 },
+    free:       { label: 'Free',                 order: 8 }
   };
+  // A temporary display (owner, 2026-10-04): the spot is filled for now (the store's own goods, or a supplier
+  // for a while) but is still for rent — not counted as rented, no amount, shown as available to renters.
+  const isTemp = c => !!c && c.term === 'temporary';
   const ENDING_DAYS = 30;
 
   /* ---------------- small helpers ---------------- */
@@ -389,10 +393,12 @@
     findObject(id) { for (const f of this.floors) { const o = (f.id === this.floorId && this.editing ? this.draft : this.layouts[f.id] || []).find(x => x.id === id); if (o) return { o, floorId: f.id }; } return null; }
 
     contractsFor(spotId) { return this.contracts.filter(c => c.spotId === spotId).sort((a, b) => (b.start || '').localeCompare(a.start || '')); }
-    activeContract(spotId) { const t = this.today(); return this.contractsFor(spotId).find(c => c.start <= t && c.end >= t) || null; }
+    // The rent running today (a temporary display is not a rent).
+    activeContract(spotId) { const t = this.today(); return this.contractsFor(spotId).find(c => !isTemp(c) && c.start <= t && c.end >= t) || null; }
+    tempContract(spotId) { const t = this.today(); return this.contractsFor(spotId).find(c => isTemp(c) && c.start <= t && c.end >= t) || null; }
     statusOf(o) {
       if (!this.isRentable(o)) return null;
-      const t = this.today(), list = this.contractsFor(o.id);
+      const t = this.today(), all = this.contractsFor(o.id), list = all.filter(c => !isTemp(c));
       const active = list.find(c => c.start <= t && c.end >= t);
       if (active) {
         if (daysBetween(t, active.end) <= ENDING_DAYS && !list.some(c => c.start > active.end)) return 'ending';
@@ -400,12 +406,13 @@
         return 'rented';
       }
       if (list.some(c => c.start > t)) return 'upcoming';
+      if (all.some(c => isTemp(c) && c.start <= t && c.end >= t)) return 'temp';
       if (list.length && list[0].end < t) return 'expired';
       if ((o.occupant || '').trim()) return 'nocontract';
       return 'free';
     }
     displayName(o) {
-      const c = this.isRentable(o) ? this.activeContract(o.id) : null;
+      const c = this.isRentable(o) ? (this.activeContract(o.id) || this.tempContract(o.id)) : null;
       return (c && c.supplier) || (o.occupant || '').trim() || (o.label || '').trim() || '';
     }
     // "Frying oil" for the corner spot next to the frying-oil gondola: a human hint for lists
@@ -438,7 +445,7 @@
     }
     revenueInYear(c, year) {
       const y0 = `${year}-01-01`, y1 = `${year}-12-31`;
-      if (!c.start || !c.end || c.end < y0 || c.start > y1) return 0;
+      if (isTemp(c) || !c.start || !c.end || c.end < y0 || c.start > y1) return 0;
       if (c.term === 'yearly' || c.term === 'contract') return c.start.slice(0, 4) === String(year) ? Number(c.amount) || 0 : 0;
       const s = c.start > y0 ? c.start : y0, e = c.end < y1 ? c.end : y1;
       const months = (parseD(e).getFullYear() - parseD(s).getFullYear()) * 12 + parseD(e).getMonth() - parseD(s).getMonth() + 1;
@@ -642,7 +649,7 @@
     // 'av' = available now (free / expired), 'soon' = rent ending soon, 'taken' = rented; null = not rentable.
     presentKind(o) {
       const st = this.statusOf(o); if (!st) return null;
-      if (st === 'free' || st === 'expired') return 'av';
+      if (st === 'free' || st === 'expired' || st === 'temp') return 'av';   // a temporary display is for rent
       if (st === 'ending') return 'soon';
       return 'taken';
     }
@@ -1312,12 +1319,17 @@
         return;
       }
       const status = this.statusOf(o), active = this.activeContract(o.id), list = this.contractsFor(o.id);
-      const upcoming = list.filter(c => c.start > this.today());
+      const upcoming = list.filter(c => !isTemp(c) && c.start > this.today());
+      const temp = !active ? this.tempContract(o.id) : null;
       const can = this.opts.canManageRentals;
       const badge = `<span class="sm-badge" style="background:var(--st-${status});border-color:var(--st-${status}-s);color:var(--st-${status}-t)">${esc(STATUS[status].label)}</span>`;
       let body = '';
       if (this.contractForm) body = this.contractFormHtml();
       else {
+        if (temp) body += `<div class="sm-p-sec sm-temp-sec"><h4>Temporary display</h4><dl class="sm-kv">
+            <dt>On it</dt><dd>${esc(temp.supplier)}</dd><dt>Planned</dt><dd>${fmtD(temp.start)} → ${fmtD(temp.end)}</dd></dl>
+            <p class="sm-hint" style="margin:6px 0 0">Still available for rent: add the renter's contract when it is rented.</p>
+            ${can ? `<div class="sm-actions" style="margin-top:8px"><button class="sm-btn" data-c="edit" data-id="${temp.id}">Edit</button><button class="sm-btn" data-c="del" data-id="${temp.id}">Remove the display</button></div>` : ''}</div>`;
         const shown = active || upcoming[upcoming.length - 1] || null;
         if (shown) {
           const left = daysBetween(this.today(), shown.end);
@@ -1351,7 +1363,7 @@
         }
         body += `<div class="sm-p-sec sm-money"><h4>History</h4>${list.length ? `<ul class="sm-list sm-hist">${list.map(c => `
           <li><span class="sm-dot" style="background:var(--st-${c.end < this.today() ? 'expired' : c.start > this.today() ? 'upcoming' : 'rented'});border-color:var(--st-${c.end < this.today() ? 'expired' : c.start > this.today() ? 'upcoming' : 'rented'}-s)"></span>
-            <div class="sm-li-main"><div>${esc(c.supplier)} · ${this.money(c.amount)}${c.term === 'monthly' ? '/mo' : c.term === 'contract' ? ' contract' : '/yr'}</div><div class="sm-li-sub">${fmtD(c.start)} → ${fmtD(c.end)}${c.billed ? ' · billed' : ''}${c.paid ? ' · paid' : ''}</div></div>
+            <div class="sm-li-main"><div>${esc(c.supplier)} · ${isTemp(c) ? 'temporary display' : this.money(c.amount) + (c.term === 'monthly' ? '/mo' : c.term === 'contract' ? ' contract' : '/yr')}</div><div class="sm-li-sub">${fmtD(c.start)} → ${fmtD(c.end)}${c.billed ? ' · billed' : ''}${c.paid ? ' · paid' : ''}</div></div>
             ${can ? `<button class="sm-mini" data-c="edit" data-id="${c.id}" title="Edit" aria-label="Edit contract">${ic('edit')}</button><button class="sm-mini" data-c="del" data-id="${c.id}" title="Delete" aria-label="Delete contract">${ic('trash')}</button>` : ''}
           </li>`).join('')}</ul>` : '<p class="sm-empty">No contracts yet.</p>'}</div>`;
       }
@@ -1432,12 +1444,13 @@
           <datalist id="sm-suppliers">${suppliers.map(s => `<option value="${esc(s)}">`).join('')}</datalist>
           <p class="sm-hint full" data-role="supwarn" hidden style="margin:-4px 0 0;color:var(--st-ending-s)">Not in the Vendors list. Pick a vendor, or keep this name if it is right.</p>
           <label class="full">Billing
-            <select class="sm-select" name="term"><option value="yearly" ${c.term === 'yearly' ? 'selected' : ''}>Yearly — one amount, billed once</option><option value="monthly" ${c.term === 'monthly' ? 'selected' : ''}>Monthly — amount each month</option><option value="contract" ${c.term === 'contract' ? 'selected' : ''}>Contractual — one amount for the whole contract</option></select></label>
+            <select class="sm-select" name="term"><option value="yearly" ${c.term === 'yearly' ? 'selected' : ''}>Yearly — one amount, billed once</option><option value="monthly" ${c.term === 'monthly' ? 'selected' : ''}>Monthly — amount each month</option><option value="temporary" ${c.term === 'temporary' ? 'selected' : ''}>Temporary display — no rent, the spot stays available</option><option value="contract" ${c.term === 'contract' ? 'selected' : ''}>Contractual — one amount for the whole contract</option></select></label>
           <label>Start<input class="sm-input" type="date" name="start" required value="${esc(c.start || '')}"></label>
           <label>End<input class="sm-input" type="date" name="end" required value="${esc(c.end || '')}"></label>
-          <label class="full" data-role="amountlbl">${c.term === 'monthly' ? 'Amount per month' : c.term === 'contract' ? 'Amount for the whole contract' : 'Amount for the year'}<input class="sm-input" name="amount" inputmode="decimal" required value="${c.amount ?? ''}"></label>
-          <label class="chk"><input type="checkbox" name="billed" ${c.billed ? 'checked' : ''}> Billed</label>
-          <label class="chk"><input type="checkbox" name="paid" ${c.paid ? 'checked' : ''}> Paid</label>
+          <label class="full" data-role="amountlbl" ${isTemp(c) ? 'hidden' : ''}>${c.term === 'monthly' ? 'Amount per month' : c.term === 'contract' ? 'Amount for the whole contract' : 'Amount for the year'}<input class="sm-input" name="amount" inputmode="decimal" ${isTemp(c) ? '' : 'required'} value="${c.amount ?? ''}"></label>
+          <label class="chk" data-role="moneychk" ${isTemp(c) ? 'hidden' : ''}><input type="checkbox" name="billed" ${c.billed ? 'checked' : ''}> Billed</label>
+          <label class="chk" data-role="moneychk" ${isTemp(c) ? 'hidden' : ''}><input type="checkbox" name="paid" ${c.paid ? 'checked' : ''}> Paid</label>
+          <p class="sm-hint full" data-role="temphint" ${isTemp(c) ? '' : 'hidden'} style="margin:-4px 0 0">Supplier = what is on the spot for now (e.g. our own goods). The spot keeps showing as available for rent.</p>
           <label class="full">Note<input class="sm-input" name="note" value="${esc(c.note || '')}"></label>
           <div class="full sm-actions" style="justify-content:flex-end;margin-top:0">
             <button type="button" class="sm-btn" data-role="cancelc">Cancel</button>
@@ -1457,12 +1470,19 @@
         const check = () => { const v = f.supplier.value.trim(); warn.hidden = !v || known.has(v.toLowerCase()); };
         f.supplier.addEventListener('input', check); f.supplier.addEventListener('change', check); check();
       }
-      f.term.onchange = () => { f.querySelector('[data-role="amountlbl"]').firstChild.textContent = f.term.value === 'monthly' ? 'Amount per month' : f.term.value === 'contract' ? 'Amount for the whole contract' : 'Amount for the year'; };
-      f.start.onchange = () => { if (f.start.value && (!f.end.value || f.end.value < f.start.value)) f.end.value = addDays(addYears(f.start.value, 1), -1); };
+      f.term.onchange = () => {
+        const temp = f.term.value === 'temporary';
+        f.querySelector('[data-role="amountlbl"]').firstChild.textContent = f.term.value === 'monthly' ? 'Amount per month' : f.term.value === 'contract' ? 'Amount for the whole contract' : 'Amount for the year';
+        f.querySelector('[data-role="amountlbl"]').hidden = temp; f.amount.required = !temp;
+        f.querySelectorAll('[data-role="moneychk"]').forEach(x => { x.hidden = temp; });
+        f.querySelector('[data-role="temphint"]').hidden = !temp;
+      };
+      f.start.onchange = () => { if (f.start.value && (!f.end.value || f.end.value < f.start.value)) f.end.value = f.term.value === 'temporary' ? addDays(f.start.value, 30) : addDays(addYears(f.start.value, 1), -1); };
       f.querySelector('[data-role="cancelc"]').onclick = () => { this.contractForm = null; this.renderPanel(); };
       f.onsubmit = async (e) => {
         e.preventDefault();
-        const amount = Number(String(f.amount.value).replace(/[^0-9.\-]/g, ''));
+        const temp = f.term.value === 'temporary';
+        const amount = temp ? 0 : Number(String(f.amount.value).replace(/[^0-9.\-]/g, ''));
         if (!f.supplier.value.trim()) return this.toast('Enter the supplier.', true);
         if (!f.start.value || !f.end.value || f.end.value < f.start.value) return this.toast('Check the dates — the end must be after the start.', true);
         if (isNaN(amount)) return this.toast('Enter a valid amount.', true);
@@ -1470,10 +1490,11 @@
         const c = Object.assign({}, prev, {
           id: prev.id || uid('rc'), spotId: prev.spotId || o.id, supplier: f.supplier.value.trim(), term: f.term.value,
           start: f.start.value, end: f.end.value, amount, note: f.note.value.trim(),
-          billed: f.billed.checked, billedAt: f.billed.checked ? (prev.billedAt || this.today()) : null,
-          paid: f.paid.checked, paidAt: f.paid.checked ? (prev.paidAt || this.today()) : null
+          billed: !temp && f.billed.checked, billedAt: !temp && f.billed.checked ? (prev.billedAt || this.today()) : null,
+          paid: !temp && f.paid.checked, paidAt: !temp && f.paid.checked ? (prev.paidAt || this.today()) : null
         });
-        const overlap = this.contractsFor(c.spotId).find(x => x.id !== c.id && x.start <= c.end && x.end >= c.start);
+        // A temporary display and a rent may overlap (the rent takes over); two rents may not.
+        const overlap = this.contractsFor(c.spotId).find(x => x.id !== c.id && isTemp(x) === isTemp(c) && x.start <= c.end && x.end >= c.start);
         if (overlap && !(await this.confirm(`This overlaps ${overlap.supplier}'s contract (${fmtD(overlap.start)} → ${fmtD(overlap.end)}) on the same spot. Save anyway?`, 'Save anyway'))) return;
         const saved = await this.call(() => this.adapter.saveContract(c), 'Could not save the contract');
         const i = this.contracts.findIndex(x => x.id === c.id);
