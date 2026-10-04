@@ -1657,3 +1657,10 @@ td .lb-kind-chip{margin-left:0;cursor:default;}
 .cc-rec{margin-top:12px;display:flex;align-items:center;gap:10px;}
 .cc-grid td.num,.cc-grid th.num{text-align:right;font-family:var(--font-mono);}
 .cc-grid tbody tr{cursor:pointer;}
+
+/* Cash count: expenses (owner, 2026-10-04) */
+.cc-h-note{text-transform:none;letter-spacing:0;font:400 12px var(--font-body);color:var(--ink-soft);margin-left:4px;}
+.cc-exp{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+.cc-exp label{display:flex;flex-direction:column;gap:3px;font-size:12px;font-weight:600;}
+.cc-exp .cc-exp-note{grid-column:1 / -1;}
+.cc-expnote{margin:0 0 6px;font-size:12.5px;color:var(--ink-soft);}

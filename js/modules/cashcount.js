@@ -38,8 +38,11 @@
   /* ---------------- the numbers ---------------- */
   function calc(c) {
     const rate = n(c.usd_rate) || n(S.rate);
-    const cashLbp = LBP_BILLS.reduce((t, b) => t + b * n(c.lbp?.[b]), 0);
-    const cashUsd = USD_BILLS.reduce((t, b) => t + b * n(c.usd?.[b]), 0);
+    const billsLbp = LBP_BILLS.reduce((t, b) => t + b * n(c.lbp?.[b]), 0);
+    const billsUsd = USD_BILLS.reduce((t, b) => t + b * n(c.usd?.[b]), 0);
+    // Expenses paid out of the drawer (migration 056): the system does not know them, so they count as cash.
+    const exp = { lbp: n(c.expenses?.lbp), usd: n(c.expenses?.usd) };
+    const cashLbp = billsLbp + exp.lbp, cashUsd = billsUsd + exp.usd;
     const sys = c.system || {}, nf = c.not_found || {};
     const hasSystem = sys.cash_lbp !== undefined || sys.cash_usd !== undefined || Object.keys(sys.cards || {}).length > 0;
     const cards = CARDS.map(([k, label]) => {
@@ -57,7 +60,7 @@
     const cashDiffLbpEq = cashDiff.lbp + cashDiff.usd * rate;
     const cashTotalLbpEq = cashLbp + cashUsd * rate;
     return {
-      rate, cashLbp, cashUsd, cards, cashDiff, cashDiffLbpEq, notFound, notFoundLbp, cardsDiff, hasSystem,
+      rate, billsLbp, billsUsd, exp, cashLbp, cashUsd, cards, cashDiff, cashDiffLbpEq, notFound, notFoundLbp, cardsDiff, hasSystem,
       cardsCounted: cards.reduce((t, x) => ({ lbp: t.lbp + x.counted.lbp, usd: t.usd + x.counted.usd }), { lbp: 0, usd: 0 }),
       total: cashDiffLbpEq + cardsDiff,
       margin: Math.round(cashTotalLbpEq / 1e6 * 1000),     // 1,000 LBP allowed per 1,000,000 of cash (shown only)
@@ -188,10 +191,16 @@
           <p class="muted-note">POS ${c.pos} · ${esc(c.cashier_name)} · ${SHIFTS[c.shift]} · ${esc(fmtDate(c.count_date))}${c.counted_by_name ? ' · counted by ' + esc(c.counted_by_name) : ''}</p></div></div>
         <h4 class="cc-h">Cash LBP</h4>
         <table class="cc-bills"><thead><tr><th class="num">Bill</th><th>How many</th><th class="num">Amount</th></tr></thead><tbody>${billRows(LBP_BILLS, 'lbp', lbp)}</tbody>
-          <tfoot><tr><th colspan="2">Total LBP</th><th class="num" id="ccTotLbp">${lbp(r.cashLbp)}</th></tr></tfoot></table>
+          <tfoot><tr><th colspan="2">Total LBP</th><th class="num" id="ccTotLbp">${lbp(r.billsLbp)}</th></tr></tfoot></table>
         <h4 class="cc-h">Cash USD</h4>
         <table class="cc-bills"><thead><tr><th class="num">Bill</th><th>How many</th><th class="num">Amount</th></tr></thead><tbody>${billRows(USD_BILLS, 'usd', usd)}</tbody>
-          <tfoot><tr><th colspan="2">Total USD</th><th class="num" id="ccTotUsd">${usd(r.cashUsd)}</th></tr></tfoot></table>
+          <tfoot><tr><th colspan="2">Total USD</th><th class="num" id="ccTotUsd">${usd(r.billsUsd)}</th></tr></tfoot></table>
+        <h4 class="cc-h">Expenses <span class="cc-h-note">paid from the drawer — added to the cash</span></h4>
+        <div class="cc-exp">
+          <label>LBP<input type="text" inputmode="numeric" class="cc-in" data-exp="lbp" value="${r.exp.lbp ? lbp(r.exp.lbp) : ''}" ${lock1 ? 'disabled' : ''}></label>
+          <label>USD<input type="text" inputmode="decimal" class="cc-in" data-exp="usd" value="${r.exp.usd || ''}" ${lock1 ? 'disabled' : ''}></label>
+          <label class="cc-exp-note">What for<input type="text" data-exp="note" value="${esc(c.expenses?.note || '')}" placeholder="e.g. Water delivery, receipt kept" ${lock1 ? 'disabled' : ''}></label>
+        </div>
         <h4 class="cc-h">Cards and others</h4>
         <table class="cc-bills cc-cards"><thead><tr><th></th><th class="num">LBP</th><th class="num">USD</th></tr></thead><tbody>${CARDS.map(([k, l]) => `<tr><td>${l}</td>
           <td><input type="text" inputmode="numeric" class="cc-in" data-card="${k}" data-cur="lbp" value="${n(c.cards?.[k]?.lbp) ? lbp(c.cards[k].lbp) : ''}" ${lock1 ? 'disabled' : ''} aria-label="${l} LBP"></td>
@@ -224,6 +233,7 @@
     if (!r.hasSystem) return '<p class="muted-note" style="margin:0;">The differences appear once the system figures are entered.</p>';
     const lines = r.cards.filter(x => Math.abs(x.diff.lbp) >= 0.005 || Math.abs(x.diff.usd) >= 0.005);
     return `
+      ${r.exp.lbp || r.exp.usd ? `<p class="cc-expnote">Cash includes the expenses: ${[r.exp.lbp ? lbp(r.exp.lbp) + ' LBP' : '', r.exp.usd ? usd(r.exp.usd) + ' USD' : ''].filter(Boolean).join(' + ')}${c.expenses?.note ? ' (' + esc(c.expenses.note) + ')' : ''}</p>` : ''}
       <div class="cc-res-row"><span>Cash LBP</span><span>${diffWord(r.cashDiff.lbp, lbp, 'LBP')}</span></div>
       <div class="cc-res-row"><span>Cash USD</span><span>${diffWord(r.cashDiff.usd, usd, 'USD')}</span></div>
       ${lines.map(x => `<div class="cc-res-row"><span>${esc(x.label)}${x.found ? '' : ' <span class="badge danger">not found</span>'}</span><span>${[
@@ -238,14 +248,21 @@
     const box = el('ccSheet');
     const refreshNumbers = () => {
       const r = calc(c);
-      el('ccTotLbp').textContent = lbp(r.cashLbp); el('ccTotUsd').textContent = usd(r.cashUsd);
+      el('ccTotLbp').textContent = lbp(r.billsLbp); el('ccTotUsd').textContent = usd(r.billsUsd);
       el('ccCardsLbp').textContent = lbp(r.cardsCounted.lbp); el('ccCardsUsd').textContent = usd(r.cardsCounted.usd);
       el('ccResult').innerHTML = resultHtml(c);
       const row = el('ccBody').querySelector(`tr[data-cc="${CSS.escape(c.id)}"] td.num`);
       if (row) row.innerHTML = r.hasSystem ? diffWord(r.total, lbp, 'LBP') : '<span class="muted-note">no system figures yet</span>';
     };
     box.addEventListener('input', e => {
-      const t = e.target; if (!t.classList.contains('cc-in')) return;
+      const t = e.target;
+      if (t.dataset.exp) {
+        c.expenses = { ...(c.expenses || {}) };
+        if (t.dataset.exp === 'note') c.expenses.note = t.value.trim(); else c.expenses[t.dataset.exp] = n(String(t.value).replace(/[^\d.]/g, ''));
+        saveSoon(c, { expenses: c.expenses });
+        return refreshNumbers();
+      }
+      if (!t.classList.contains('cc-in')) return;
       const v = String(t.value).replace(/[^\d.]/g, '');
       if (t.dataset.bill) {
         const k = t.dataset.bill; c[k] = { ...(c[k] || {}) }; if (n(v)) c[k][t.dataset.b] = Math.round(n(v)); else delete c[k][t.dataset.b];
@@ -265,7 +282,7 @@
       refreshNumbers();
     });
     // Big LBP amounts read better with separators: 2,710,000 (when leaving the box).
-    box.addEventListener('focusout', e => { const t = e.target; if (!t.classList?.contains('cc-in') || t.dataset.bill || t.dataset.cur === 'usd' || t.dataset.sys === 'cash_usd' || t.value === '') return; t.value = lbp(t.value); });
+    box.addEventListener('focusout', e => { const t = e.target; if (!t.classList?.contains('cc-in') || t.dataset.bill || t.dataset.cur === 'usd' || t.dataset.sys === 'cash_usd' || t.dataset.exp === 'usd' || t.value === '') return; t.value = lbp(t.value); });
     box.querySelectorAll('[data-found]').forEach(b => b.onclick = () => {
       const k = b.dataset.found; c.not_found = { ...(c.not_found || {}) };
       if (c.not_found[k]) delete c.not_found[k]; else c.not_found[k] = true;
@@ -277,7 +294,7 @@
       const pin = await showPrompt(`${c.cashier_name}: type your 4-digit PIN to confirm this count.`, { confirmLabel: 'Sign', placeholder: '••••' });
       if (pin === null) return;
       clearTimeout(timers.get(c.id));
-      await sb.from('cash_counts').update({ lbp: c.lbp, usd: c.usd, cards: c.cards }).eq('id', c.id);   // the count as shown, first
+      await sb.from('cash_counts').update({ lbp: c.lbp, usd: c.usd, cards: c.cards, expenses: c.expenses || {} }).eq('id', c.id);   // the count as shown, first
       const { data, error } = await sb.rpc('cash_count_sign', { p_count: c.id, p_pin: String(pin).trim() });
       if (error) return fail('Not signed', error);
       const [st, left] = String(data).split(':');
@@ -313,16 +330,17 @@
         <button type="button" class="btn secondary small" id="ccExport" ${rows.length ? '' : 'disabled'}>Export (Excel)</button>
       </div>
       <div class="card" style="padding:0;"><div class="items-scroll" style="margin:0;border:0;"><table class="items cc-grid">
-        <thead><tr><th>Date</th><th>POS</th><th>Shift</th><th>Cashier</th><th class="num">Cash LBP</th><th class="num">Cash USD</th><th class="num">Cards</th><th>Not found</th><th class="num">Total (LBP)</th><th class="num">Allowed ±</th><th>Status</th></tr></thead>
+        <thead><tr><th>Date</th><th>POS</th><th>Shift</th><th>Cashier</th><th class="num">Expenses (LBP)</th><th class="num">Cash LBP</th><th class="num">Cash USD</th><th class="num">Cards</th><th>Not found</th><th class="num">Total (LBP)</th><th class="num">Allowed ±</th><th>Status</th></tr></thead>
         <tbody>${rows.map(({ c, r }) => `<tr data-open="${esc(c.id)}" data-date="${esc(c.count_date)}">
           <td class="mono">${esc(fmtDate(c.count_date))}</td><td>${c.pos}</td><td>${SHIFTS[c.shift]}</td><td>${esc(c.cashier_name)}</td>
+          <td class="num">${r.exp.lbp || r.exp.usd ? lbp(r.exp.lbp + r.exp.usd * r.rate) : ''}</td>
           ${r.hasSystem ? `<td class="num ${cls(r.cashDiff.lbp)}">${sign(r.cashDiff.lbp, lbp)}</td><td class="num ${cls(r.cashDiff.usd)}">${sign(r.cashDiff.usd, usd)}</td>
           <td class="num ${cls(r.cardsDiff)}">${sign(r.cardsDiff, lbp)}</td><td>${r.notFound.map(x => esc(x.label)).join(', ')}</td>
           <td class="num ${cls(r.total)}"><b>${sign(r.total, lbp)}</b></td>` : '<td colspan="5" class="muted-note">no system figures yet</td>'}
           <td class="num">${lbp(r.margin)}</td>
           <td>${c.reconciled_at ? '<span class="badge active">Reconciled</span>' : c.signed_at ? '<span class="badge inactive">Signed</span>' : '<span class="badge warn">Not signed</span>'}</td></tr>`).join('')
-          || '<tr><td colspan="11" class="empty-note">No count this month.</td></tr>'}</tbody>
-        ${rows.length ? `<tfoot><tr><th colspan="4">Month</th><th class="num">${sign(sum(r => r.cashDiff.lbp), lbp)}</th><th class="num">${sign(sum(r => r.cashDiff.usd), usd)}</th><th class="num">${sign(sum(r => r.cardsDiff), lbp)}</th><th></th><th class="num"><b>${sign(sum(r => r.total), lbp)}</b></th><th></th><th></th></tr></tfoot>` : ''}
+          || '<tr><td colspan="12" class="empty-note">No count this month.</td></tr>'}</tbody>
+        ${rows.length ? `<tfoot><tr><th colspan="4">Month</th><th class="num">${lbp(rows.reduce((t, x) => t + x.r.exp.lbp + x.r.exp.usd * x.r.rate, 0))}</th><th class="num">${sign(sum(r => r.cashDiff.lbp), lbp)}</th><th class="num">${sign(sum(r => r.cashDiff.usd), usd)}</th><th class="num">${sign(sum(r => r.cardsDiff), lbp)}</th><th></th><th class="num"><b>${sign(sum(r => r.total), lbp)}</b></th><th></th><th></th></tr></tfoot>` : ''}
       </table></div></div>
       <p class="muted-note" style="margin:8px 0 0;">Negative = short, positive = over. Click a row to open its count.</p>`;
     el('ccBody').querySelectorAll('[data-ccm]').forEach(b => b.onclick = async () => { const [y, m] = S.month.split('-').map(Number), d = new Date(y, m - 1 + Number(b.dataset.ccm), 1); S.month = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; await loadMonth(); renderGrid(); });
@@ -332,8 +350,8 @@
   const cls = d => Math.abs(d) < 0.005 ? '' : d < 0 ? 'ccx-short' : 'ccx-over';
   const sign = (d, fmt) => Math.abs(d) < 0.005 ? '0' : (d < 0 ? '-' : '+') + fmt(Math.abs(d));
   function exportGrid(rows) {
-    const aoa = [['Date', 'POS', 'Shift', 'Cashier', 'Cash LBP', 'Cash USD', ...CARDS.map(([, l]) => l + ' (LBP eq.)'), 'Not found', 'Total (LBP)', 'Allowed ±', 'Signed', 'Reconciled']];
-    rows.forEach(({ c, r }) => aoa.push([c.count_date, c.pos, SHIFTS[c.shift], c.cashier_name,
+    const aoa = [['Date', 'POS', 'Shift', 'Cashier', 'Expenses LBP', 'Expenses USD', 'Expenses note', 'Cash LBP', 'Cash USD', ...CARDS.map(([, l]) => l + ' (LBP eq.)'), 'Not found', 'Total (LBP)', 'Allowed ±', 'Signed', 'Reconciled']];
+    rows.forEach(({ c, r }) => aoa.push([c.count_date, c.pos, SHIFTS[c.shift], c.cashier_name, r.exp.lbp || '', r.exp.usd || '', c.expenses?.note || '',
       r.hasSystem ? Math.round(r.cashDiff.lbp) : '', r.hasSystem ? r.cashDiff.usd : '',
       ...r.cards.map(x => r.hasSystem ? Math.round(x.diff.lbp + x.diff.usd * r.rate) : ''),
       r.notFound.map(x => x.label).join(', '), r.hasSystem ? Math.round(r.total) : '', r.margin, c.signed_at ? 'Yes' : 'No', c.reconciled_at ? 'Yes' : 'No']));
