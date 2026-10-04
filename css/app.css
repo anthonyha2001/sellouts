@@ -1531,3 +1531,8 @@ td .lb-kind-chip{margin-left:0;cursor:default;}
 .sh-dept-form label{font-weight:600;margin:0;}
 .sh-fixed .sh-time:not(.sh-time-own){color:var(--ink-soft);font-weight:500;}
 .sh-fixed .sh-time.sh-time-own{color:var(--brick);font-weight:700;}
+
+/* Breaks (owner, 2026-10-04) */
+.sh-break{display:block;margin-top:3px;padding:1px 7px;border:1px dashed var(--line-strong);border-radius:999px;background:var(--paper-raised);font:600 11px var(--font-body);color:var(--ink-soft);cursor:pointer;white-space:nowrap;}
+.sh-break:not(.none){border-style:solid;border-color:var(--gold);background:var(--gold-tint);color:var(--ink);}
+.sh-break:hover{border-color:var(--pine);color:var(--pine);}

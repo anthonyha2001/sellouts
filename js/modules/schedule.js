@@ -51,6 +51,10 @@
   const DEPT_LABEL = Object.fromEntries(DEPTS.map(([k, l]) => [k, l]));
   // Front / Back: cashiers and cashier supervisors only.
   const hasStation = p => p.dept === 'sup' || p.dept === 'cash';
+  // Break (migration 052): everyone but the cashiers and cashier supervisors — time and length, every working day.
+  const hasBreak = p => !hasStation(p);
+  const breakText = p => p.breakStart ? `Break ${p.breakStart} · ${p.breakMin || 30} min` : '';
+  const breakBtn = p => hasBreak(p) ? `<button type="button" class="sh-break ${p.breakStart ? '' : 'none'}" data-break="${p.id}" title="Break time and length">${p.breakStart ? breakText(p) : 'Set break'}</button>` : '';
   // The tabs: Cashiers holds two departments; every other department is its own tab.
   const TABS = [['tills', 'Cashiers', ['sup', 'cash']], ...DEPTS.filter(([k]) => k !== 'sup' && k !== 'cash').map(([k, l]) => [k, l, [k]])];
   const tabOf = k => TABS.find(t => t[0] === k) || TABS[0];
@@ -115,7 +119,7 @@
     S.missing = !!error;
     S.staff = (data || []).map(r => ({ id: r.key, staffId: r.staff_id, cashierId: r.cashier_id, name: r.name, job: r.job, active: r.active,
       sort_order: r.sort_order, position: r.pos || null, default_station: r.default_station, has_pin: r.has_pin,
-      fixed: Array.isArray(r.fixed_days) ? r.fixed_days.slice(0, 7) : [] }));
+      fixed: Array.isArray(r.fixed_days) ? r.fixed_days.slice(0, 7) : [], breakStart: r.break_start || '', breakMin: r.break_minutes || null }));
     S.staff.forEach(p => { p.dept = deptOf(p); });
   }
   // The groups shown, in department order, with who is in them this week.
@@ -171,6 +175,7 @@
       <div class="filter-row sh-dept-tabs" id="shTabs"></div>
       <div id="shBody"></div>`;
     el('shTabs').onclick = e => { const b = e.target.closest('[data-tab]'); if (!b) return; S.tab = b.dataset.tab; render(); };
+    el('shBody').addEventListener('click', e => { const b = e.target.closest('[data-break]'); if (!b) return; e.stopPropagation(); editBreak(S.staff.find(x => x.id === b.dataset.break)); });
   }
   async function refresh() {
     await Promise.all([loadStaff(), loadDeptShifts()]);
@@ -241,7 +246,7 @@
       const hours = Math.round(days.reduce((t, c) => t + hoursOf(c), 0) * 100) / 100;
       const off = days.filter(c => c === 'off').length;
       return `<tr data-p="${p.id}" data-grp="${p.dept}">
-        <th class="sh-name">${RowDrag.handle()}${esc(p.name)}${p.active ? '' : ' <span class="muted-note">(inactive)</span>'}<small>${esc(p.job || '') + (hasStation(p) && p.default_station ? ' · ' + (p.default_station === 'front' ? 'Front' : 'Back') : '')}</small></th>
+        <th class="sh-name">${RowDrag.handle()}${esc(p.name)}${p.active ? '' : ' <span class="muted-note">(inactive)</span>'}<small>${esc(p.job || '') + (hasStation(p) && p.default_station ? ' · ' + (p.default_station === 'front' ? 'Front' : 'Back') : '')}</small>${breakBtn(p)}</th>
         ${dates.map((d, i) => { const c = days[i] || '', { shift } = parse(c); const q = askOf(p.id, i); return `<td class="sh-cell sh-${shift || 'none'}${editableDay(i) ? '' : ' sh-ro'}"><button type="button" data-day="${i}" ${editableDay(i) ? '' : 'disabled'} aria-label="${esc(p.name)} ${DAYS[i]}" ${q ? `title="Asked for ${ASK_LABEL[q]}"` : ''}>${cellHtml(c)}${q ? `<i class="sh-ask-dot ${shift === q ? 'ok' : ''}">${ASK_LABEL[q]}</i>` : ''}</button></td>`; }).join('')}
         <td class="num sh-hours">${hours ? hours + 'h' : '—'}<small>${off} off</small></td></tr>`;
     };
@@ -689,7 +694,7 @@
           <tbody>${list.map(p => {
             const hours = Math.round(p.fixed.reduce((t, c) => t + fixedHours(c, def), 0) * 100) / 100;
             return `<tr data-p="${p.id}" data-grp="${p.dept}">
-              <th class="sh-name">${RowDrag.handle()}${esc(p.name)}<small>${esc(p.job || '')}</small></th>
+              <th class="sh-name">${RowDrag.handle()}${esc(p.name)}<small>${esc(p.job || '')}</small>${breakBtn(p)}</th>
               ${DAYS.map((_, i) => { const c = p.fixed[i] || ''; return `<td class="sh-cell sh-${parse(c).shift || 'none'}"><button type="button" data-day="${i}" aria-label="${esc(p.name)} ${DAYS[i]}">${fixedCell(c, def)}</button></td>`; }).join('')}
               <td class="num sh-hours">${hours ? hours + 'h' : '—'}<small>${p.fixed.filter(c => c === 'off').length} off</small></td></tr>`; }).join('')
             || `<tr><td colspan="9" class="empty-note">Nobody in ${esc(name)} yet — add them on the Staff page with that job.</td></tr>`}</tbody>
@@ -741,6 +746,37 @@
       set(b, tool); renderFixed();
       el('shBody').querySelector(`.sh-fixed tr[data-p="${id}"] button[data-day="${Math.min(6, d + 1)}"]`)?.focus();
     };
+  }
+  // A person's break: when, and how long (every working day).
+  function editBreak(p) {
+    if (!p) return;
+    if (!el('shBreakOverlay')) document.body.insertAdjacentHTML('beforeend', `
+      <div class="modal-overlay" id="shBreakOverlay"><div class="modal-box form-box">
+        <h3 id="shBreakTitle" style="margin:0 0 14px;font-family:var(--font-head);"></h3>
+        <form id="shBreakForm" autocomplete="off"><div class="form-grid">
+          <div><label for="shBreakAt">Break at</label><input type="time" id="shBreakAt"></div>
+          <div><label for="shBreakLen">How long</label><select id="shBreakLen">${[15, 20, 30, 45, 60, 90, 120].map(m => `<option value="${m}">${m < 60 ? m + ' min' : m === 60 ? '1 hour' : (m / 60) + ' hours'}</option>`).join('')}</select></div>
+        </div>
+        <p class="muted-note" style="margin:10px 0 0;">The same every day they work.</p>
+        <div class="actions-row"><button type="button" class="btn ghost small" id="shBreakClear" style="margin-right:auto;">No break</button>
+          <button type="button" class="btn ghost small" id="shBreakCancel">Cancel</button><button type="submit" class="btn small">Save</button></div>
+        </form></div></div>`);
+    const ov = el('shBreakOverlay'), close = () => ov.classList.remove('open');
+    el('shBreakTitle').textContent = `Break — ${p.name}`;
+    el('shBreakAt').value = p.breakStart || '13:00';
+    el('shBreakLen').value = String(p.breakMin || 30);
+    const save = async (start, minutes) => {
+      const { error } = await sb.rpc('staff_set_break', { p_staff: p.staffId, p_start: start, p_minutes: minutes });
+      if (error) return showToast('Not saved — ' + friendlyError(error), true);
+      p.breakStart = start || ''; p.breakMin = minutes;
+      logActivity('schedule', 'break', { type: 'staff', id: p.staffId }, start ? `Break of ${p.name}: ${start}, ${minutes} min` : `No break for ${p.name}`);
+      close(); renderWeek();
+    };
+    el('shBreakCancel').onclick = close;
+    ov.onclick = e => { if (e.target === ov) close(); };
+    el('shBreakClear').onclick = () => save('', null);
+    el('shBreakForm').onsubmit = e => { e.preventDefault(); if (!el('shBreakAt').value) return showToast('Pick the break time.', true); save(el('shBreakAt').value, Number(el('shBreakLen').value)); };
+    ov.classList.add('open');
   }
   // One day's own times (arrives late / leaves early, or a different shift length).
   async function fixedTimesAt(p, i, def) {
@@ -801,7 +837,7 @@
       @media print{body{margin:8mm}}</style></head><body>
       <h1>La Valeur — ${esc(name)} schedule</h1><p>The same every week · AM ${def.am.join('–')} · PM ${def.pm.join('–')} · Full ${def.full.join('–')}</p>
       <table><thead><tr><th></th>${DAYS.map(d => `<th>${d}</th>`).join('')}</tr></thead>
-      <tbody>${list.map(p => `<tr><th>${esc(p.name)}</th>${DAYS.map((_, i) => cell(p.fixed[i] || '')).join('')}</tr>`).join('')}</tbody></table>
+      <tbody>${list.map(p => `<tr><th>${esc(p.name)}${p.breakStart ? `<br><small>${esc(breakText(p))}</small>` : ''}</th>${DAYS.map((_, i) => cell(p.fixed[i] || '')).join('')}</tr>`).join('')}</tbody></table>
       <script>setTimeout(()=>print(),300)<\/script></body></html>`);
     win.document.close();
   }
@@ -809,7 +845,7 @@
   function print() {
     const w = S.week, a = S.row.assignments || {}, dates = DAYS.map((_, i) => addDays(w, i));
     const cell = (p, i) => { const { shift, station } = parse((a[p.id] || [])[i]); if (shift === 'off') return '<td class="off">Off</td>'; if (!SHIFT[shift]) return '<td></td>'; const code = (a[p.id] || [])[i], t = custom(code) ? timesOf(code) : null; return `<td class="${shift}"><b>${SHIFT[shift].label}</b>${station ? `<br><small>${esc(stLabel(station))}</small>` : ''}${t ? `<br><small class="t">${t[0]}–${t[1]}</small>` : ''}</td>`; };
-    const sect = (title, list) => list.length ? `<tr class="g"><td colspan="8">${title}</td></tr>${list.map(p => `<tr><th>${esc(p.name)}</th>${dates.map((_, i) => cell(p, i)).join('')}</tr>`).join('')}` : '';
+    const sect = (title, list) => list.length ? `<tr class="g"><td colspan="8">${title}</td></tr>${list.map(p => `<tr><th>${esc(p.name)}${hasBreak(p) && p.breakStart ? `<br><small>${esc(breakText(p))}</small>` : ''}</th>${dates.map((_, i) => cell(p, i)).join('')}</tr>`).join('')}` : '';
     const win = window.open('', '_blank'); if (!win) return showToast('Allow pop-ups to print.', true);
     win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(tabOf(S.tab)[1])} schedule ${esc(weekTitle(w))}</title><style>
       body{font:13px Arial,sans-serif;margin:24px;color:#111}h1{font-size:18px;margin:0 0 4px;color:#1943AF}p{margin:0 0 14px;color:#555}
