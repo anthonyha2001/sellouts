@@ -1542,3 +1542,19 @@ td .lb-kind-chip{margin-left:0;cursor:default;}
 .st-table tr.st-group td span{margin-left:6px;color:var(--ink-soft);font-weight:600;}
 .sh-lock-ic{width:16px;height:16px;vertical-align:-3px;margin-right:6px;}
 .ui-ic{width:14px;height:14px;vertical-align:-2px;flex:0 0 auto;}
+
+/* Staff page: Filter button (owner, 2026-10-04) */
+.st-filter-wrap{position:relative;}
+#stFilterBtn{display:inline-flex;align-items:center;gap:6px;}
+#stFilterBtn.on{border-color:var(--pine);color:var(--pine);}
+.st-filter-n{display:inline-block;min-width:18px;padding:0 5px;border-radius:999px;background:var(--pine);color:#fff;font:700 11px/18px var(--font-mono);text-align:center;}
+.st-filter-panel{position:absolute;z-index:20;top:calc(100% + 6px);left:0;width:min(420px,calc(100vw - 32px));background:var(--paper-raised);border:1px solid var(--line-strong);border-radius:var(--radius);box-shadow:var(--shadow-md, 0 10px 30px rgba(0,0,0,.15));padding:14px;}
+.st-f-t{margin:10px 0 6px;font:600 10.5px var(--font-mono);text-transform:uppercase;letter-spacing:.05em;color:var(--ink-faint);}
+.st-f-t:first-child{margin-top:0;}
+.st-f-chips{display:flex;flex-wrap:wrap;gap:6px;}
+.st-f-chips button,.st-f-seg button{padding:6px 10px;border-radius:999px;border:1px solid var(--line-strong);background:var(--paper);color:var(--ink);font-size:12.5px;cursor:pointer;}
+.st-f-chips button span{color:var(--ink-faint);margin-left:3px;}
+.st-f-chips button.on,.st-f-seg button.on{background:var(--pine);border-color:var(--pine);color:#fff;}
+.st-f-chips button.on span{color:rgba(255,255,255,.8);}
+.st-f-seg{display:flex;gap:6px;flex-wrap:wrap;}
+.st-f-foot{display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding-top:10px;border-top:1px solid var(--line);}

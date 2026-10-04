@@ -13,7 +13,8 @@
    ============================================================ */
 (function () {
   const panel = document.getElementById('panel-staff');
-  const S = { started: false, list: [], users: new Map(), q: '', show: 'active', missing: false };
+  const S = { started: false, list: [], users: new Map(), q: '', show: 'active', missing: false,
+    f: { depts: new Set(), login: 'any', pin: 'any' }, filterOpen: false };   // the Filter panel (owner, 2026-10-04)
   const el = id => document.getElementById(id);
   const esc = escapeHtml;
   // The store's jobs (owner, 2026-10-03; migration 041). Cashier and Cashier supervisor are also in the cashiers list.
@@ -72,6 +73,10 @@
         <div class="filter-row" id="stShow" style="margin:0;">
           <button type="button" data-show="active">Working</button><button type="button" data-show="left">Left</button><button type="button" data-show="all">All</button>
         </div>
+        <div class="st-filter-wrap"><button type="button" class="btn secondary small" id="stFilterBtn" aria-expanded="false">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h18l-7 8v6l-4 2v-8Z"/></svg>
+          Filter<span class="st-filter-n" id="stFilterN" hidden></span></button>
+          <div class="st-filter-panel" id="stFilterPanel" hidden></div></div>
         <span style="flex:1"></span>
         <button type="button" class="btn secondary small" id="stExport">Export (Excel)</button>
         <button type="button" class="btn small" id="stAdd">+ Add person</button>
@@ -79,11 +84,45 @@
       <div id="stBody"></div>`;
     el('stSearch').oninput = e => { S.q = e.target.value.trim().toLowerCase(); render(); };
     el('stShow').onclick = e => { const b = e.target.closest('[data-show]'); if (b) { S.show = b.dataset.show; render(); } };
+    el('stFilterBtn').onclick = e => { e.stopPropagation(); S.filterOpen = !S.filterOpen; renderFilter(); };
+    el('stFilterPanel').onclick = e => {
+      e.stopPropagation();
+      const b = e.target.closest('[data-fd], [data-fl], [data-fp], [data-fclear]'); if (!b) return;
+      if (b.dataset.fd) S.f.depts.has(b.dataset.fd) ? S.f.depts.delete(b.dataset.fd) : S.f.depts.add(b.dataset.fd);
+      if (b.dataset.fl) S.f.login = b.dataset.fl;
+      if (b.dataset.fp) S.f.pin = b.dataset.fp;
+      if (b.dataset.fclear !== undefined) S.f = { depts: new Set(), login: 'any', pin: 'any' };
+      renderFilter(); render();
+    };
+    document.addEventListener('click', e => { if (S.filterOpen && !e.target.closest('.st-filter-wrap')) { S.filterOpen = false; renderFilter(); } });
     el('stAdd').onclick = () => openForm(null);
     el('stExport').onclick = exportList;
     el('stBody').onclick = onAction;
   }
-  const shown = () => S.list.filter(p => (S.show === 'all' || (S.show === 'active' ? p.active : !p.active)) &&
+  const filterCount = () => S.f.depts.size + (S.f.login !== 'any') + (S.f.pin !== 'any');
+  const hasPin = p => !!(p.cashier_id && S.cash?.get(p.cashier_id)?.has_pin);
+  const passFilter = p => (!S.f.depts.size || S.f.depts.has(deptOf(p)))
+    && (S.f.login === 'any' || (S.f.login === 'yes') === !!p.user_id)
+    && (S.f.pin === 'any' || (inCashList(p.job) && (S.f.pin === 'yes') === hasPin(p)));
+  function renderFilter() {
+    const panel = el('stFilterPanel'), n = filterCount();
+    el('stFilterN').hidden = !n; el('stFilterN').textContent = n;
+    el('stFilterBtn').classList.toggle('on', !!n);
+    el('stFilterBtn').setAttribute('aria-expanded', String(S.filterOpen));
+    panel.hidden = !S.filterOpen;
+    if (!S.filterOpen) return;
+    const count = k => S.list.filter(p => (S.show === 'all' || (S.show === 'active' ? p.active : !p.active)) && deptOf(p) === k).length;
+    const pill = (attr, v, cur, label) => `<button type="button" data-${attr}="${v}" class="${cur === v ? 'on' : ''}">${label}</button>`;
+    panel.innerHTML = `
+      <p class="st-f-t">Department</p>
+      <div class="st-f-chips">${DEPTS.filter(([k]) => count(k)).map(([k, l]) => `<button type="button" data-fd="${k}" class="${S.f.depts.has(k) ? 'on' : ''}">${esc(l)} <span>${count(k)}</span></button>`).join('')}</div>
+      <p class="st-f-t">App login</p>
+      <div class="st-f-seg">${pill('fl', 'any', S.f.login, 'Any')}${pill('fl', 'yes', S.f.login, 'Has a login')}${pill('fl', 'no', S.f.login, 'No login')}</div>
+      <p class="st-f-t">PIN (cashier page)</p>
+      <div class="st-f-seg">${pill('fp', 'any', S.f.pin, 'Any')}${pill('fp', 'yes', S.f.pin, 'PIN set')}${pill('fp', 'no', S.f.pin, 'No PIN yet')}</div>
+      <div class="st-f-foot"><button type="button" class="link-btn" data-fclear>Clear filters</button><span class="muted-note">${shown().length} shown</span></div>`;
+  }
+  const shown = () => S.list.filter(p => passFilter(p) && (S.show === 'all' || (S.show === 'active' ? p.active : !p.active)) &&
     (!S.q || [p.name, p.job, p.sections, p.phone, p.note, loginName(p)].join(' ').toLowerCase().includes(S.q)));
   // Departments (the same as the Staff schedule's tabs): the list is grouped by them.
   const DEPTS = [
