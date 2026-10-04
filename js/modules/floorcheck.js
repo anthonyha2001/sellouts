@@ -2,21 +2,29 @@
    Floor check (PLAN §9): each day the floor manager walks the
    store and checks every item of every sell-out and promotion running today
    against its new price. One check per person per day; reopening
-   the page resumes it. Admin sees results, resolves problems, and
+   the page resumes it.
+   Changes only (owner, 2026-10-04; migration 047): by default the list holds only what changed since
+   the person's last check — items starting (new price), items that ended (back to the normal price)
+   and last time's wrong prices / missing tags still open. "Check everything" keeps the full list.
+   Scanning opens the item with its price big and the four answers; the next scan follows. On Finish,
+   wrong prices and missing tags go to the shelf labels (the accountant's "To print"). Admin sees results, resolves problems, and
    sees items that keep coming back wrong. Public API: window.FloorCheck.
    ============================================================ */
 (function () {
   const panel = document.getElementById('panel-floorcheck');
+  const svgIc = d => `<svg class="fc-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
   const STATUSES = {
-    ok:           { label: 'Correct',     icon: '✅', cls: 'ok' },
-    wrong_price:  { label: 'Wrong price', icon: '❌', cls: 'bad' },
-    missing_tag:  { label: 'Tag missing', icon: '🏷️', cls: 'bad' },
-    out_of_stock: { label: 'Out of stock', icon: '📦', cls: 'warn' },
+    ok:           { label: 'Correct',      icon: svgIc('<path d="M20 6 9 17l-5-5"/>'), cls: 'ok' },
+    wrong_price:  { label: 'Wrong price',  icon: svgIc('<path d="M18 6 6 18M6 6l12 12"/>'), cls: 'bad' },
+    missing_tag:  { label: 'Tag missing',  icon: svgIc('<path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8Z"/><circle cx="7.5" cy="7.5" r="1.5"/>'), cls: 'bad' },
+    out_of_stock: { label: 'Out of stock', icon: svgIc('<path d="M21 8 12 3 3 8v8l9 5 9-5Z"/><path d="M3 8l9 5 9-5M12 13v8"/>'), cls: 'warn' },
   };
+  // Why an item is on the list (migration 047).
+  const REASONS = { starts: ['New price', 'active'], ends: ['Back to normal price', 'warn'], recheck: ['Re-check: was wrong', 'danger'] };
   const PROBLEMS = ['wrong_price', 'missing_tag', 'out_of_stock'];
   const PHOTO_BUCKET = 'floor-photos';
   const S = { tab: 'today', check: null, items: [], filter: 'todo', started: false, openNote: null, checks: [], results: new Map(), photoUrls: new Map(),
-    groupBy: 'supplier', show: 'all', openGroups: null };
+    groupBy: 'category', show: 'all', openGroups: null };
   const el = id => document.getElementById(id);
   const esc = escapeHtml;
   // Some sell-out files are in LBP (e.g. 429,600), others in USD (4.72): show as written, with separators.
@@ -27,20 +35,31 @@
   /* ---------------- which items to check today ---------------- */
   // Sell-outs running today: switched on in the store's system, or today falls in their dates. Never archived.
   // Promotions running today: not archived and today falls in their dates (owner: promotions are checked too).
-  async function todaysSources() {
-    const today = todayStr();
+  // The day of the person's last check before today (the "changes" window starts after it): at most 14 days back.
+  async function sinceDate() {
+    const today = todayStr(), floor = addDaysStr(today, -14);
+    const { data } = await sb.from('floor_checks').select('check_date').eq('started_by', Session.user.id).lt('check_date', today)
+      .order('check_date', { ascending: false }).limit(1).maybeSingle();
+    return data?.check_date && data.check_date > floor ? data.check_date : addDaysStr(today, -7);
+  }
+  const addDaysStr = (d, n) => { const x = new Date(d + 'T00:00:00'); x.setDate(x.getDate() + n); return x.toLocaleDateString('en-CA'); };
+  async function todaysSources(since) {
+    const today = todayStr(), from = since || today;
     const [so, pr] = await Promise.all([
-      sb.from('sellouts').select('id, name, supplier, from, to, active, archived, online, items, priced_items, price_column'),
-      sb.from('promotions').select('id, name, from_date, to_date, archived').eq('archived', false).lte('from_date', today).gte('to_date', today),
+      sb.from('sellouts').select('id, name, supplier, from, to, active, archived, online, items, priced_items, price_column, log'),
+      // running today, or ended since the last check (back to the normal price)
+      sb.from('promotions').select('id, name, from_date, to_date, archived').lte('from_date', today).gte('to_date', from),
     ]);
     if (so.error) { fail('Could not load the sell-outs', so.error); return { sellouts: [], promotions: [] }; }
     if (pr.error) { fail('Could not load the promotions', pr.error); return { sellouts: [], promotions: [] }; }
     // Online-only sell-outs (migration 032) change no shelf price: not part of the floor check.
     S.onlineSellouts = new Set(so.data.filter(s => s.online).map(s => s.id));
     const sellouts = so.data
-      .filter(s => !s.archived && !s.online && (s.active || (s.from <= today && today <= s.to)))
-      .map(s => ({ id: s.id, name: s.name, supplier: s.supplier || '', from: s.from, to: s.to, items: s.items || [], pricedItems: Array.isArray(s.priced_items) ? s.priced_items : null, priceColumn: s.price_column }));
-    const promotions = pr.data.map(p => ({ id: p.id, name: p.name || 'Promotion', from: p.from_date, to: p.to_date, rows: [] }));
+      .filter(s => !s.online && (since ? (s.to >= since && s.from <= today) || s.active : !s.archived && (s.active || (s.from <= today && today <= s.to))))
+      .map(s => ({ id: s.id, name: s.name, supplier: s.supplier || '', from: s.from, to: s.to, active: !!s.active, archived: !!s.archived, log: Array.isArray(s.log) ? s.log : [],
+        items: s.items || [], pricedItems: Array.isArray(s.priced_items) ? s.priced_items : null, priceColumn: s.price_column }));
+    const promotions = pr.data.filter(p => since || (!p.archived && p.to_date >= today))
+      .map(p => ({ id: p.id, name: p.name || 'Promotion', from: p.from_date, to: p.to_date, rows: [] }));
     if (promotions.length) {
       const { data: rows, error } = await sb.from('promotion_rows').select('id, promotion_id, code, description, supplier, barcode, promo_price, before_price, sale_price, sort_order')
         .in('promotion_id', promotions.map(p => p.id)).order('sort_order');
@@ -50,30 +69,56 @@
     return { sellouts, promotions };
   }
   const numOrNull = v => (v === null || v === undefined || v === '' ? null : Number(v));
-  function itemsFor({ sellouts, promotions }) {
+  // mode 'full': every item running today. mode 'changes' (since = the last check's day): items that start
+  // (or were switched on) since, items that ended (or were switched off) since — expected back at the normal
+  // price — and `rechecks` (last time's open problems).
+  function itemsFor({ sellouts, promotions }, mode = 'full', since = null, rechecks = []) {
     const today = todayStr();
     const out = [];
     const priorityOf = x => (x.from === today || x.to === today) ? 0 : 1;
+    const switched = (so, action) => so.log.some(l => l.action === action && l.at && new Date(l.at).toLocaleDateString('en-CA', { timeZone: 'Asia/Beirut' }) > since);
+    // A source's reason in "changes" mode: 'starts', 'ends' or null (not part of today's check).
+    const reasonOf = (x, isSellout) => {
+      if (mode !== 'changes') return 'running';
+      const running = isSellout ? (x.active || (x.from <= today && today <= x.to)) && !x.archived : x.from <= today && today <= x.to;
+      if (running && ((x.from > since && x.from <= today) || (isSellout && switched(x, 'activated')))) return 'starts';
+      if (!running && ((x.to >= since && x.to < today) || (isSellout && switched(x, 'deactivated')))) return 'ends';
+      return null;
+    };
     sellouts.forEach(so => {
+      const reason = reasonOf(so, true); if (!reason) return;
       const map = detectColumns(so.items), bcCol = map.barcode;
       pricedRowsOf(so).forEach(p => {
         if (!p.code && !p.description) return;
+        const ends = reason === 'ends';
         // The sell-out's supplier (set on the sell-out), else its name. Category from the file (Group › Sub-Group).
-        out.push({ source: 'sellout', sellout_id: so.id, source_name: so.name, supplier: so.supplier || so.name, item_key: `so:${so.id}:${p.row}`, item_row: p.row,
-          category: p.category || categoryOfRow(so.items[p.row], map) || null,
-          code: p.code, description: p.description, expected_price: p.newPrice ?? null, old_price: p.oldPrice ?? null, priority: priorityOf(so),
+        out.push({ source: 'sellout', sellout_id: so.id, source_name: so.name, supplier: so.supplier || so.name, item_key: `${ends ? 'so-end' : 'so'}:${so.id}:${p.row}`, item_row: p.row,
+          category: p.category || categoryOfRow(so.items[p.row], map) || null, reason,
+          code: p.code, description: p.description,
+          expected_price: ends ? (p.oldPrice ?? null) : (p.newPrice ?? null), old_price: ends ? (p.newPrice ?? null) : (p.oldPrice ?? null), priority: priorityOf(so),
           barcode: (p.barcodes && p.barcodes.length ? p.barcodes.join(',') : '') || p.barcode || (bcCol ? (splitBarcodes(so.items[p.row]?.[bcCol])[0] || '') : '') });
       });
     });
     promotions.forEach(pm => {
+      const reason = reasonOf(pm, false); if (!reason) return;
+      const ends = reason === 'ends';
       pm.rows.forEach((r, i) => {
         if (!String(r.code || '').trim() && !String(r.description || '').trim()) return;
+        const normal = numOrNull(r.before_price) ?? numOrNull(r.sale_price);
         out.push({ source: 'promotion', promotion_id: pm.id, source_name: pm.name, supplier: String(r.supplier || '').trim() || 'No supplier',
-          item_key: `pr:${r.id}`, item_row: i, code: String(r.code || '').trim(), description: r.description || '',
-          expected_price: numOrNull(r.promo_price), old_price: numOrNull(r.before_price) ?? numOrNull(r.sale_price), priority: priorityOf(pm),
+          item_key: `${ends ? 'pr-end' : 'pr'}:${r.id}`, item_row: i, code: String(r.code || '').trim(), description: r.description || '', reason,
+          category: r.category || null,
+          expected_price: ends ? normal : numOrNull(r.promo_price), old_price: ends ? numOrNull(r.promo_price) : normal, priority: priorityOf(pm),
           barcode: String(r.barcode || '').trim() });
       });
     });
+    // Last time's wrong prices / missing tags, still open: checked again (first in their group).
+    const have = new Set(out.map(x => x.item_key));
+    rechecks.filter(x => !have.has(x.item_key)).forEach(x => {
+      const { id, check_id, status, note, photo_path, checked_at, checked_by, resolved, resolved_by, resolved_at, label_sent_at, created_at, sort_order, ...keep } = x;
+      out.push({ ...keep, reason: 'recheck', priority: 0 });
+    });
+    out.forEach(x => { if (x.reason === 'recheck') return; const r = rechecks.find(y => y.item_key === x.item_key); if (r) { x.reason = 'recheck'; x.priority = 0; } });
     // Supplier by supplier: suppliers with something starting/ending today first, then A-Z.
     const groupPriority = new Map();
     out.forEach(x => groupPriority.set(x.supplier, Math.min(groupPriority.get(x.supplier) ?? 1, x.priority)));
@@ -123,18 +168,34 @@
       S.items = items;
     }
   }
-  async function startCheck() {
-    const sources = await todaysSources();
-    const items = itemsFor(sources);
-    if (!items.length) { showToast('No sell-out or promotion is running today, so there is nothing to check.', true); return; }
-    const { data: check, error } = await sb.from('floor_checks').insert({}).select().single();
+  // The person's last check before today: its wrong prices / missing tags not resolved yet.
+  async function openProblems() {
+    const { data: last } = await sb.from('floor_checks').select('id').eq('started_by', Session.user.id).lt('check_date', todayStr())
+      .order('check_date', { ascending: false }).limit(1).maybeSingle();
+    if (!last) return [];
+    const { data } = await sb.from('floor_check_items').select('*').eq('check_id', last.id).in('status', ['wrong_price', 'missing_tag']).eq('resolved', false);
+    return data || [];
+  }
+  // What today's check would hold (start screen and start).
+  async function planToday(mode) {
+    if (mode === 'full') return { mode, since: null, items: itemsFor(await todaysSources()) };
+    const since = await sinceDate();
+    const [sources, rechecks] = await Promise.all([todaysSources(since), openProblems()]);
+    return { mode, since, items: itemsFor(sources, 'changes', since, rechecks) };
+  }
+  async function startCheck(mode = 'changes') {
+    const plan = await planToday(mode);
+    const items = plan.items;
+    if (!items.length) { showToast(mode === 'full' ? 'No sell-out or promotion is running today, so there is nothing to check.' : 'Nothing changed since your last check.', true); return; }
+    const sources = { sellouts: new Set(items.filter(x => x.sellout_id).map(x => x.sellout_id)), promotions: new Set(items.filter(x => x.promotion_id).map(x => x.promotion_id)) };
+    const { data: check, error } = await sb.from('floor_checks').insert({ mode }).select().single();
     if (error) return fail('Could not start the check', error);
     for (let i = 0; i < items.length; i += 500) {
       const { error: e2 } = await sb.from('floor_check_items').insert(items.slice(i, i + 500).map(x => ({ ...x, check_id: check.id })));
       if (e2) return fail('Could not add the items', e2);
     }
     logActivity('floorcheck', 'start', { type: 'floor_check', id: check.id },
-      `Started today's floor check (${items.length} items from ${sources.sellouts.length} sell-outs and ${sources.promotions.length} promotions)`);
+      `Started today's floor check${mode === 'changes' ? ' (changes only)' : ''} (${items.length} items from ${sources.sellouts.size} sell-outs and ${sources.promotions.size} promotions)`);
     await loadToday();
     render();
   }
@@ -151,12 +212,22 @@
   function renderToday() {
     const body = el('fcBody');
     if (!S.check) {
-      body.innerHTML = `<div class="card fc-start">
-        <p class="big">Today's floor check</p>
-        <p>Walk the store and check every item of every sell-out and promotion running today against its price.</p>
-        <button class="btn" id="fcStart">Start today's check</button>
-      </div>`;
-      el('fcStart').onclick = async () => { el('fcStart').disabled = true; await startCheck(); };
+      body.innerHTML = `<div class="card fc-start"><p class="big">Today's floor check</p><p class="muted-note">Looking at what changed…</p></div>`;
+      planToday('changes').then(plan => {
+        if (S.check || !el('fcBody')) return;
+        const n = k => plan.items.filter(x => x.reason === k).length;
+        const line = (k, label) => n(k) ? `<li><b>${n(k)}</b> ${label}</li>` : '';
+        body.innerHTML = `<div class="card fc-start">
+          <p class="big">Today's floor check</p>
+          ${plan.items.length ? `<p>Only what changed since ${plan.since ? esc(fmtDate(plan.since)) : 'your last check'}:</p>
+            <ul class="fc-plan">${line('starts', 'new prices (starting)')}${line('ends', 'back to the normal price (ended)')}${line('recheck', 'wrong last time, to check again')}</ul>
+            <button class="btn" id="fcStart">Start — ${plan.items.length} item${plan.items.length === 1 ? '' : 's'}</button>`
+            : '<p>Nothing changed since your last check: no sell-out or promotion started or ended, and no problem is open.</p>'}
+          <p class="muted-note fc-full-note">Want to go over every item running today instead? <button type="button" class="link-btn" id="fcStartFull">Check everything</button></p>
+        </div>`;
+        el('fcStart')?.addEventListener('click', async e => { e.target.disabled = true; await startCheck('changes'); });
+        el('fcStartFull').onclick = async e => { e.target.disabled = true; await startCheck('full'); };
+      });
       return;
     }
     const c = counts(S.items);
@@ -247,18 +318,45 @@
       onCode: code => {
         const x = S.items.find(i => i.barcode && String(i.barcode).split(',').includes(code)) || S.items.find(i => i.code && i.code === code);
         if (!x) return { ok: false, html: `<span class="scan-code">${esc(code)}</span><span class="scan-sub">Not in today's check</span>` };
-        if (S.show !== 'all' && x.source !== S.show) S.show = 'all';
-        const matchesFilter = S.filter === 'all' || (S.filter === 'todo' ? x.status === 'pending' : PROBLEMS.includes(x.status));
-        if (!matchesFilter) S.filter = 'all';
-        const key = groupKeyOf(x);
-        S.openGroups = S.openGroups || new Set();
-        S.openGroups.add(key);
-        S.focus = x.id;
         Scanner.close();
-        renderToday();
+        openSheet(x);
         return '';
       },
     });
+  }
+
+  // One item, big: what the label must say, and the four answers. Answering saves and opens the scanner again.
+  function openSheet(x) {
+    const locked = !!S.check.completed_at && !can('floorcheck.manage');
+    if (!el('fcSheet')) document.body.insertAdjacentHTML('beforeend', '<div class="modal-overlay" id="fcSheet"><div class="modal-box fc-sheet" id="fcSheetBox"></div></div>');
+    const ov = el('fcSheet'), box = el('fcSheetBox');
+    const why = REASONS[x.reason];
+    box.innerHTML = `
+      <div class="fc-sheet-top">${why ? `<span class="badge ${why[1]}">${why[0]}</span>` : ''}<span class="fc-code">${esc(x.code || '')}</span></div>
+      <p class="fc-sheet-desc">${esc(x.description || '')}</p>
+      <p class="fc-sheet-label">The label must say</p>
+      <p class="fc-sheet-price">${x.expected_price === null ? '<span class="muted-note">No price set</span>' : price(x.expected_price)}</p>
+      ${x.old_price !== null && x.old_price !== undefined ? `<p class="muted-note fc-sheet-old">${x.reason === 'ends' ? 'Promotion price was' : 'Normal price'} <s>${price(x.old_price)}</s></p>` : ''}
+      ${x.status !== 'pending' ? `<p class="muted-note">Already answered: <b>${STATUSES[x.status]?.label || ''}</b></p>` : ''}
+      <div class="fc-sheet-ok"><button type="button" class="fc-btn fc-btn-ok fc-big" data-sheet="ok">${STATUSES.ok.icon}Correct</button></div>
+      <div class="fc-sheet-bad">${PROBLEMS.map(k => `<button type="button" class="fc-btn fc-btn-${STATUSES[k].cls}" data-sheet="${k}">${STATUSES[k].icon}${STATUSES[k].label}</button>`).join('')}</div>
+      <div class="actions-row"><button type="button" class="btn ghost small" data-sheet="close">Close</button></div>`;
+    ov.classList.add('open');
+    box.onclick = async e => {
+      const b = e.target.closest('[data-sheet]'); if (!b) return;
+      if (b.dataset.sheet === 'close') { ov.classList.remove('open'); renderToday(); return; }
+      if (locked) { showToast('This check is finished.', true); return; }
+      const before = x.status;
+      x.status = b.dataset.sheet;
+      ov.classList.remove('open');
+      const { error } = await sb.from('floor_check_items').update({ status: x.status }).eq('id', x.id);
+      if (error) { x.status = before; fail('Could not save', error); }
+      renderToday();
+      const left = S.items.filter(i => i.status === 'pending').length;
+      if (!error) showToast(`${x.code || 'Item'}: ${STATUSES[x.status].label}. ${left ? left + ' left' : 'All checked'}.`);
+      if (left) scanToItem();   // straight on to the next item
+    };
+    ov.onclick = e => { if (e.target === ov) { ov.classList.remove('open'); renderToday(); } };
   }
 
   // An open check follows price changes made after it started (e.g. a sell-out priced later):
@@ -267,10 +365,10 @@
   async function syncOpenCheck() {
     S.extra = [];
     if (!S.check || S.check.completed_at) return;
-    const current = itemsFor(await todaysSources());
+    const current = (await planToday(S.check.mode || 'full')).items;
     const byKey = new Map(current.map(x => [x.item_key, x]));
     const same = (a, b) => String(a ?? '') === String(b ?? '');
-    const FIELDS = ['expected_price', 'old_price', 'code', 'description', 'category', 'supplier'];
+    const FIELDS = ['expected_price', 'old_price', 'code', 'description', 'category', 'supplier', 'reason'];
     const stale = S.items.filter(i => i.status === 'pending' && byKey.has(i.item_key))
       .filter(i => { const c = byKey.get(i.item_key); return FIELDS.some(f => !same(i[f], c[f])) || (c.barcode && !same(i.barcode, c.barcode)); });
     for (let k = 0; k < stale.length; k += 20) {
@@ -282,10 +380,10 @@
       }));
     }
     // A sell-out whose file was replaced with fewer rows: its rows that are gone leave the check (not checked ones only).
-    const liveSellouts = new Set(current.filter(x => x.source === 'sellout').map(x => x.sellout_id));
+    const liveSellouts = new Set(current.filter(x => x.source === 'sellout' && x.reason !== 'recheck').map(x => x.sellout_id));
     // A sell-out marked Online only after the check started: its rows not checked yet leave too.
     const gone = S.items.filter(i => i.status === 'pending' && i.source === 'sellout'
-      && ((current.length && liveSellouts.has(i.sellout_id) && !byKey.has(i.item_key)) || (S.onlineSellouts || new Set()).has(i.sellout_id)));
+      && i.reason !== 'recheck' && ((current.length && liveSellouts.has(i.sellout_id) && !byKey.has(i.item_key)) || (S.onlineSellouts || new Set()).has(i.sellout_id)));
     if (gone.length) {
       const { error } = await sb.from('floor_check_items').delete().in('id', gone.map(i => i.id));
       if (!error) S.items = S.items.filter(i => !gone.includes(i));
@@ -297,7 +395,8 @@
 
   function itemCard(x) {
     const st = STATUSES[x.status];
-    const tag = x.priority === 0 ? '<span class="badge warn">Starts or ends today</span>' : '';
+    const why = REASONS[x.reason];
+    const tag = why ? `<span class="badge ${why[1]}">${why[0]}</span>` : x.priority === 0 ? '<span class="badge warn">Starts or ends today</span>' : '';
     return `<article class="fc-item fc-${st ? st.cls : 'pending'}" data-id="${esc(x.id)}">
       <div class="fc-item-top">
         <div class="fc-item-info">
@@ -312,8 +411,9 @@
       </div>
       <div class="fc-buttons">${Object.entries(STATUSES).map(([k, s]) => `
         <button type="button" data-status="${k}" class="fc-btn fc-btn-${s.cls} ${x.status === k ? 'on' : ''}" aria-pressed="${x.status === k}">
-          <span aria-hidden="true">${s.icon}</span>${s.label}</button>`).join('')}
+          ${s.icon}${s.label}</button>`).join('')}
       </div>
+      ${x.label_sent_at ? '<p class="muted-note fc-label-sent">New shelf label requested</p>' : ''}
       <div class="fc-extra">
         <button type="button" class="link-btn" data-act="note">${x.note ? 'Edit note' : '+ Note'}</button>
         <label class="link-btn fc-photo-btn">${x.photo_path ? 'Replace photo' : '+ Photo'}<input type="file" accept="image/*" capture="environment" data-act="photo" hidden></label>
@@ -384,17 +484,23 @@
     const c = counts(S.items);
     const msg = c.pending
       ? `${c.pending} item${c.pending === 1 ? ' is' : 's are'} not checked yet. Finish anyway?`
-      : `Finish today's check? ${c.problems ? `${c.problems} problem${c.problems === 1 ? '' : 's'} will be sent to the admin.` : 'No problems found.'}`;
+      : `Finish today's check? ${c.problems ? `${c.problems} problem${c.problems === 1 ? '' : 's'} will be sent to the admin${c.wrong_price + c.missing_tag ? ', and the wrong prices / missing tags to the accountant for new labels' : ''}.` : 'No problems found.'}`;
     if (!(await showConfirm(msg, 'Finish check'))) return;
     const summary = { total: c.total, ok: c.ok, wrong_price: c.wrong_price, missing_tag: c.missing_tag, out_of_stock: c.out_of_stock, pending: c.pending };
     const { error } = await sb.from('floor_checks').update({ completed_at: new Date().toISOString(), summary }).eq('id', S.check.id);
     if (error) return fail('Could not finish the check', error);
+    // Wrong prices and missing tags: a shelf-label list for the accountant (migration 047).
+    let sent = 0;
+    if (c.wrong_price + c.missing_tag) {
+      const { data: n, error: e3 } = await sb.rpc('floor_check_send_labels', { p_check: S.check.id });
+      if (e3) fail('The labels were not sent', e3); else sent = n || 0;
+    }
     logActivity('floorcheck', 'finish', { type: 'floor_check', id: S.check.id },
       `Finished the floor check: ${c.ok} correct, ${c.wrong_price} wrong price, ${c.missing_tag} tag missing, ${c.out_of_stock} out of stock${c.pending ? `, ${c.pending} not checked` : ''}`, summary);
     await loadToday();
     S.filter = 'problems';
     render();
-    showToast('Check finished. Thank you!');
+    showToast(sent ? `Check finished. ${sent} new shelf label${sent === 1 ? '' : 's'} sent to the accountant to print.` : 'Check finished. Thank you.');
   }
 
   /* ---------------- results (admin: all; floor manager: own) ---------------- */
@@ -446,7 +552,7 @@
     return `<div class="items-scroll" style="margin-bottom:0;"><table class="items">
       <thead><tr><th>Problem</th><th>Supplier</th><th>Code</th><th>Description</th><th>From</th><th class="num">Expected</th><th>Note / photo</th><th></th></tr></thead>
       <tbody>${items.map(x => `<tr class="${x.resolved ? 'fc-resolved' : ''}">
-        <td><span class="badge ${x.status === 'out_of_stock' ? 'warn' : 'danger'}">${STATUSES[x.status].icon} ${STATUSES[x.status].label}</span></td>
+        <td><span class="badge ${x.status === 'out_of_stock' ? 'warn' : 'danger'}">${STATUSES[x.status].label}</span></td>
         <td>${esc(supplierOf(x))}</td>
         <td style="font-family:var(--font-mono);">${esc(x.code)}</td>
         <td style="white-space:normal;">${esc(x.description || '')}</td>

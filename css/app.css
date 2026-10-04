@@ -1484,3 +1484,21 @@ body.row-drag-on,body.row-drag-on *{cursor:grabbing !important;user-select:none;
 .sh-dept-tabs{flex-wrap:wrap;}
 .sh-tab-n{display:inline-block;min-width:18px;padding:0 5px;margin-left:4px;border-radius:999px;font:700 10px/16px var(--font-mono);background:var(--line);color:var(--ink-soft);text-align:center;}
 .sh-dept-tabs button.active .sh-tab-n{background:rgba(255,255,255,.25);color:inherit;}
+
+/* Floor check: changes only, scan sheet, icons (owner, 2026-10-04) */
+.fc-ic{width:16px;height:16px;flex:0 0 auto;}
+.fc-plan{margin:6px 0 14px;padding-left:18px;}
+.fc-plan li{margin:3px 0;}
+.fc-full-note{margin:14px 0 0;}
+.fc-label-sent{margin:6px 0 0;color:var(--pine);}
+.fc-sheet{max-width:420px;width:calc(100% - 32px);}
+.fc-sheet-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.modal-box.fc-sheet .fc-sheet-desc{font-size:17px;font-weight:600;margin:10px 0 14px;}
+.modal-box.fc-sheet .fc-sheet-label{margin:0;font:600 11px var(--font-mono);text-transform:uppercase;letter-spacing:.05em;color:var(--ink-faint);}
+.modal-box.fc-sheet .fc-sheet-price{margin:2px 0 4px;font:700 44px/1.1 var(--font-mono);color:var(--ink);}
+.modal-box.fc-sheet .fc-sheet-old{margin:0 0 12px;}
+.fc-sheet-ok{margin:14px 0 8px;}
+.fc-sheet-ok .fc-big{width:100%;padding:16px;font-size:17px;flex-direction:row;gap:8px;}
+.fc-sheet-ok .fc-ic{width:20px;height:20px;}
+.fc-sheet-bad{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;}
+.fc-sheet-bad .fc-btn{flex-direction:column;padding:10px 4px;font-size:12px;}
