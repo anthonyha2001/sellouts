@@ -1655,8 +1655,8 @@ td .lb-kind-chip{margin-left:0;cursor:default;}
 .ccx-ok{color:var(--ink-soft);}
 .cc-nf{margin:8px 0 0;font-size:12.5px;color:var(--brick);}
 .cc-rec{margin-top:12px;display:flex;align-items:center;gap:10px;}
-.cc-grid td.num,.cc-grid th.num{text-align:right;font-family:var(--font-mono);}
-.cc-grid tbody tr{cursor:pointer;}
+.ccx-grid td.num,.ccx-grid th.num{text-align:right;font-family:var(--font-mono);}
+.ccx-grid tbody tr{cursor:pointer;}
 
 /* Cash count: expenses (owner, 2026-10-04) */
 .cc-h-note{text-transform:none;letter-spacing:0;font:400 12px var(--font-body);color:var(--ink-soft);margin-left:4px;}
@@ -1692,3 +1692,17 @@ td .lb-kind-chip{margin-left:0;cursor:default;}
 .cc-explist li span{flex:1;}
 .cc-explist li b{font-family:var(--font-mono);font-size:12.5px;}
 .cc-keys{margin:12px 0 0;font-size:11.5px;}
+
+/* Cash count: missing slips, after the margin, Cash page (owner, 2026-10-04) */
+.cc-slipcell{display:flex;flex-wrap:wrap;gap:4px;}
+.cc-slipbtn{padding:3px 8px;border-radius:999px;border:1px solid var(--line-strong);background:var(--paper);color:var(--ink);font:600 11.5px var(--font-mono);cursor:pointer;white-space:nowrap;}
+.cc-slipbtn:hover:not(:disabled){border-color:var(--brick);}
+.cc-slipbtn.no{background:var(--brick);border-color:var(--brick);color:#fff;}
+.cc-slipbtn:disabled{cursor:default;opacity:.85;}
+.cc-res-head{margin:10px 0 2px;font:600 10.5px var(--font-mono);text-transform:uppercase;letter-spacing:.05em;color:var(--ink-faint);}
+.cc-res-head:first-child{margin-top:0;}
+.cc-res-after{background:var(--pine-tint);margin:6px -12px 0;padding:8px 12px;}
+.cc-post{margin-top:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px;}
+.cc-mact{white-space:nowrap;text-align:right;}
+.cc-mact .link-btn{margin-left:6px;}
+.cc-gmiss{font-size:12px;color:var(--brick);max-width:220px;}

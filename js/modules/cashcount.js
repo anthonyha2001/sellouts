@@ -13,6 +13,12 @@
         1,000,000 of cash, shown only) and the total.
    Differences grid (accountant / HR — cashcount.view): every count of
    a month, with an Excel export.
+   Missing slips (058): a slip the accountant cannot find is marked on
+   its own ("<card>#<n>" in not_found); it is charged to the cashier.
+   The Missing slips tab lists them, with Found when one turns up.
+   After the margin, the difference goes to the Cash page only when the
+   accountant presses "Send to the Cash page" (cash_count_post); a count
+   changed after sending shows "send again".
    USD -> LBP: one rate (cash_settings.usd_rate), kept on each count.
    Public API: window.CashCount = { show }.
    ============================================================ */
@@ -24,7 +30,7 @@
     ['ccm_visa', 'CCM Visa'], ['on_account', 'On account'], ['amex', 'Amex'], ['voucher', 'Special voucher'], ['points', 'Points']];
   const CARD_LABEL = Object.fromEntries(CARDS);
   const SHIFTS = { am: 'AM', pm: 'PM', full: 'Full day' };
-  const S = { ctype: 'visa_bankmed', ccur: 'lbp', ecur: 'lbp', started: false, tab: 'day', date: todayStr(), counts: [], openId: null, cashiers: [], rate: null, month: todayStr().slice(0, 7), monthCounts: [], adding: false };
+  const S = { ctype: 'visa_bankmed', ccur: 'lbp', ecur: 'lbp', started: false, tab: 'day', date: todayStr(), counts: [], openId: null, cashiers: [], rate: null, month: todayStr().slice(0, 7), monthCounts: [], adding: false, missingList: [] };
   const el = id => document.getElementById(id);
   const esc = escapeHtml;
   const canCount = () => can('cashcount.count'), canRec = () => can('cashcount.reconcile'), canGrid = () => can('cashcount.view', 'cashcount.reconcile');
@@ -79,27 +85,42 @@
     const cashLbp = billsLbp + exp.lbp, cashUsd = billsUsd + exp.usd;
     const sys = c.system || {}, nf = c.not_found || {};
     const hasSystem = sys.cash_lbp !== undefined || sys.cash_usd !== undefined || Object.keys(sys.cards || {}).length > 0;
+    // Missing slips (058): one by one, "<card>#<n>" (n = its place in the slips); older counts marked a whole card.
+    const missing = cardItems(c).map((i, idx) => ({ ...i, idx, key: i.type + '#' + idx, label: CARD_LABEL[i.type] || i.type }))
+      .filter(i => nf[i.key] || nf[i.type]);
     const cards = CARDS.map(([k, label]) => {
       const counted = { lbp: n(c.cards?.[k]?.lbp), usd: n(c.cards?.[k]?.usd) };
       const system = { lbp: n(sys.cards?.[k]?.lbp), usd: n(sys.cards?.[k]?.usd) };
-      const found = !nf[k];
-      // A card not found: its slip does not count — the cashier owes it (charged to their cash).
-      const used = found ? counted : { lbp: 0, usd: 0 };
-      return { k, label, counted, system, found, diff: { lbp: used.lbp - system.lbp, usd: used.usd - system.usd } };
+      const miss = missing.filter(i => i.type === k).reduce((t, i) => ({ ...t, [i.cur]: t[i.cur] + n(i.amount) }), { lbp: 0, usd: 0 });
+      // A missing slip does not count — the cashier owes it.
+      const used = { lbp: counted.lbp - miss.lbp, usd: counted.usd - miss.usd };
+      return { k, label, counted, system, miss, found: !miss.lbp && !miss.usd, diff: { lbp: used.lbp - system.lbp, usd: used.usd - system.usd } };
     });
     const cashDiff = { lbp: cashLbp - n(sys.cash_lbp), usd: cashUsd - n(sys.cash_usd) };
-    const notFound = cards.filter(x => !x.found && (x.counted.lbp || x.counted.usd));
-    const notFoundLbp = notFound.reduce((t, x) => t + x.counted.lbp + x.counted.usd * rate, 0);
+    const notFoundLbp = missing.reduce((t, i) => t + (i.cur === 'usd' ? n(i.amount) * rate : n(i.amount)), 0);
     const cardsDiff = cards.reduce((t, x) => t + x.diff.lbp + x.diff.usd * rate, 0);
     const cashDiffLbpEq = cashDiff.lbp + cashDiff.usd * rate;
     const cashTotalLbpEq = cashLbp + cashUsd * rate;
+    const total = cashDiffLbpEq + cardsDiff;
+    const margin = Math.round(cashTotalLbpEq / 1e6 * 1000);     // 1,000 LBP allowed per 1,000,000 of cash
+    // Within the margin: nothing; beyond it: only what is beyond.
+    const afterMargin = !hasSystem || Math.abs(total) <= margin ? 0 : Math.round(total - Math.sign(total) * margin);
+    const posted = c.posted_at ? Math.round(n(c.posted_amount)) : null;
     return {
-      rate, billsLbp, billsUsd, exp, cashLbp, cashUsd, cards, cashDiff, cashDiffLbpEq, notFound, notFoundLbp, cardsDiff, hasSystem,
+      rate, billsLbp, billsUsd, exp, cashLbp, cashUsd, cards, cashDiff, cashDiffLbpEq, notFound: missing, notFoundLbp, cardsDiff, hasSystem,
       cardsCounted: cards.reduce((t, x) => ({ lbp: t.lbp + x.counted.lbp, usd: t.usd + x.counted.usd }), { lbp: 0, usd: 0 }),
-      total: cashDiffLbpEq + cardsDiff,
-      margin: Math.round(cashTotalLbpEq / 1e6 * 1000),     // 1,000 LBP allowed per 1,000,000 of cash (shown only)
+      total, margin, afterMargin, posted, needsResend: posted !== null && posted !== afterMargin,
     };
   }
+  // A slip marked missing / found again. Older counts marked the whole card: that becomes one mark per slip first.
+  function toggleMissing(c, key, missing) {
+    const nf = { ...(c.not_found || {}) }, type = key.split('#')[0];
+    if (nf[type]) { delete nf[type]; cardItems(c).forEach((i, idx) => { if (i.type === type) nf[type + '#' + idx] = true; }); }
+    if (missing) nf[key] = true; else delete nf[key];
+    c.not_found = nf;
+    return nf;
+  }
+  const amt = i => i.cur === 'usd' ? usd(i.amount) + ' USD' : lbp(i.amount) + ' LBP';
 
   /* ---------------- data ---------------- */
   async function loadBase() {
@@ -121,6 +142,12 @@
     if (error) return fail('Could not load the counts', error);
     S.monthCounts = data || [];
   }
+  // Counts of the last 3 months with a missing slip, or sent and changed since.
+  async function loadMissing() {
+    const { data, error } = await sb.from('cash_counts').select('*').gte('count_date', addDaysStr(todayStr(), -92)).order('count_date', { ascending: false }).order('pos');
+    if (error) return fail('Could not load the counts', error);
+    S.missingList = (data || []).filter(c => { const r = calc(c); return r.notFound.length || r.needsResend; });
+  }
   const timers = new Map();
   function saveSoon(c, patch) {
     Object.assign(c, patch);
@@ -135,7 +162,7 @@
   function shell() {
     panel.innerHTML = `
       <div class="cc-top">
-        <div class="filter-row" id="ccTabs" style="margin:0;"><button type="button" data-cctab="day">Counts</button>${canGrid() ? '<button type="button" data-cctab="grid">Differences grid</button>' : ''}</div>
+        <div class="filter-row" id="ccTabs" style="margin:0;"><button type="button" data-cctab="day">Counts</button>${canRec() || canGrid() ? '<button type="button" data-cctab="missing">Missing slips</button>' : ''}${canGrid() ? '<button type="button" data-cctab="grid">Differences grid</button>' : ''}</div>
         <span style="flex:1"></span>
         <span class="cc-rate" id="ccRate"></span>
       </div>
@@ -159,6 +186,7 @@
     renderRate();
     if (S.missing) { el('ccBody').innerHTML = '<div class="card"><p style="margin:0;"><b>Not set up yet.</b> The cash count works once migration 055 is applied.</p></div>'; return; }
     if (S.tab === 'grid') return renderGrid();
+    if (S.tab === 'missing') return renderMissing();
     renderDay();
   }
 
@@ -182,12 +210,14 @@
           <div class="cc-new-actions"><button type="button" class="btn ghost small" id="ccNewCancel">Cancel</button><button type="submit" class="btn small">Start the count</button></div>
         </form></div>` : ''}
       <div class="card cc-list">${S.counts.length ? `<table class="items cc-table">
-          <thead><tr><th>POS</th><th>Shift</th><th>Cashier</th><th>Signed</th><th>Reconciled</th><th class="num">Total difference</th></tr></thead>
+          <thead><tr><th>POS</th><th>Shift</th><th>Cashier</th><th>Signed</th><th>Reconciled</th><th class="num">Total difference</th><th class="num">After margin</th><th>Cash page</th></tr></thead>
           <tbody>${S.counts.map(c => { const r = calc(c); return `<tr data-cc="${esc(c.id)}" class="${c.id === S.openId ? 'on' : ''}">
             <td><b>POS ${c.pos}</b></td><td>${SHIFTS[c.shift]}</td><td>${esc(c.cashier_name)}</td>
             <td>${c.signed_at ? '<span class="badge active">Signed</span>' : '<span class="badge warn">Not signed</span>'}</td>
             <td>${c.reconciled_at ? '<span class="badge active">Reconciled</span>' : r.hasSystem ? '<span class="badge inactive">In progress</span>' : '<span class="muted-note">—</span>'}</td>
-            <td class="num">${r.hasSystem ? diffWord(r.total, lbp, 'LBP') : '<span class="muted-note">no system figures yet</span>'}</td></tr>`; }).join('')}</tbody></table>`
+            <td class="num" data-tot>${r.hasSystem ? diffWord(r.total, lbp, 'LBP') : '<span class="muted-note">no system figures yet</span>'}</td>
+            <td class="num" data-after>${r.hasSystem ? diffWord(r.afterMargin, lbp, 'LBP') : ''}</td>
+            <td>${sentBadge(r)}</td></tr>`; }).join('')}</tbody></table>`
         : `<p class="empty-note" style="margin:0;">No count on ${esc(fmtDate(S.date))} yet.${canCount() ? ' Tap "+ New count".' : ''}</p>`}</div>
       ${open ? sheetHtml(open) : ''}`;
     el('ccBody').querySelectorAll('[data-ccd]').forEach(b => b.onclick = async () => { const d = Number(b.dataset.ccd); S.date = d ? addDaysStr(S.date, d) : todayStr(); S.openId = null; await loadDay(); render(); });
@@ -253,13 +283,13 @@
       <section class="card cc-part">
         <div class="cc-part-head"><span class="cc-step">2</span><div><h3>System and reconciliation</h3>
           <p class="muted-note">The figures of the system, for the accountant. USD rate ${r.rate ? lbp(r.rate) : '(not set)'}.</p></div></div>
-        <table class="cc-bills cc-sys"><thead><tr><th></th><th class="num">System LBP</th><th class="num">System USD</th><th>Slip</th></tr></thead><tbody>
+        <table class="cc-bills cc-sys"><thead><tr><th></th><th class="num">System LBP</th><th class="num">System USD</th><th>Slips <span class="cc-h-note">click a missing one</span></th></tr></thead><tbody>
           <tr><td><b>Cash</b></td><td><input type="text" inputmode="numeric" class="cc-in" data-sys="cash_lbp" value="${sys.cash_lbp !== undefined ? lbp(sys.cash_lbp) : ''}" ${lock2 ? 'disabled' : ''} aria-label="System cash LBP"></td>
             <td><input type="text" inputmode="decimal" class="cc-in" data-sys="cash_usd" value="${sys.cash_usd ?? ''}" ${lock2 ? 'disabled' : ''} aria-label="System cash USD"></td><td></td></tr>
           ${CARDS.map(([k, l]) => `<tr><td>${l}</td>
             <td><input type="text" inputmode="numeric" class="cc-in" data-syscard="${k}" data-cur="lbp" value="${sys.cards?.[k]?.lbp !== undefined ? lbp(sys.cards[k].lbp) : ''}" ${lock2 ? 'disabled' : ''} aria-label="System ${l} LBP"></td>
             <td><input type="text" inputmode="decimal" class="cc-in" data-syscard="${k}" data-cur="usd" value="${sys.cards?.[k]?.usd ?? ''}" ${lock2 ? 'disabled' : ''} aria-label="System ${l} USD"></td>
-            <td><button type="button" class="cc-found ${c.not_found?.[k] ? 'no' : 'yes'}" data-found="${k}" ${lock2 ? 'disabled' : ''}>${c.not_found?.[k] ? 'Not found' : 'Found'}</button></td></tr>`).join('')}
+            <td class="cc-slipcell">${slipToggles(c, k, lock2)}</td></tr>`).join('')}
         </tbody></table>
         <div class="cc-result" id="ccResult">${resultHtml(c)}</div>
         ${canRec() ? `<div class="cc-rec">${c.reconciled_at
@@ -267,6 +297,12 @@
           : '<button type="button" class="btn" id="ccRec">Mark as reconciled</button>'}</div>` : ''}
       </section>
     </div>`;
+  }
+  function slipToggles(c, k, lock) {
+    const nf = c.not_found || {}, mine = cardItems(c).map((i, idx) => ({ ...i, idx })).filter(i => i.type === k);
+    if (!mine.length) return '<span class="muted-note">—</span>';
+    return mine.map(i => { const miss = !!(nf[k + '#' + i.idx] || nf[k]);
+      return `<button type="button" class="cc-slipbtn ${miss ? 'no' : ''}" data-miss="${k}#${i.idx}" aria-pressed="${miss}" title="${miss ? 'Missing — click when found' : 'Click if this slip is missing'}" ${lock ? 'disabled' : ''}>${i.cur === 'usd' ? usd(i.amount) + ' $' : lbp(i.amount)}${miss ? ' · missing' : ''}</button>`; }).join('');
   }
   // The slips, grouped by card, with their total; and the expenses.
   function slipsHtml(c, lock) {
@@ -292,17 +328,46 @@
     const r = calc(c);
     if (!r.hasSystem) return '<p class="muted-note" style="margin:0;">The differences appear once the system figures are entered.</p>';
     const lines = r.cards.filter(x => Math.abs(x.diff.lbp) >= 0.005 || Math.abs(x.diff.usd) >= 0.005);
+    const two = (a, b) => [Math.abs(a) >= 0.005 ? diffWord(a, lbp, 'LBP') : '', Math.abs(b) >= 0.005 ? diffWord(b, usd, 'USD') : ''].filter(Boolean).join(' · ');
     return `
-      ${r.exp.lbp || r.exp.usd ? `<p class="cc-expnote">Cash includes the expenses: ${[r.exp.lbp ? lbp(r.exp.lbp) + ' LBP' : '', r.exp.usd ? usd(r.exp.usd) + ' USD' : ''].filter(Boolean).join(' + ')}${c.expenses?.note ? ' (' + esc(c.expenses.note) + ')' : ''}</p>` : ''}
+      <div class="cc-res-head">Cash</div>
+      ${r.exp.lbp || r.exp.usd ? `<p class="cc-expnote">Includes the expenses: ${[r.exp.lbp ? lbp(r.exp.lbp) + ' LBP' : '', r.exp.usd ? usd(r.exp.usd) + ' USD' : ''].filter(Boolean).join(' + ')}${c.expenses?.note ? ' (' + esc(c.expenses.note) + ')' : ''}</p>` : ''}
       <div class="cc-res-row"><span>Cash LBP</span><span>${diffWord(r.cashDiff.lbp, lbp, 'LBP')}</span></div>
       <div class="cc-res-row"><span>Cash USD</span><span>${diffWord(r.cashDiff.usd, usd, 'USD')}</span></div>
-      ${lines.map(x => `<div class="cc-res-row"><span>${esc(x.label)}${x.found ? '' : ' <span class="badge danger">not found</span>'}</span><span>${[
-        Math.abs(x.diff.lbp) >= 0.005 ? diffWord(x.diff.lbp, lbp, 'LBP') : '', Math.abs(x.diff.usd) >= 0.005 ? diffWord(x.diff.usd, usd, 'USD') : ''].filter(Boolean).join(' · ')}</span></div>`).join('')
-        || '<div class="cc-res-row"><span>Cards and others</span><span><span class="ccx-ok">all match</span></span></div>'}
-      ${r.notFound.length ? `<p class="cc-nf">Not found, charged to the cashier's cash: ${r.notFound.map(x => `${esc(x.label)} ${x.counted.lbp ? lbp(x.counted.lbp) + ' LBP' : ''}${x.counted.lbp && x.counted.usd ? ' + ' : ''}${x.counted.usd ? usd(x.counted.usd) + ' USD' : ''}`).join(', ')}</p>` : ''}
-      <div class="cc-res-row cc-res-sub"><span>Cash difference (LBP and USD, in LBP)</span><span>${diffWord(r.cashDiffLbpEq, lbp, 'LBP')}</span></div>
-      <div class="cc-res-row cc-res-sub"><span>Allowed margin (1,000 per 1,000,000 of cash)</span><span>± ${lbp(r.margin)} LBP</span></div>
-      <div class="cc-res-row cc-res-total"><span>Total difference</span><span>${diffWord(r.total, lbp, 'LBP')}</span></div>`;
+      <div class="cc-res-row cc-res-sub"><span>Cash difference</span><span>${diffWord(r.cashDiffLbpEq, lbp, 'LBP')}</span></div>
+      <div class="cc-res-head">Credit cards and others</div>
+      ${lines.map(x => `<div class="cc-res-row"><span>${esc(x.label)}</span><span>${two(x.diff.lbp, x.diff.usd)}</span></div>`).join('')
+        || '<div class="cc-res-row"><span>Every card</span><span><span class="ccx-ok">matches</span></span></div>'}
+      ${r.notFound.length ? `<div class="cc-nf">${r.notFound.length} missing slip${r.notFound.length === 1 ? '' : 's'}, charged to the cashier: ${r.notFound.map(i => esc(i.label) + ' ' + amt(i)).join(', ')} (${lbp(r.notFoundLbp)} LBP)</div>` : ''}
+      <div class="cc-res-row cc-res-sub"><span>Credit card difference</span><span>${diffWord(r.cardsDiff, lbp, 'LBP')}</span></div>
+      <div class="cc-res-row cc-res-total"><span>Total difference</span><span>${diffWord(r.total, lbp, 'LBP')}</span></div>
+      <div class="cc-res-row"><span>Allowed margin (1,000 per 1,000,000 of cash)</span><span>± ${lbp(r.margin)} LBP</span></div>
+      <div class="cc-res-row cc-res-total cc-res-after"><span>Difference after the margin</span><span>${diffWord(r.afterMargin, lbp, 'LBP')}</span></div>
+      <div class="cc-post">${postHtml(c, r)}</div>`;
+  }
+  const sentBadge = r => r.posted === null ? '<span class="muted-note">—</span>'
+    : r.needsResend ? '<span class="badge warn">Send again</span>' : '<span class="badge active">Sent</span>';
+  // The Cash page gets the difference after the margin only when the accountant sends it.
+  function postHtml(c, r) {
+    const sent = r.posted !== null ? `Sent to the Cash page: <b>${sign(r.posted, lbp)} LBP</b> · ${esc(fmtTs(c.posted_at))}` : 'Not sent to the Cash page yet.';
+    if (!canRec()) return `<span class="muted-note">${sent}</span>`;
+    if (!c.reconciled_at) return `<span class="muted-note">${sent} Mark it as reconciled first.</span>`;
+    if (r.posted !== null && !r.needsResend) return `<span class="badge active">Sent</span> <span class="muted-note">${sent}</span>`;
+    return `${r.needsResend ? `<span class="badge warn">Changed since sent</span> <span class="muted-note">${sent}</span>` : ''}
+      <button type="button" class="btn small" data-post="${esc(c.id)}">${r.needsResend ? 'Send again' : 'Send to the Cash page'}</button>`;
+  }
+  async function sendCount(c) {
+    const r = calc(c);
+    const what = r.afterMargin ? `${sign(r.afterMargin, lbp)} LBP (${r.afterMargin < 0 ? 'short' : 'over'})` : '0 LBP (within the margin)';
+    const ok = await showConfirm(`Send ${what} to the Cash page for ${c.cashier_name}, ${fmtDate(c.count_date)}?`, 'Send');
+    if (!ok) return false;
+    clearTimeout(timers.get(c.id));
+    const { data, error } = await sb.rpc('cash_count_post', { p_count: c.id, p_amount: r.afterMargin });
+    if (error) { fail('Not sent', error); return false; }
+    c.posted_amount = r.afterMargin; c.posted_at = new Date().toISOString();
+    logActivity('cashcount', 'post', { type: 'cash_count', id: c.id }, `Sent the cash count of POS ${c.pos} — ${c.cashier_name}, ${fmtDate(c.count_date)} to the Cash page: ${lbp(r.afterMargin)} LBP`, { amount: r.afterMargin, day_total: data });
+    showToast(`Sent. ${c.cashier_name}'s day on the Cash page: ${sign(n(data), lbp)} LBP.`);
+    return true;
   }
   function wireSheet(c) {
     const box = el('ccSheet');
@@ -312,8 +377,12 @@
       const lock1 = !canCount() || (!!c.signed_at && !isAdmin());
       el('ccSlips').innerHTML = slipsHtml(c, lock1); el('ccExps').innerHTML = expensesHtml(c, lock1);
       el('ccResult').innerHTML = resultHtml(c);
-      const row = el('ccBody').querySelector(`tr[data-cc="${CSS.escape(c.id)}"] td.num`);
-      if (row) row.innerHTML = r.hasSystem ? diffWord(r.total, lbp, 'LBP') : '<span class="muted-note">no system figures yet</span>';
+      const tr = el('ccBody').querySelector(`tr[data-cc="${CSS.escape(c.id)}"]`);
+      if (tr) {
+        tr.querySelector('[data-tot]').innerHTML = r.hasSystem ? diffWord(r.total, lbp, 'LBP') : '<span class="muted-note">no system figures yet</span>';
+        tr.querySelector('[data-after]').innerHTML = r.hasSystem ? diffWord(r.afterMargin, lbp, 'LBP') : '';
+        tr.lastElementChild.innerHTML = sentBadge(r);
+      }
     };
     const saveItems = () => { syncTotals(c); saveSoon(c, { card_items: c.card_items, cards: c.cards, expense_items: c.expense_items, expenses: c.expenses }); refreshNumbers(); };
     const setType = k => { S.ctype = k; box.querySelectorAll('[data-ctype]').forEach(b => b.classList.toggle('on', b.dataset.ctype === k)); };
@@ -395,12 +464,18 @@
     });
     // Big LBP amounts read better with separators: 2,710,000 (when leaving the box).
     box.addEventListener('focusout', e => { const t = e.target; if (!t.classList?.contains('cc-in') || t.dataset.bill || t.dataset.cur === 'usd' || t.dataset.sys === 'cash_usd' || t.dataset.exp === 'usd' || t.value === '') return; t.value = lbp(t.value); });
-    box.querySelectorAll('[data-found]').forEach(b => b.onclick = () => {
-      const k = b.dataset.found; c.not_found = { ...(c.not_found || {}) };
-      if (c.not_found[k]) delete c.not_found[k]; else c.not_found[k] = true;
-      b.classList.toggle('no', !!c.not_found[k]); b.classList.toggle('yes', !c.not_found[k]); b.textContent = c.not_found[k] ? 'Not found' : 'Found';
-      saveSoon(c, { not_found: c.not_found });
-      refreshNumbers();
+    box.addEventListener('click', async e => {
+      const m = e.target.closest('[data-miss]');
+      if (m && !m.disabled) {
+        const miss = !m.classList.contains('no');
+        toggleMissing(c, m.dataset.miss, miss);
+        m.classList.toggle('no', miss); m.setAttribute('aria-pressed', String(miss));
+        m.textContent = m.textContent.replace(' · missing', '') + (miss ? ' · missing' : '');
+        saveSoon(c, { not_found: c.not_found });
+        return refreshNumbers();
+      }
+      const p = e.target.closest('[data-post]');
+      if (p && await sendCount(c)) { await loadDay(); renderDay(); }
     });
     el('ccSign')?.addEventListener('click', async () => {
       const pin = await showPrompt(`${c.cashier_name}: type your 4-digit PIN to confirm this count.`, { confirmLabel: 'Sign', placeholder: '••••' });
@@ -430,6 +505,54 @@
     });
   }
 
+  /* ---------------- missing slips (accountant) ---------------- */
+  function renderMissing() {
+    const list = S.missingList.map(c => ({ c, r: calc(c) }));
+    const slips = list.flatMap(({ c, r }) => r.notFound.map(i => ({ c, r, i })));
+    const resend = list.filter(x => x.r.needsResend);
+    const totalLbp = list.reduce((t, x) => t + x.r.notFoundLbp, 0);
+    const where = c => `<td class="mono">${esc(fmtDate(c.count_date))}</td><td>POS ${c.pos} · ${SHIFTS[c.shift]}</td><td>${esc(c.cashier_name)}</td>`;
+    el('ccBody').innerHTML = `
+      <div class="card"><p style="margin:0;">Credit card slips the accountant could not find, last 3 months. A missing slip is charged to the cashier; when it turns up, press <b>Found</b> and the count's difference is recalculated.${canRec() ? ' A count already sent to the Cash page then has to be sent again.' : ''}</p></div>
+      <div class="card" style="padding:0;"><div class="items-scroll" style="margin:0;border:0;"><table class="items ccx-grid ccx-missing">
+        <thead><tr><th>Date</th><th>Count</th><th>Cashier</th><th>Card</th><th class="num">Amount</th><th class="num">LBP</th><th>Cash page</th><th></th></tr></thead>
+        <tbody>${slips.map(({ c, r, i }) => `<tr>${where(c)}<td>${esc(i.label)}</td><td class="num">${amt(i)}</td>
+          <td class="num">${lbp(i.cur === 'usd' ? n(i.amount) * r.rate : n(i.amount))}</td><td>${sentBadge(r)}</td>
+          <td class="cc-mact">${canRec() ? `<button type="button" class="btn small secondary" data-mfound="${esc(c.id)}" data-key="${esc(i.key)}">Found</button>` : ''}
+            <button type="button" class="link-btn" data-mopen="${esc(c.id)}" data-date="${esc(c.count_date)}">Open</button></td></tr>`).join('')
+          || '<tr><td colspan="8" class="empty-note">No missing slip.</td></tr>'}</tbody>
+        ${slips.length ? `<tfoot><tr><th colspan="5">${slips.length} missing slip${slips.length === 1 ? '' : 's'}</th><th class="num">${lbp(totalLbp)}</th><th colspan="2"></th></tr></tfoot>` : ''}
+      </table></div></div>
+      ${resend.length ? `<h4 class="cc-h">Changed since sent to the Cash page</h4>
+      <div class="card" style="padding:0;"><div class="items-scroll" style="margin:0;border:0;"><table class="items ccx-grid">
+        <thead><tr><th>Date</th><th>Count</th><th>Cashier</th><th class="num">Sent</th><th class="num">Now (after margin)</th><th></th></tr></thead>
+        <tbody>${resend.map(({ c, r }) => `<tr>${where(c)}<td class="num">${sign(r.posted, lbp)}</td><td class="num ${cls(r.afterMargin)}"><b>${sign(r.afterMargin, lbp)}</b></td>
+          <td class="cc-mact">${canRec() && c.reconciled_at ? `<button type="button" class="btn small" data-msend="${esc(c.id)}">Send again</button>` : ''}
+            <button type="button" class="link-btn" data-mopen="${esc(c.id)}" data-date="${esc(c.count_date)}">Open</button></td></tr>`).join('')}</tbody>
+      </table></div></div>` : ''}`;
+    el('ccBody').querySelectorAll('[data-mfound]').forEach(b => b.onclick = async () => {
+      const c = S.missingList.find(x => x.id === b.dataset.mfound); if (!c) return;
+      const before = calc(c), slip = before.notFound.find(i => i.key === b.dataset.key);
+      b.disabled = true;
+      const nf = toggleMissing({ ...c }, b.dataset.key, false);
+      const { error } = await sb.from('cash_counts').update({ not_found: nf }).eq('id', c.id);
+      if (error) { b.disabled = false; return fail('Not saved', error); }
+      c.not_found = nf;
+      const r = calc(c);
+      logActivity('cashcount', 'found', { type: 'cash_count', id: c.id }, `Slip found: ${slip ? slip.label + ' ' + amt(slip) : b.dataset.key} — POS ${c.pos}, ${c.cashier_name}, ${fmtDate(c.count_date)}`);
+      showToast(r.needsResend ? 'Found. The count changed: send it to the Cash page again.' : 'Found. The difference is updated.');
+      S.missingList = S.missingList.filter(x => { const q = calc(x); return q.notFound.length || q.needsResend; });
+      renderMissing();
+    });
+    el('ccBody').querySelectorAll('[data-msend]').forEach(b => b.onclick = async () => {
+      const c = S.missingList.find(x => x.id === b.dataset.msend); if (!c) return;
+      if (!await sendCount(c)) return;
+      S.missingList = S.missingList.filter(x => { const q = calc(x); return q.notFound.length || q.needsResend; });
+      renderMissing();
+    });
+    el('ccBody').querySelectorAll('[data-mopen]').forEach(b => b.onclick = async () => { S.tab = 'day'; S.date = b.dataset.date; S.openId = b.dataset.mopen; await loadDay(); render(); el('ccSheet')?.scrollIntoView({ block: 'start' }); });
+  }
+
   /* ---------------- the differences grid (accountant / HR) ---------------- */
   function renderGrid() {
     const rows = S.monthCounts.map(c => ({ c, r: calc(c) }));
@@ -442,18 +565,21 @@
         <span style="flex:1"></span>
         <button type="button" class="btn secondary small" id="ccExport" ${rows.length ? '' : 'disabled'}>Export (Excel)</button>
       </div>
-      <div class="card" style="padding:0;"><div class="items-scroll" style="margin:0;border:0;"><table class="items cc-grid">
-        <thead><tr><th>Date</th><th>POS</th><th>Shift</th><th>Cashier</th><th class="num">Expenses (LBP)</th><th class="num">Cash LBP</th><th class="num">Cash USD</th><th class="num">Cards</th><th>Not found</th><th class="num">Total (LBP)</th><th class="num">Allowed ±</th><th>Status</th></tr></thead>
+      <div class="card" style="padding:0;"><div class="items-scroll" style="margin:0;border:0;"><table class="items ccx-grid">
+        <thead><tr><th>Date</th><th>POS</th><th>Shift</th><th>Cashier</th><th class="num">Expenses</th><th class="num">Cash</th><th class="num">Cards</th><th>Missing slips</th><th class="num">Total</th><th class="num">Margin ±</th><th class="num">After margin</th><th>Cash page</th><th>Status</th></tr></thead>
         <tbody>${rows.map(({ c, r }) => `<tr data-open="${esc(c.id)}" data-date="${esc(c.count_date)}">
           <td class="mono">${esc(fmtDate(c.count_date))}</td><td>${c.pos}</td><td>${SHIFTS[c.shift]}</td><td>${esc(c.cashier_name)}</td>
           <td class="num">${r.exp.lbp || r.exp.usd ? lbp(r.exp.lbp + r.exp.usd * r.rate) : ''}</td>
-          ${r.hasSystem ? `<td class="num ${cls(r.cashDiff.lbp)}">${sign(r.cashDiff.lbp, lbp)}</td><td class="num ${cls(r.cashDiff.usd)}">${sign(r.cashDiff.usd, usd)}</td>
-          <td class="num ${cls(r.cardsDiff)}">${sign(r.cardsDiff, lbp)}</td><td>${r.notFound.map(x => esc(x.label)).join(', ')}</td>
-          <td class="num ${cls(r.total)}"><b>${sign(r.total, lbp)}</b></td>` : '<td colspan="5" class="muted-note">no system figures yet</td>'}
+          ${r.hasSystem ? `<td class="num ${cls(r.cashDiffLbpEq)}" title="LBP ${sign(r.cashDiff.lbp, lbp)} · USD ${sign(r.cashDiff.usd, usd)}">${sign(r.cashDiffLbpEq, lbp)}</td>
+          <td class="num ${cls(r.cardsDiff)}">${sign(r.cardsDiff, lbp)}</td>
+          <td class="cc-gmiss">${r.notFound.map(i => esc(i.label) + ' ' + amt(i)).join(', ')}</td>
+          <td class="num ${cls(r.total)}">${sign(r.total, lbp)}</td>
           <td class="num">${lbp(r.margin)}</td>
+          <td class="num ${cls(r.afterMargin)}"><b>${sign(r.afterMargin, lbp)}</b></td>` : '<td colspan="6" class="muted-note">no system figures yet</td>'}
+          <td>${r.posted === null ? '<span class="muted-note">—</span>' : `<span class="mono">${sign(r.posted, lbp)}</span>${r.needsResend ? ' <span class="badge warn">Send again</span>' : ''}`}</td>
           <td>${c.reconciled_at ? '<span class="badge active">Reconciled</span>' : c.signed_at ? '<span class="badge inactive">Signed</span>' : '<span class="badge warn">Not signed</span>'}</td></tr>`).join('')
-          || '<tr><td colspan="12" class="empty-note">No count this month.</td></tr>'}</tbody>
-        ${rows.length ? `<tfoot><tr><th colspan="4">Month</th><th class="num">${lbp(rows.reduce((t, x) => t + x.r.exp.lbp + x.r.exp.usd * x.r.rate, 0))}</th><th class="num">${sign(sum(r => r.cashDiff.lbp), lbp)}</th><th class="num">${sign(sum(r => r.cashDiff.usd), usd)}</th><th class="num">${sign(sum(r => r.cardsDiff), lbp)}</th><th></th><th class="num"><b>${sign(sum(r => r.total), lbp)}</b></th><th></th><th></th></tr></tfoot>` : ''}
+          || '<tr><td colspan="13" class="empty-note">No count this month.</td></tr>'}</tbody>
+        ${rows.length ? `<tfoot><tr><th colspan="4">Month</th><th class="num">${lbp(rows.reduce((t, x) => t + x.r.exp.lbp + x.r.exp.usd * x.r.rate, 0))}</th><th class="num">${sign(sum(r => r.cashDiffLbpEq), lbp)}</th><th class="num">${sign(sum(r => r.cardsDiff), lbp)}</th><th class="num">${lbp(sum(r => r.notFoundLbp))}</th><th class="num">${sign(sum(r => r.total), lbp)}</th><th></th><th class="num"><b>${sign(sum(r => r.afterMargin), lbp)}</b></th><th class="num">${sign(rows.reduce((t, x) => t + (x.r.posted || 0), 0), lbp)}</th><th></th></tr></tfoot>` : ''}
       </table></div></div>
       <p class="muted-note" style="margin:8px 0 0;">Negative = short, positive = over. Click a row to open its count.</p>`;
     el('ccBody').querySelectorAll('[data-ccm]').forEach(b => b.onclick = async () => { const [y, m] = S.month.split('-').map(Number), d = new Date(y, m - 1 + Number(b.dataset.ccm), 1); S.month = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; await loadMonth(); renderGrid(); });
@@ -463,11 +589,13 @@
   const cls = d => Math.abs(d) < 0.005 ? '' : d < 0 ? 'ccx-short' : 'ccx-over';
   const sign = (d, fmt) => Math.abs(d) < 0.005 ? '0' : (d < 0 ? '-' : '+') + fmt(Math.abs(d));
   function exportGrid(rows) {
-    const aoa = [['Date', 'POS', 'Shift', 'Cashier', 'Expenses LBP', 'Expenses USD', 'Expenses note', 'Cash LBP', 'Cash USD', ...CARDS.map(([, l]) => l + ' (LBP eq.)'), 'Not found', 'Total (LBP)', 'Allowed ±', 'Signed', 'Reconciled']];
-    rows.forEach(({ c, r }) => aoa.push([c.count_date, c.pos, SHIFTS[c.shift], c.cashier_name, r.exp.lbp || '', r.exp.usd || '', c.expenses?.note || '',
-      r.hasSystem ? Math.round(r.cashDiff.lbp) : '', r.hasSystem ? r.cashDiff.usd : '',
-      ...r.cards.map(x => r.hasSystem ? Math.round(x.diff.lbp + x.diff.usd * r.rate) : ''),
-      r.notFound.map(x => x.label).join(', '), r.hasSystem ? Math.round(r.total) : '', r.margin, c.signed_at ? 'Yes' : 'No', c.reconciled_at ? 'Yes' : 'No']));
+    const aoa = [['Date', 'POS', 'Shift', 'Cashier', 'Expenses LBP', 'Expenses USD', 'Expenses note', 'Cash LBP', 'Cash USD', 'Cash difference (LBP)', ...CARDS.map(([, l]) => l + ' (LBP eq.)'),
+      'Credit card difference (LBP)', 'Missing slips', 'Missing slips (LBP)', 'Total (LBP)', 'Allowed ±', 'After margin (LBP)', 'Sent to the Cash page (LBP)', 'Signed', 'Reconciled']];
+    rows.forEach(({ c, r }) => { const h = r.hasSystem, R = v => h ? Math.round(v) : '';
+      aoa.push([c.count_date, c.pos, SHIFTS[c.shift], c.cashier_name, r.exp.lbp || '', r.exp.usd || '', c.expenses?.note || '',
+        R(r.cashDiff.lbp), h ? r.cashDiff.usd : '', R(r.cashDiffLbpEq), ...r.cards.map(x => R(x.diff.lbp + x.diff.usd * r.rate)),
+        R(r.cardsDiff), r.notFound.map(i => i.label + ' ' + amt(i)).join(', '), r.notFoundLbp ? Math.round(r.notFoundLbp) : '', R(r.total), r.margin, R(r.afterMargin),
+        r.posted === null ? '' : r.posted, c.signed_at ? 'Yes' : 'No', c.reconciled_at ? 'Yes' : 'No']); });
     const ws = XLSX.utils.aoa_to_sheet(aoa);
     const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Cash count');
     XLSX.writeFile(wb, `cash-count-${S.month}.xlsx`);
@@ -475,7 +603,7 @@
   }
 
   async function refresh() {
-    if (S.tab === 'grid') { await loadMonth(); S.missing = false; } else await loadDay();
+    if (S.tab === 'grid') { await loadMonth(); S.missing = false; } else if (S.tab === 'missing') { await loadMissing(); S.missing = false; } else await loadDay();
     render();
   }
   async function show() {
