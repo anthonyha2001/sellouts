@@ -23,7 +23,9 @@
    accountant presses "Send to the Cash page" (cash_count_post); a count
    changed after sending shows "send again".
    USD -> LBP: one rate (cash_settings.usd_rate), kept on each count.
-   Public API: window.CashCount = { show }.
+   The grid is also a tab of the Cash page (not for cashiers: only with a
+   cash count right): CashCount.mountGrid(container, month).
+   Public API: window.CashCount = { show, mountGrid }.
    ============================================================ */
 (function () {
   const panel = document.getElementById('panel-cashcount');
@@ -591,10 +593,11 @@
   }
 
   /* ---------------- the differences grid (accountant / HR) ---------------- */
-  function renderGrid() {
+  function renderGrid(host = el('ccBody')) {
     const rows = S.monthCounts.map(c => ({ c, r: calc(c) }));
     const sum = k => rows.filter(x => x.r.hasSystem).reduce((t, x) => t + k(x.r), 0);
-    el('ccBody').innerHTML = `
+    const inCash = host.id !== 'ccBody', canOpen = !inCash || canSee('cashcount');
+    host.innerHTML = `
       <div class="card cc-daybar">
         <button type="button" class="icon-btn" data-ccm="-1" aria-label="Previous month"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
         <h3 style="margin:0;min-width:160px;text-align:center;">${esc(new Date(S.month + '-01T00:00:00').toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }))}</h3>
@@ -618,10 +621,15 @@
           || '<tr><td colspan="13" class="empty-note">No count this month.</td></tr>'}</tbody>
         ${rows.length ? `<tfoot><tr><th colspan="4">Month</th><th class="num">${lbp(rows.reduce((t, x) => t + x.r.exp.lbp + x.r.exp.usd * x.r.rate, 0))}</th><th class="num">${sign(sum(r => r.cashDiffLbpEq), lbp)}</th><th class="num">${sign(sum(r => r.cardsDiff), lbp)}</th><th class="num">${lbp(sum(r => r.notFoundLbp))}</th><th class="num">${sign(sum(r => r.total), lbp)}</th><th></th><th class="num"><b>${sign(sum(r => r.afterMargin), lbp)}</b></th><th class="num">${sign(rows.reduce((t, x) => t + (x.r.posted || 0), 0), lbp)}</th><th></th></tr></tfoot>` : ''}
       </table></div></div>
-      <p class="muted-note" style="margin:8px 0 0;">Negative = short, positive = over. Click a row to open its count.</p>`;
-    el('ccBody').querySelectorAll('[data-ccm]').forEach(b => b.onclick = async () => { const [y, m] = S.month.split('-').map(Number), d = new Date(y, m - 1 + Number(b.dataset.ccm), 1); S.month = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; await loadMonth(); renderGrid(); });
-    el('ccExport').onclick = () => exportGrid(rows);
-    el('ccBody').querySelectorAll('tr[data-open]').forEach(tr => tr.onclick = async () => { S.tab = 'day'; S.date = tr.dataset.date; S.openId = tr.dataset.open; await loadDay(); render(); el('ccSheet')?.scrollIntoView({ block: 'start' }); });
+      <p class="muted-note" style="margin:8px 0 0;">Negative = short, positive = over.${canOpen ? ' Click a row to open its count.' : ''}</p>`;
+    host.querySelectorAll('[data-ccm]').forEach(b => b.onclick = async () => { const [y, m] = S.month.split('-').map(Number), d = new Date(y, m - 1 + Number(b.dataset.ccm), 1); S.month = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; await loadMonth(); renderGrid(host); });
+    host.querySelector('#ccExport').onclick = () => exportGrid(rows);
+    if (!canOpen) host.querySelectorAll('tr[data-open]').forEach(tr => { tr.style.cursor = 'default'; });
+    else host.querySelectorAll('tr[data-open]').forEach(tr => tr.onclick = async () => {
+      S.tab = 'day'; S.date = tr.dataset.date; S.openId = tr.dataset.open;
+      if (inCash) { switchTab('cashcount'); return; }      // the Cash count page opens on that count
+      await loadDay(); render(); el('ccSheet')?.scrollIntoView({ block: 'start' });
+    });
   }
   const cls = d => Math.abs(d) < 0.005 ? '' : d < 0 ? 'ccx-short' : 'ccx-over';
   const sign = (d, fmt) => Math.abs(d) < 0.005 ? '0' : (d < 0 ? '-' : '+') + fmt(Math.abs(d));
@@ -648,5 +656,15 @@
     if (!S.started) { S.started = true; if (!canCount() && !canRec() && canGrid()) S.tab = 'grid'; shell(); await loadBase(); }
     await refresh();
   }
-  window.CashCount = { show, _state: S, _calc: calc };
+  // The grid inside the Cash page (its "Cash count" tab), from the Cash page's month.
+  async function mountGrid(host, month) {
+    if (!canGrid()) { host.innerHTML = ''; return; }
+    if (month && !S.gridMounted) S.month = month;
+    S.gridMounted = true;
+    host.innerHTML = '<p class="muted-note">Loading…</p>';
+    if (!S.rate) await loadBase();
+    await loadMonth();
+    if (host.isConnected) renderGrid(host);
+  }
+  window.CashCount = { show, mountGrid, _state: S, _calc: calc };
 })();

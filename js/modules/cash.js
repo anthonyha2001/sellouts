@@ -131,6 +131,7 @@
         <button data-tab="analysis">Analysis</button>
         ${can('cash.cashiers') ? '<button data-tab="cashiers">Cashiers &amp; settings</button>' : ''}
         ${can('cash.enter') ? '<button data-tab="import">Import old sheets</button>' : ''}
+        ${window.CashCount && can('cashcount.view', 'cashcount.reconcile') ? '<button data-tab="counts">Cash count</button>' : ''}
       </div>
       <div class="cash-monthbar" id="cashMonthBar">
         <button class="icon-btn" id="cashPrev" aria-label="Previous month"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
@@ -167,6 +168,8 @@
     if (S.tab === 'analysis') renderAnalysis();
     if (S.tab === 'cashiers') { renderCashiers(); loadUsage().then(() => { if (S.tab === 'cashiers') renderCashiers(); }); }
     if (S.tab === 'import') renderImport();
+    // The cash count differences grid (Cash count page) — never for cashiers: a cash count right is needed.
+    if (S.tab === 'counts') CashCount.mountGrid(el('cashBody'), S.month);
   }
 
   /* ---------------- lock ---------------- */
