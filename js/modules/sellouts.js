@@ -947,15 +947,15 @@ function renderSelloutCalendar() {
       <div class="pl-cal so-cal">
         ${['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(d => `<div class="pl-dow">${d}</div>`).join('')}
         ${days.map(d => {
-          const list = live.filter(so => soOnDay(so, d) && !so.archived);
+          const list = live.filter(so => soOnDay(so, d) && !so.archived).sort((x, y) => (x.to !== d) - (y.to !== d));   // a last day is never hidden under "+ more"
           return `<div class="pl-day ${d.startsWith(ym) ? '' : 'out'} ${d === today ? 'today' : ''} ${d === soCalDay ? 'sel' : ''}" data-day="${d}">
             <div class="pl-dnum">${Number(d.slice(8))}${list.length ? `<span class="pl-count">${list.length}</span>` : ''}</div>
-            ${list.slice(0, 3).map(so => `<button type="button" class="pl-chip so-chip so-chip-${soCalState(so)}" data-so="${escapeHtml(so.id)}" title="${escapeHtml(so.name)}${so.supplier ? ' — ' + escapeHtml(so.supplier) : ''} · ${fmtDate(so.from)} → ${fmtDate(so.to)} · ${SO_CAL_LABEL[soCalState(so)]}">${so.from === d ? '' : '<span class="so-chip-cont" aria-hidden="true">·</span>'}${escapeHtml(so.supplier || so.name)}</button>`).join('')}
+            ${list.slice(0, 3).map(so => `<button type="button" class="pl-chip so-chip so-chip-${soCalState(so)}${so.to === d ? ' so-chip-last' : ''}" data-so="${escapeHtml(so.id)}" title="${escapeHtml(so.name)}${so.supplier ? ' — ' + escapeHtml(so.supplier) : ''} · ${fmtDate(so.from)} → ${fmtDate(so.to)} · ${SO_CAL_LABEL[soCalState(so)]}${so.to === d ? ' · LAST DAY' : ''}">${so.from === d ? '' : '<span class="so-chip-cont" aria-hidden="true">·</span>'}${escapeHtml(so.supplier || so.name)}</button>`).join('')}
             ${list.length > 3 ? `<span class="pl-more">+${list.length - 3} more</span>` : ''}
           </div>`;
         }).join('')}
       </div>
-      <div class="pl-legend">${['active', 'upcoming', 'off', 'ended', 'online'].map(k => `<span><i class="so-chip-${k}"></i> ${SO_CAL_LABEL[k]}</span>`).join('')}
+      <div class="pl-legend">${['active', 'upcoming', 'off', 'ended', 'online'].map(k => `<span><i class="so-chip-${k}"></i> ${SO_CAL_LABEL[k]}</span>`).join('')}<span><i class="so-chip-last"></i> Last day</span>
         <span class="muted-note">Click a day to see its sell-outs. Drag across days to add a sell-out for those dates.</span></div>
     </div>
     <div class="card" id="soDayCard">${soDayHtml(soCalDay)}</div>`;
