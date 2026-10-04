@@ -1502,3 +1502,13 @@ body.row-drag-on,body.row-drag-on *{cursor:grabbing !important;user-select:none;
 .fc-sheet-ok .fc-ic{width:20px;height:20px;}
 .fc-sheet-bad{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;}
 .fc-sheet-bad .fc-btn{flex-direction:column;padding:10px 4px;font-size:12px;}
+
+/* Shelf labels: regular label or promo paper (owner, 2026-10-04) */
+.lb-kind{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:0 0 10px;}
+.lb-kind-t{font:600 11px var(--font-mono);text-transform:uppercase;letter-spacing:.05em;color:var(--ink-faint);margin-right:4px;}
+.lb-kind button{flex:1 1 0;padding:12px 10px;border-radius:var(--radius-sm);border:1px solid var(--line-strong);background:var(--paper-raised);color:var(--ink);font-weight:600;font-size:14px;cursor:pointer;}
+.lb-kind button.on{background:var(--pine);border-color:var(--pine);color:#fff;}
+.lb-kind-chip{display:inline-block;margin-left:8px;padding:2px 8px;border-radius:999px;border:1px solid var(--line-strong);background:var(--paper);font:600 11px var(--font-body);color:var(--ink-soft);cursor:pointer;vertical-align:middle;white-space:nowrap;}
+.lb-kind-chip.lb-kind-promo{background:var(--gold-tint);border-color:var(--gold);color:var(--ink);}
+td .lb-kind-chip{margin-left:0;cursor:default;}
+.lb-edit-add select{width:auto;}
