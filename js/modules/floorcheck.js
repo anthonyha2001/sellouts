@@ -128,7 +128,9 @@
     return out;
   }
   const supplierOf = x => x.supplier || x.source_name || 'No supplier';
-  const categoryOf = x => x.category || 'No category';
+  // Grouped by the file's Group only (owner, 2026-10-04); the Sub-Group shows on the item.
+  const categoryOf = x => String(x.category || '').split(' › ')[0].trim() || 'No category';
+  const subgroupOf = x => String(x.category || '').split(' › ').slice(1).join(' › ').trim();
   // The group an item is in, for the current "Group by".
   const groupKeyOf = x => S.groupBy === 'source' ? `${x.source}|${x.source_name}` : S.groupBy === 'category' ? `c|${categoryOf(x)}` : `s|${supplierOf(x)}`;
 
@@ -400,7 +402,7 @@
     return `<article class="fc-item fc-${st ? st.cls : 'pending'}" data-id="${esc(x.id)}">
       <div class="fc-item-top">
         <div class="fc-item-info">
-          <div class="fc-meta"><span class="fc-code">${esc(x.code)}</span>${tag}${x.source === 'promotion' ? '<span class="badge active">Promo</span>' : ''}<span class="fc-so">${esc(x.source_name || '')}</span></div>
+          <div class="fc-meta"><span class="fc-code">${esc(x.code)}</span>${tag}${x.source === 'promotion' ? '<span class="badge active">Promo</span>' : ''}<span class="fc-so">${esc(x.source_name || '')}</span>${subgroupOf(x) ? `<span class="fc-sub">${esc(subgroupOf(x))}</span>` : ''}</div>
           <div class="fc-desc">${esc(x.description || '')}</div>
         </div>
         <div class="fc-price">
