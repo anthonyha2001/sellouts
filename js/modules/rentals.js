@@ -132,7 +132,7 @@ const Rentals = (function () {
         <div class="rp-tour"><button type="button" data-pt="-1" aria-label="Previous available space">‹</button>
           <span>${P.pos ? `${P.pos.index} / ${P.pos.total}` : (n.av + n.soon ? 'Tour' : 'No space free')}</span>
           <button type="button" data-pt="1" aria-label="Next available space">›</button></div>
-        <button type="button" class="rp-exit" id="rpExit" title="Leave the presentation (Esc)">✕</button>
+        <button type="button" class="rp-exit" id="rpExit" title="Leave the presentation (Esc)" aria-label="Leave the presentation"><svg class="ui-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
       </div>`;
   }
   async function startPresent() {

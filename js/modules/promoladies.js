@@ -45,7 +45,7 @@
     for (let d = r.start_date; d <= r.end_date && d <= t; d = addDays(d, 1)) days.push(d);
     return { days: days.length, came: days.filter(d => attOf(r, d)?.came === true).length, absent: days.filter(d => attOf(r, d)?.came === false).length, unmarked: days.filter(d => !attOf(r, d)).length };
   }
-  const attMark = (r, d) => { if (d > today()) return ''; const a = attOf(r, d); return a ? (a.came ? '✓ ' : '✗ ') : (d < today() ? '? ' : ''); };
+  const attMark = (r, d) => { if (d > today()) return ''; const a = attOf(r, d); return a ? (a.came ? 'Came · ' : 'Absent · ') : (d < today() ? 'Not marked · ' : ''); };
   const statusOf = r => r.end_date < today() ? 'past' : r.start_date > today() ? 'upcoming' : 'now';
 
   /* ---------------- shell ---------------- */
@@ -130,8 +130,8 @@
           </div>
           ${d <= today() && !S.attMissing ? `<div class="pl-att" data-att="${r.id}" data-day="${d}">
             <span class="pl-att-q">Did she come?</span>
-            <button type="button" class="sc-btn ok ${a?.came === true ? 'on' : ''}" data-came="1">✓ Came</button>
-            <button type="button" class="sc-btn other ${a?.came === false ? 'on' : ''}" data-came="0">✗ Didn't come</button>
+            <button type="button" class="sc-btn ok ${a?.came === true ? 'on' : ''}" data-came="1"><svg class="ui-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg> Came</button>
+            <button type="button" class="sc-btn other ${a?.came === false ? 'on' : ''}" data-came="0"><svg class="ui-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg> Didn't come</button>
             ${a?.came ? `<label class="pl-att-time">From <input type="time" data-f="time_from" value="${esc(a.time_from || '')}"></label>
               <label class="pl-att-time">to <input type="time" data-f="time_to" value="${esc(a.time_to || '')}"></label>` : ''}
             ${a ? `<input type="text" class="pl-att-note" data-f="note" placeholder="Note (optional)" value="${esc(a.note || '')}">` : ''}

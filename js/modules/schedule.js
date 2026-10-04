@@ -133,8 +133,11 @@
   // Publishing (the cashier page) is for the Cashiers and Delivery tabs only — the people with a PIN
   // (owner, 2026-10-04). The other departments are planning and printing: never locked, never published.
   const isPublishable = () => S.tab === 'tills' || S.tab === 'delivery';
-  const locked = () => !!(isPublishable() && S.row && S.row.published && S.unlocked !== S.week);
-  const editableDay = i => !locked() && !dayPast(i);
+  // HR and admin are never locked out (owner, 2026-10-04): published weeks and past days stay editable for
+  // them. Supervisors (schedule.edit) still unlock a published week first and cannot change past days.
+  const locked = () => !isHR() && !!(isPublishable() && S.row && S.row.published && S.unlocked !== S.week);
+  const dayLocked = i => !isHR() && dayPast(i);
+  const editableDay = i => !locked() && !dayLocked(i);
   const weekRel = w => {
     const n = Math.round((new Date(w + 'T00:00:00') - new Date(mondayOf(beirutToday()) + 'T00:00:00')) / 604800000);
     return n === 0 ? 'This week' : n === 1 ? 'Next week' : n === -1 ? 'Last week' : n > 1 ? `In ${n} weeks` : `${-n} weeks ago`;
@@ -159,9 +162,11 @@
   function topHtml(row) {
     if (!row || !isPublishable()) return '';
     let h = '';
-    if (row.published) h += locked()
-      ? `<div class="sh-lock"><span>🔒 <b>Published — staff can see this week.</b> ${isHR() ? 'Unlock it to make a change.' : 'Unlock it to make a change — HR is told about every change you make.'}</span><button type="button" class="btn small" id="shUnlock">Unlock to edit</button></div>`
-      : `<div class="sh-lock open"><span>🔓 <b>Unlocked</b> — changes reach staff straight away${isHR() ? '' : ' and HR is told about them'}.</span><button type="button" class="btn ghost small" id="shRelock">Lock again</button></div>`;
+    if (row.published) h += isHR()
+      ? `<div class="sh-lock open"><span><svg class="sh-lock-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.8-1.3"/></svg><b>Published</b> — cashiers and the delivery team see this week; your changes reach them straight away.</span></div>`
+      : locked()
+        ? `<div class="sh-lock"><span><svg class="sh-lock-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><b>Published — staff can see this week.</b> Unlock it to make a change — HR is told about every change you make.</span><button type="button" class="btn small" id="shUnlock">Unlock to edit</button></div>`
+        : `<div class="sh-lock open"><span><svg class="sh-lock-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.8-1.3"/></svg><b>Unlocked</b> — changes reach staff straight away and HR is told about them.</span><button type="button" class="btn ghost small" id="shRelock">Lock again</button></div>`;
     if (row.published && (S.changes || []).length) h += `<div class="card sh-changes"><b>Changes by supervisors since it was published</b><ul>${S.changes.map(c => {
       const items = Object.values(c.details || {}).sort((a, b) => a.name.localeCompare(b.name) || a.dayIndex - b.dayIndex);
       return `<li><span class="muted-note">${esc(c.by_name || 'A supervisor')} · ${new Date(c.updated_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}${c.notified_at ? ' · HR told' : ''}</span>
@@ -605,7 +610,7 @@
     if (!(await showConfirm(msg, 'Empty table'))) return;
     // days already past keep what they had
     const kept = {};
-    Object.entries(S.row.assignments || {}).forEach(([id, d]) => { if (!ids.has(id)) { kept[id] = d; return; } const k = (d || []).map((c, i) => dayPast(i) ? c : ''); if (k.some(Boolean)) kept[id] = k; });
+    Object.entries(S.row.assignments || {}).forEach(([id, d]) => { if (!ids.has(id)) { kept[id] = d; return; } const k = (d || []).map((c, i) => dayLocked(i) ? c : ''); if (k.some(Boolean)) kept[id] = k; });
     S.row.assignments = kept;
     await save(true);
     logActivity('schedule', 'empty', { type: 'schedule_week', id: S.week }, `Emptied the schedule of the week ${weekTitle(S.week)} (${n} shifts)`);
@@ -622,7 +627,7 @@
     Object.entries(cur).forEach(([id, d]) => { if (!ids.has(id)) cp[id] = d; });
     Object.entries(all).forEach(([id, d]) => { if (ids.has(id)) cp[id] = d; });
     // days already past keep what they had
-    [...new Set([...Object.keys(cp), ...Object.keys(cur)])].filter(id => ids.has(id)).forEach(id => { const n = (cp[id] || Array(7).fill('')).slice(); for (let i = 0; i < 7; i++) if (dayPast(i)) n[i] = (cur[id] || [])[i] || ''; cp[id] = n; });
+    [...new Set([...Object.keys(cp), ...Object.keys(cur)])].filter(id => ids.has(id)).forEach(id => { const n = (cp[id] || Array(7).fill('')).slice(); for (let i = 0; i < 7; i++) if (dayLocked(i)) n[i] = (cur[id] || [])[i] || ''; cp[id] = n; });
     S.row.assignments = cp; await save(true); renderWeek();
   }
   let timer = null;

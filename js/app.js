@@ -1384,7 +1384,7 @@ const CatalogLink = (function () {
     if (!supported || !currentPromoId || !canEditPromotions()) { box.innerHTML = ''; return; }
     const v = await get(currentPromoId);
     box.innerHTML = v
-      ? `<span class="dz-linked" title="Saved in Excel? It reloads by itself when you come back to the app.">🔗 ${escapeHtml(v.handle.name)}${v.own ? '' : ' <em>(last linked file)</em>'}</span>
+      ? `<span class="dz-linked" title="Saved in Excel? It reloads by itself when you come back to the app."><svg class="ui-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg> ${escapeHtml(v.handle.name)}${v.own ? '' : ' <em>(last linked file)</em>'}</span>
          <button type="button" class="btn small dz-reload" data-cl="reload">↻ Reload</button>
          ${v.own ? '<button type="button" class="link-btn" data-cl="unlink">Unlink</button>' : ''}`
       : '<span class="muted-note">Pick or drop the file once: it stays linked, then ↻ Reload reads it again.</span>';
@@ -1865,7 +1865,7 @@ document.addEventListener('click', e => {
   if (b.dataset.role === 'export-to-order') exportToOrder();
 });
 
-// The blinking dot (big discount): click it to mark the row fixed; click "✓ Fixed" to bring the warning back.
+// The blinking dot (big discount): click it to mark the row fixed; click "Fixed" to bring the warning back.
 document.addEventListener('click', async e => {
   const m = e.target.closest('#promoRowsBody [data-role="big-discount-dot"], #promoRowsBody [data-role="fixed-tag"]'); if (!m) return;
   e.stopPropagation();
@@ -2044,7 +2044,7 @@ function buildPromoRowHtml(row) {
       <div class="discount-cell-wrap">
         <input type="text" inputmode="decimal" class="${isPromoPriceMissing(row) ? 'cell-missing' : ''}" value="${numToStr(row.promoPrice)}" data-field="promoPrice" placeholder="0.00" title="${isPromoPriceMissing(row) ? 'Missing the promo price' : ''}">
         <span class="big-discount-dot" data-role="big-discount-dot" role="button" tabindex="-1" title="Promo price is more than 25% below the sale price — click the dot to mark it fixed" style="display:${isBigDiscount(row) && !row.reviewed ? 'inline-block' : 'none'};"></span>
-        <span class="fixed-tag" data-role="fixed-tag" role="button" tabindex="-1" title="Discount over 25% checked and marked fixed — click to show the warning again" style="display:${isBigDiscount(row) && row.reviewed ? 'inline-flex' : 'none'};">✓ Fixed</span>
+        <span class="fixed-tag" data-role="fixed-tag" role="button" tabindex="-1" title="Discount over 25% checked and marked fixed — click to show the warning again" style="display:${isBigDiscount(row) && row.reviewed ? 'inline-flex' : 'none'};"><svg class="ui-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg> Fixed</span>
       </div>
     </td>
     <td class="balance-cell"><input type="text" inputmode="decimal" value="${numToStr(row.beforePrice)}" data-field="beforePrice" placeholder="0.00"></td>

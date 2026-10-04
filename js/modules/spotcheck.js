@@ -113,10 +113,10 @@
       <div class="sc-main"><b>${esc(it.supplier)}</b><div class="sc-where">${whereHtml(it)}</div>
         ${it.status === 'other' ? `<div class="sc-found">Found: <b>${esc(it.found || '?')}</b></div>` : ''}${it.note ? `<div class="muted-note">${esc(it.note)}</div>` : ''}</div>
       ${readOnly ? `<span class="badge ${cls}">${label}</span>` : `<div class="sc-btns">
-        <button type="button" class="sc-btn ok ${it.status === 'ok' ? 'on' : ''}" data-set="ok" title="The right supplier is there">✓ Right</button>
+        <button type="button" class="sc-btn ok ${it.status === 'ok' ? 'on' : ''}" data-set="ok" title="The right supplier is there"><svg class="ui-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg> Right</button>
         <button type="button" class="sc-btn other ${it.status === 'other' ? 'on' : ''}" data-set="other" title="Another supplier is using it">Other</button>
         <button type="button" class="sc-btn empty ${it.status === 'empty' ? 'on' : ''}" data-set="empty" title="Nobody's products there">Empty</button>
-        <button type="button" class="sc-btn note" data-set="note" title="Add a note">✎</button></div>`}
+        <button type="button" class="sc-btn note" data-set="note" title="Add a note" aria-label="Add a note"><svg class="ui-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button></div>`}
     </li>`;
   }
   function renderOpen() {

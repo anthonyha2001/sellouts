@@ -1540,3 +1540,5 @@ td .lb-kind-chip{margin-left:0;cursor:default;}
 /* Staff page grouped by department (owner, 2026-10-04) */
 .st-table tr.st-group td{background:var(--pine-tint);color:var(--pine);font:700 11.5px var(--font-mono);text-transform:uppercase;letter-spacing:.05em;padding:8px 12px;}
 .st-table tr.st-group td span{margin-left:6px;color:var(--ink-soft);font-weight:600;}
+.sh-lock-ic{width:16px;height:16px;vertical-align:-3px;margin-right:6px;}
+.ui-ic{width:14px;height:14px;vertical-align:-2px;flex:0 0 auto;}
