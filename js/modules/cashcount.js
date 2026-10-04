@@ -45,13 +45,14 @@
   }
   // The slips of a count (older counts kept only the totals per card: one slip each).
   function cardItems(c) {
-    if (Array.isArray(c.card_items) && c.card_items.length) return c.card_items;
+    // once the slips were worked with on this screen, an empty list stays empty (the X on the last one)
+    if (c._items || (Array.isArray(c.card_items) && c.card_items.length)) return c.card_items || [];
     const out = [];
     CARDS.forEach(([k]) => { const x = c.cards?.[k]; if (n(x?.lbp)) out.push({ type: k, cur: 'lbp', amount: n(x.lbp) }); if (n(x?.usd)) out.push({ type: k, cur: 'usd', amount: n(x.usd) }); });
     return out;
   }
   function expenseItems(c) {
-    if (Array.isArray(c.expense_items) && c.expense_items.length) return c.expense_items;
+    if (c._items || (Array.isArray(c.expense_items) && c.expense_items.length)) return c.expense_items || [];
     const e = c.expenses || {}, out = [];
     if (n(e.lbp)) out.push({ cur: 'lbp', amount: n(e.lbp), note: e.note || '' });
     if (n(e.usd)) out.push({ cur: 'usd', amount: n(e.usd), note: n(e.lbp) ? '' : e.note || '' });
@@ -59,7 +60,7 @@
   }
   // Items -> the totals the calculation (and the database's cards / expenses) use.
   function syncTotals(c) {
-    c.card_items = cardItems(c); c.expense_items = expenseItems(c);
+    c.card_items = cardItems(c); c.expense_items = expenseItems(c); c._items = true;
     const cards = {};
     c.card_items.forEach(i => { cards[i.type] = cards[i.type] || { lbp: 0, usd: 0 }; cards[i.type][i.cur] += n(i.amount); });
     c.cards = cards;
