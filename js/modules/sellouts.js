@@ -891,3 +891,85 @@ function renderSellouts() {
     }
   });
 }
+
+
+/* ---------------- Sell-out calendar (owner, 2026-10-04) ----------------
+   A month, Monday to Sunday: each sell-out is a bar from its From date to its To date (included),
+   coloured by state — active, upcoming, ended, online only (purple), archived (faded). Clicking a
+   bar opens that sell-out in the list. */
+let soView = 'list', soCalMonth = todayStr().slice(0, 7);
+try { if (localStorage.getItem('lv:soView') === 'calendar') soView = 'calendar'; } catch (e) { /* storage blocked */ }
+function setSoView(v) {
+  soView = v;
+  try { localStorage.setItem('lv:soView', v); } catch (e) { /* ignore */ }
+  document.querySelectorAll('#soTabs [data-sotab]').forEach(b => b.classList.toggle('active', b.dataset.sotab === v));
+  document.getElementById('soListView').hidden = v !== 'list';
+  document.getElementById('soCalView').hidden = v !== 'calendar';
+  if (v === 'calendar') renderSelloutCalendar();
+}
+document.getElementById('soTabs').addEventListener('click', e => { const b = e.target.closest('[data-sotab]'); if (b) setSoView(b.dataset.sotab); });
+const soCalState = so => so.archived ? 'archived' : so.online ? 'online' : so.active ? 'active' : so.from > todayStr() ? 'upcoming' : so.to < todayStr() ? 'ended' : 'off';
+const SO_CAL_LABEL = { active: 'Active', upcoming: 'Upcoming', ended: 'Ended', off: 'Not switched on', online: 'Online only', archived: 'Archived' };
+function renderSelloutCalendar() {
+  const box = document.getElementById('soCalView'); if (!box || box.hidden) return;
+  const [y, m] = soCalMonth.split('-').map(Number);
+  const first = `${soCalMonth}-01`, last = new Date(y, m, 0).toLocaleDateString('en-CA');
+  const mondayOfStr = d => { const x = new Date(d + 'T00:00:00'); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x.toLocaleDateString('en-CA'); };
+  const start = mondayOfStr(first), today = todayStr();
+  const weeks = [];
+  for (let w = start; w <= last; w = addDaysStr(w, 7)) weeks.push(w);
+  const inMonth = sellouts.filter(so => so.from && so.to && so.from <= last && so.to >= first)
+    .sort((a, b) => a.from.localeCompare(b.from) || b.to.localeCompare(a.to) || a.name.localeCompare(b.name));
+  const weekHtml = w => {
+    const end = addDaysStr(w, 6);
+    const items = inMonth.filter(so => so.from <= end && so.to >= w);
+    // Lanes: each bar takes the first lane free over its days.
+    const lanes = [];
+    const bars = items.map(so => {
+      const s = so.from < w ? 0 : daysBetween(w, so.from), e = so.to > end ? 6 : daysBetween(w, so.to);
+      let lane = lanes.findIndex(l => l.every(([a, b]) => e < a || s > b));
+      if (lane < 0) { lane = lanes.length; lanes.push([]); }
+      lanes[lane].push([s, e]);
+      const st = soCalState(so), cont = so.from < w, more = so.to > end;
+      return `<button type="button" class="socal-bar socal-${st}${cont ? ' cont' : ''}${more ? ' more' : ''}" data-so="${escapeHtml(so.id)}"
+        style="grid-column:${s + 1} / span ${e - s + 1};grid-row:${lane + 1};"
+        title="${escapeHtml(so.name)}${so.supplier ? ' — ' + escapeHtml(so.supplier) : ''} · ${fmtDate(so.from)} → ${fmtDate(so.to)} · ${SO_CAL_LABEL[st]}">${escapeHtml(so.name)}${so.supplier ? `<span>${escapeHtml(so.supplier)}</span>` : ''}</button>`;
+    }).join('');
+    const days = Array.from({ length: 7 }, (_, i) => { const d = addDaysStr(w, i); return `<div class="socal-day${d.slice(0, 7) !== soCalMonth ? ' out' : ''}${d === today ? ' today' : ''}"><span>${Number(d.slice(8))}</span></div>`; }).join('');
+    return `<div class="socal-week"><div class="socal-days">${days}</div><div class="socal-bars">${bars}</div></div>`;
+  };
+  const counts = {}; inMonth.forEach(so => { const st = soCalState(so); counts[st] = (counts[st] || 0) + 1; });
+  box.innerHTML = `
+    <div class="socal-head">
+      <button type="button" class="icon-btn" data-socal="-1" aria-label="Previous month"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+      <h3>${new Date(first + 'T00:00:00').toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}</h3>
+      <button type="button" class="icon-btn" data-socal="1" aria-label="Next month"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></button>
+      <button type="button" class="btn ghost small" data-socal="0">Today</button>
+      <span style="flex:1"></span>
+      <div class="socal-legend">${Object.keys(SO_CAL_LABEL).filter(k => counts[k]).map(k => `<span><i class="socal-${k}"></i>${SO_CAL_LABEL[k]} ${counts[k]}</span>`).join('') || '<span class="muted-note">No sell-out this month</span>'}</div>
+    </div>
+    <div class="card socal">
+      <div class="socal-dow">${['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(d => `<span>${d}</span>`).join('')}</div>
+      ${weeks.map(weekHtml).join('')}
+    </div>`;
+  box.querySelectorAll('[data-socal]').forEach(b => b.onclick = () => {
+    const n = Number(b.dataset.socal);
+    if (!n) soCalMonth = todayStr().slice(0, 7);
+    else { const d = new Date(y, m - 1 + n, 1); soCalMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; }
+    renderSelloutCalendar();
+  });
+  // A bar: that sell-out, open, in the list.
+  box.querySelectorAll('[data-so]').forEach(b => b.onclick = () => {
+    const so = sellouts.find(x => x.id === b.dataset.so); if (!so) return;
+    currentFilter = so.archived ? 'archived' : 'all';
+    document.querySelectorAll('#selloutFilters button').forEach(x => x.classList.toggle('active', x.dataset.filter === currentFilter));
+    openIds.add(so.id);
+    setSoView('list');
+    renderSellouts();
+    document.querySelector(`.sellout[data-id="${CSS.escape(so.id)}"]`)?.scrollIntoView({ block: 'center' });
+  });
+}
+// The list re-renders after every load / change: the calendar follows.
+const _renderSelloutsList = renderSellouts;
+renderSellouts = function () { _renderSelloutsList(); if (soView === 'calendar') renderSelloutCalendar(); };
+setSoView(soView);
