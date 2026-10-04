@@ -124,7 +124,10 @@
   const isHR = () => can('schedule.manage');
   const dayPast = i => addDays(S.week, i) < beirutToday();
   // A published week is locked until "Unlock to edit" (per week); days already past never change.
-  const locked = () => !!(S.row && S.row.published && S.unlocked !== S.week);
+  // Publishing (the cashier page) is for the Cashiers and Delivery tabs only — the people with a PIN
+  // (owner, 2026-10-04). The other departments are planning and printing: never locked, never published.
+  const isPublishable = () => S.tab === 'tills' || S.tab === 'delivery';
+  const locked = () => !!(isPublishable() && S.row && S.row.published && S.unlocked !== S.week);
   const editableDay = i => !locked() && !dayPast(i);
   const weekRel = w => {
     const n = Math.round((new Date(w + 'T00:00:00') - new Date(mondayOf(beirutToday()) + 'T00:00:00')) / 604800000);
@@ -148,7 +151,7 @@
   }
   // The lock banner and, for a published week, what supervisors changed on it.
   function topHtml(row) {
-    if (!row) return '';
+    if (!row || !isPublishable()) return '';
     let h = '';
     if (row.published) h += locked()
       ? `<div class="sh-lock"><span>🔒 <b>Published — staff can see this week.</b> ${isHR() ? 'Unlock it to make a change.' : 'Unlock it to make a change — HR is told about every change you make.'}</span><button type="button" class="btn small" id="shUnlock">Unlock to edit</button></div>`
@@ -207,13 +210,14 @@
         <h3><span class="sh-rel sh-rel-${weekRel(w).toLowerCase().replace(/\s+/g, '-')}">${weekRel(w)}</span> Week of ${esc(weekTitle(w))}</h3>
         <button class="icon-btn" data-w="7" aria-label="Next week"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></button>
         <button class="btn ghost small" data-w="0">This week</button>
-        ${row ? `<span class="badge ${row.published ? 'active' : 'warn'}">${row.published ? 'Published' : row.submitted_at ? 'Sent by ' + esc(row.submitted_by || 'a supervisor') + ' for review' : 'Draft — not visible to staff'}</span>` : ''}
-        ${row && row.last_editor && !row.published ? `<span class="muted-note">Last change by ${esc(row.last_editor)}</span>` : ''}
+        ${row && isPublishable() ? `<span class="badge ${row.published ? 'active' : 'warn'}">${row.published ? 'Published' : row.submitted_at ? 'Sent by ' + esc(row.submitted_by || 'a supervisor') + ' for review' : 'Draft — not visible to staff'}</span>` : ''}
+        ${row && !isPublishable() ? '<span class="muted-note">Planning only — not published</span>' : ''}
+        ${row && row.last_editor && !row.published && isPublishable() ? `<span class="muted-note">Last change by ${esc(row.last_editor)}</span>` : ''}
         <span style="flex:1"></span>
         ${row ? `<button class="btn ghost small" id="shCopy" ${S.prev ? '' : 'disabled'} title="${S.prev ? 'Replace this week with last week’s schedule' : 'Last week has no schedule'}">Copy last week</button>
           <button class="btn ghost small sh-empty-btn" id="shEmpty" title="Clear every shift of this week">Empty table</button>
           <button class="btn secondary small" id="shPrint">Print</button>
-          ${isHR() ? `<button class="btn small" id="shPublish">${row.published ? 'Unpublish' : 'Publish'}</button>`
+          ${!isPublishable() ? '' : isHR() ? `<button class="btn small" id="shPublish" title="Cashiers and the delivery team see the week on the cashier page">${row.published ? 'Unpublish' : 'Publish'}</button>`
             : !row.published ? `<button class="btn small" id="shSend">${row.submitted_at ? 'Send to HR again' : 'Send to HR'}</button>` : ''}` : ''}
       </div>`;
     if (!row) {
@@ -282,7 +286,7 @@
           ${!people().length ? `<tr><td colspan="9" class="empty-note">Nobody in ${esc(tabName)} yet — add them on the Staff page with that job.</td></tr>` : ''}
         </tbody>
       </table></div>
-      <p class="muted-note" style="margin:10px 0 0;">AM ${SHIFT.am.time} · PM ${SHIFT.pm.time} · Full ${SHIFT.full.time}. Changes save by themselves${isTills() ? '; cashiers see the week on the cashier page once it is published' : ''}.</p></div>`;
+      <p class="muted-note" style="margin:10px 0 0;">AM ${SHIFT.am.time} · PM ${SHIFT.pm.time} · Full ${SHIFT.full.time}. Changes save by themselves${isPublishable() ? '; they see the week on the cashier page once it is published' : ' (this team does not use the app: print the week for them)'}.</p></div>`;
     wireNav();
     wireViews();
     wireGrid(row);
@@ -587,7 +591,7 @@
     const n = Object.entries(S.row.assignments || {}).filter(([id]) => ids.has(id)).reduce((t, [, d]) => t + (d || []).filter(Boolean).length, 0);
     if (!n) return showToast(`${tabName}: this week is already empty.`);
     const what = `${n} shift${n === 1 ? '' : 's'} will be removed.`;
-    const msg = S.row.published && isTills()
+    const msg = S.row.published && isPublishable()
       ? `Empty ${tabName} for the week of ${weekTitle(S.week)}? It is PUBLISHED — they will see an empty schedule. ${what}`
       : `Empty ${tabName} for the week of ${weekTitle(S.week)}? ${what}`;
     if (!(await showConfirm(msg, 'Empty table'))) return;
@@ -626,12 +630,12 @@
   async function togglePublish() {
     const on = !S.row.published;
     if (on) {
-      const empty = peopleAll().filter(p => p.active && hasStation(p) && !(S.row.assignments[p.id] || []).some(Boolean)).map(p => p.name);
-      if (empty.length && !(await showConfirm(`${empty.length} cashier${empty.length === 1 ? ' has' : 's have'} nothing this week (${empty.slice(0, 5).join(', ')}${empty.length > 5 ? '…' : ''}). Publish anyway?`, 'Publish'))) return;
+      const empty = peopleAll().filter(p => p.active && (hasStation(p) || p.dept === 'delivery') && !(S.row.assignments[p.id] || []).some(Boolean)).map(p => p.name);
+      if (empty.length && !(await showConfirm(`${empty.length} ${empty.length === 1 ? 'person (cashiers or delivery) has' : 'people (cashiers or delivery) have'} nothing this week (${empty.slice(0, 5).join(', ')}${empty.length > 5 ? '…' : ''}). Publish anyway?`, 'Publish'))) return;
     }
     S.row.published = on; await save(true);
     logActivity('schedule', on ? 'publish' : 'unpublish', { type: 'schedule_week', id: S.week }, `${on ? 'Published' : 'Unpublished'} the schedule of the week ${weekTitle(S.week)}`);
-    showToast(on ? 'Published — cashiers see it on the cashier page.' : 'Unpublished.');
+    showToast(on ? 'Published — cashiers and the delivery team see it on the cashier page.' : 'Unpublished.');
     renderWeek();
   }
   function print() {
