@@ -44,8 +44,9 @@
     ['sup', 'Cashier supervisors', ['cashier supervisor', 'supervisor']], ['cash', 'Cashiers', ['cashier']],
     ['floor', 'Floor & shelves', ['floor manager', 'shelf worker']], ['wh', 'Warehouse', ['warehouse keeper', 'warehouse worker']],
     ['delivery', 'Delivery', ['delivery supervisor', 'picker']], ['deli', 'Deli counter', ['deli counter']],
-    ['meat', 'Meat counter', ['meat counter']], ['fish', 'Fish counter', ['fish counter']], ['veg', 'Vegetables', ['vegetables']], ['bakery', 'Bakery', ['bakery']],
-    ['office', 'Office', ['purchasing', 'senior accountant', 'hr']], ['other', 'Other', []]];
+    ['meat', 'Meat counter', ['meat counter']], ['fish', 'Fish counter', ['fish counter']], ['veg', 'Fruits & vegetables', ['fruits & vegetables', 'vegetables']], ['bakery', 'Bakery', ['bakery']],
+    ['cleaning', 'Cleaning', ['cleaning']], ['parking', 'Parking', ['parking']],
+    ['office', 'Office', ['purchasing', 'senior accountant', 'accountant', 'data entry', 'hr']], ['other', 'Other', []]];
   const deptOf = p => DEPTS.find(([, , jobs]) => jobs.includes(String(p.job || '').trim().toLowerCase()))?.[0] || 'other';
   const DEPT_LABEL = Object.fromEntries(DEPTS.map(([k, l]) => [k, l]));
   // Front / Back: cashiers and cashier supervisors only.

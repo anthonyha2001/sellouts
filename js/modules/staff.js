@@ -17,10 +17,11 @@
   const el = id => document.getElementById(id);
   const esc = escapeHtml;
   // The store's jobs (owner, 2026-10-03; migration 041). Cashier and Cashier supervisor are also in the cashiers list.
-  const JOBS = ['Cashier', 'Cashier supervisor', 'Delivery supervisor', 'Deli counter', 'Meat counter', 'Fish counter', 'Vegetables', 'Bakery',
-    'Picker', 'Warehouse keeper', 'Warehouse worker', 'Shelf worker', 'Purchasing', 'Senior accountant', 'HR', 'Floor manager'];
+  const JOBS = ['Cashier', 'Cashier supervisor', 'Delivery supervisor', 'Picker', 'Deli counter', 'Meat counter', 'Fish counter', 'Fruits & vegetables',
+    'Bakery', 'Warehouse keeper', 'Warehouse worker', 'Shelf worker', 'Floor manager', 'Cleaning', 'Parking', 'Purchasing', 'Senior accountant', 'Accountant',
+    'Data entry', 'HR'];
   // The app role a job usually gets (the admin can change it when creating the login).
-  const ROLE_OF = { 'senior accountant': 'accountant', 'delivery supervisor': 'delivery', 'floor manager': 'floor_manager', hr: 'hr' };
+  const ROLE_OF = { 'senior accountant': 'accountant', accountant: 'accountant', 'delivery supervisor': 'delivery', 'floor manager': 'floor_manager', hr: 'hr' };
   const roleFor = job => ROLE_OF[String(job || '').trim().toLowerCase()] || 'shelf';
   const inCashList = job => ['cashier', 'cashier supervisor', 'supervisor', 'picker', 'delivery supervisor'].includes(String(job || '').trim().toLowerCase());
   // Front / Back at the tills: cashiers and cashier supervisors.
