@@ -24,7 +24,7 @@
     ['ccm_visa', 'CCM Visa'], ['on_account', 'On account'], ['amex', 'Amex'], ['voucher', 'Special voucher'], ['points', 'Points']];
   const CARD_LABEL = Object.fromEntries(CARDS);
   const SHIFTS = { am: 'AM', pm: 'PM', full: 'Full day' };
-  const S = { started: false, tab: 'day', date: todayStr(), counts: [], openId: null, cashiers: [], rate: null, month: todayStr().slice(0, 7), monthCounts: [], adding: false };
+  const S = { ctype: 'visa_bankmed', ccur: 'lbp', ecur: 'lbp', started: false, tab: 'day', date: todayStr(), counts: [], openId: null, cashiers: [], rate: null, month: todayStr().slice(0, 7), monthCounts: [], adding: false };
   const el = id => document.getElementById(id);
   const esc = escapeHtml;
   const canCount = () => can('cashcount.count'), canRec = () => can('cashcount.reconcile'), canGrid = () => can('cashcount.view', 'cashcount.reconcile');
@@ -34,6 +34,39 @@
   const fail = (what, error) => { console.error(error); showToast(`${what} — ${friendlyError(error)}`, true); };
   // "short 50,000" / "over 20,000" / "matches"
   const diffWord = (d, fmt, cur) => Math.abs(d) < 0.005 ? '<span class="ccx-ok">matches</span>' : d < 0 ? `<span class="ccx-short">short ${fmt(-d)} ${cur}</span>` : `<span class="ccx-over">over ${fmt(d)} ${cur}</span>`;
+
+  /* ---------------- slips and expenses, one by one (migration 057) ---------------- */
+  // "150k" = 150,000 · "1.5m" = 1,500,000 · "40u" or "$40" = USD.
+  function parseAmount(t) {
+    const x = String(t || '').trim().toLowerCase().replace(/,/g, '');
+    const m = x.match(/^(\$)?(\d+(?:\.\d+)?)\s*([km])?\s*(u|usd|\$)?$/); if (!m) return null;
+    const amount = Number(m[2]) * (m[3] === 'k' ? 1e3 : m[3] === 'm' ? 1e6 : 1);
+    return { amount, usd: !!(m[1] || m[4]) };
+  }
+  // The slips of a count (older counts kept only the totals per card: one slip each).
+  function cardItems(c) {
+    if (Array.isArray(c.card_items) && c.card_items.length) return c.card_items;
+    const out = [];
+    CARDS.forEach(([k]) => { const x = c.cards?.[k]; if (n(x?.lbp)) out.push({ type: k, cur: 'lbp', amount: n(x.lbp) }); if (n(x?.usd)) out.push({ type: k, cur: 'usd', amount: n(x.usd) }); });
+    return out;
+  }
+  function expenseItems(c) {
+    if (Array.isArray(c.expense_items) && c.expense_items.length) return c.expense_items;
+    const e = c.expenses || {}, out = [];
+    if (n(e.lbp)) out.push({ cur: 'lbp', amount: n(e.lbp), note: e.note || '' });
+    if (n(e.usd)) out.push({ cur: 'usd', amount: n(e.usd), note: n(e.lbp) ? '' : e.note || '' });
+    return out;
+  }
+  // Items -> the totals the calculation (and the database's cards / expenses) use.
+  function syncTotals(c) {
+    c.card_items = cardItems(c); c.expense_items = expenseItems(c);
+    const cards = {};
+    c.card_items.forEach(i => { cards[i.type] = cards[i.type] || { lbp: 0, usd: 0 }; cards[i.type][i.cur] += n(i.amount); });
+    c.cards = cards;
+    c.expenses = { lbp: c.expense_items.filter(i => i.cur === 'lbp').reduce((t, i) => t + n(i.amount), 0),
+      usd: c.expense_items.filter(i => i.cur === 'usd').reduce((t, i) => t + n(i.amount), 0),
+      note: c.expense_items.map(i => i.note).filter(Boolean).join(', ') };
+  }
 
   /* ---------------- the numbers ---------------- */
   function calc(c) {
@@ -195,17 +228,23 @@
         <h4 class="cc-h">Cash USD</h4>
         <table class="cc-bills"><thead><tr><th class="num">Bill</th><th>How many</th><th class="num">Amount</th></tr></thead><tbody>${billRows(USD_BILLS, 'usd', usd)}</tbody>
           <tfoot><tr><th colspan="2">Total USD</th><th class="num" id="ccTotUsd">${usd(r.billsUsd)}</th></tr></tfoot></table>
-        <h4 class="cc-h">Expenses <span class="cc-h-note">paid from the drawer — added to the cash</span></h4>
-        <div class="cc-exp">
-          <label>LBP<input type="text" inputmode="numeric" class="cc-in" data-exp="lbp" value="${r.exp.lbp ? lbp(r.exp.lbp) : ''}" ${lock1 ? 'disabled' : ''}></label>
-          <label>USD<input type="text" inputmode="decimal" class="cc-in" data-exp="usd" value="${r.exp.usd || ''}" ${lock1 ? 'disabled' : ''}></label>
-          <label class="cc-exp-note">What for<input type="text" data-exp="note" value="${esc(c.expenses?.note || '')}" placeholder="e.g. Water delivery, receipt kept" ${lock1 ? 'disabled' : ''}></label>
-        </div>
-        <h4 class="cc-h">Cards and others</h4>
-        <table class="cc-bills cc-cards"><thead><tr><th></th><th class="num">LBP</th><th class="num">USD</th></tr></thead><tbody>${CARDS.map(([k, l]) => `<tr><td>${l}</td>
-          <td><input type="text" inputmode="numeric" class="cc-in" data-card="${k}" data-cur="lbp" value="${n(c.cards?.[k]?.lbp) ? lbp(c.cards[k].lbp) : ''}" ${lock1 ? 'disabled' : ''} aria-label="${l} LBP"></td>
-          <td><input type="text" inputmode="decimal" class="cc-in" data-card="${k}" data-cur="usd" value="${n(c.cards?.[k]?.usd) || ''}" ${lock1 ? 'disabled' : ''} aria-label="${l} USD"></td></tr>`).join('')}</tbody>
-          <tfoot><tr><th>Total</th><th class="num" id="ccCardsLbp">${lbp(r.cardsCounted.lbp)}</th><th class="num" id="ccCardsUsd">${usd(r.cardsCounted.usd)}</th></tr></tfoot></table>
+        <h4 class="cc-h">Cards and others <span class="cc-h-note">one slip at a time</span></h4>
+        ${lock1 ? '' : `<div class="cc-quick">
+          <div class="cc-types" id="ccTypes">${CARDS.map(([k, l], i) => `<button type="button" data-ctype="${k}" class="${S.ctype === k ? 'on' : ''}" title="Alt+${i + 1}"><kbd>${i + 1}</kbd>${l}</button>`).join('')}</div>
+          <div class="cc-qrow">
+            <input type="text" id="ccCardAmt" class="cc-qin" autocomplete="off" placeholder="150k · 3 150k · 7 40u — Enter" title="Amount + Enter. 150k = 150,000 · 3 150k = card 3 (Areeba) · 7 40u = Amex 40 USD" aria-label="Slip amount">
+            <div class="cc-cur" id="ccCardCur"><button type="button" data-ccur="lbp" class="${S.ccur === 'lbp' ? 'on' : ''}">LBP</button><button type="button" data-ccur="usd" class="${S.ccur === 'usd' ? 'on' : ''}">USD</button></div>
+            <button type="button" class="btn small" id="ccCardAdd">Add</button>
+          </div></div>`}
+        <div id="ccSlips">${slipsHtml(c, lock1)}</div>
+        <h4 class="cc-h">Expenses <span class="cc-h-note">paid from the drawer, one by one — added to the cash</span></h4>
+        ${lock1 ? '' : `<div class="cc-quick"><div class="cc-qrow">
+            <input type="text" id="ccExpAmt" class="cc-qin" autocomplete="off" placeholder="150k water · 40u taxi — Enter" title="Amount then what for, Enter to add" aria-label="Expense">
+            <div class="cc-cur" id="ccExpCur"><button type="button" data-ecur="lbp" class="${S.ecur === 'lbp' ? 'on' : ''}">LBP</button><button type="button" data-ecur="usd" class="${S.ecur === 'usd' ? 'on' : ''}">USD</button></div>
+            <button type="button" class="btn small" id="ccExpAdd">Add</button>
+          </div></div>`}
+        <div id="ccExps">${expensesHtml(c, lock1)}</div>
+        <p class="muted-note cc-keys">Keys: Enter = next bill / add · Alt+1…9 = card type · Alt+U = LBP / USD · Backspace in an empty box = remove the last one · Alt+S = sign · Alt+R = reconciled</p>
         <div class="cc-sign">${c.signed_at
           ? `<span class="badge active">Signed</span> <span>${esc(c.cashier_name)} confirmed this count with their PIN · ${esc(fmtTs(c.signed_at))}</span>${adm ? ' <span class="muted-note">(changing it removes the signature)</span>' : ''}`
           : canCount() ? `<button type="button" class="btn" id="ccSign">${esc(c.cashier_name)} signs with their PIN</button><span class="muted-note">Hand the device to the cashier.</span>` : '<span class="badge warn">Not signed yet</span>'}</div>
@@ -228,6 +267,26 @@
       </section>
     </div>`;
   }
+  // The slips, grouped by card, with their total; and the expenses.
+  function slipsHtml(c, lock) {
+    const items = cardItems(c);
+    if (!items.length) return '<p class="empty-note cc-empty">No slip yet.</p>';
+    const r = calc(c);
+    return `<div class="cc-slipgroups">${CARDS.filter(([k]) => items.some(i => i.type === k)).map(([k, l]) => {
+      const mine = items.map((i, idx) => ({ ...i, idx })).filter(i => i.type === k);
+      const t = mine.reduce((a, i) => ({ lbp: a.lbp + (i.cur === 'lbp' ? n(i.amount) : 0), usd: a.usd + (i.cur === 'usd' ? n(i.amount) : 0) }), { lbp: 0, usd: 0 });
+      return `<div class="cc-slipgroup"><div class="cc-slip-head"><b>${l}</b><span>${mine.length} slip${mine.length === 1 ? '' : 's'} · ${[t.lbp ? lbp(t.lbp) + ' LBP' : '', t.usd ? usd(t.usd) + ' USD' : ''].filter(Boolean).join(' + ')}</span></div>
+        <div class="cc-chips">${mine.map(i => `<span class="cc-chip">${i.cur === 'usd' ? usd(i.amount) + ' $' : lbp(i.amount)}${lock ? '' : `<button type="button" data-rmslip="${i.idx}" aria-label="Remove">×</button>`}</span>`).join('')}</div></div>`;
+    }).join('')}</div>
+    <div class="cc-slip-total"><span>Total cards and others</span><b>${lbp(r.cardsCounted.lbp)} LBP${r.cardsCounted.usd ? ' + ' + usd(r.cardsCounted.usd) + ' USD' : ''}</b></div>`;
+  }
+  function expensesHtml(c, lock) {
+    const items = expenseItems(c);
+    if (!items.length) return '<p class="empty-note cc-empty">No expense.</p>';
+    const r = calc(c);
+    return `<ul class="cc-explist">${items.map((i, idx) => `<li><span>${esc(i.note || 'Expense')}</span><b>${i.cur === 'usd' ? usd(i.amount) + ' USD' : lbp(i.amount) + ' LBP'}</b>${lock ? '' : `<button type="button" data-rmexp="${idx}" aria-label="Remove">×</button>`}</li>`).join('')}</ul>
+      <div class="cc-slip-total"><span>Total expenses</span><b>${[r.exp.lbp ? lbp(r.exp.lbp) + ' LBP' : '', r.exp.usd ? usd(r.exp.usd) + ' USD' : ''].filter(Boolean).join(' + ')}</b></div>`;
+  }
   function resultHtml(c) {
     const r = calc(c);
     if (!r.hasSystem) return '<p class="muted-note" style="margin:0;">The differences appear once the system figures are entered.</p>';
@@ -249,28 +308,80 @@
     const refreshNumbers = () => {
       const r = calc(c);
       el('ccTotLbp').textContent = lbp(r.billsLbp); el('ccTotUsd').textContent = usd(r.billsUsd);
-      el('ccCardsLbp').textContent = lbp(r.cardsCounted.lbp); el('ccCardsUsd').textContent = usd(r.cardsCounted.usd);
+      const lock1 = !canCount() || (!!c.signed_at && !isAdmin());
+      el('ccSlips').innerHTML = slipsHtml(c, lock1); el('ccExps').innerHTML = expensesHtml(c, lock1);
       el('ccResult').innerHTML = resultHtml(c);
       const row = el('ccBody').querySelector(`tr[data-cc="${CSS.escape(c.id)}"] td.num`);
       if (row) row.innerHTML = r.hasSystem ? diffWord(r.total, lbp, 'LBP') : '<span class="muted-note">no system figures yet</span>';
     };
+    const saveItems = () => { syncTotals(c); saveSoon(c, { card_items: c.card_items, cards: c.cards, expense_items: c.expense_items, expenses: c.expenses }); refreshNumbers(); };
+    const setType = k => { S.ctype = k; box.querySelectorAll('[data-ctype]').forEach(b => b.classList.toggle('on', b.dataset.ctype === k)); };
+    const setCur = (which, v) => { S[which] = v; box.querySelectorAll(which === 'ccur' ? '[data-ccur]' : '[data-ecur]').forEach(b => b.classList.toggle('on', (b.dataset.ccur || b.dataset.ecur) === v)); };
+    // One slip: "150k", "3 150k" (card 3), "7 40u" (Amex, USD).
+    const addSlip = () => {
+      const inp = el('ccCardAmt'); let txt = inp.value.trim(); if (!txt) return;
+      const m = txt.match(/^([1-9])\s+(.+)$/);
+      if (m) { setType(CARDS[Number(m[1]) - 1][0]); txt = m[2]; }
+      const a = parseAmount(txt);
+      if (!a || !a.amount) return showToast('Type an amount, e.g. 150k or 40u.', true);
+      syncTotals(c);
+      c.card_items = [...c.card_items, { type: S.ctype, cur: a.usd ? 'usd' : S.ccur, amount: a.amount }];
+      inp.value = ''; saveItems(); inp.focus();
+    };
+    const addExpense = () => {
+      const inp = el('ccExpAmt'); const txt = inp.value.trim(); if (!txt) return;
+      const m = txt.match(/^(\$?[\d.,]+\s*[km]?\s*(?:u|usd|\$)?)\s*(.*)$/i);
+      const a = m && parseAmount(m[1]);
+      if (!a || !a.amount) return showToast('Type the amount first, e.g. 150k water.', true);
+      syncTotals(c);
+      c.expense_items = [...c.expense_items, { cur: a.usd ? 'usd' : S.ecur, amount: a.amount, note: (m[2] || '').trim() }];
+      inp.value = ''; saveItems(); inp.focus();
+    };
+    el('ccCardAdd')?.addEventListener('click', addSlip);
+    el('ccExpAdd')?.addEventListener('click', addExpense);
+    box.addEventListener('click', e => {
+      const b = e.target.closest('[data-ctype], [data-ccur], [data-ecur], [data-rmslip], [data-rmexp]'); if (!b) return;
+      if (b.dataset.ctype) { setType(b.dataset.ctype); el('ccCardAmt')?.focus(); }
+      if (b.dataset.ccur) { setCur('ccur', b.dataset.ccur); el('ccCardAmt')?.focus(); }
+      if (b.dataset.ecur) { setCur('ecur', b.dataset.ecur); el('ccExpAmt')?.focus(); }
+      if (b.dataset.rmslip !== undefined) { syncTotals(c); c.card_items = c.card_items.filter((_, i) => i !== Number(b.dataset.rmslip)); saveItems(); }
+      if (b.dataset.rmexp !== undefined) { syncTotals(c); c.expense_items = c.expense_items.filter((_, i) => i !== Number(b.dataset.rmexp)); saveItems(); }
+    });
+    // Keyboard: Enter moves down the bills, then to the slips; Enter adds; Alt+1..9 card; Alt+U currency;
+    // Backspace in an empty box removes the last one; Alt+S sign; Alt+R reconciled.
+    box.addEventListener('keydown', e => {
+      const t = e.target;
+      if (e.altKey && /^Digit[1-9]$/.test(e.code)) { e.preventDefault(); setType(CARDS[Number(e.code.slice(5)) - 1][0]); el('ccCardAmt')?.focus(); return; }
+      if (e.altKey && e.code === 'KeyU') { e.preventDefault(); if (t.id === 'ccExpAmt') setCur('ecur', S.ecur === 'lbp' ? 'usd' : 'lbp'); else setCur('ccur', S.ccur === 'lbp' ? 'usd' : 'lbp'); return; }
+      if (e.altKey && e.code === 'KeyS') { e.preventDefault(); el('ccSign')?.click(); return; }
+      if (e.altKey && e.code === 'KeyR') { e.preventDefault(); el('ccRec')?.click(); return; }
+      if (t.id === 'ccCardAmt' || t.id === 'ccExpAmt') {
+        if (e.key === 'Enter') { e.preventDefault(); return t.id === 'ccCardAmt' ? addSlip() : addExpense(); }
+        if (e.key === 'Backspace' && !t.value) {
+          syncTotals(c);
+          const list = t.id === 'ccCardAmt' ? c.card_items : c.expense_items; if (!list.length) return;
+          e.preventDefault();
+          if (t.id === 'ccCardAmt') c.card_items = c.card_items.slice(0, -1); else c.expense_items = c.expense_items.slice(0, -1);
+          saveItems(); showToast('Removed the last one.');
+        }
+        return;
+      }
+      const ins = [...box.querySelectorAll('input[data-bill]:not([disabled])')], i = ins.indexOf(t);
+      if (i >= 0 && (e.key === 'Enter' || e.key === 'ArrowDown')) { e.preventDefault(); (ins[i + 1] || el('ccCardAmt'))?.focus(); ins[i + 1]?.select(); }
+      if (i > 0 && e.key === 'ArrowUp') { e.preventDefault(); ins[i - 1].focus(); ins[i - 1].select(); }
+      const sys = [...box.querySelectorAll('input[data-sys]:not([disabled]), input[data-syscard]:not([disabled])')], j = sys.indexOf(t);
+      if (j >= 0 && (e.key === 'Enter' || e.key === 'ArrowDown')) { e.preventDefault(); sys[j + 1]?.focus(); sys[j + 1]?.select(); }
+      if (j > 0 && e.key === 'ArrowUp') { e.preventDefault(); sys[j - 1].focus(); sys[j - 1].select(); }
+    });
+    box.addEventListener('focusin', e => { if (e.target.matches?.('input.cc-in')) e.target.select(); });
     box.addEventListener('input', e => {
       const t = e.target;
-      if (t.dataset.exp) {
-        c.expenses = { ...(c.expenses || {}) };
-        if (t.dataset.exp === 'note') c.expenses.note = t.value.trim(); else c.expenses[t.dataset.exp] = n(String(t.value).replace(/[^\d.]/g, ''));
-        saveSoon(c, { expenses: c.expenses });
-        return refreshNumbers();
-      }
       if (!t.classList.contains('cc-in')) return;
-      const v = String(t.value).replace(/[^\d.]/g, '');
+      const q = parseAmount(t.value), v = t.value.trim() === '' ? '' : q ? String(q.amount) : String(t.value).replace(/[^\d.]/g, '');
       if (t.dataset.bill) {
         const k = t.dataset.bill; c[k] = { ...(c[k] || {}) }; if (n(v)) c[k][t.dataset.b] = Math.round(n(v)); else delete c[k][t.dataset.b];
         box.querySelector(`[data-amt="${k}-${t.dataset.b}"]`).textContent = (k === 'lbp' ? lbp : usd)(Number(t.dataset.b) * n(c[k][t.dataset.b]));
         saveSoon(c, { [k]: c[k] });
-      } else if (t.dataset.card) {
-        const k = t.dataset.card; c.cards = { ...(c.cards || {}) }; c.cards[k] = { ...(c.cards[k] || {}), [t.dataset.cur]: n(v) };
-        saveSoon(c, { cards: c.cards });
       } else if (t.dataset.sys) {
         c.system = { ...(c.system || {}) }; if (v === '') delete c.system[t.dataset.sys]; else c.system[t.dataset.sys] = n(v);
         saveSoon(c, { system: c.system, usd_rate: c.usd_rate || S.rate });
@@ -294,7 +405,8 @@
       const pin = await showPrompt(`${c.cashier_name}: type your 4-digit PIN to confirm this count.`, { confirmLabel: 'Sign', placeholder: '••••' });
       if (pin === null) return;
       clearTimeout(timers.get(c.id));
-      await sb.from('cash_counts').update({ lbp: c.lbp, usd: c.usd, cards: c.cards, expenses: c.expenses || {} }).eq('id', c.id);   // the count as shown, first
+      syncTotals(c);
+      await sb.from('cash_counts').update({ lbp: c.lbp, usd: c.usd, cards: c.cards, expenses: c.expenses, card_items: c.card_items, expense_items: c.expense_items }).eq('id', c.id);   // the count as shown, first
       const { data, error } = await sb.rpc('cash_count_sign', { p_count: c.id, p_pin: String(pin).trim() });
       if (error) return fail('Not signed', error);
       const [st, left] = String(data).split(':');

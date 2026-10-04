@@ -1664,3 +1664,31 @@ td .lb-kind-chip{margin-left:0;cursor:default;}
 .cc-exp label{display:flex;flex-direction:column;gap:3px;font-size:12px;font-weight:600;}
 .cc-exp .cc-exp-note{grid-column:1 / -1;}
 .cc-expnote{margin:0 0 6px;font-size:12.5px;color:var(--ink-soft);}
+
+/* Cash count: slips and expenses one by one, quick entry (owner, 2026-10-04) */
+.cc-quick{border:1px solid var(--line);border-radius:var(--radius-sm);padding:10px;background:var(--paper);margin-bottom:8px;}
+.cc-types{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px;}
+.cc-types button{display:inline-flex;align-items:center;gap:5px;padding:5px 9px;border-radius:999px;border:1px solid var(--line-strong);background:var(--paper-raised);font:500 12.5px var(--font-body);color:var(--ink);cursor:pointer;}
+.cc-types button kbd{font:700 10px var(--font-mono);background:var(--line);color:var(--ink-soft);border-radius:4px;padding:1px 4px;}
+.cc-types button.on{background:var(--pine);border-color:var(--pine);color:#fff;}
+.cc-types button.on kbd{background:rgba(255,255,255,.25);color:#fff;}
+.cc-qrow{display:flex;gap:8px;align-items:center;}
+.cc-qin{flex:1 1 auto;font-family:var(--font-mono) !important;}
+.cc-cur{display:inline-flex;border:1px solid var(--line-strong);border-radius:8px;overflow:hidden;flex:0 0 auto;}
+.cc-cur button{border:0;background:var(--paper-raised);padding:8px 10px;font:600 12px var(--font-mono);cursor:pointer;color:var(--ink-soft);}
+.cc-cur button.on{background:var(--pine);color:#fff;}
+.cc-empty{margin:4px 0 0;}
+.cc-slipgroup{padding:6px 0;border-bottom:1px solid var(--line);}
+.cc-slip-head{display:flex;justify-content:space-between;gap:8px;font-size:13px;}
+.cc-slip-head span{font-family:var(--font-mono);color:var(--ink-soft);font-size:12.5px;}
+.cc-chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;}
+.cc-chip{display:inline-flex;align-items:center;gap:4px;padding:2px 4px 2px 8px;border-radius:999px;background:var(--pine-tint);font:600 12px var(--font-mono);}
+.cc-chip button,.cc-explist button{border:0;background:none;color:var(--ink-faint);cursor:pointer;font-size:14px;line-height:1;padding:0 4px;}
+.cc-chip button:hover,.cc-explist button:hover{color:var(--brick);}
+.cc-slip-total{display:flex;justify-content:space-between;gap:8px;padding:8px 0 0;font-size:13.5px;}
+.cc-slip-total b{font-family:var(--font-mono);}
+.cc-explist{list-style:none;margin:0;padding:0;}
+.cc-explist li{display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--line);font-size:13px;}
+.cc-explist li span{flex:1;}
+.cc-explist li b{font-family:var(--font-mono);font-size:12.5px;}
+.cc-keys{margin:12px 0 0;font-size:11.5px;}
