@@ -1712,3 +1712,7 @@ td .lb-kind-chip{margin-left:0;cursor:default;}
 .cc-misslist li{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 0;border-bottom:1px dashed var(--line);font-size:13px;}
 .cc-misslist li:last-child{border-bottom:0;}
 span.cc-slipbtn{cursor:default;display:inline-block;}
+
+/* Cash count: the system's total cash (owner, 2026-10-04) */
+.cc-systot td{background:var(--pine-tint);}
+.cc-systot #ccSysTot b{font-family:var(--font-mono);font-size:14.5px;}

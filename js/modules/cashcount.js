@@ -112,13 +112,14 @@
     const cardsDiff = cards.reduce((t, x) => t + x.diff.lbp + x.diff.usd * rate, 0);
     const cashDiffLbpEq = cashDiff.lbp + cashDiff.usd * rate;
     const sysCashLbpEq = n(sys.cash_lbp) + n(sys.cash_usd) * rate;
+    const billsLbpEq = billsLbp + billsUsd * rate, cashLbpEq = cashLbp + cashUsd * rate;   // all the cash in LBP (USD at the rate)
     const total = cashDiffLbpEq + cardsDiff;
     const margin = Math.round(sysCashLbpEq / 1e6 * 1000);     // 1,000 LBP allowed per 1,000,000 of cash in the system
     // Within the margin: nothing; beyond it: only what is beyond.
     const afterMargin = !hasSystem || Math.abs(total) <= margin ? 0 : Math.round(total - Math.sign(total) * margin);
     const posted = c.posted_at ? Math.round(n(c.posted_amount)) : null;
     return {
-      rate, billsLbp, billsUsd, exp, cashLbp, cashUsd, cards, cashDiff, cashDiffLbpEq, notFound: missing, notFoundLbp, cardsDiff, hasSystem, toMark, foundSlips,
+      rate, billsLbp, billsUsd, billsLbpEq, cashLbpEq, sysCashLbpEq, exp, cashLbp, cashUsd, cards, cashDiff, cashDiffLbpEq, notFound: missing, notFoundLbp, cardsDiff, hasSystem, toMark, foundSlips,
       cardsCounted: cards.reduce((t, x) => ({ lbp: t.lbp + x.counted.lbp, usd: t.usd + x.counted.usd }), { lbp: 0, usd: 0 }),
       total, margin, afterMargin, posted, needsResend: posted !== null && posted !== afterMargin,
     };
@@ -303,6 +304,7 @@
         <table class="cc-bills cc-sys"><thead><tr><th></th><th class="num">System LBP</th><th class="num">System USD</th><th>Slips</th></tr></thead><tbody>
           <tr><td><b>Cash</b></td><td><input type="text" inputmode="numeric" class="cc-in" data-sys="cash_lbp" value="${sys.cash_lbp !== undefined ? lbp(sys.cash_lbp) : ''}" ${lock2 ? 'disabled' : ''} aria-label="System cash LBP"></td>
             <td><input type="text" inputmode="decimal" class="cc-in" data-sys="cash_usd" value="${sys.cash_usd ?? ''}" ${lock2 ? 'disabled' : ''} aria-label="System cash USD"></td><td></td></tr>
+          <tr class="cc-systot"><td><b>Total cash</b></td><td colspan="3" id="ccSysTot">${sysTotHtml(r)}</td></tr>
           ${CARDS.map(([k, l]) => `<tr><td>${l}</td>
             <td><input type="text" inputmode="numeric" class="cc-in" data-syscard="${k}" data-cur="lbp" value="${sys.cards?.[k]?.lbp !== undefined ? lbp(sys.cards[k].lbp) : ''}" ${lock2 ? 'disabled' : ''} aria-label="System ${l} LBP"></td>
             <td><input type="text" inputmode="decimal" class="cc-in" data-syscard="${k}" data-cur="usd" value="${sys.cards?.[k]?.usd ?? ''}" ${lock2 ? 'disabled' : ''} aria-label="System ${l} USD"></td>
@@ -340,6 +342,8 @@
     return `<ul class="cc-explist">${items.map((i, idx) => `<li><span>${esc(i.note || 'Expense')}</span><b>${i.cur === 'usd' ? usd(i.amount) + ' USD' : lbp(i.amount) + ' LBP'}</b>${lock ? '' : `<button type="button" data-rmexp="${idx}" aria-label="Remove">×</button>`}</li>`).join('')}</ul>
       <div class="cc-slip-total"><span>Total expenses</span><b>${[r.exp.lbp ? lbp(r.exp.lbp) + ' LBP' : '', r.exp.usd ? usd(r.exp.usd) + ' USD' : ''].filter(Boolean).join(' + ')}</b></div>`;
   }
+  // The system's total cash: LBP + USD at the rate.
+  const sysTotHtml = r => `<b>${lbp(r.sysCashLbpEq)} LBP</b> <span class="cc-h-note">LBP + USD at ${r.rate ? lbp(r.rate) : '(rate not set)'}</span>`;
   function resultHtml(c) {
     const r = calc(c);
     if (!r.hasSystem) return '<p class="muted-note" style="margin:0;">The differences appear once the system figures are entered.</p>';
@@ -350,7 +354,8 @@
       ${r.exp.lbp || r.exp.usd ? `<p class="cc-expnote">Includes the expenses: ${[r.exp.lbp ? lbp(r.exp.lbp) + ' LBP' : '', r.exp.usd ? usd(r.exp.usd) + ' USD' : ''].filter(Boolean).join(' + ')}${c.expenses?.note ? ' (' + esc(c.expenses.note) + ')' : ''}</p>` : ''}
       <div class="cc-res-row"><span>Cash LBP</span><span>${diffWord(r.cashDiff.lbp, lbp, 'LBP')}</span></div>
       <div class="cc-res-row"><span>Cash USD</span><span>${diffWord(r.cashDiff.usd, usd, 'USD')}</span></div>
-      <div class="cc-res-row cc-res-sub"><span>Cash difference</span><span>${diffWord(r.cashDiffLbpEq, lbp, 'LBP')}</span></div>
+      <div class="cc-res-row cc-res-sub"><span>Total cash: counted ${lbp(r.cashLbpEq)} · system ${lbp(r.sysCashLbpEq)}</span><span></span></div>
+      <div class="cc-res-row"><span>Cash difference</span><span>${diffWord(r.cashDiffLbpEq, lbp, 'LBP')}</span></div>
       <div class="cc-res-head">Credit cards and others</div>
       ${lines.map(x => `<div class="cc-res-row"><span>${esc(x.label)}</span><span>${two(x.diff.lbp, x.diff.usd)}</span></div>`).join('')
         || '<div class="cc-res-row"><span>Every card</span><span><span class="ccx-ok">matches</span></span></div>'}
@@ -392,7 +397,7 @@
     const box = el('ccSheet');
     const refreshNumbers = () => {
       const r = calc(c);
-      el('ccTotLbp').textContent = lbp(r.billsLbp); el('ccTotUsd').textContent = usd(r.billsUsd);
+      el('ccTotLbp').textContent = lbp(r.billsLbp); el('ccTotUsd').textContent = usd(r.billsUsd); el('ccSysTot').innerHTML = sysTotHtml(r);
       const lock1 = !canCount() || (!!c.signed_at && !isAdmin());
       el('ccSlips').innerHTML = slipsHtml(c, lock1); el('ccExps').innerHTML = expensesHtml(c, lock1);
       el('ccResult').innerHTML = resultHtml(c);
