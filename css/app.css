@@ -1706,3 +1706,9 @@ td .lb-kind-chip{margin-left:0;cursor:default;}
 .cc-mact{white-space:nowrap;text-align:right;}
 .cc-mact .link-btn{margin-left:6px;}
 .cc-gmiss{font-size:12px;color:var(--brick);max-width:220px;}
+
+/* Cash count: missing slips marked when reconciled (owner, 2026-10-04) */
+.cc-misslist{list-style:none;margin:4px 0 6px;padding:0;}
+.cc-misslist li{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 0;border-bottom:1px dashed var(--line);font-size:13px;}
+.cc-misslist li:last-child{border-bottom:0;}
+span.cc-slipbtn{cursor:default;display:inline-block;}

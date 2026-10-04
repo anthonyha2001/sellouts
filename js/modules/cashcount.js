@@ -13,8 +13,11 @@
         1,000,000 of cash, shown only) and the total.
    Differences grid (accountant / HR — cashcount.view): every count of
    a month, with an Excel export.
-   Missing slips (058): a slip the accountant cannot find is marked on
-   its own ("<card>#<n>" in not_found); it is charged to the cashier.
+   Missing slips: when the count is reconciled, every card (LBP / USD)
+   whose slips are short of the system becomes a missing slip, by
+   itself (not_found["<card>:<cur>:<n>"] = { type, cur, amount, at });
+   Found (found_at) puts the slip back in the count. Older counts kept
+   marks by hand (true): still read.
    The Missing slips tab lists them, with Found when one turns up.
    After the margin, the difference goes to the Cash page only when the
    accountant presses "Send to the Cash page" (cash_count_post); a count
@@ -85,17 +88,25 @@
     const cashLbp = billsLbp + exp.lbp, cashUsd = billsUsd + exp.usd;
     const sys = c.system || {}, nf = c.not_found || {};
     const hasSystem = sys.cash_lbp !== undefined || sys.cash_usd !== undefined || Object.keys(sys.cards || {}).length > 0;
-    // Missing slips (058): one by one, "<card>#<n>" (n = its place in the slips); older counts marked a whole card.
-    const missing = cardItems(c).map((i, idx) => ({ ...i, idx, key: i.type + '#' + idx, label: CARD_LABEL[i.type] || i.type }))
-      .filter(i => nf[i.key] || nf[i.type]);
+    // Older marks by hand (true): a counted slip ("<card>#<n>") or a whole card ("<card>") not found — taken out of the count.
+    const legacy = cardItems(c).map((i, idx) => ({ ...i, idx, key: i.type + '#' + idx, label: CARD_LABEL[i.type] || i.type }))
+      .filter(i => nf[i.key] === true || nf[i.type] === true);
+    // Missing slips marked when reconciled: the shortfall is already in the card's difference; a found one is added back.
+    const autos = Object.entries(nf).filter(([, v]) => v && typeof v === 'object' && v.type)
+      .map(([key, v]) => ({ key, auto: true, type: v.type, cur: v.cur === 'usd' ? 'usd' : 'lbp', amount: n(v.amount), at: v.at, found_at: v.found_at || null, label: CARD_LABEL[v.type] || v.type }));
+    const foundSlips = autos.filter(a => a.found_at);
+    const per = (list, k) => list.filter(i => i.type === k).reduce((t, i) => ({ ...t, [i.cur]: t[i.cur] + n(i.amount) }), { lbp: 0, usd: 0 });
     const cards = CARDS.map(([k, label]) => {
       const counted = { lbp: n(c.cards?.[k]?.lbp), usd: n(c.cards?.[k]?.usd) };
       const system = { lbp: n(sys.cards?.[k]?.lbp), usd: n(sys.cards?.[k]?.usd) };
-      const miss = missing.filter(i => i.type === k).reduce((t, i) => ({ ...t, [i.cur]: t[i.cur] + n(i.amount) }), { lbp: 0, usd: 0 });
-      // A missing slip does not count — the cashier owes it.
-      const used = { lbp: counted.lbp - miss.lbp, usd: counted.usd - miss.usd };
-      return { k, label, counted, system, miss, found: !miss.lbp && !miss.usd, diff: { lbp: used.lbp - system.lbp, usd: used.usd - system.usd } };
+      const miss = per(legacy, k), back = per(foundSlips, k);
+      const used = { lbp: counted.lbp - miss.lbp + back.lbp, usd: counted.usd - miss.usd + back.usd };
+      return { k, label, counted, system, diff: { lbp: used.lbp - system.lbp, usd: used.usd - system.usd } };
     });
+    // Not reconciled yet: the slips that will be marked missing (every card short of the system).
+    const toMark = !c.reconciled_at && hasSystem ? cards.flatMap(x => ['lbp', 'usd'].filter(cur => x.diff[cur] < -0.004)
+      .map(cur => ({ type: x.k, cur, amount: Math.round(-x.diff[cur] * 100) / 100, label: x.label }))) : [];
+    const missing = [...legacy, ...(c.reconciled_at ? autos.filter(a => !a.found_at) : [])];
     const cashDiff = { lbp: cashLbp - n(sys.cash_lbp), usd: cashUsd - n(sys.cash_usd) };
     const notFoundLbp = missing.reduce((t, i) => t + (i.cur === 'usd' ? n(i.amount) * rate : n(i.amount)), 0);
     const cardsDiff = cards.reduce((t, x) => t + x.diff.lbp + x.diff.usd * rate, 0);
@@ -107,12 +118,18 @@
     const afterMargin = !hasSystem || Math.abs(total) <= margin ? 0 : Math.round(total - Math.sign(total) * margin);
     const posted = c.posted_at ? Math.round(n(c.posted_amount)) : null;
     return {
-      rate, billsLbp, billsUsd, exp, cashLbp, cashUsd, cards, cashDiff, cashDiffLbpEq, notFound: missing, notFoundLbp, cardsDiff, hasSystem,
+      rate, billsLbp, billsUsd, exp, cashLbp, cashUsd, cards, cashDiff, cashDiffLbpEq, notFound: missing, notFoundLbp, cardsDiff, hasSystem, toMark, foundSlips,
       cardsCounted: cards.reduce((t, x) => ({ lbp: t.lbp + x.counted.lbp, usd: t.usd + x.counted.usd }), { lbp: 0, usd: 0 }),
       total, margin, afterMargin, posted, needsResend: posted !== null && posted !== afterMargin,
     };
   }
-  // A slip marked missing / found again. Older counts marked the whole card: that becomes one mark per slip first.
+  // Found: a slip marked when reconciled gets found_at; an older mark by hand is taken off.
+  function markFound(c, key) {
+    const v = (c.not_found || {})[key];
+    if (v && typeof v === 'object') { c.not_found = { ...c.not_found, [key]: { ...v, found_at: new Date().toISOString() } }; return c.not_found; }
+    return toggleMissing(c, key, false);
+  }
+  // Older counts: a slip marked by hand / found again (a whole-card mark becomes one mark per slip first).
   function toggleMissing(c, key, missing) {
     const nf = { ...(c.not_found || {}) }, type = key.split('#')[0];
     if (nf[type]) { delete nf[type]; cardItems(c).forEach((i, idx) => { if (i.type === type) nf[type + '#' + idx] = true; }); }
@@ -283,13 +300,13 @@
       <section class="card cc-part">
         <div class="cc-part-head"><span class="cc-step">2</span><div><h3>System and reconciliation</h3>
           <p class="muted-note">The figures of the system, for the accountant. USD rate ${r.rate ? lbp(r.rate) : '(not set)'}.</p></div></div>
-        <table class="cc-bills cc-sys"><thead><tr><th></th><th class="num">System LBP</th><th class="num">System USD</th><th>Slips <span class="cc-h-note">click a missing one</span></th></tr></thead><tbody>
+        <table class="cc-bills cc-sys"><thead><tr><th></th><th class="num">System LBP</th><th class="num">System USD</th><th>Slips</th></tr></thead><tbody>
           <tr><td><b>Cash</b></td><td><input type="text" inputmode="numeric" class="cc-in" data-sys="cash_lbp" value="${sys.cash_lbp !== undefined ? lbp(sys.cash_lbp) : ''}" ${lock2 ? 'disabled' : ''} aria-label="System cash LBP"></td>
             <td><input type="text" inputmode="decimal" class="cc-in" data-sys="cash_usd" value="${sys.cash_usd ?? ''}" ${lock2 ? 'disabled' : ''} aria-label="System cash USD"></td><td></td></tr>
           ${CARDS.map(([k, l]) => `<tr><td>${l}</td>
             <td><input type="text" inputmode="numeric" class="cc-in" data-syscard="${k}" data-cur="lbp" value="${sys.cards?.[k]?.lbp !== undefined ? lbp(sys.cards[k].lbp) : ''}" ${lock2 ? 'disabled' : ''} aria-label="System ${l} LBP"></td>
             <td><input type="text" inputmode="decimal" class="cc-in" data-syscard="${k}" data-cur="usd" value="${sys.cards?.[k]?.usd ?? ''}" ${lock2 ? 'disabled' : ''} aria-label="System ${l} USD"></td>
-            <td class="cc-slipcell">${slipToggles(c, k, lock2)}</td></tr>`).join('')}
+            <td class="cc-slipcell">${slipToggles(c, k)}</td></tr>`).join('')}
         </tbody></table>
         <div class="cc-result" id="ccResult">${resultHtml(c)}</div>
         ${canRec() ? `<div class="cc-rec">${c.reconciled_at
@@ -298,11 +315,10 @@
       </section>
     </div>`;
   }
-  function slipToggles(c, k, lock) {
+  function slipToggles(c, k) {
     const nf = c.not_found || {}, mine = cardItems(c).map((i, idx) => ({ ...i, idx })).filter(i => i.type === k);
     if (!mine.length) return '<span class="muted-note">—</span>';
-    return mine.map(i => { const miss = !!(nf[k + '#' + i.idx] || nf[k]);
-      return `<button type="button" class="cc-slipbtn ${miss ? 'no' : ''}" data-miss="${k}#${i.idx}" aria-pressed="${miss}" title="${miss ? 'Missing — click when found' : 'Click if this slip is missing'}" ${lock ? 'disabled' : ''}>${i.cur === 'usd' ? usd(i.amount) + ' $' : lbp(i.amount)}${miss ? ' · missing' : ''}</button>`; }).join('');
+    return mine.map(i => `<span class="cc-slipbtn ${nf[k + '#' + i.idx] === true || nf[k] === true ? 'no' : ''}">${i.cur === 'usd' ? usd(i.amount) + ' $' : lbp(i.amount)}</span>`).join('');
   }
   // The slips, grouped by card, with their total; and the expenses.
   function slipsHtml(c, lock) {
@@ -338,7 +354,10 @@
       <div class="cc-res-head">Credit cards and others</div>
       ${lines.map(x => `<div class="cc-res-row"><span>${esc(x.label)}</span><span>${two(x.diff.lbp, x.diff.usd)}</span></div>`).join('')
         || '<div class="cc-res-row"><span>Every card</span><span><span class="ccx-ok">matches</span></span></div>'}
-      ${r.notFound.length ? `<div class="cc-nf">${r.notFound.length} missing slip${r.notFound.length === 1 ? '' : 's'}, charged to the cashier: ${r.notFound.map(i => esc(i.label) + ' ' + amt(i)).join(', ')} (${lbp(r.notFoundLbp)} LBP)</div>` : ''}
+      ${r.toMark.length ? `<div class="cc-nf">Marked as missing slips when reconciled: ${r.toMark.map(i => esc(i.label) + ' ' + amt(i)).join(', ')}</div>` : ''}
+      ${r.notFound.length ? `<div class="cc-nf">${r.notFound.length} missing slip${r.notFound.length === 1 ? '' : 's'}, charged to the cashier (${lbp(r.notFoundLbp)} LBP):</div>
+        <ul class="cc-misslist">${r.notFound.map(i => `<li><span>${esc(i.label)} <b>${amt(i)}</b></span>${canRec() ? `<button type="button" class="btn small secondary" data-foundkey="${esc(i.key)}">Found</button>` : ''}</li>`).join('')}</ul>` : ''}
+      ${r.foundSlips.length ? `<p class="cc-expnote">Found later: ${r.foundSlips.map(i => esc(i.label) + ' ' + amt(i) + ' (' + esc(fmtTs(i.found_at)) + ')').join(', ')}</p>` : ''}
       <div class="cc-res-row cc-res-sub"><span>Credit card difference</span><span>${diffWord(r.cardsDiff, lbp, 'LBP')}</span></div>
       <div class="cc-res-row cc-res-total"><span>Total difference</span><span>${diffWord(r.total, lbp, 'LBP')}</span></div>
       <div class="cc-res-row"><span>Allowed margin (1,000 per 1,000,000 of cash)</span><span>± ${lbp(r.margin)} LBP</span></div>
@@ -465,14 +484,18 @@
     // Big LBP amounts read better with separators: 2,710,000 (when leaving the box).
     box.addEventListener('focusout', e => { const t = e.target; if (!t.classList?.contains('cc-in') || t.dataset.bill || t.dataset.cur === 'usd' || t.dataset.sys === 'cash_usd' || t.dataset.exp === 'usd' || t.value === '') return; t.value = lbp(t.value); });
     box.addEventListener('click', async e => {
-      const m = e.target.closest('[data-miss]');
-      if (m && !m.disabled) {
-        const miss = !m.classList.contains('no');
-        toggleMissing(c, m.dataset.miss, miss);
-        m.classList.toggle('no', miss); m.setAttribute('aria-pressed', String(miss));
-        m.textContent = m.textContent.replace(' · missing', '') + (miss ? ' · missing' : '');
-        saveSoon(c, { not_found: c.not_found });
-        return refreshNumbers();
+      const fb = e.target.closest('[data-foundkey]');
+      if (fb) {
+        clearTimeout(timers.get(c.id));
+        const slip = calc(c).notFound.find(i => i.key === fb.dataset.foundkey);
+        fb.disabled = true;
+        const nf = markFound({ ...c }, fb.dataset.foundkey);
+        const { error } = await sb.from('cash_counts').update({ not_found: nf }).eq('id', c.id);
+        if (error) { fb.disabled = false; return fail('Not saved', error); }
+        c.not_found = nf;
+        logActivity('cashcount', 'found', { type: 'cash_count', id: c.id }, `Slip found: ${slip ? slip.label + ' ' + amt(slip) : fb.dataset.foundkey} — POS ${c.pos}, ${c.cashier_name}, ${fmtDate(c.count_date)}`);
+        showToast(calc(c).needsResend ? 'Found. The count changed: send it to the Cash page again.' : 'Found. The difference is updated.');
+        await loadDay(); return renderDay();
       }
       const p = e.target.closest('[data-post]');
       if (p && await sendCount(c)) { await loadDay(); renderDay(); }
@@ -492,9 +515,15 @@
     });
     el('ccRec')?.addEventListener('click', async () => {
       clearTimeout(timers.get(c.id));
-      const r = calc(c);
-      const { error } = await sb.from('cash_counts').update({ system: c.system, not_found: c.not_found, usd_rate: c.usd_rate || S.rate, reconciled_at: new Date().toISOString() }).eq('id', c.id);
+      // Every card short of the system becomes a missing slip (the ones marked before and not found are worked out again).
+      const at = new Date().toISOString();
+      const nf = Object.fromEntries(Object.entries(c.not_found || {}).filter(([, v]) => !(v && typeof v === 'object' && !v.found_at)));
+      const marks = calc({ ...c, not_found: nf, reconciled_at: null }).toMark;
+      marks.forEach(m => { let i = 1; while (nf[`${m.type}:${m.cur}:${i}`]) i++; nf[`${m.type}:${m.cur}:${i}`] = { type: m.type, cur: m.cur, amount: m.amount, at }; });
+      const r = calc({ ...c, not_found: nf, reconciled_at: at });
+      const { error } = await sb.from('cash_counts').update({ system: c.system, not_found: nf, usd_rate: c.usd_rate || S.rate, reconciled_at: at }).eq('id', c.id);
       if (error) return fail('Not saved', error);
+      if (marks.length) showToast(`Reconciled. ${marks.length} missing slip${marks.length === 1 ? '' : 's'} marked: ${marks.map(m => m.label + ' ' + amt(m)).join(', ')}.`);
       logActivity('cashcount', 'reconcile', { type: 'cash_count', id: c.id }, `Reconciled POS ${c.pos} — ${c.cashier_name}: total difference ${lbp(r.total)} LBP`, { total: r.total, cash: r.cashDiffLbpEq, not_found: r.notFoundLbp });
       await loadDay(); renderDay();
     });
@@ -513,7 +542,7 @@
     const totalLbp = list.reduce((t, x) => t + x.r.notFoundLbp, 0);
     const where = c => `<td class="mono">${esc(fmtDate(c.count_date))}</td><td>POS ${c.pos} · ${SHIFTS[c.shift]}</td><td>${esc(c.cashier_name)}</td>`;
     el('ccBody').innerHTML = `
-      <div class="card"><p style="margin:0;">Credit card slips the accountant could not find, last 3 months. A missing slip is charged to the cashier; when it turns up, press <b>Found</b> and the count's difference is recalculated.${canRec() ? ' A count already sent to the Cash page then has to be sent again.' : ''}</p></div>
+      <div class="card"><p style="margin:0;">Card slips short of the system, marked missing when the count was reconciled (last 3 months). A missing slip is charged to the cashier; when it turns up, press <b>Found</b> and the count's difference is recalculated.${canRec() ? ' A count already sent to the Cash page then has to be sent again.' : ''}</p></div>
       <div class="card" style="padding:0;"><div class="items-scroll" style="margin:0;border:0;"><table class="items ccx-grid ccx-missing">
         <thead><tr><th>Date</th><th>Count</th><th>Cashier</th><th>Card</th><th class="num">Amount</th><th class="num">LBP</th><th>Cash page</th><th></th></tr></thead>
         <tbody>${slips.map(({ c, r, i }) => `<tr>${where(c)}<td>${esc(i.label)}</td><td class="num">${amt(i)}</td>
@@ -534,7 +563,7 @@
       const c = S.missingList.find(x => x.id === b.dataset.mfound); if (!c) return;
       const before = calc(c), slip = before.notFound.find(i => i.key === b.dataset.key);
       b.disabled = true;
-      const nf = toggleMissing({ ...c }, b.dataset.key, false);
+      const nf = markFound({ ...c }, b.dataset.key);
       const { error } = await sb.from('cash_counts').update({ not_found: nf }).eq('id', c.id);
       if (error) { b.disabled = false; return fail('Not saved', error); }
       c.not_found = nf;
