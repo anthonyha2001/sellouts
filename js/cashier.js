@@ -399,7 +399,7 @@
   }
 
   async function load(month) {
-    const data = await call({ action: 'view', cashier_id: session.cashier_id, pin: session.pin, month });
+    const data = await call({ action: 'view', cashier_id: session.cashier_id, pin: session.pin, month, installed: isStandalone() });
     session.data = data;
     render();
   }

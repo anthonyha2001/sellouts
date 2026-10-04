@@ -38,6 +38,8 @@
     await loadMyPermissions();
     applyEditClasses();
     startApp();
+    // Opened (and installed or not): for the admin's Users page (migration 049). Never blocks the app.
+    sb.rpc('mark_app_seen', { p_installed: matchMedia('(display-mode: standalone)').matches || navigator.standalone === true }).then(() => {}, () => {});
     return true;
   }
 

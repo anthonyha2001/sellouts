@@ -152,6 +152,8 @@ Deno.serve(async req => {
       await Promise.all([
         logAs(cashierId, 'opened', 'opened the cashier page', null, true),
         db.from('cashiers').update({ last_seen_at: new Date().toISOString() }).eq('id', cashierId),
+        // Opened as the installed app (home-screen icon): the first time is kept (migration 049).
+        body.installed === true ? db.from('cashiers').update({ installed_at: new Date().toISOString() }).eq('id', cashierId).is('installed_at', null) : null,
       ]);
       const months = beirutMonths();
       const month = months.includes(String(body.month)) ? String(body.month) : months[0];

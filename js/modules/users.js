@@ -78,8 +78,8 @@
       <div class="card">
         <div class="items-scroll" style="margin-bottom:0;">
           <table class="items">
-            <thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Status</th><th>Last sign-in</th><th></th></tr></thead>
-            <tbody id="usersBody"><tr><td colspan="6" class="empty-note">Loading…</td></tr></tbody>
+            <thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Status</th><th>Phone / app</th><th>Last sign-in</th><th></th></tr></thead>
+            <tbody id="usersBody"><tr><td colspan="7" class="empty-note">Loading…</td></tr></tbody>
           </table>
         </div>
       </div>`;
@@ -187,6 +187,10 @@
     overlay.classList.add('open');
   }
 
+  // Notifications and installed app (migration 049): two small pills.
+  const usagePills = u => !u ? '' : `<span class="badge ${u.devices ? 'active' : 'inactive'}" title="${u.devices ? `Notifications on ${u.devices} device${u.devices === 1 ? '' : 's'}` : 'Notifications not turned on'}">${u.devices ? 'Notifications on' + (u.devices > 1 ? ' · ' + u.devices : '') : 'No notifications'}</span>
+      <span class="badge ${u.installed_at ? 'active' : 'inactive'}" title="${u.installed_at ? 'Opened from the home-screen icon since ' + new Date(u.installed_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : 'Not opened as an installed app yet'}">${u.installed_at ? 'App installed' : 'Not installed'}</span>`;
+  let usage = new Map();
   async function loadUsers() {
     const notice = document.getElementById('usersNotice');
     try {
@@ -202,6 +206,8 @@
       notice.innerHTML = `<p style="margin:0;"><b>Read-only for now.</b> ${escapeHtml(e.message)}</p>`;
     }
     await loadOverrides();
+    const { data: us } = await sb.rpc('staff_app_usage');
+    usage = new Map((us || []).map(r => [r.user_id, r]));
     renderUsers();
   }
 
@@ -217,6 +223,7 @@
         <td style="font-family:var(--font-mono);">${escapeHtml(login)}</td>
         <td>${roleBadge(u.role)}${overrideBadge(u)}</td>
         <td>${u.active ? '<span class="badge active">Active</span>' : '<span class="badge inactive">Disabled</span>'}</td>
+        <td class="usage-cell">${usagePills(usage.get(u.id))}</td>
         <td style="font-family:var(--font-mono);font-size:12px;">${escapeHtml(fmtWhen(u.last_sign_in_at))}</td>
         <td>${serviceMissing ? '' : `<div class="icon-actions" style="justify-content:flex-end;">
           <button class="btn secondary small" data-act="edit">Edit</button>
@@ -225,7 +232,7 @@
           ${me ? '' : `<button class="btn ghost small" data-act="${u.active ? 'disable' : 'enable'}">${u.active ? 'Disable' : 'Enable'}</button>`}
         </div>`}</td>
       </tr>`;
-    }).join('') || '<tr><td colspan="6" class="empty-note">No users yet.</td></tr>';
+    }).join('') || '<tr><td colspan="7" class="empty-note">No users yet.</td></tr>';
   }
 
   async function createUser(e) {

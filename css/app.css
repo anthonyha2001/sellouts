@@ -1513,3 +1513,7 @@ body.row-drag-on,body.row-drag-on *{cursor:grabbing !important;user-select:none;
 td .lb-kind-chip{margin-left:0;cursor:default;}
 .lb-edit-add select{width:auto;}
 .fc-sub{font-size:11.5px;color:var(--ink-soft);background:var(--line);padding:1px 7px;border-radius:999px;}
+
+/* Notifications / installed app pills (owner, 2026-10-04) */
+.usage-cell{white-space:nowrap;}
+.usage-cell .badge{margin:1px 2px 1px 0;}

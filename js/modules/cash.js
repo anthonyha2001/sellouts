@@ -54,6 +54,13 @@
   const fail = (what, error) => { console.error(error); showToast(`${what} — ${friendlyError(error)}`, true); };
 
   /* ---------------- data ---------------- */
+  // Notifications and installed app (migration 049): two small pills.
+  const usagePills = u => !u ? '' : `<span class="badge ${u.devices ? 'active' : 'inactive'}" title="${u.devices ? `Notifications on ${u.devices} device${u.devices === 1 ? '' : 's'}` : 'Notifications not turned on'}">${u.devices ? 'Notifications on' + (u.devices > 1 ? ' · ' + u.devices : '') : 'No notifications'}</span>
+      <span class="badge ${u.installed_at ? 'active' : 'inactive'}" title="${u.installed_at ? 'Opened from the home-screen icon since ' + new Date(u.installed_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : 'Not opened as an installed app yet'}">${u.installed_at ? 'App installed' : 'Not installed'}</span>`;
+  async function loadUsage() {
+    const { data } = await sb.rpc('cashier_app_usage');
+    S.usage = new Map((data || []).map(r => [r.cashier_id, r]));
+  }
   async function loadCashiers() {
     let { data, error } = await sb.from('cashiers').select(CASHIER_COLS + ', position, last_seen_at').order('sort_order').order('name');
     if (error && /last_seen_at/.test(error.message)) ({ data, error } = await sb.from('cashiers').select(CASHIER_COLS + ', position').order('sort_order').order('name'));   // before migration 039
@@ -158,7 +165,7 @@
     renderLockArea();
     if (S.tab === 'grid') renderBody();
     if (S.tab === 'analysis') renderAnalysis();
-    if (S.tab === 'cashiers') renderCashiers();
+    if (S.tab === 'cashiers') { renderCashiers(); loadUsage().then(() => { if (S.tab === 'cashiers') renderCashiers(); }); }
     if (S.tab === 'import') renderImport();
   }
 
@@ -583,7 +590,7 @@
         </form>
         <div class="items-scroll" style="margin-bottom:0;">
           <table class="items">
-            <thead><tr><th></th><th>Name</th><th>Position</th><th>Status</th><th>PIN</th><th>Last opened the cashier page</th><th></th></tr></thead>
+            <thead><tr><th></th><th>Name</th><th>Position</th><th>Status</th><th>PIN</th><th>Last opened the cashier page</th><th>Phone / app</th><th></th></tr></thead>
             <tbody>${S.cashiers.map((c, i) => {
               const locked = c.locked_until && new Date(c.locked_until).getTime() > now;
               return `<tr data-id="${esc(c.id)}">
@@ -597,13 +604,14 @@
                 <td>${c.active ? '<span class="badge active">Active</span>' : '<span class="badge inactive">Inactive</span>'}</td>
                 <td>${locked ? `<span class="badge danger">Locked out</span>` : c.has_pin ? '<span class="badge active">Set</span>' : '<span class="badge warn">Not set</span>'}${S.pins && c.has_pin ? (S.pins.get(c.id) ? ` <code class="cash-pin">${esc(S.pins.get(c.id))}</code>` : ' <span class="muted-note">not visible</span>') : ''}</td>
                 <td class="muted-note" style="white-space:nowrap;">${esc(seenLabel(c.last_seen_at))}</td>
+                <td class="usage-cell">${usagePills(S.usage?.get(c.id))}</td>
                 <td><div class="icon-actions" style="justify-content:flex-end;">
                   <button class="btn secondary small" data-act="pin">${c.has_pin ? 'Reset PIN' : 'Set PIN'}</button>
                   ${locked ? '<button class="btn secondary small" data-act="unlock">Unlock</button>' : ''}
                   <button class="btn ghost small" data-act="rename">Rename</button>
                   <button class="btn ghost small" data-act="toggle">${c.active ? 'Deactivate' : 'Activate'}</button>
                 </div></td></tr>`;
-            }).join('') || '<tr><td colspan="7" class="empty-note">No cashiers yet.</td></tr>'}</tbody>
+            }).join('') || '<tr><td colspan="8" class="empty-note">No cashiers yet.</td></tr>'}</tbody>
           </table>
         </div>
       </div>
