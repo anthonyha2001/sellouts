@@ -27,9 +27,7 @@
   const inCashList = job => ['cashier', 'cashier supervisor', 'supervisor', 'picker', 'delivery supervisor'].includes(String(job || '').trim().toLowerCase());
   // Front / Back at the tills: cashiers and cashier supervisors.
   const atTills = job => ['cashier', 'cashier supervisor', 'supervisor'].includes(String(job || '').trim().toLowerCase());
-  // Break (migration 052): everyone but the cashiers and cashier supervisors.
-  const breakFor = job => !atTills(job);
-  const breakText = p => p.break_start ? `Break ${p.break_start} · ${p.break_minutes || 30} min` : '';
+  // Breaks are not on this page (owner, 2026-10-04): the saved ones are kept, set in the staff schedule.
   const isShelf = job => String(job || '').trim().toLowerCase() === 'shelf worker';
   const salaryText = n => n === null || n === undefined || n === '' ? '' : Number(n).toLocaleString('en-US');
 
@@ -156,7 +154,7 @@
     return `<tr data-id="${esc(p.id)}" data-grp="${grp}" class="${p.active ? '' : 'st-left'}">
             <td class="st-drag">${canDrag() ? RowDrag.handle() : ''}</td>
             <td><b>${esc(p.name)}</b>${p.active ? '' : ' <span class="badge inactive">Left</span>'}${p.note ? `<small class="st-note">${esc(p.note)}</small>` : ''}</td>
-            <td>${esc(p.job)}${inCashList(p.job) ? ` <span class="muted-note" title="Also on the Cash page and the cashier page${String(p.job).toLowerCase() === 'picker' ? '' : ', and in the staff schedule'}">· cash</span>` : ''}${p.sections ? `<small class="st-note">Sections: ${esc(p.sections)}</small>` : ''}${breakFor(p.job) && p.break_start ? `<small class="st-note">${esc(breakText(p))}</small>` : ''}</td>
+            <td>${esc(p.job)}${inCashList(p.job) ? ` <span class="muted-note" title="Also on the Cash page and the cashier page${String(p.job).toLowerCase() === 'picker' ? '' : ', and in the staff schedule'}">· cash</span>` : ''}${p.sections ? `<small class="st-note">Sections: ${esc(p.sections)}</small>` : ''}</td>
             <td class="mono">${p.phone ? `<a href="tel:${esc(p.phone.replace(/[^\d+]/g, ''))}">${esc(p.phone)}</a>` : ''}</td>
             <td class="mono">${p.start_date ? esc(fmtDate(p.start_date)) : ''}</td>
             <td class="num mono">${esc(salaryText(p.salary))}</td>
@@ -212,7 +210,6 @@
               <div><label for="stStart">Start date <span style="opacity:.6;">(optional)</span></label><input type="date" id="stStart"></div>
               <div><label for="stSalary">Monthly salary <span style="opacity:.6;">(optional)</span></label><input type="text" id="stSalary" inputmode="decimal" placeholder="e.g. 600"></div>
               <div class="full"><label for="stNote">Note <span style="opacity:.6;">(optional)</span></label><textarea id="stNote"></textarea></div>
-              <div id="stBreakW" hidden><label for="stBreakAt">Break at <span style="opacity:.6;">(optional)</span></label><div style="display:flex;gap:8px;"><input type="time" id="stBreakAt"><select id="stBreakLen" style="width:auto;" aria-label="Break length">${[15, 20, 30, 45, 60, 90, 120].map(m => `<option value="${m}">${m < 60 ? m + ' min' : m === 60 ? '1 hour' : (m / 60) + ' hours'}</option>`).join('')}</select></div></div>
               <div id="stStationW" hidden><label for="stStation">Usual station</label><select id="stStation"><option value="">—</option><option value="front">Front</option><option value="back">Back</option></select></div>
               <div class="full" id="stUserWrap" hidden><label for="stUser">App login</label><select id="stUser"></select></div>
             </div>
@@ -236,8 +233,7 @@
     el('stJob').innerHTML = '<option value="">Choose…</option>' + jobs.map(j => `<option ${j === p?.job ? 'selected' : ''}>${esc(j)}</option>`).join('');
     el('stSections').value = p?.sections || '';
     el('stStation').value = (p?.cashier_id && S.cash?.get(p.cashier_id)?.default_station) || '';
-    el('stBreakAt').value = p?.break_start || ''; el('stBreakLen').value = String(p?.break_minutes || 30);
-    const syncSections = () => { el('stSectionsW').hidden = !isShelf(el('stJob').value); el('stStationW').hidden = !atTills(el('stJob').value); el('stBreakW').hidden = !el('stJob').value || !breakFor(el('stJob').value); };
+    const syncSections = () => { el('stSectionsW').hidden = !isShelf(el('stJob').value); el('stStationW').hidden = !atTills(el('stJob').value); };
     el('stJob').onchange = syncSections; syncSections();
     el('stPhone').value = p?.phone || ''; el('stStart').value = p?.start_date || '';
     el('stSalary').value = p?.salary ?? ''; el('stNote').value = p?.note || '';
@@ -259,8 +255,6 @@
     const row = {
       name: el('stName').value.trim(), job: el('stJob').value,
       sections: isShelf(el('stJob').value) ? el('stSections').value.trim() || null : null,
-      break_start: breakFor(el('stJob').value) && el('stBreakAt').value ? el('stBreakAt').value : null,
-      break_minutes: breakFor(el('stJob').value) && el('stBreakAt').value ? Number(el('stBreakLen').value) : null,
       phone: el('stPhone').value.trim() || null, start_date: el('stStart').value || null,
       salary: salaryRaw ? Number(salaryRaw) : null, note: el('stNote').value.trim() || null,
     };
@@ -350,8 +344,8 @@
   /* ---------------- export ---------------- */
   function exportList() {
     const list = shown();
-    const aoa = [['Name', 'Job', 'Sections', 'Break', 'Phone', 'Start date', 'Monthly salary', 'Status', 'App login', 'Note']];
-    list.forEach(p => aoa.push([p.name, p.job, p.sections || '', breakText(p), p.phone || '', p.start_date || '', p.salary ?? '', p.active ? 'Working' : 'Left', loginName(p), p.note || '']));
+    const aoa = [['Name', 'Job', 'Sections', 'Phone', 'Start date', 'Monthly salary', 'Status', 'App login', 'Note']];
+    list.forEach(p => aoa.push([p.name, p.job, p.sections || '', p.phone || '', p.start_date || '', p.salary ?? '', p.active ? 'Working' : 'Left', loginName(p), p.note || '']));
     const ws = XLSX.utils.aoa_to_sheet(aoa);
     ws['!cols'] = [{ wch: 26 }, { wch: 20 }, { wch: 28 }, { wch: 20 }, { wch: 16 }, { wch: 12 }, { wch: 14 }, { wch: 10 }, { wch: 16 }, { wch: 40 }];
     for (let r = 1; r < aoa.length; r++) { const c = ws[XLSX.utils.encode_cell({ r, c: 4 })]; if (c) { c.t = 's'; c.z = '@'; } }   // phones as text
