@@ -1536,3 +1536,7 @@ td .lb-kind-chip{margin-left:0;cursor:default;}
 .sh-break{display:block;margin-top:3px;padding:1px 7px;border:1px dashed var(--line-strong);border-radius:999px;background:var(--paper-raised);font:600 11px var(--font-body);color:var(--ink-soft);cursor:pointer;white-space:nowrap;}
 .sh-break:not(.none){border-style:solid;border-color:var(--gold);background:var(--gold-tint);color:var(--ink);}
 .sh-break:hover{border-color:var(--pine);color:var(--pine);}
+
+/* Staff page grouped by department (owner, 2026-10-04) */
+.st-table tr.st-group td{background:var(--pine-tint);color:var(--pine);font:700 11.5px var(--font-mono);text-transform:uppercase;letter-spacing:.05em;padding:8px 12px;}
+.st-table tr.st-group td span{margin-left:6px;color:var(--ink-soft);font-weight:600;}

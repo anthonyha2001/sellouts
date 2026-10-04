@@ -85,6 +85,15 @@
   }
   const shown = () => S.list.filter(p => (S.show === 'all' || (S.show === 'active' ? p.active : !p.active)) &&
     (!S.q || [p.name, p.job, p.sections, p.phone, p.note, loginName(p)].join(' ').toLowerCase().includes(S.q)));
+  // Departments (the same as the Staff schedule's tabs): the list is grouped by them.
+  const DEPTS = [
+    ['tills', 'Cashiers', ['cashier supervisor', 'supervisor', 'cashier']], ['delivery', 'Delivery', ['delivery supervisor', 'picker']],
+    ['floor', 'Floor & shelves', ['floor manager', 'shelf worker']], ['wh', 'Warehouse', ['warehouse keeper', 'warehouse worker']],
+    ['deli', 'Deli counter', ['deli counter']], ['meat', 'Meat counter', ['meat counter']], ['fish', 'Fish counter', ['fish counter']],
+    ['veg', 'Fruits & vegetables', ['fruits & vegetables', 'vegetables']], ['bakery', 'Bakery', ['bakery']],
+    ['cleaning', 'Cleaning', ['cleaning']], ['parking', 'Parking', ['parking']],
+    ['office', 'Office', ['purchasing', 'senior accountant', 'accountant', 'data entry', 'hr']], ['other', 'Other', []]];
+  const deptOf = p => DEPTS.find(([, , jobs]) => jobs.includes(String(p.job || '').trim().toLowerCase()))?.[0] || 'other';
   const loginName = p => p.user_id ? (S.users.get(p.user_id)?.username || 'yes') : '';
 
   function render() {
@@ -97,7 +106,15 @@
       <div class="card" style="padding:0;"><div class="items-scroll" style="margin:0;border:0;">
         <table class="items st-table">
           <thead><tr><th></th><th>Name</th><th>Job</th><th>Phone</th><th>Started</th><th class="num">Salary</th><th>PIN</th><th>App login</th><th></th></tr></thead>
-          <tbody>${list.map(p => `<tr data-id="${esc(p.id)}" class="${p.active ? '' : 'st-left'}">
+          <tbody>${DEPTS.map(([k, label]) => { const ps = list.filter(p => deptOf(p) === k); return ps.length
+            ? `<tr class="st-group"><td colspan="9">${esc(label)} <span>${ps.length}</span></td></tr>` + ps.map(p => rowHtml(p, k)).join('') : ''; }).join('')
+            || `<tr><td colspan="9" class="empty-note">${S.list.length ? 'Nobody matches.' : 'No staff yet — add the first person.'}</td></tr>`}</tbody>
+        </table></div></div>
+      ${canDrag() ? '<p class="muted-note" style="margin:8px 0 0;">Drag a row by its handle (⋮⋮) to change the order within its department.</p>' : ''}`;
+    if (canDrag()) RowDrag.attach(el('stBody').querySelector('.st-table tbody'), { rows: 'tr[data-id]', group: r => r.dataset.grp, onDrop: saveOrder });
+  }
+  function rowHtml(p, grp) {
+    return `<tr data-id="${esc(p.id)}" data-grp="${grp}" class="${p.active ? '' : 'st-left'}">
             <td class="st-drag">${canDrag() ? RowDrag.handle() : ''}</td>
             <td><b>${esc(p.name)}</b>${p.active ? '' : ' <span class="badge inactive">Left</span>'}${p.note ? `<small class="st-note">${esc(p.note)}</small>` : ''}</td>
             <td>${esc(p.job)}${inCashList(p.job) ? ` <span class="muted-note" title="Also on the Cash page and the cashier page${String(p.job).toLowerCase() === 'picker' ? '' : ', and in the staff schedule'}">· cash</span>` : ''}${p.sections ? `<small class="st-note">Sections: ${esc(p.sections)}</small>` : ''}${breakFor(p.job) && p.break_start ? `<small class="st-note">${esc(breakText(p))}</small>` : ''}</td>
@@ -109,10 +126,7 @@
             <td><div class="icon-actions" style="justify-content:flex-end;">
               <button type="button" class="btn ghost small" data-act="edit">Edit</button>
               <button type="button" class="btn ghost small" data-act="toggle">${p.active ? 'Left' : 'Back'}</button>
-            </div></td></tr>`).join('') || `<tr><td colspan="9" class="empty-note">${S.list.length ? 'Nobody matches.' : 'No staff yet — add the first person.'}</td></tr>`}</tbody>
-        </table></div></div>
-      ${canDrag() ? '<p class="muted-note" style="margin:8px 0 0;">Drag a row by its handle (⋮⋮) to change the order.</p>' : ''}`;
-    if (canDrag()) RowDrag.attach(el('stBody').querySelector('.st-table tbody'), { onDrop: saveOrder });
+            </div></td></tr>`;
   }
   // Reorder: the Working list without a search, so the order is the whole list's (migration 044).
   const canDrag = () => S.show === 'active' && !S.q;
