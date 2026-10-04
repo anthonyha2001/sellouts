@@ -894,10 +894,10 @@ function renderSellouts() {
 
 
 /* ---------------- Sell-out calendar (owner, 2026-10-04) ----------------
-   A month, Monday to Sunday: each sell-out is a bar from its From date to its To date (included),
-   coloured by state — active, upcoming, ended, online only (purple), archived (faded). Clicking a
-   bar opens that sell-out in the list. */
-let soView = 'list', soCalMonth = todayStr().slice(0, 7);
+   Like the Promo ladies calendar: a month of day boxes, each with the sell-outs running that day as
+   chips (coloured by state). Click a day: its sell-outs below (open, switch on / off) and "New sell-out
+   from this day". Drag across days: the Add sell-out form opens with those dates. Click a chip: open it. */
+let soView = 'list', soCalMonth = todayStr().slice(0, 7), soCalDay = null;
 try { if (localStorage.getItem('lv:soView') === 'calendar') soView = 'calendar'; } catch (e) { /* storage blocked */ }
 function setSoView(v) {
   soView = v;
@@ -909,65 +909,111 @@ function setSoView(v) {
 }
 document.getElementById('soTabs').addEventListener('click', e => { const b = e.target.closest('[data-sotab]'); if (b) setSoView(b.dataset.sotab); });
 const soCalState = so => so.archived ? 'archived' : so.online ? 'online' : so.active ? 'active' : so.from > todayStr() ? 'upcoming' : so.to < todayStr() ? 'ended' : 'off';
-const SO_CAL_LABEL = { active: 'Active', upcoming: 'Upcoming', ended: 'Ended', off: 'Not switched on', online: 'Online only', archived: 'Archived' };
+const SO_CAL_LABEL = { active: 'Active', upcoming: 'Upcoming', off: 'Not switched on', ended: 'Ended', online: 'Online only', archived: 'Archived' };
+const soOnDay = (so, d) => so.from && so.to && so.from <= d && so.to >= d;
+function openSellout(so) {
+  currentFilter = so.archived ? 'archived' : 'all';
+  document.querySelectorAll('#selloutFilters button').forEach(x => x.classList.toggle('active', x.dataset.filter === currentFilter));
+  openIds.add(so.id);
+  setSoView('list');
+  renderSellouts();
+  document.querySelector(`.sellout[data-id="${CSS.escape(so.id)}"]`)?.scrollIntoView({ block: 'center' });
+}
+// New sell-out with its dates already filled in.
+function newSelloutFor(from, to) {
+  if (!canEditSellouts()) return showToast('You cannot add sell-outs.', true);
+  openAddSelloutModal();
+  document.getElementById('soFrom').value = from;
+  document.getElementById('soTo').value = to || from;
+}
 function renderSelloutCalendar() {
   const box = document.getElementById('soCalView'); if (!box || box.hidden) return;
-  const [y, m] = soCalMonth.split('-').map(Number);
-  const first = `${soCalMonth}-01`, last = new Date(y, m, 0).toLocaleDateString('en-CA');
-  const mondayOfStr = d => { const x = new Date(d + 'T00:00:00'); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x.toLocaleDateString('en-CA'); };
-  const start = mondayOfStr(first), today = todayStr();
-  const weeks = [];
-  for (let w = start; w <= last; w = addDaysStr(w, 7)) weeks.push(w);
-  const inMonth = sellouts.filter(so => so.from && so.to && so.from <= last && so.to >= first)
-    .sort((a, b) => a.from.localeCompare(b.from) || b.to.localeCompare(a.to) || a.name.localeCompare(b.name));
-  const weekHtml = w => {
-    const end = addDaysStr(w, 6);
-    const items = inMonth.filter(so => so.from <= end && so.to >= w);
-    // Lanes: each bar takes the first lane free over its days.
-    const lanes = [];
-    const bars = items.map(so => {
-      const s = so.from < w ? 0 : daysBetween(w, so.from), e = so.to > end ? 6 : daysBetween(w, so.to);
-      let lane = lanes.findIndex(l => l.every(([a, b]) => e < a || s > b));
-      if (lane < 0) { lane = lanes.length; lanes.push([]); }
-      lanes[lane].push([s, e]);
-      const st = soCalState(so), cont = so.from < w, more = so.to > end;
-      return `<button type="button" class="socal-bar socal-${st}${cont ? ' cont' : ''}${more ? ' more' : ''}" data-so="${escapeHtml(so.id)}"
-        style="grid-column:${s + 1} / span ${e - s + 1};grid-row:${lane + 1};"
-        title="${escapeHtml(so.name)}${so.supplier ? ' — ' + escapeHtml(so.supplier) : ''} · ${fmtDate(so.from)} → ${fmtDate(so.to)} · ${SO_CAL_LABEL[st]}">${escapeHtml(so.name)}${so.supplier ? `<span>${escapeHtml(so.supplier)}</span>` : ''}</button>`;
-    }).join('');
-    const days = Array.from({ length: 7 }, (_, i) => { const d = addDaysStr(w, i); return `<div class="socal-day${d.slice(0, 7) !== soCalMonth ? ' out' : ''}${d === today ? ' today' : ''}"><span>${Number(d.slice(8))}</span></div>`; }).join('');
-    return `<div class="socal-week"><div class="socal-days">${days}</div><div class="socal-bars">${bars}</div></div>`;
-  };
-  const counts = {}; inMonth.forEach(so => { const st = soCalState(so); counts[st] = (counts[st] || 0) + 1; });
+  const ym = soCalMonth, [y, m] = ym.split('-').map(Number), today = todayStr();
+  const first = `${ym}-01`, last = new Date(y, m, 0).toLocaleDateString('en-CA');
+  const start = (() => { const x = new Date(first + 'T00:00:00'); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x.toLocaleDateString('en-CA'); })();
+  const days = []; for (let d = start; d <= last || days.length % 7; d = addDaysStr(d, 1)) days.push(d);
+  if (!soCalDay || !soCalDay.startsWith(ym)) soCalDay = today.startsWith(ym) ? today : first;
+  const live = sellouts.filter(so => so.from && so.to);
+  const monthCount = live.filter(so => so.from <= last && so.to >= first && !so.archived).length;
   box.innerHTML = `
-    <div class="socal-head">
-      <button type="button" class="icon-btn" data-socal="-1" aria-label="Previous month"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
-      <h3>${new Date(first + 'T00:00:00').toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}</h3>
-      <button type="button" class="icon-btn" data-socal="1" aria-label="Next month"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></button>
-      <button type="button" class="btn ghost small" data-socal="0">Today</button>
-      <span style="flex:1"></span>
-      <div class="socal-legend">${Object.keys(SO_CAL_LABEL).filter(k => counts[k]).map(k => `<span><i class="socal-${k}"></i>${SO_CAL_LABEL[k]} ${counts[k]}</span>`).join('') || '<span class="muted-note">No sell-out this month</span>'}</div>
+    <div class="card pl-cal-card">
+      <div class="pl-cal-head">
+        <button class="icon-btn" data-socal="-1" aria-label="Previous month"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+        <h3>${new Date(first + 'T00:00:00').toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}</h3>
+        <button class="icon-btn" data-socal="1" aria-label="Next month"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></button>
+        <button class="btn ghost small" data-socal="0">Today</button>
+        <span class="pl-cal-sum">${monthCount} sell-out${monthCount === 1 ? '' : 's'} this month</span>
+      </div>
+      <div class="pl-cal so-cal">
+        ${['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(d => `<div class="pl-dow">${d}</div>`).join('')}
+        ${days.map(d => {
+          const list = live.filter(so => soOnDay(so, d) && !so.archived);
+          return `<div class="pl-day ${d.startsWith(ym) ? '' : 'out'} ${d === today ? 'today' : ''} ${d === soCalDay ? 'sel' : ''}" data-day="${d}">
+            <div class="pl-dnum">${Number(d.slice(8))}${list.length ? `<span class="pl-count">${list.length}</span>` : ''}</div>
+            ${list.slice(0, 3).map(so => `<button type="button" class="pl-chip so-chip so-chip-${soCalState(so)}" data-so="${escapeHtml(so.id)}" title="${escapeHtml(so.name)}${so.supplier ? ' — ' + escapeHtml(so.supplier) : ''} · ${fmtDate(so.from)} → ${fmtDate(so.to)} · ${SO_CAL_LABEL[soCalState(so)]}">${so.from === d ? '' : '<span class="so-chip-cont" aria-hidden="true">·</span>'}${escapeHtml(so.supplier || so.name)}</button>`).join('')}
+            ${list.length > 3 ? `<span class="pl-more">+${list.length - 3} more</span>` : ''}
+          </div>`;
+        }).join('')}
+      </div>
+      <div class="pl-legend">${['active', 'upcoming', 'off', 'ended', 'online'].map(k => `<span><i class="so-chip-${k}"></i> ${SO_CAL_LABEL[k]}</span>`).join('')}
+        <span class="muted-note">Click a day to see its sell-outs. Drag across days to add a sell-out for those dates.</span></div>
     </div>
-    <div class="card socal">
-      <div class="socal-dow">${['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(d => `<span>${d}</span>`).join('')}</div>
-      ${weeks.map(weekHtml).join('')}
-    </div>`;
+    <div class="card" id="soDayCard">${soDayHtml(soCalDay)}</div>`;
   box.querySelectorAll('[data-socal]').forEach(b => b.onclick = () => {
     const n = Number(b.dataset.socal);
     if (!n) soCalMonth = todayStr().slice(0, 7);
     else { const d = new Date(y, m - 1 + n, 1); soCalMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; }
-    renderSelloutCalendar();
+    soCalDay = null; renderSelloutCalendar();
   });
-  // A bar: that sell-out, open, in the list.
-  box.querySelectorAll('[data-so]').forEach(b => b.onclick = () => {
-    const so = sellouts.find(x => x.id === b.dataset.so); if (!so) return;
-    currentFilter = so.archived ? 'archived' : 'all';
-    document.querySelectorAll('#selloutFilters button').forEach(x => x.classList.toggle('active', x.dataset.filter === currentFilter));
-    openIds.add(so.id);
-    setSoView('list');
-    renderSellouts();
-    document.querySelector(`.sellout[data-id="${CSS.escape(so.id)}"]`)?.scrollIntoView({ block: 'center' });
-  });
+  // Days: click = that day; press and drag across days = a new sell-out over those dates.
+  const cal = box.querySelector('.so-cal');
+  let dragFrom = null, dragTo = null, moved = false;
+  const dayAt = ev => document.elementFromPoint(ev.clientX, ev.clientY)?.closest('.so-cal [data-day]');
+  const paint = () => cal.querySelectorAll('[data-day]').forEach(x => { const d = x.dataset.day, [a, b] = [dragFrom, dragTo].sort(); x.classList.toggle('range', !!dragFrom && d >= a && d <= b); });
+  cal.onpointerdown = ev => {
+    if (ev.button !== 0 || ev.target.closest('[data-so]')) return;
+    const d = ev.target.closest('[data-day]'); if (!d) return;
+    dragFrom = dragTo = d.dataset.day; moved = false;
+    const move = e => { const x = dayAt(e); if (x && x.dataset.day !== dragTo) { dragTo = x.dataset.day; moved = true; paint(); } };
+    const up = () => {
+      window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up);
+      const [a, b] = [dragFrom, dragTo].sort(); dragFrom = dragTo = null; paint();
+      if (moved) return newSelloutFor(a, b);
+      soCalDay = a;
+      if (!a.startsWith(soCalMonth)) { soCalMonth = a.slice(0, 7); return renderSelloutCalendar(); }
+      cal.querySelectorAll('.pl-day.sel').forEach(x => x.classList.remove('sel'));
+      cal.querySelector(`[data-day="${a}"]`)?.classList.add('sel');
+      document.getElementById('soDayCard').innerHTML = soDayHtml(a);
+    };
+    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
+  };
+  cal.onclick = ev => { const c = ev.target.closest('[data-so]'); if (c) { const so = sellouts.find(x => x.id === c.dataset.so); if (so) openSellout(so); } };
+  document.getElementById('soDayCard').onclick = soDayClick;
+}
+function soDayHtml(d) {
+  const list = sellouts.filter(so => soOnDay(so, d) && !so.archived).sort((a, b) => a.to.localeCompare(b.to) || a.name.localeCompare(b.name));
+  return `<div class="pl-dayhead"><h3>${escapeHtml(new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' }))}</h3>
+      ${canEditSellouts() ? `<button class="btn small secondary" data-sonew="${d}">+ New sell-out from this day</button>` : ''}</div>
+    ${list.length ? `<ul class="so-daylist">${list.map(so => { const st = soCalState(so); return `<li>
+      <i class="so-dot so-chip-${st}"></i>
+      <div class="so-day-main"><b>${escapeHtml(so.name)}</b>${so.supplier ? ` <span class="muted-note">${escapeHtml(so.supplier)}</span>` : ''}
+        <small>${fmtDate(so.from)} → ${fmtDate(so.to)} · ${SO_CAL_LABEL[st]}${so.to === d ? ' · last day' : so.from === d ? ' · starts today' : ''}</small></div>
+      ${canToggleSellouts() && !so.archived ? `<button class="btn ghost small" data-sotoggle="${escapeHtml(so.id)}">${so.active ? 'Turn off' : 'Turn on'}</button>` : ''}
+      <button class="btn secondary small" data-soopen="${escapeHtml(so.id)}">Open</button></li>`; }).join('')}</ul>`
+      : '<p class="empty-note" style="margin:10px 0 0;">No sell-out on this day.</p>'}`;
+}
+async function soDayClick(e) {
+  const b = e.target.closest('[data-sonew], [data-soopen], [data-sotoggle]'); if (!b) return;
+  if (b.dataset.sonew) return newSelloutFor(b.dataset.sonew, b.dataset.sonew);
+  const so = sellouts.find(x => x.id === (b.dataset.soopen || b.dataset.sotoggle)); if (!so) return;
+  if (b.dataset.soopen) return openSellout(so);
+  // Turn on / off, as the switch in the list.
+  so.active = !so.active;
+  so.log.push({ action: so.active ? 'activated' : 'deactivated', at: new Date().toISOString(), by: Session.profile?.username });
+  if (!(await updateSelloutFields(so.id, { active: so.active, log: so.log }))) { await loadAll(); return; }
+  logActivity('sellouts', so.active ? 'activate' : 'deactivate', { type: 'sellout', id: so.id }, `${so.active ? 'Activated' : 'Deactivated'} "${so.name}"`);
+  await loadAll();
+  showToast(`"${so.name}" ${so.active ? 'is on' : 'is off'}.`);
 }
 // The list re-renders after every load / change: the calendar follows.
 const _renderSelloutsList = renderSellouts;

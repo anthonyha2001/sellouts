@@ -1592,3 +1592,21 @@ td .lb-kind-chip{margin-left:0;cursor:default;}
 @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]) .socal-active{background:#1E3A28;color:#9FE0B5;} :root:not([data-theme="light"]) .socal-upcoming{background:#1F2D45;color:#A9C4F0;} }
 :root[data-theme="dark"] .socal-active{background:#1E3A28;color:#9FE0B5;} :root[data-theme="dark"] .socal-upcoming{background:#1F2D45;color:#A9C4F0;}
 @media (max-width:640px){ .socal-bar span{display:none;} .socal-bar{font-size:11px;padding:0 5px;} .socal-week{min-height:80px;} }
+
+/* Sell-out calendar, promo-ladies style (owner, 2026-10-04) */
+.so-chip-active{background:#DCEFE2 !important;color:#1D5B33 !important;border-left:3px solid #2E8B57 !important;}
+.so-chip-upcoming{background:#DDE7F7 !important;color:#1F3F75 !important;border-left:3px solid #3D67B1 !important;}
+.so-chip-off,.so-chip-ended{background:var(--paper) !important;color:var(--ink-soft) !important;border-left:3px solid var(--line-strong) !important;}
+.so-chip-online{background:var(--so-purple-tint) !important;color:var(--so-purple) !important;border-left:3px solid var(--so-purple) !important;}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]) .so-chip-active{background:#1E3A28 !important;color:#9FE0B5 !important;} :root:not([data-theme="light"]) .so-chip-upcoming{background:#1F2D45 !important;color:#A9C4F0 !important;} }
+:root[data-theme="dark"] .so-chip-active{background:#1E3A28 !important;color:#9FE0B5 !important;} :root[data-theme="dark"] .so-chip-upcoming{background:#1F2D45 !important;color:#A9C4F0 !important;}
+.so-chip-cont{opacity:.5;margin-right:3px;}
+.pl-legend i.so-chip-active,.pl-legend i.so-chip-upcoming,.pl-legend i.so-chip-off,.pl-legend i.so-chip-ended,.pl-legend i.so-chip-online{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-1px;}
+.so-cal{user-select:none;}
+.so-cal .pl-day.range{background:var(--pine-tint);box-shadow:inset 0 0 0 2px var(--pine);}
+.so-dot{display:inline-block;width:12px;height:12px;border-radius:3px;flex:0 0 auto;}
+.so-day-main{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;}
+.so-day-main small{color:var(--ink-soft);}
+.so-daylist{list-style:none;margin:10px 0 0;padding:0;}
+.so-daylist li{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line);}
+.so-daylist li .btn{flex:0 0 auto;width:auto;}
