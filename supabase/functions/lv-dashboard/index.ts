@@ -220,6 +220,52 @@ Deno.serve(async req => {
       }
       return json({ items: out });
     }
+    // Pick items from the system (owner, 2026-10-06): the lists (supplier, brand, group, sub-group, section…) …
+    const FIELDS = ['supplier', 'brand', 'group', 'subgroup', 'section', 'segment', 'subsegment', 'department', 'area'];
+    if (body.action === 'filter_options') {
+      const field = String(body.field || '');
+      if (!FIELDS.includes(field)) return json({ error: 'Unknown list.' }, 400);
+      const q = String(body.q || '').trim();
+      const d = await dash(`/items/filter-options/${field}?${new URLSearchParams({ year: year(), limit: '50', ...(q ? { q } : {}) })}`) as Record<string, unknown>;
+      return json({ options: (((d.data as Record<string, unknown>)?.options || []) as Record<string, unknown>[]).map(o => ({ code: String(o.code ?? ''), name: String(o.description ?? o.label ?? '') })) });
+    }
+    // … and the items of a choice: what was sold or bought this year at Ajaltoun (an item never sold nor bought
+    // this year does not show).
+    if (body.action === 'items_by') {
+      const field = String(body.field || ''), codes = (Array.isArray(body.codes) ? body.codes : []).map(String).filter(Boolean).slice(0, 20);
+      if (!FIELDS.includes(field) || !codes.length) return json({ error: 'Choose at least one.' }, 400);
+      const y = year(), today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Beirut' });
+      const base = { branches: [BRANCH], year: y, from_date: `${y}-01-01`, to_date: today, aggregation: 'Monthly', group_by: ['item'], [field]: codes };
+      const items = new Map<string, { code: string; description: string; sold: number; bought: number }>();
+      for (const [kind, path] of [['sold', '/items_sales'], ['bought', '/items_purchases']] as const) {
+        try {
+          const d = await dash(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(base) });
+          const rows = (((d as Record<string, unknown>)?.data as Record<string, unknown>)?.branches as Record<string, Record<string, unknown>[]>)?.[BRANCH] || [];
+          rows.forEach(r => {
+            const c = String(r.item ?? '').trim(); if (!c) return;
+            const it = items.get(c) || { code: c, description: String(r.item_desc ?? ''), sold: 0, bought: 0 };
+            it[kind] += Number(r.total_quantity || 0); if (!it.description) it.description = String(r.item_desc ?? '');
+            items.set(c, it);
+          });
+        } catch (e) { console.warn('items_by', kind, e); }
+      }
+      return json({ items: [...items.values()].sort((a, b) => b.sold - a.sold) });
+    }
+    // Daily units / sales of a set of items (the sell-out trend), up to 300 codes, one year at most.
+    if (body.action === 'sales_daily') {
+      const codes = [...new Set((Array.isArray(body.codes) ? body.codes : []).map(c => String(c).trim()).filter(Boolean))].slice(0, 300);
+      const from = String(body.from || ''), to = String(body.to || '');
+      if (!codes.length || !/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) return json({ error: 'Bad dates or no codes.' }, 400);
+      const days: Record<string, { qty: number; sales: number }> = {};
+      const pieces = from.slice(0, 4) === to.slice(0, 4) ? [[from, to]] : [[from, `${from.slice(0, 4)}-12-31`], [`${to.slice(0, 4)}-01-01`, to]];
+      for (const [f, t] of pieces) {
+        const d = await dash('/items_sales', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+          branches: [BRANCH], year: f.slice(0, 4), from_date: f, to_date: t, aggregation: 'Daily', group_by: [], item: codes }) });
+        const rows = (((d as Record<string, unknown>)?.data as Record<string, unknown>)?.branches as Record<string, Record<string, unknown>[]>)?.[BRANCH] || [];
+        rows.forEach(r => { const p = String(r.period || '').slice(0, 10); if (!p) return; days[p] = days[p] || { qty: 0, sales: 0 }; days[p].qty += Number(r.total_quantity || 0); days[p].sales += Number(r.total_sales || 0); });
+      }
+      return json({ days });
+    }
     if (body.action === 'item_search') {
       const q = String(body.search ?? '').trim();
       if (q.length < 2) return json({ items: [] });

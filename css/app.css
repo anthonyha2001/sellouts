@@ -1936,3 +1936,34 @@ span.cc-slipbtn{cursor:default;display:inline-block;}
 .cn-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px;}
 @media (max-width:640px){ .cn-stats{grid-template-columns:1fr;} }
 #cnOverlay{z-index:99;}   /* under the app prompt (credit note number) */
+
+/* Sell-outs: trend (owner, 2026-10-06) */
+.so-trend-box{display:inline-flex;align-items:center;margin-left:8px;vertical-align:middle;}
+.st-trend{display:inline-flex;align-items:center;gap:4px;font:600 12px var(--font-mono);}
+.st-trend.up{color:var(--ok-green, var(--pine));} .st-trend.down{color:var(--brick);} .st-trend.flat{color:var(--ink-soft);}
+.st-arrow{width:14px;height:14px;}
+.st-spark{display:block;}
+.st-wait{display:inline-block;width:84px;height:4px;border-radius:2px;background:linear-gradient(90deg,var(--line),var(--line-strong),var(--line));background-size:200% 100%;animation:stw 1.2s linear infinite;}
+@keyframes stw{to{background-position:-200% 0;}}
+
+/* Pick items from the system (owner, 2026-10-06) */
+.ip-box{max-width:900px;width:calc(100vw - 32px);max-height:calc(100vh - 40px);display:flex;flex-direction:column;}
+.ip-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;}
+.ip-head h3{margin:0;}
+.ip-head .icon-btn svg{width:18px;height:18px;stroke:currentColor;}
+.ip-fields{margin:0 0 10px;}
+.ip-search input{width:100%;}
+.ip-chosen{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0;}
+.ip-chip{display:inline-flex;align-items:center;gap:4px;padding:3px 4px 3px 10px;border-radius:999px;background:var(--pine);color:#fff;font-size:12.5px;font-weight:600;}
+.ip-chip button{border:0;background:transparent;color:#fff;font-size:16px;line-height:1;cursor:pointer;padding:0 4px;}
+.ip-options{overflow:auto;max-height:42vh;display:flex;flex-direction:column;gap:2px;}
+.ip-opt{text-align:left;padding:8px 10px;border:1px solid transparent;border-radius:8px;background:transparent;cursor:pointer;font:inherit;color:var(--ink);}
+.ip-opt:hover{background:var(--paper);}
+.ip-opt.on{background:var(--pine-tint);border-color:var(--pine);}
+.ip-items{display:flex;flex-direction:column;min-height:0;}
+.ip-items-bar{display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap;}
+.ip-items-bar input{flex:1;min-width:160px;}
+.ip-scroll{max-height:46vh;margin:0;}
+.ip-table td.num,.ip-table th.num{text-align:right;font-family:var(--font-mono);}
+.ip-foot{display:flex;align-items:center;gap:8px;margin-top:12px;flex-wrap:wrap;}
+.so-from-system{margin-top:8px;}

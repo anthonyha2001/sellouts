@@ -290,6 +290,22 @@ async function takeSelloutFile(file) {
   renderMappingStep();
 }
 document.getElementById('soFile').addEventListener('change', e => takeSelloutFile(e.target.files[0]));
+// No file: the items picked from the system (owner, 2026-10-06) become the sell-out's item file, with their
+// prices now (Sale Price = the normal price), so everything after works the same (rule, floor check, credit note).
+document.getElementById('soFromSystem')?.addEventListener('click', async () => {
+  if (!window.ItemPicker) return;
+  const res = await ItemPicker.open({ title: 'Sell-out items from the system', okLabel: 'Use these items', withPrices: true });
+  if (!res || !res.items.length) return;
+  const rows = res.items.map(i => ({ Code: i.code, Description: i.description || '', 'Bar Code': (i.barcodes || [])[0] || '', 'Sale Price': i.salePrice ?? '',
+    'Price now': i.price ?? '', Supplier: i.supplier || '', Group: i.group || '', Brand: i.brand || '', Stock: i.stock ?? '' }));
+  const ws = XLSX.utils.json_to_sheet(rows), wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Items');
+  const name = `${res.by.names.join(' + ').replace(/[\\/:*?"<>|]+/g, ' ').trim().slice(0, 60) || 'items'} - from the system.xlsx`;
+  const file = new File([XLSX.write(wb, { type: 'array', bookType: 'xlsx' })], name, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  if (res.by.field === 'supplier' && !document.getElementById('soSupplier').value.trim()) document.getElementById('soSupplier').value = res.by.names[0] || '';
+  if (!document.getElementById('soName').value.trim()) document.getElementById('soName').value = res.by.names[0] || '';
+  await takeSelloutFile(file);
+});
 (function wireSelloutDrop() {
   const zone = document.getElementById('soDrop');
   const hasFile = e => [...(e.dataTransfer?.types || [])].includes('Files');
@@ -748,7 +764,7 @@ function renderSellouts() {
           <div class="dates"><span>${fmtDate(so.from)}</span><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></svg><span>${fmtDate(so.to)}</span></div>
           ${so.note ? `<div class="so-note">${escapeHtml(so.note)}</div>` : ''}
         </div>
-        <div class="badge-row">${selloutStatusBadge(so)}</div>
+        <div class="badge-row">${selloutStatusBadge(so)}${!so.archived && window.SelloutTrend ? `<span class="so-trend-box" data-trend="${escapeHtml(String(so.id))}"></span>` : ""}</div>
         <button class="btn ghost small" data-role="copy-codes" title="Copy this sell-out's codes (column 1 of its item file)">Copy codes</button>
         <div class="icon-actions">
           <button class="icon-btn" data-role="edit" title="Edit sell-out" aria-label="Edit sell-out">
@@ -894,6 +910,7 @@ function renderSellouts() {
       });
     }
   });
+  if (window.SelloutTrend) SelloutTrend.fill(list);   // the small sales trend of each sell-out (owner, 2026-10-06)
 }
 
 

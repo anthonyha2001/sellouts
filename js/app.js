@@ -2290,6 +2290,7 @@ async function renderPromoWorkspace() {
             <span class="dz-info" id="catZoneInfo">${escapeHtml(liveStatusText())}</span>
             <span class="dz-hint">Description, supplier, price, stock and sales: live, no file needed</span>
           </div>
+          ${window.ItemPicker && can('promotions.edit') ? `<button type="button" class="icon-btn live-refresh" id="liveAddBtn" title="Add items from the system (by supplier, brand, group…)" aria-label="Add items from the system"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></button>` : ''}
           <button type="button" class="icon-btn live-refresh" id="liveRefreshBtn" title="Update from the system now" aria-label="Update from the system now"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/></svg></button>
           <label class="dz-threshold" title="Flag an item when its Balance is below this">Low stock under
             <input type="text" inputmode="numeric" id="lowStockZoneInput" value="${escapeHtml(String(lowStockThreshold))}"></label>
@@ -3328,6 +3329,21 @@ function wirePromoWorkspaceEvents(promo) {
   };
   zonePick('priceDropZone', 'priceSheetInput');
   document.getElementById('liveRefreshBtn')?.addEventListener('click', () => queueLiveItems(currentRows.map(r => r.code), true));
+  // Add rows in bulk from the system (owner, 2026-10-06): by supplier, brand, group, sub-group or section.
+  document.getElementById('liveAddBtn')?.addEventListener('click', async () => {
+    const res = await ItemPicker.open({ title: 'Add items from the system', okLabel: 'Add to the promotion' });
+    if (!res || !res.items.length) return;
+    const have = new Set(currentRows.map(r => normalizeCatalogCode(r.code)).filter(Boolean));
+    const fresh = res.items.filter(i => !have.has(normalizeCatalogCode(i.code)));
+    if (!fresh.length) return showToast('All these items are already in the promotion.');
+    let order = Math.max(0, ...currentRows.map(r => Number(r.sortOrder) || 0));
+    const rows = fresh.map(i => Object.assign(blankPromoRow(), { code: i.code, description: i.description || '', sortOrder: ++order }));
+    currentRows.push(...rows);
+    await persistRowsBulk(rows);
+    logActivity('promotions', 'add_from_system', { type: 'promotion', id: currentPromoId }, `Added ${rows.length} items from the system (${res.by.field}: ${res.by.names.join(', ')})`);
+    showToast(`${rows.length} item${rows.length === 1 ? '' : 's'} added${res.items.length > fresh.length ? ` (${res.items.length - fresh.length} already there)` : ''}. Their details fill in from the system.`);
+    await renderPromoWorkspace();
+  });
   // The threshold box in the catalog zone hands its value to the original setting input.
   document.getElementById('lowStockZoneInput').addEventListener('change', e => {
     const orig = document.getElementById('lowStockInput');
