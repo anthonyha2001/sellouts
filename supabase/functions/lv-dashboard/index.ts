@@ -193,6 +193,31 @@ Deno.serve(async req => {
       codes.forEach(c => { if (!(c in costs)) costs[c] = null; });
       return json({ costs });
     }
+    // A promotion's results (owner, 2026-10-06): units and sales per item over its dates, and over the same number
+    // of days just before (the baseline). Up to 300 codes; periods within one year each.
+    if (body.action === 'sales_compare') {
+      const codes = [...new Set((Array.isArray(body.codes) ? body.codes : []).map(c => String(c).trim()).filter(Boolean))].slice(0, 300);
+      const okDate = (d: unknown) => /^\d{4}-\d{2}-\d{2}$/.test(String(d || ''));
+      const periods = { during: [body.from, body.to], before: [body.baseFrom, body.baseTo] } as Record<string, unknown[]>;
+      if (!codes.length || !Object.values(periods).every(([a, b]) => okDate(a) && okDate(b) && String(a) <= String(b))) return json({ error: 'Bad dates or no codes.' }, 400);
+      const key = (c: string) => c.replace(/^0+(?=\d)/, '').toUpperCase();
+      const codeOf = new Map(codes.map(c => [key(c), c]));
+      const out: Record<string, Record<string, { qty: number; sales: number }>> = {};
+      codes.forEach(c => { out[c] = { during: { qty: 0, sales: 0 }, before: { qty: 0, sales: 0 } }; });
+      // a period across two years: one report per year
+      const pieces = (a: string, b: string) => a.slice(0, 4) === b.slice(0, 4) ? [[a, b]] : [[a, `${a.slice(0, 4)}-12-31`], [`${b.slice(0, 4)}-01-01`, b]];
+      for (const [name, [a, b]] of Object.entries(periods)) {
+        for (const [f, t] of pieces(String(a), String(b))) {
+          for (let i = 0; i < codes.length; i += 100) {
+            const d = await dash('/items_sales', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+              branches: [BRANCH], year: f.slice(0, 4), from_date: f, to_date: t, aggregation: 'Monthly', group_by: ['item'], item: codes.slice(i, i + 100) }) });
+            const rows = (((d as Record<string, unknown>)?.data as Record<string, unknown>)?.branches as Record<string, Record<string, unknown>[]>)?.[BRANCH] || [];
+            rows.forEach(r => { const c = codeOf.get(key(String(r.item ?? ''))); if (!c) return; out[c][name].qty += Number(r.total_quantity || 0); out[c][name].sales += Number(r.total_sales || 0); });
+          }
+        }
+      }
+      return json({ items: out });
+    }
     if (body.action === 'item_search') {
       const q = String(body.search ?? '').trim();
       if (q.length < 2) return json({ items: [] });

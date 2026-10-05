@@ -1891,3 +1891,25 @@ span.cc-slipbtn{cursor:default;display:inline-block;}
 .lp-deal{display:inline-block;padding:1px 7px;border-radius:999px;background:var(--gold-tint, var(--paper));color:var(--gold);border:1px solid var(--gold);font:600 10.5px var(--font-body);}
 .lp-gap{font:600 11px var(--font-mono);}
 .lp-gap.up{color:var(--brick);} .lp-gap.down{color:var(--ok-green, var(--pine));}
+
+/* Promotions › Results (owner, 2026-10-06) */
+.pr-head{display:flex;align-items:center;gap:8px;padding:14px 18px;}
+.pr-head > div{flex:1;}
+.pr-ib{width:34px;height:34px;display:inline-grid;place-items:center;}
+.pr-ib svg{width:17px;height:17px;stroke:currentColor;}
+.pr-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:14px;}
+.pr-stats > div{padding:12px 14px;border-radius:var(--radius);border:1px solid var(--line);background:var(--paper-raised);display:flex;flex-direction:column;gap:3px;}
+.pr-stats b{font:600 22px var(--font-mono);}
+.pr-stats span{font-size:12px;color:var(--ink-soft);}
+.pr-mix{justify-content:center;}
+.pr-mix span{font-size:13px !important;}
+.pr-mix b{font-size:15px !important;}
+.pr-up{color:var(--ok-green, var(--pine)) !important;font-weight:600;}
+.pr-down{color:var(--brick) !important;font-weight:600;}
+.pr-zero{color:var(--ink-faint) !important;}
+.pr-table td.num,.pr-table th.num{text-align:right;font-family:var(--font-mono);}
+.pr-sort{cursor:pointer;}
+.pr-sort.on{color:var(--pine);text-decoration:underline;}
+.pr-sup{font-size:11.5px;color:var(--ink-soft);}
+.pr-row-zero td{color:var(--ink-faint);}
+@media (max-width:760px){ .pr-stats{grid-template-columns:repeat(2,minmax(0,1fr));} }

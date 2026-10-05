@@ -852,7 +852,7 @@ let currentPromoId = null;
 let currentRows = [];
 let selectedRowIds = new Set();
 let expandedSupplierRowIds = new Set();
-let promoViewMode = 'table'; // 'table' or 'audit'
+let promoViewMode = 'table'; // 'table', 'audit' or 'results' (owner, 2026-10-06: js/modules/promoresults.js)
 let tableSubView = 'rows'; // 'rows' (the editable grid) or 'supplier' (grouped-by-supplier accordion), both inside Table
 let auditSubView = 'cost'; // 'cost' (cost-check table) or 'supplier' (grouped-by-supplier accordion), both inside Audit
 let expandedSupplierGroups = new Set();
@@ -2309,6 +2309,7 @@ async function renderPromoWorkspace() {
         <div class="filter-row" id="promoViewSwitch" style="margin:0;">
           <button class="${promoViewMode === 'table' ? 'active' : ''}" data-view="table">${ICONS.table}Table</button>
           <button class="${promoViewMode === 'audit' ? 'active' : ''}" data-view="audit">${ICONS.audit}Audit</button>
+          ${window.PromoResults ? `<button class="${promoViewMode === 'results' ? 'active' : ''}" data-view="results">${svgIcon('<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>')}Results</button>` : ''}
         </div>
         <div class="promo-top-btns">
           <button class="btn secondary small ibtn" id="copyCodesBtn">${ICONS.copy}Copy all codes</button>
@@ -2452,6 +2453,15 @@ async function renderPromoWorkspace() {
   `;
 
   wirePromoWorkspaceEvents(promo);
+  // Results (owner, 2026-10-06): how the promotion sold, live from the system
+  if (promoViewMode === 'results' && window.PromoResults) {
+    document.getElementById('promoTableView').style.display = 'none';
+    document.getElementById('promoAuditView').style.display = 'none';
+    const bar = document.getElementById('promoStickyBar'); if (bar) bar.style.display = 'none';   // rows tools: not for results
+    let rv = document.getElementById('promoResultsView');
+    if (!rv) { rv = document.createElement('div'); rv.id = 'promoResultsView'; document.getElementById('promoAuditView').after(rv); }
+    PromoResults.render(rv, promo, currentRows);
+  }
   if (promoViewMode === 'table' && tableSubView === 'supplier') wireSupplierGroupEvents('promoTableSupplierView', 'stock');
   if (promoViewMode === 'audit' && auditSubView === 'supplier') wireSupplierGroupEvents('promoAuditSupplierView', 'audit');
   if (promoViewMode === 'table') {
