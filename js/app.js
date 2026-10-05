@@ -136,7 +136,13 @@ function sbErrText(error) {
 // send is "<promotionId>::<code>" so the same code can exist in more than
 // one promotion's catalog without colliding on the primary key \u2014 the real
 // code lives in its own `code` column.
+// No catalog file any more (owner, 2026-10-06): the item details come live from the system (Live items below).
+// The old catalog_items rows stay in the database, unused.
 async function loadCatalogFor(promoId) {
+  if (!promoId) return;
+  queueLiveItems(currentRows.map(r => r.code));
+}
+async function loadCatalogFileFor_unused(promoId) {
   if (!promoId) { catalogItems = []; catalogMap = new Map(); catalogBarcodeMap = new Map(); return; }
   const { data, error } = await sb.from('catalog_items').select('*').eq('promotion_id', promoId).order('code', { ascending: true });
   if (error) { console.error(error); showToast('Could not load this promotion\u2019s catalog \u2014 ' + sbErrText(error), true); return; }
@@ -563,7 +569,7 @@ function applyDiscountAfterCatalogMatch(row) {
 }
 function isCodeMissingFromCatalog(row) {
   const code = (row.code || '').trim();
-  return !!code && !catalogMap.has(normalizeCatalogCode(code));
+  return !!code && liveTried(code) && !catalogMap.has(normalizeCatalogCode(code));
 }
 // A row can have real content (a description, a price) but no code at all
 // — usually because the source sheet just didn't have one for that line
@@ -673,6 +679,87 @@ let catalogBarcodeMap = new Map(); // barcode (digits) -> catalog item, for pric
 function normalizeCatalogCode(code) {
   return String(code ?? '').trim().toUpperCase();
 }
+
+/* ---------------- Live items (owner, 2026-10-06) ----------------
+   The open promotion's items come from the system through the app's link to the La Valeur Dashboard
+   (server function lv-dashboard, action items_info): description, supplier, normal price, price now,
+   stock at Ajaltoun, sales this year, last purchase. Kept in memory (catalogMap) and asked again after
+   10 minutes; rows get the values the way the catalog file used to give them. */
+const LIVE_TTL = 10 * 60 * 1000;
+const liveFetched = new Map();          // code -> when it was asked (found or not)
+const liveState = { busy: false, pending: 0, at: null, failed: false };
+let liveQueue = new Set(), liveTimer = null, liveRenderWaiting = false;
+const liveTried = code => liveFetched.has(normalizeCatalogCode(code));
+function queueLiveItems(codes, force) {
+  const now = Date.now();
+  (codes || []).forEach(c => {
+    c = String(c ?? '').trim(); if (!c) return;
+    const t = liveFetched.get(normalizeCatalogCode(c));
+    if (force || !t || now - t > LIVE_TTL) liveQueue.add(c);
+  });
+  if (!liveQueue.size) return;
+  clearTimeout(liveTimer); liveTimer = setTimeout(runLiveItems, 250);
+}
+async function runLiveItems() {
+  if (liveState.busy || !liveQueue.size) return;
+  const codes = [...liveQueue]; liveQueue = new Set();
+  Object.assign(liveState, { busy: true, pending: codes.length, failed: false });
+  paintLiveZone();
+  const promoAt = currentPromoId;
+  for (let i = 0; i < codes.length; i += 40) {
+    const part = codes.slice(i, i + 40);
+    let items = {};
+    try {
+      const { data, error } = await sb.functions.invoke('lv-dashboard', { body: { action: 'items_info', codes: part } });
+      if (error || !data?.items) throw error || new Error('no answer');
+      items = data.items;
+    } catch (e) { console.warn('live items', e); liveState.failed = true; break; }
+    const now = Date.now();
+    part.forEach(c => liveFetched.set(normalizeCatalogCode(c), now));
+    Object.entries(items).forEach(([asked, it]) => mergeLiveItem(asked, it));
+    liveState.pending = Math.max(0, liveState.pending - part.length);
+    if (promoAt === currentPromoId) await applyLiveToRows(part);
+    paintLiveZone();
+  }
+  Object.assign(liveState, { busy: false, pending: 0, at: new Date() });
+  paintLiveZone();
+  if (liveQueue.size && !liveState.failed) runLiveItems();
+}
+function mergeLiveItem(asked, it) {
+  const item = { code: it.code || asked, description: it.description || '', balance: it.stock ?? null, salePrice: it.salePrice ?? null,
+    supplier: it.supplier || '', country: '', outYtd: it.outYtd ?? null, lastPurchase: it.lastPurchase || '', lastInvoice: '',
+    barcodes: (it.barcodes || []).map(String), pack: it.pack ?? null, priceNow: it.price ?? null, promoted: !!it.promoted,
+    section: it.section || '', group: it.group || '', brand: it.brand || '', live: true };
+  [asked, item.code].forEach(c => {
+    const k = normalizeCatalogCode(c), old = catalogMap.get(k);
+    if (old) Object.assign(old, item); else { catalogMap.set(k, item); if (k === normalizeCatalogCode(item.code)) catalogItems.push(item); }
+  });
+  item.barcodes.forEach(b => catalogBarcodeMap.set(b, catalogMap.get(normalizeCatalogCode(item.code))));
+}
+// The rows of these codes take the new values; only the ones that changed are saved.
+async function applyLiveToRows(codes) {
+  const want = new Set(codes.map(normalizeCatalogCode));
+  const rows = currentRows.filter(r => want.has(normalizeCatalogCode(r.code)));
+  const snap = r => JSON.stringify([r.description, r.balance, r.salePrice, r.supplier, r.outYtd, r.beforePrice, r.promoPrice, r.discount]);
+  const before = new Map(rows.map(r => [r, snap(r)]));
+  const changed = relookupRowsAgainstCatalog(rows).filter(r => before.get(r) !== snap(r));
+  if (changed.length && can('promotions.edit')) await persistRowsBulk(changed);
+  // never redraw the table under someone's typing: wait until they leave the cell
+  const ws = document.getElementById('promoWorkspace');
+  if (ws && ws.contains(document.activeElement) && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)) {
+    if (!liveRenderWaiting) { liveRenderWaiting = true; ws.addEventListener('focusout', () => setTimeout(() => { liveRenderWaiting = false; if (!ws.contains(document.activeElement)) renderPromoWorkspace(); }, 50), { once: true }); }
+  } else await renderPromoWorkspace();
+}
+function liveStatusText() {
+  const codes = [...new Set(currentRows.map(r => normalizeCatalogCode(r.code)).filter(Boolean))];
+  if (liveState.busy) return `Updating ${liveState.pending} item${liveState.pending === 1 ? '' : 's'} from the system…`;
+  if (liveState.failed) return 'The system did not answer — press the refresh icon to try again';
+  if (!codes.length) return 'Items fill in from the system as you add codes';
+  const tried = codes.filter(k => liveFetched.has(k)), found = tried.filter(k => catalogMap.has(k));
+  const at = liveState.at ? ' · ' + liveState.at.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '';
+  return `${found.length} of ${codes.length} item${codes.length === 1 ? '' : 's'} up to date${tried.length - found.length ? ` · ${tried.length - found.length} not in the system` : ''}${at}`;
+}
+function paintLiveZone() { const z = document.getElementById('catZoneInfo'); if (z) z.textContent = liveStatusText(); }
 // Re-runs the catalog lookup for every row that already has a code, against
 // whatever catalog is currently loaded. Rows only get this treatment at the
 // moment their code is typed/pasted/imported — so if a price sheet is
@@ -693,7 +780,7 @@ function relookupRowsAgainstCatalog(rows) {
     row.balance = item.balance === undefined ? null : item.balance;
     row.salePrice = item.salePrice === undefined ? null : item.salePrice;
     row.supplier = item.supplier || '';
-    row.country = item.country || '';
+    row.country = item.country || row.country || '';
     row.outYtd = item.outYtd === undefined ? null : item.outYtd;
     applyDiscountAfterCatalogMatch(row);
     autoSelloutOnDiscount(row);
@@ -1420,9 +1507,8 @@ const CatalogLink = (function () {
   const panel = document.getElementById('panel-promotions');
   const zoneFor = e => {
     if (!currentPromoId || !can('promotions.edit')) return null;
-    const cat = document.getElementById('catalogDropZone'), price = document.getElementById('priceDropZone');
-    if (!cat || !price) return null;
-    if (cat.contains(e.target)) return { el: cat, input: 'catalogFileInput' };
+    const price = document.getElementById('priceDropZone');
+    if (!price) return null;
     // Anywhere else on the promotion counts as the price sheet (its zone lights up).
     return document.getElementById('promoWorkspace').contains(e.target) ? { el: price, input: 'priceSheetInput' } : null;
   };
@@ -1443,7 +1529,6 @@ const CatalogLink = (function () {
     const file = e.dataTransfer.files[0];
     if (!file) return;
     if (!/\.(xlsx|xls|csv)$/i.test(file.name)) { showToast('Drop an Excel or CSV file (.xlsx, .xls, .csv).', true); return; }
-    if (z.input === 'catalogFileInput') CatalogLink.fromDrop(e.dataTransfer.items[0], currentPromoId);
     const input = document.getElementById(z.input);
     if (!input || input.disabled) return;
     const dt = new DataTransfer(); dt.items.add(file);
@@ -1996,7 +2081,6 @@ function catalogExtrasHtml(row) {
       &nbsp;&middot;&nbsp; Out: ${v(num(out))}
       ${hasOut ? `&nbsp;&middot;&nbsp; Avg out: ${v(rate(perWeek))} / week, ${v(rate(perWeek / 7))} / day` : ''}
       &nbsp;&middot;&nbsp; Last purchase: ${v(escapeHtml(cat?.lastPurchase || '—'))}
-      &nbsp;&middot;&nbsp; Last invoice: ${v(escapeHtml(cat?.lastInvoice || '—'))}
       ${onSelloutOf(row).length ? `<div class="sl-sellout ${row.selloutOk ? 'ok' : ''}">On sell-out: ${onSelloutOf(row).map(x => `${x.online ? onlineIcon('Online only') : ''}<strong>${escapeHtml(x.name)}</strong> (${fmtDate(x.from)} → ${fmtDate(x.to)}${x.price != null ? ' · ' + Number(x.price).toFixed(2) : ''})`).join(', ')}
         <button type="button" class="btn small ${row.selloutOk ? 'ghost' : ''}" data-role="sellout-ok" data-row="${row.id}">${row.selloutOk ? 'Mark as sell-out again' : 'Override the sell-out'}</button></div>` : ''}`;
 }
@@ -2081,6 +2165,7 @@ function buildPromoRowHtml(row) {
 async function renderPromoWorkspace() {
   const workspace = document.getElementById('promoWorkspace');
   if (!currentPromoId) { workspace.innerHTML = ''; return; }
+  queueLiveItems(currentRows.map(r => r.code));
   const promo = promotions.find(p => p.id === currentPromoId);
   if (!promo) { workspace.innerHTML = ''; return; }
 
@@ -2141,14 +2226,14 @@ async function renderPromoWorkspace() {
       </div>
 
       <div class="promo-drops">
-        <div class="drop-zone" id="catalogDropZone" role="button" tabindex="0" data-drop-label="Drop to replace the catalog">
+        <div class="drop-zone live-zone" id="liveItemsZone">
           <span class="dz-icon">${ICONS.catalog}</span>
           <div class="dz-text">
-            <b>Item catalog</b>
-            <span class="dz-info" id="catZoneInfo">${catalogZoneInfo(promo)}</span>
-            <span class="dz-hint">Drop the catalog file here or click to choose</span>
-            <span class="dz-link" id="catLinkBox"></span>
+            <b>Items from the system</b>
+            <span class="dz-info" id="catZoneInfo">${escapeHtml(liveStatusText())}</span>
+            <span class="dz-hint">Description, supplier, price, stock and sales: live, no file needed</span>
           </div>
+          <button type="button" class="icon-btn live-refresh" id="liveRefreshBtn" title="Update from the system now" aria-label="Update from the system now"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/></svg></button>
           <label class="dz-threshold" title="Flag an item when its Balance is below this">Low stock under
             <input type="text" inputmode="numeric" id="lowStockZoneInput" value="${escapeHtml(String(lowStockThreshold))}"></label>
         </div>
@@ -2829,6 +2914,7 @@ function wirePromoRowElement(tr) {
         return;
       }
       const item = catalogMap.get(normalizeCatalogCode(code));
+      if (!item) queueLiveItems([code]);
       if (item) {
         row.description = item.description;
         row.balance = item.balance === undefined ? null : item.balance;
@@ -3169,9 +3255,8 @@ function wirePromoWorkspaceEvents(promo) {
     });
     zone.addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && e.target === zone) { e.preventDefault(); open(); } });
   };
-  zonePick('catalogDropZone', 'catalogFileInput');
-  CatalogLink.renderBox();
   zonePick('priceDropZone', 'priceSheetInput');
+  document.getElementById('liveRefreshBtn')?.addEventListener('click', () => queueLiveItems(currentRows.map(r => r.code), true));
   // The threshold box in the catalog zone hands its value to the original setting input.
   document.getElementById('lowStockZoneInput').addEventListener('change', e => {
     const orig = document.getElementById('lowStockInput');

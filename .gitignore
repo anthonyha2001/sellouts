@@ -6,3 +6,6 @@ node_modules/
 
 # Push secrets for the Supabase CLI / Vault (scripts/make-push-keys.mjs) - never commit
 supabase/secrets/
+
+# Recorded dashboard traffic (owner, 2026-10-06): never committed
+*.har

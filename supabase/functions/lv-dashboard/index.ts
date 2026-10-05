@@ -52,7 +52,7 @@ async function dash(path: string, init: RequestInit = {}, retry = true): Promise
   if (!token || Date.now() > tokenExp - 5 * 60e3) await login();
   const r = await fetch(`${BASE}${path}`, { ...init, headers: { ...(init.headers || {}), Authorization: `Bearer ${token}`, Accept: 'application/json' } });
   if (r.status === 401 && retry) { token = null; return dash(path, init, false); }
-  if (!r.ok) throw new Error(`Dashboard answered ${r.status}`);
+  if (!r.ok) throw new Error(`Dashboard answered ${r.status}${r.status === 422 ? ": " + (await r.text()).slice(0, 300) : ""}`);
   return r.json();
 }
 const year = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Beirut' }).slice(0, 4);
@@ -88,6 +88,56 @@ Deno.serve(async req => {
       if (!isServer && role !== 'admin') return json({ error: 'Admin only.' }, 403);
       token = null; await login();
       return json({ ok: true, user: Deno.env.get('LV_DASH_USER'), expires_at: new Date(tokenExp).toISOString() });
+    }
+    // Server key only (maintenance): one read-only report, as the dashboard answers it, to map its fields.
+    if (body.action === 'probe') {
+      if (!isServer) return json({ error: 'Not allowed.' }, 403);
+      const path = String(body.path || '');
+      const READ = /^\/(item-price-checker|item-cardex|items\/search|items\/filter-options\/[a-z]+|items_sales(\/grid|\/summary)?|items_purchases(\/grid)?)$/;
+      if (!READ.test(path)) return json({ error: 'Not a read-only report.' }, 400);
+      if (body.post) return json(await dash(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body.post) }));
+      return json(await dash(`${path}?${new URLSearchParams((body.query || {}) as Record<string, string>)}`));
+    }
+    // The Promotions page's item details, live (replaces the catalog file): up to 100 codes.
+    //   price check (one per code): description, barcode, pack, supplier, section, group, brand, price now,
+    //   normal price, on promotion, stock; sales this year (one report); last purchase date (one report).
+    if (body.action === 'items_info') {
+      const codes = [...new Set((Array.isArray(body.codes) ? body.codes : []).map(c => String(c).trim()).filter(Boolean))].slice(0, 100);
+      const key = (c: string) => c.replace(/^0+(?=\d)/, '').toUpperCase();
+      const y = year(), today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Beirut' });
+      const out: Record<string, Record<string, unknown>> = {};
+      for (let i = 0; i < codes.length; i += 6) {
+        await Promise.all(codes.slice(i, i + 6).map(async c => {
+          try {
+            const d = await dash(`/item-price-checker?${new URLSearchParams({ search: c, year: y, branches: BRANCH })}`) as Record<string, unknown>;
+            const br = ((d.branches as Record<string, Record<string, unknown[]>>) || {})[BRANCH] || {};
+            const rows = (Object.values(br).flat() as Record<string, unknown>[]);
+            const hit = rows.find(r => key(String(r.ItemCode ?? '')) === key(c));
+            if (!hit) return;
+            const t = (v: unknown) => String(v ?? '').trim();
+            out[c] = { code: t(hit.ItemCode), description: t(hit.Description), size: t(hit.Description4), barcodes: hit.Barcode ? [t(hit.Barcode)] : [],
+              pack: hit.Pack ?? null, supplier: t(hit.Supplier), section: t(hit.Section), group: t(hit.Group), brand: t(hit.Brand),
+              price: hit.Price ?? null, salePrice: hit.SalePrice ?? null, promoted: !!Number(hit.isPromoted || 0), stock: hit.AvailableQuantity ?? null,
+              outYtd: null, lastPurchase: null };
+          } catch (e) { console.warn('price check', c, e); }
+        }));
+      }
+      const found = Object.keys(out);
+      if (found.length) {
+        const base = { branches: [BRANCH], year: y, from_date: `${y}-01-01`, to_date: today, group_by: ['item'], item: found.map(c => String(out[c].code)) };
+        const byItem = (d: unknown) => (((d as Record<string, unknown>)?.data as Record<string, unknown>)?.branches as Record<string, Record<string, unknown>[]>)?.[BRANCH] || [];
+        const codeOf = new Map(found.map(c => [key(String(out[c].code)), c]));
+        try {
+          const s = await dash('/items_sales', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...base, aggregation: 'Monthly' }) });
+          byItem(s).forEach(r => { const c = codeOf.get(key(String(r.item ?? ''))); if (c) out[c].outYtd = Number(out[c].outYtd || 0) + Number(r.total_quantity || 0); });
+          found.forEach(c => { if (out[c].outYtd === null) out[c].outYtd = 0; });
+        } catch (e) { console.warn('sales', e); }
+        try {
+          const p = await dash('/items_purchases', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...base, aggregation: 'Daily' }) });
+          byItem(p).forEach(r => { const c = codeOf.get(key(String(r.item ?? ''))); if (c && Number(r.total_quantity || 0) > 0 && String(r.period) > String(out[c].lastPurchase || '')) out[c].lastPurchase = String(r.period); });
+        } catch (e) { console.warn('purchases', e); }
+      }
+      return json({ items: out });
     }
     if (body.action === 'item_search') {
       const q = String(body.search ?? '').trim();

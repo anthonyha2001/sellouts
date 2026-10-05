@@ -1873,3 +1873,8 @@ span.cc-slipbtn{cursor:default;display:inline-block;}
 .st-table td .st-ib + .st-ib{margin-left:4px;}
 
 .rc-zero{display:inline-block;min-width:22px;padding:1px 6px;border-radius:6px;background:var(--brick);color:#fff;font-weight:700;text-align:center;}
+
+/* Promotions: items live from the system (owner, 2026-10-06) */
+.live-zone{cursor:default;}
+.live-zone .live-refresh{margin-left:auto;flex:0 0 auto;}
+.live-zone .live-refresh svg{width:17px;height:17px;stroke:currentColor;}
