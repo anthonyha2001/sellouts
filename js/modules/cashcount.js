@@ -119,7 +119,7 @@
     // The system's total: cash and every card line (points included), in LBP; and the same for the count.
     const sysTotalLbpEq = sysCashLbpEq + cards.reduce((t, x) => t + x.system.lbp + x.system.usd * rate, 0);
     const countedTotalLbpEq = cashLbpEq + cards.reduce((t, x) => t + x.counted.lbp + x.counted.usd * rate, 0);
-    const margin = Math.round(sysTotalLbpEq / 1e6 * 1000);     // 1,000 LBP allowed per 1,000,000 of the system's total
+    const margin = Math.max(0, Math.round(sysTotalLbpEq / 1e6 * 1000));     // 1,000 LBP allowed per 1,000,000 of the system's total
     // Within the margin: nothing; beyond it: only what is beyond.
     const afterMargin = !hasSystem || Math.abs(total) <= margin ? 0 : Math.round(total - Math.sign(total) * margin);
     const posted = c.posted_at ? Math.round(n(c.posted_amount)) : null;
@@ -476,7 +476,10 @@
     box.addEventListener('input', e => {
       const t = e.target;
       if (!t.classList.contains('cc-in')) return;
-      const q = parseAmount(t.value), v = t.value.trim() === '' ? '' : q ? String(q.amount) : String(t.value).replace(/[^\d.]/g, '');
+      // The system's figures can be negative (refunds, returns): a leading minus is kept there and counts as negative.
+      const neg = !!(t.dataset.sys || t.dataset.syscard) && /^\s*[-−]/.test(t.value), raw = t.value.replace(/^\s*[-−]/, '');
+      const q = parseAmount(raw), abs = raw.trim() === '' ? '' : q ? String(q.amount) : String(raw).replace(/[^\d.]/g, '');
+      const v = neg && abs !== '' ? '-' + abs : abs;
       if (t.dataset.bill) {
         const k = t.dataset.bill; c[k] = { ...(c[k] || {}) }; if (n(v)) c[k][t.dataset.b] = Math.round(n(v)); else delete c[k][t.dataset.b];
         box.querySelector(`[data-amt="${k}-${t.dataset.b}"]`).textContent = (k === 'lbp' ? lbp : usd)(Number(t.dataset.b) * n(c[k][t.dataset.b]));
@@ -492,7 +495,9 @@
       refreshNumbers();
     });
     // Big LBP amounts read better with separators: 2,710,000 (when leaving the box).
-    box.addEventListener('focusout', e => { const t = e.target; if (!t.classList?.contains('cc-in') || t.dataset.bill || t.dataset.cur === 'usd' || t.dataset.sys === 'cash_usd' || t.dataset.exp === 'usd' || t.value === '') return; t.value = lbp(t.value); });
+    box.addEventListener('focusout', e => { const t = e.target; if (!t.classList?.contains('cc-in') || t.dataset.bill || t.dataset.cur === 'usd' || t.dataset.sys === 'cash_usd' || t.dataset.exp === 'usd' || t.value === '') return;
+      const neg = /^\s*[-−]/.test(t.value), raw = t.value.replace(/^\s*[-−]/, ''), q = parseAmount(raw), val = q ? q.amount : n(raw);   // "150k" -> 150,000
+      t.value = lbp(neg && (t.dataset.sys || t.dataset.syscard) ? -val : val); });
     box.addEventListener('click', async e => {
       const fb = e.target.closest('[data-foundkey]');
       if (fb) {
