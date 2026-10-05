@@ -20,7 +20,8 @@
     out_of_stock: { label: 'Out of stock', icon: svgIc('<path d="M21 8 12 3 3 8v8l9 5 9-5Z"/><path d="M3 8l9 5 9-5M12 13v8"/>'), cls: 'warn' },
   };
   // Why an item is on the list (migration 047).
-  const REASONS = { starts: ['New price', 'active'], ends: ['Back to normal price', 'warn'], recheck: ['Re-check: was wrong', 'danger'] };
+  const REASONS = { starts: ['New price', 'active'], ends: ['Back to normal price', 'warn'], recheck: ['Re-check: was wrong', 'danger'],
+    price_changed: ['Price changed in the system', 'warn'] };   // the nightly price watch (owner, 2026-10-06; migration 064)
   const PROBLEMS = ['wrong_price', 'missing_tag', 'out_of_stock'];
   const PHOTO_BUCKET = 'floor-photos';
   const S = { tab: 'today', check: null, items: [], filter: 'todo', started: false, openNote: null, checks: [], results: new Map(), photoUrls: new Map(),
@@ -66,13 +67,16 @@
       if (error) { fail('Could not load the promotion items', error); return { sellouts, promotions: [] }; }
       promotions.forEach(p => { p.rows = rows.filter(r => r.promotion_id === p.id); });
     }
-    return { sellouts, promotions };
+    // The system's price changed (nightly watch, migration 064): since the last check, or the last 2 days.
+    const { data: changes } = await sb.from('item_price_watch').select('code, description, price, sale_price, prev_price, prev_sale_price, sources, changed_at')
+      .gte('changed_at', new Date(`${since || addDaysStr(today, -2)}T00:00:00`).toISOString());
+    return { sellouts, promotions, priceChanges: changes || [] };
   }
   const numOrNull = v => (v === null || v === undefined || v === '' ? null : Number(v));
   // mode 'full': every item running today. mode 'changes' (since = the last check's day): items that start
   // (or were switched on) since, items that ended (or were switched off) since — expected back at the normal
   // price — and `rechecks` (last time's open problems).
-  function itemsFor({ sellouts, promotions }, mode = 'full', since = null, rechecks = []) {
+  function itemsFor({ sellouts, promotions, priceChanges = [] }, mode = 'full', since = null, rechecks = []) {
     const today = todayStr();
     const out = [];
     const priorityOf = x => (x.from === today || x.to === today) ? 0 : 1;
@@ -111,6 +115,17 @@
           expected_price: ends ? normal : numOrNull(r.promo_price), old_price: ends ? numOrNull(r.promo_price) : normal, priority: priorityOf(pm),
           barcode: String(r.barcode || '').trim() });
       });
+    });
+    // The system's price changed (an item already listed today is not listed twice): check the shelf tag.
+    const listed = new Set(out.map(x => String(x.code || '').trim().toUpperCase()));
+    priceChanges.forEach(c => {
+      const code = String(c.code || '').trim(); if (!code || listed.has(code.toUpperCase())) return;
+      const src = (Array.isArray(c.sources) ? c.sources : [])[0]; if (!src) return;
+      listed.add(code.toUpperCase());
+      out.push({ source: src.kind === 'promotion' ? 'promotion' : 'sellout', ...(src.kind === 'promotion' ? { promotion_id: src.id } : { sellout_id: src.id }),
+        source_name: src.name || '', supplier: src.supplier || src.name || '', item_key: `pc:${code}:${String(c.changed_at).slice(0, 10)}`, item_row: 0,
+        category: null, reason: 'price_changed', code, description: c.description || '',
+        expected_price: numOrNull(c.price), old_price: numOrNull(c.prev_price), priority: 0 });
     });
     // Last time's wrong prices / missing tags, still open: checked again (first in their group).
     const have = new Set(out.map(x => x.item_key));
@@ -222,7 +237,7 @@
         body.innerHTML = `<div class="card fc-start">
           <p class="big">Today's floor check</p>
           ${plan.items.length ? `<p>Only what changed since ${plan.since ? esc(fmtDate(plan.since)) : 'your last check'}:</p>
-            <ul class="fc-plan">${line('starts', 'new prices (starting)')}${line('ends', 'back to the normal price (ended)')}${line('recheck', 'wrong last time, to check again')}</ul>
+            <ul class="fc-plan">${line('starts', 'new prices (starting)')}${line('ends', 'back to the normal price (ended)')}${line('recheck', 'wrong last time, to check again')}${line('price_changed', 'price changed in the system')}</ul>
             <button class="btn" id="fcStart">Start — ${plan.items.length} item${plan.items.length === 1 ? '' : 's'}</button>`
             : '<p>Nothing changed since your last check: no sell-out or promotion started or ended, and no problem is open.</p>'}
           <p class="muted-note fc-full-note">Want to go over every item running today instead? <button type="button" class="link-btn" id="fcStartFull">Check everything</button></p>
@@ -338,7 +353,7 @@
       <p class="fc-sheet-desc">${esc(x.description || '')}</p>
       <p class="fc-sheet-label">The label must say</p>
       <p class="fc-sheet-price">${x.expected_price === null ? '<span class="muted-note">No price set</span>' : price(x.expected_price)}</p>
-      ${x.old_price !== null && x.old_price !== undefined ? `<p class="muted-note fc-sheet-old">${x.reason === 'ends' ? 'Promotion price was' : 'Normal price'} <s>${price(x.old_price)}</s></p>` : ''}
+      ${x.old_price !== null && x.old_price !== undefined ? `<p class="muted-note fc-sheet-old">${x.reason === 'ends' ? 'Promotion price was' : x.reason === 'price_changed' ? 'Price was' : 'Normal price'} <s>${price(x.old_price)}</s></p>` : ''}
       ${x.status !== 'pending' ? `<p class="muted-note">Already answered: <b>${STATUSES[x.status]?.label || ''}</b></p>` : ''}
       <div class="fc-sheet-ok"><button type="button" class="fc-btn fc-btn-ok fc-big" data-sheet="ok">${STATUSES.ok.icon}Correct</button></div>
       <div class="fc-sheet-bad">${PROBLEMS.map(k => `<button type="button" class="fc-btn fc-btn-${STATUSES[k].cls}" data-sheet="${k}">${STATUSES[k].icon}${STATUSES[k].label}</button>`).join('')}</div>

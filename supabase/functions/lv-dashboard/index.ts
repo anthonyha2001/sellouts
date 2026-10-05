@@ -64,11 +64,88 @@ async function search(q: string, branch = BRANCH): Promise<Item[]> {
   return Array.isArray(d) ? d as Item[] : [];
 }
 
+/* ---------------- price watch (owner, 2026-10-06; migration 064) ----------------
+   The items of the running sell-outs (not online-only) and promotions; up to `limit` of them not read in the
+   last 20 hours get their price read now. A price (or normal price) not the one kept = changed_at / prev_*. */
+async function priceWatch(limit: number) {
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Beirut' });
+  const watch = new Map<string, Record<string, unknown>[]>();
+  const add = (code: unknown, src: Record<string, unknown>) => {
+    const c = String(code ?? '').trim(); if (!c || c.length > 30) return;
+    const l = watch.get(c) || []; if (!l.some(x => x.kind === src.kind && x.id === src.id)) l.push(src); watch.set(c, l);
+  };
+  const { data: so, error: e1 } = await db.from('sellouts').select('id, name, supplier, from, to, active, archived, online, items, priced_items');
+  if (e1) throw e1;
+  (so || []).filter(s => !s.archived && !s.online && (s.active || (s.from <= today && today <= s.to))).forEach(s => {
+    const src = { kind: 'sellout', id: s.id, name: s.name, supplier: s.supplier || '' };
+    if (Array.isArray(s.priced_items) && s.priced_items.length) s.priced_items.forEach((p: Record<string, unknown>) => add(p.code, src));
+    else (Array.isArray(s.items) ? s.items : []).forEach((r: Record<string, unknown>) => {
+      const k = Object.keys(r).find(x => /^(code|item|item ?code|itemcode)$/i.test(x.trim())) || Object.keys(r)[0];
+      add(k ? r[k] : '', src);
+    });
+  });
+  const { data: pr, error: e2 } = await db.from('promotions').select('id, name, from_date, to_date, archived').eq('archived', false).lte('from_date', today).gte('to_date', today);
+  if (e2) throw e2;
+  if (pr?.length) {
+    const { data: rows, error: e3 } = await db.from('promotion_rows').select('promotion_id, code, supplier').in('promotion_id', pr.map(p => p.id));
+    if (e3) throw e3;
+    (rows || []).forEach(r => { const p = pr.find(x => x.id === r.promotion_id); if (p) add(r.code, { kind: 'promotion', id: p.id, name: p.name || 'Promotion', supplier: r.supplier || '' }); });
+  }
+  const codes = [...watch.keys()];
+  // what we already know
+  const known = new Map<string, Record<string, unknown>>();
+  for (let i = 0; i < codes.length; i += 500) {
+    const { data, error } = await db.from('item_price_watch').select('code, price, sale_price, checked_at').in('code', codes.slice(i, i + 500));
+    if (error) throw error;
+    (data || []).forEach(r => known.set(r.code, r));
+  }
+  const stale = Date.now() - 20 * 3600e3;
+  const due = codes.filter(c => { const k = known.get(c); return !k || !k.checked_at || new Date(String(k.checked_at)).getTime() < stale; }).slice(0, Math.min(300, Math.max(1, limit)));
+  const keyOf = (c: string) => c.replace(/^0+(?=\d)/, '').toUpperCase();
+  let changed = 0, read = 0;
+  const y = year();
+  for (let i = 0; i < due.length; i += 6) {
+    await Promise.all(due.slice(i, i + 6).map(async c => {
+      try {
+        const d = await dash(`/item-price-checker?${new URLSearchParams({ search: c, year: y, branches: BRANCH })}`) as Record<string, unknown>;
+        const br = ((d.branches as Record<string, Record<string, unknown[]>>) || {})[BRANCH] || {};
+        const hit = (Object.values(br).flat() as Record<string, unknown>[]).find(r => keyOf(String(r.ItemCode ?? '')) === keyOf(c));
+        const now = new Date().toISOString(), k = known.get(c);
+        const row: Record<string, unknown> = { code: c, sources: watch.get(c), checked_at: now };
+        if (hit) {
+          const price = hit.Price === null || hit.Price === undefined ? null : Number(hit.Price), sale = hit.SalePrice === null || hit.SalePrice === undefined ? null : Number(hit.SalePrice);
+          Object.assign(row, { description: String(hit.Description ?? '').trim(), price, sale_price: sale, promoted: !!Number(hit.isPromoted || 0) });
+          const diff = (a: unknown, b: unknown) => a !== null && a !== undefined && b !== null && b !== undefined && Math.abs(Number(a) - Number(b)) >= 0.005;
+          if (k && (diff(k.price, price) || diff(k.sale_price, sale))) { Object.assign(row, { changed_at: now, prev_price: k.price, prev_sale_price: k.sale_price }); changed++; }
+        }
+        const { error } = await db.from('item_price_watch').upsert(row);
+        if (error) console.warn('watch save', c, error.message); else read++;
+      } catch (e) { console.warn('watch', c, e); }
+    }));
+  }
+  // keep the sources of the ones not read this round up to date
+  const rest = codes.filter(c => !due.includes(c) && known.has(c));
+  for (let i = 0; i < rest.length; i += 200) {
+    await Promise.all(rest.slice(i, i + 200).map(c => db.from('item_price_watch').update({ sources: watch.get(c) }).eq('code', c)));
+  }
+  return { watched: codes.length, read, changed, left: codes.filter(c => !known.has(c) || !known.get(c)!.checked_at || new Date(String(known.get(c)!.checked_at)).getTime() < stale).length - due.length };
+}
+
 Deno.serve(async req => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
   let body: Record<string, unknown>;
   try { body = await req.json(); } catch { return json({ error: 'Bad request' }, 400); }
+
+  // The nightly price watch (migration 064), from pg_cron (x-cron-secret) or the server key.
+  if (body.action === 'price_watch') {
+    const cron = req.headers.get('x-cron-secret') || '';
+    let ok = serverKeys().includes(req.headers.get('apikey') || '');
+    if (!ok && cron) { const { data } = await db.rpc('push_keys'); ok = !!data && cron === (data as Record<string, string>).push_cron_secret; }
+    if (!ok) return json({ error: 'Not allowed.' }, 403);
+    try { return json(await priceWatch(Number(body.limit) || 150)); }
+    catch (e) { console.error(e); return json({ error: e instanceof Error ? e.message : 'failed' }, 502); }
+  }
 
   // who is asking: a signed-in, active app user (or the server itself, for "status")
   const bearer = (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '');
