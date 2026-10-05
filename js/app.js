@@ -759,6 +759,62 @@ function liveStatusText() {
   const at = liveState.at ? ' · ' + liveState.at.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '';
   return `${found.length} of ${codes.length} item${codes.length === 1 ? '' : 's'} up to date${tried.length - found.length ? ` · ${tried.length - found.length} not in the system` : ''}${at}`;
 }
+/* ---------------- Last purchase cost (owner, 2026-10-06) ----------------
+   Audit: what was really paid the last time (lv-dashboard last_cost: the last purchase day, its lines per
+   document). A paid line + a line at 100% discount in the same document = a trade deal (30 + 6 free): both
+   lines are shown, with the real cost = paid / all the units. Asked again after 30 minutes. */
+const lastCostCache = new Map();        // code -> { at, v }  (v: { date, docs } or null = no purchase)
+let lastCostQueue = new Set(), lastCostTimer = null, lastCostBusy = false;
+function queueLastCost(codes) {
+  const now = Date.now();
+  (codes || []).forEach(c => { c = String(c ?? '').trim(); if (!c) return; const h = lastCostCache.get(normalizeCatalogCode(c)); if (!h || now - h.at > 30 * 60e3) lastCostQueue.add(c); });
+  if (!lastCostQueue.size) return;
+  clearTimeout(lastCostTimer); lastCostTimer = setTimeout(runLastCost, 250);
+}
+async function runLastCost() {
+  if (lastCostBusy || !lastCostQueue.size) return;
+  lastCostBusy = true;
+  const codes = [...lastCostQueue]; lastCostQueue = new Set();
+  for (let i = 0; i < codes.length; i += 40) {
+    const part = codes.slice(i, i + 40);
+    try {
+      const { data, error } = await sb.functions.invoke('lv-dashboard', { body: { action: 'last_cost', codes: part } });
+      if (error || !data?.costs) throw error || new Error('no answer');
+      const now = Date.now();
+      part.forEach(c => lastCostCache.set(normalizeCatalogCode(c), { at: now, v: data.costs[c] ?? null }));
+    } catch (e) { console.warn('last cost', e); part.forEach(c => lastCostCache.set(normalizeCatalogCode(c), { at: Date.now() - 29 * 60e3, v: undefined })); }
+    paintLastCost();
+  }
+  lastCostBusy = false;
+  if (lastCostQueue.size) runLastCost();
+}
+const lcMoney = n => (Math.round(Number(n) * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const lcQty = n => (Math.round(Number(n) * 1000) / 1000).toLocaleString('en-US');
+// The cell: the real cost first, then the lines of each document of that day.
+function lastCostHtml(row) {
+  const h = lastCostCache.get(normalizeCatalogCode(row.code));
+  if (!row.code) return '';
+  if (!h) return '<span class="muted-note">…</span>';
+  if (h.v === undefined) return '<span class="muted-note" title="The system did not answer">—</span>';
+  if (!h.v) return '<span class="muted-note">no purchase</span>';
+  // the sheet's cost, only when it is a plain number ("1.1 +23%" or "5.74 +25% SELLOUT" can mean several things)
+  const sheetTxt = String(row.cost ?? '').trim(), sheet = /^\$?\s*\d+(\.\d+)?$/.test(sheetTxt) ? Number(sheetTxt.replace(/[^\d.]/g, '')) : 0;
+  const day = new Date(h.v.date + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  return h.v.docs.map(d => {
+    const cur = d.currency || '$', real = d.realCost;
+    const gap = sheet && real ? sheet - real : 0;
+    const lines = d.lines.map(l => l.free ? `${lcQty(l.qty)} free` : `${lcQty(l.qty)} @ ${lcMoney(l.unit)}${l.discountPct ? ` −${l.discountPct}% = ${lcMoney(l.net)}` : ''}`).join(' + ');
+    return `<div class="lp-doc">
+      <b>${cur}${lcMoney(real)}</b>${d.tradeDeal ? ' <span class="lp-deal">trade deal</span>' : ''}${Math.abs(gap) >= 0.005 ? ` <span class="lp-gap ${gap > 0 ? 'up' : 'down'}" title="The sheet's cost compared with what was paid">sheet ${gap > 0 ? '+' : '−'}${lcMoney(Math.abs(gap))}</span>` : ''}
+      <div class="lp-sub">${escapeHtml(lines)} · ${escapeHtml(d.doc)} · ${escapeHtml(day)}</div></div>`;
+  }).join('');
+}
+const lastCostText = row => { const h = lastCostCache.get(normalizeCatalogCode(row.code)); if (!h || !h.v) return ''; return h.v.docs.map(d => `${d.currency || '$'}${lcMoney(d.realCost)}${d.tradeDeal ? ' (trade deal ' + d.lines.map(l => l.free ? lcQty(l.qty) + ' free' : lcQty(l.qty) + ' @ ' + lcMoney(l.unit)).join(' + ') + ')' : ''} ${d.doc} ${h.v.date}`).join('; '); };
+function paintLastCost() {
+  document.querySelectorAll('#promoAuditView [data-lp]').forEach(td => {
+    const row = currentRows.find(r => r.id === td.dataset.lp); if (row) td.innerHTML = lastCostHtml(row);
+  });
+}
 function paintLiveZone() { const z = document.getElementById('catZoneInfo'); if (z) z.textContent = liveStatusText(); }
 // Re-runs the catalog lookup for every row that already has a code, against
 // whatever catalog is currently loaded. Rows only get this treatment at the
@@ -2166,6 +2222,7 @@ async function renderPromoWorkspace() {
   const workspace = document.getElementById('promoWorkspace');
   if (!currentPromoId) { workspace.innerHTML = ''; return; }
   queueLiveItems(currentRows.map(r => r.code));
+  if (promoViewMode === 'audit') queueLastCost(currentRows.map(r => r.code));
   const promo = promotions.find(p => p.id === currentPromoId);
   if (!promo) { workspace.innerHTML = ''; return; }
 
@@ -2636,12 +2693,13 @@ function buildSupplierGroupedHtml(rows, mode) {
     return `
       <div class="items-scroll" style="margin-bottom:14px;">
         <table class="items">
-          <thead><tr><th>Code</th><th>Description</th><th style="text-align:right;">Cost</th><th>Type</th><th>Note</th></tr></thead>
+          <thead><tr><th>Code</th><th>Description</th><th style="text-align:right;">Cost</th><th>Last purchase</th><th>Type</th><th>Note</th></tr></thead>
           <tbody>${list.map(r => `
           <tr class="${auditRowClass(r.priceType)}">
             <td>${escapeHtml(r.code)}</td>
             <td>${escapeHtml(r.description)}</td>
             <td style="text-align:right;">${escapeHtml(r.cost || '')}</td>
+            <td class="lp-cell" data-lp="${r.id}">${lastCostHtml(r)}</td>
             <td>${auditTypeButtonsHtml(r)}</td>
             <td><input type="text" class="audit-note-input" data-role="audit-note-input" data-row-id="${r.id}" value="${escapeHtml(r.note || '')}" placeholder="Note"></td>
           </tr>`).join('')}</tbody>
@@ -2744,12 +2802,13 @@ function buildAuditHtml(auditRows) {
   return `
     <div class="items-scroll">
       <table class="items">
-        <thead><tr><th>Code</th><th>Description</th><th style="text-align:right;">Cost</th><th>Type</th><th>Note</th></tr></thead>
+        <thead><tr><th>Code</th><th>Description</th><th style="text-align:right;">Cost</th><th>Last purchase</th><th>Type</th><th>Note</th></tr></thead>
         <tbody>${auditRows.map(r => `
         <tr class="${auditRowClass(r.priceType)}">
           <td>${escapeHtml(r.code)}</td>
           <td>${escapeHtml(r.description)}</td>
           <td style="text-align:right;">${escapeHtml(r.cost || '')}</td>
+          <td class="lp-cell" data-lp="${r.id}">${lastCostHtml(r)}</td>
           <td>${auditTypeButtonsHtml(r)}</td>
           <td><input type="text" class="audit-note-input" data-role="audit-note-input" data-row-id="${r.id}" value="${escapeHtml(r.note || '')}" placeholder="Note"></td>
         </tr>`).join('')}</tbody>
@@ -2772,6 +2831,7 @@ function printAuditTable(promo, auditRows) {
         <th style="text-align:left;padding:6px 8px;border-bottom:2px solid #333;">Code</th>
         <th style="text-align:left;padding:6px 8px;border-bottom:2px solid #333;">Description</th>
         <th style="text-align:right;padding:6px 8px;border-bottom:2px solid #333;">Cost</th>
+        <th style="text-align:left;padding:6px 8px;border-bottom:2px solid #333;">Last purchase</th>
         <th style="text-align:left;padding:6px 8px;border-bottom:2px solid #333;">Type</th>
         <th style="text-align:left;padding:6px 8px;border-bottom:2px solid #333;">Note</th>
       </tr></thead>
@@ -2780,6 +2840,7 @@ function printAuditTable(promo, auditRows) {
         <td style="padding:6px 8px;border-bottom:1px solid #ccc;">${escapeHtml(r.code)}</td>
         <td style="padding:6px 8px;border-bottom:1px solid #ccc;">${escapeHtml(r.description)}</td>
         <td style="padding:6px 8px;border-bottom:1px solid #ccc;text-align:right;">${escapeHtml(r.cost || '')}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #ccc;">${escapeHtml(lastCostText(r))}</td>
         <td style="padding:6px 8px;border-bottom:1px solid #ccc;">${escapeHtml(PRICE_TYPE_LABELS[r.priceType || ''] || '')}</td>
         <td style="padding:6px 8px;border-bottom:1px solid #ccc;">${escapeHtml(r.note || '')}</td>
       </tr>`).join('')}</tbody>

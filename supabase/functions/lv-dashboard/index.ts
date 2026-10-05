@@ -143,6 +143,56 @@ Deno.serve(async req => {
       }
       return json({ items: out });
     }
+    // Last purchase cost (owner, 2026-10-06), up to 60 codes: the day of the last purchase (this year, else last
+    // year), then that day's purchase lines from the item cardex, grouped by document (the PU / PC number).
+    // In one document, a paid line + a line at 100% discount = a trade deal (e.g. 30 + 6 free):
+    // both lines are given, and the real cost = what was paid / all the units received.
+    if (body.action === 'last_cost') {
+      const codes = [...new Set((Array.isArray(body.codes) ? body.codes : []).map(c => String(c).trim()).filter(Boolean))].slice(0, 60);
+      const key = (c: string) => c.replace(/^0+(?=\d)/, '').toUpperCase();
+      const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Beirut' }), y = Number(today.slice(0, 4));
+      const last: Record<string, string> = {};
+      const byItem = (d: unknown) => (((d as Record<string, unknown>)?.data as Record<string, unknown>)?.branches as Record<string, Record<string, unknown>[]>)?.[BRANCH] || [];
+      for (const yr of [y, y - 1]) {
+        const want = codes.filter(c => !last[c]); if (!want.length) break;
+        try {
+          const d = await dash('/items_purchases', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+            branches: [BRANCH], year: String(yr), from_date: `${yr}-01-01`, to_date: yr === y ? today : `${yr}-12-31`, aggregation: 'Daily', group_by: ['item'], item: want }) });
+          const codeOf = new Map(want.map(c => [key(c), c]));
+          byItem(d).forEach(r => { const c = codeOf.get(key(String(r.item ?? ''))); if (c && Number(r.total_quantity || 0) > 0 && String(r.period) > String(last[c] || '')) last[c] = String(r.period); });
+        } catch (e) { console.warn('last purchase', yr, e); }
+      }
+      const r2 = (n: number) => Math.round(n * 10000) / 10000;
+      const costs: Record<string, unknown> = {};
+      const todo = Object.keys(last);
+      for (let i = 0; i < todo.length; i += 6) {
+        await Promise.all(todo.slice(i, i + 6).map(async c => {
+          const day = last[c];
+          try {
+            const d = await dash(`/item-cardex?${new URLSearchParams({ branch: BRANCH, item_code: c, year: day.slice(0, 4), from_date: day, to_date: day })}`) as Record<string, unknown>;
+            const rows = (((d.data as Record<string, unknown>)?.rows || []) as Record<string, unknown>[])
+              .filter(r => String(r.operation_code) === '15' || /purchase/i.test(String(r.operation_label || '')))
+              .filter(r => Number(r.qty_in || 0) > 0);
+            const docs = new Map<string, Record<string, unknown>[]>();
+            rows.forEach(r => { const k = String(r.document_no || r.document_number || '?'); if (!docs.has(k)) docs.set(k, []); docs.get(k)!.push(r); });
+            costs[c] = { date: day, docs: [...docs.entries()].map(([doc, ls]) => {
+              const lines = ls.map(r => {
+                const up = Number(r.unit_price || 0), net = Math.abs(Number(r.net_unit_price || 0)) < 0.005 ? 0 : Number(r.net_unit_price || 0);
+                return { qty: r2(Number(r.qty_in || 0)), unit: r2(up), net: r2(net), total: r2(Number(r.line_total || 0)),
+                  discountPct: up > 0 ? Math.round((1 - net / up) * 100) : 0, free: net === 0 };
+              });
+              const paidQty = lines.filter(l => !l.free).reduce((t, l) => t + l.qty, 0), freeQty = lines.filter(l => l.free).reduce((t, l) => t + l.qty, 0);
+              const paid = lines.reduce((t, l) => t + l.total, 0);
+              return { doc, supplier: String(ls[0].details || ''), currency: String(ls[0].currency || '$'), lines,
+                paidQty: r2(paidQty), freeQty: r2(freeQty), paid: r2(paid), tradeDeal: paidQty > 0 && freeQty > 0,
+                realCost: paidQty + freeQty > 0 ? r2(paid / (paidQty + freeQty)) : null };
+            }) };
+          } catch (e) { console.warn('cardex', c, e); }
+        }));
+      }
+      codes.forEach(c => { if (!(c in costs)) costs[c] = null; });
+      return json({ costs });
+    }
     if (body.action === 'item_search') {
       const q = String(body.search ?? '').trim();
       if (q.length < 2) return json({ items: [] });
