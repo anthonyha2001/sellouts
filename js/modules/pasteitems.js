@@ -13,11 +13,13 @@
   const f2 = v => v === null || v === undefined || v === '' || isNaN(Number(v)) ? '—' : (Math.round(Number(v) * 100) / 100).toFixed(2);
   const newPriceOf = (old, pct) => (old && pct !== null) ? Math.round(Math.round(old * (1 - pct / 100) / 0.05) * 0.05 * 100) / 100 : null;
 
-  function open({ title = 'Paste barcodes and discounts', okLabel = 'Insert', needDiscount = false, extraLink = '' } = {}) {
+  function open({ title = 'Paste barcodes and discounts', okLabel = 'Insert', needDiscount = false, extraLink = '', pickLabel = '' } = {}) {
     return new Promise(resolve => {
       document.getElementById('piOverlay')?.remove();
       document.body.insertAdjacentHTML('beforeend', `<div class="modal-overlay open" id="piOverlay"><div class="modal-box ip-box" role="dialog" aria-modal="true">
         <div class="ip-head"><h3>${esc(title)}</h3><button type="button" class="icon-btn" data-pi="close" title="Close" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+        ${pickLabel && window.ItemPicker ? `<button type="button" class="btn secondary pi-pick" id="piPick"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" style="vertical-align:-3px;stroke:currentColor"><path d="M3 5h18l-7 8v6l-4 2v-8Z"/></svg> ${esc(pickLabel)}</button>
+        <p class="pi-or"><span>or paste barcodes</span></p>` : ''}
         <p class="muted-note" style="margin:0 0 8px;">One item per line: a barcode or an item code, then its discount if it has one (15, 15% or 0.15). Paste the columns from Excel as they are.</p>
         <textarea id="piText" rows="8" class="sp-text" placeholder="5283003400038   15&#10;5281056010266   20%&#10;128420"></textarea>
         <div class="sp-row"><label>Discount for the lines without one <input type="text" inputmode="decimal" id="piDefault" placeholder="${needDiscount ? 'e.g. 10' : 'none'}" style="width:90px;"> %</label>
@@ -33,6 +35,7 @@
       document.addEventListener('keydown', onKey);
       ov.addEventListener('click', e => { if (e.target === ov || e.target.closest('[data-pi="close"]')) done(null); });
       $('piExtra')?.addEventListener('click', () => done({ extra: true }));
+      $('piPick')?.addEventListener('click', () => done({ pick: true }));
       let ready = [];
       const parse = () => {
         const def = $('piDefault').value.trim(), lines = [];

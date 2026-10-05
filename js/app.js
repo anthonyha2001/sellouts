@@ -426,6 +426,35 @@ function renumberRows() {
 }
 // Rows to save after an edit: the edited ones plus every row that changed position.
 const withMoved = (rows, moved) => [...new Set([...rows, ...moved])];
+// Import from the system into the promotion (owner, 2026-10-06), as for sell-outs: pick by supplier, brand, group,
+// sub-group or section, tick the items, give the discount; they go below the row (afterRowId) or at the end, with the
+// normal price, the discount and the promo price. Items already in the promotion are left out.
+async function importFromSystem(afterRowId) {
+  if (!window.ItemPicker) return;
+  const res = await ItemPicker.open({ title: 'Import items from the system', okLabel: 'Next: the discount', withPrices: true });
+  if (!res || !res.items.length) return;
+  const have = new Set(currentRows.map(r => normalizeCatalogCode(r.code)).filter(Boolean));
+  const fresh = res.items.filter(i => !have.has(normalizeCatalogCode(i.code)));
+  if (!fresh.length) return showToast('All these items are already in the promotion.');
+  const v = await showPrompt(`Discount % for these ${fresh.length} item${fresh.length === 1 ? '' : 's'}? Leave blank for none.`, { defaultValue: '', confirmLabel: 'Insert', placeholder: 'e.g. 15' });
+  if (v === null) return;
+  let pct = v.trim() === '' ? null : Number(v.replace('%', '').replace(',', '.'));
+  if (pct !== null && pct > 0 && pct < 1) pct = Math.round(pct * 1000) / 10;
+  if (pct !== null && !(pct > 0 && pct < 100)) return showToast('The discount is a % between 0 and 100, e.g. 15.', true);
+  const at = afterRowId ? currentRows.findIndex(r => r.id === afterRowId) : currentRows.length - 1;
+  const rows = fresh.map(i => {
+    const row = Object.assign(blankPromoRow(), { code: i.code, description: i.description || '', _lastLookupCode: i.code,
+      salePrice: i.salePrice ?? null, beforePrice: i.salePrice ?? null, balance: i.stock ?? null, supplier: i.supplier || '' });
+    if (pct !== null) { row.discount = round2(pct); applyReverseDiscount(row); autoSelloutOnDiscount(row); }
+    return row;
+  });
+  currentRows.splice(at + 1, 0, ...rows);
+  const moved = renumberRows();
+  await renderPromoWorkspace();
+  await persistRowsBulk(withMoved(rows, moved));
+  logActivity('promotions', 'add_from_system', { type: 'promotion', id: currentPromoId }, `Imported ${rows.length} items from the system (${res.by.field}: ${res.by.names.join(', ')})${pct !== null ? ` at ${pct}%` : ''}`);
+  showToast(`${rows.length} item${rows.length === 1 ? '' : 's'} imported${pct !== null ? ` at ${pct}%` : ''}${res.items.length > fresh.length ? ` (${res.items.length - fresh.length} already there)` : ''}.`);
+}
 function blankPromoRow() {
   return { id: uid(), promotionId: currentPromoId, code: '', description: '', promoPrice: null, discount: null, beforePrice: null, salePrice: null, balance: null, priceType: '', supplier: '', flagged: false, reviewed: false, cost: null, country: '', outYtd: null, note: '', sortOrder: currentRows.length, _lastLookupCode: '' };
 }
@@ -2290,7 +2319,7 @@ async function renderPromoWorkspace() {
             <span class="dz-info" id="catZoneInfo">${escapeHtml(liveStatusText())}</span>
             <span class="dz-hint">Description, supplier, price, stock and sales: live, no file needed</span>
           </div>
-          ${window.ItemPicker && can('promotions.edit') ? `<button type="button" class="icon-btn live-refresh" id="liveAddBtn" title="Add items from the system (by supplier, brand, group…)" aria-label="Add items from the system"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></button>` : ''}
+          ${window.ItemPicker && can('promotions.edit') ? `<button type="button" class="btn small live-import" id="liveAddBtn" title="Pick items by supplier, brand, group, sub-group or section, with a discount"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="15" height="15" style="vertical-align:-3px;stroke:currentColor"><path d="M12 5v14M5 12h14"/></svg> Import from the system</button>` : ''}
           <button type="button" class="icon-btn live-refresh" id="liveRefreshBtn" title="Update from the system now" aria-label="Update from the system now"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/></svg></button>
           <label class="dz-threshold" title="Flag an item when its Balance is below this">Low stock under
             <input type="text" inputmode="numeric" id="lowStockZoneInput" value="${escapeHtml(String(lowStockThreshold))}"></label>
@@ -3131,8 +3160,10 @@ function wirePromoRowElement(tr) {
       // Paste barcodes / codes and discounts (owner, 2026-10-06): as many rows as items found, below this row,
       // with the item, its normal price, the discount and the promo price. "Insert empty rows instead" = before.
       if (window.PasteItems) {
-        const res = await PasteItems.open({ title: 'Insert items below this row', okLabel: 'Insert', extraLink: 'Insert empty rows instead' });
+        const res = await PasteItems.open({ title: 'Insert items below this row', okLabel: 'Insert', extraLink: 'Insert empty rows instead',
+          pickLabel: 'Pick from the system: supplier, brand, group, sub-group, section' });
         if (!res) return;
+        if (res.pick) return importFromSystem(rowId);
         if (res.rows) {
           const at = currentRows.findIndex(r => r.id === rowId), added = [];
           res.rows.forEach((x, i) => {
@@ -3351,20 +3382,7 @@ function wirePromoWorkspaceEvents(promo) {
   zonePick('priceDropZone', 'priceSheetInput');
   document.getElementById('liveRefreshBtn')?.addEventListener('click', () => queueLiveItems(currentRows.map(r => r.code), true));
   // Add rows in bulk from the system (owner, 2026-10-06): by supplier, brand, group, sub-group or section.
-  document.getElementById('liveAddBtn')?.addEventListener('click', async () => {
-    const res = await ItemPicker.open({ title: 'Add items from the system', okLabel: 'Add to the promotion' });
-    if (!res || !res.items.length) return;
-    const have = new Set(currentRows.map(r => normalizeCatalogCode(r.code)).filter(Boolean));
-    const fresh = res.items.filter(i => !have.has(normalizeCatalogCode(i.code)));
-    if (!fresh.length) return showToast('All these items are already in the promotion.');
-    let order = Math.max(0, ...currentRows.map(r => Number(r.sortOrder) || 0));
-    const rows = fresh.map(i => Object.assign(blankPromoRow(), { code: i.code, description: i.description || '', sortOrder: ++order }));
-    currentRows.push(...rows);
-    await persistRowsBulk(rows);
-    logActivity('promotions', 'add_from_system', { type: 'promotion', id: currentPromoId }, `Added ${rows.length} items from the system (${res.by.field}: ${res.by.names.join(', ')})`);
-    showToast(`${rows.length} item${rows.length === 1 ? '' : 's'} added${res.items.length > fresh.length ? ` (${res.items.length - fresh.length} already there)` : ''}. Their details fill in from the system.`);
-    await renderPromoWorkspace();
-  });
+  document.getElementById('liveAddBtn')?.addEventListener('click', () => importFromSystem(null));
   // The threshold box in the catalog zone hands its value to the original setting input.
   document.getElementById('lowStockZoneInput').addEventListener('change', e => {
     const orig = document.getElementById('lowStockInput');
