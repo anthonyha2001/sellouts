@@ -7,6 +7,11 @@
    each with where it was last seen (a sell-out or promotion that ended),
    if anywhere. Download: the list of the items not found, or the file as
    it came with a "Check" column (NOT FOUND on those rows).
+   Prices (owner, 2026-10-05): an item found in the app whose price in the
+   file is not the app's promo price (in any of the sell-outs / promotions
+   it is in) is listed apart, with both prices. Items sold by the kilo (/KG):
+   a promotion price for 200 g or 100 g (x5 / x10 = the file's price per kg)
+   is the same price.
    Codes match with or without leading zeros ("0124" = "124").
    Everything runs in this browser; nothing is changed in the app.
    Public API: window.Reconcile = { mount(container) }.
@@ -14,6 +19,8 @@
 (function () {
   const esc = escapeHtml;
   const key = c => { const s = String(c ?? '').trim().replace(/\.0+$/, ''); return s.replace(/^0+(?=\d)/, '').toUpperCase(); };
+  const num = v => { if (v === null || v === undefined || v === '') return null; const x = Number(String(v).replace(/[^\d.-]/g, '')); return Number.isFinite(x) ? x : null; };
+  const money = v => v === null ? '—' : (Math.round(v * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const norm = h => String(h ?? '').trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
   const CODE_HEADERS = ['item', 'code', 'item code', 'itemcode', 'item no', 'item number', 'article', 'sku'];
   const R = { host: null, file: null, rows: null, header: null, cols: null, result: null, busy: false };
@@ -51,7 +58,7 @@
     ]);
     if (e1 || e2) throw e1 || e2;
     const promos = pr || [];
-    const { data: rows, error: e3 } = promos.length ? await sb.from('promotion_rows').select('promotion_id, code') : { data: [] };
+    const { data: rows, error: e3 } = promos.length ? await sb.from('promotion_rows').select('promotion_id, code, promo_price') : { data: [] };
     if (e3) throw e3;
     const now = new Map(), past = new Map();   // code key -> [where]
     const put = (m, k, v) => { if (!k) return; if (!m.has(k)) m.set(k, []); m.get(k).push(v); };
@@ -59,14 +66,14 @@
       const live = s.active && !s.archived;
       const shape = { items: s.items || [], pricedItems: Array.isArray(s.priced_items) ? s.priced_items : null, priceColumn: s.price_column };
       let codes = [];
-      try { codes = pricedRowsOf(shape).map(p => p.code); } catch (e) { codes = []; }
-      codes.forEach(c => put(live ? now : past, key(c), { kind: s.online ? 'Online sell-out' : 'Sell-out', name: s.name, to: s.to, archived: s.archived }));
+      try { codes = pricedRowsOf(shape).map(p => ({ code: p.code, price: p.newPrice })); } catch (e) { codes = []; }
+      codes.forEach(c => put(live ? now : past, key(c.code), { kind: s.online ? 'Online sell-out' : 'Sell-out', name: s.name, to: s.to, archived: s.archived, price: num(c.price) }));
     });
     const byId = new Map(promos.map(p => [p.id, p]));
     (rows || []).forEach(r => {
       const p = byId.get(r.promotion_id); if (!p) return;
       const live = !p.archived && (!p.from_date || p.from_date <= today) && (!p.to_date || p.to_date >= today);
-      put(live ? now : past, key(r.code), { kind: 'Promotion', name: p.name, to: p.to_date, archived: p.archived });
+      put(live ? now : past, key(r.code), { kind: 'Promotion', name: p.name, to: p.to_date, archived: p.archived, price: num(r.promo_price) });
     });
     return { now, past, sellouts: (so || []).filter(s => s.active && !s.archived).length, promotions: promos.filter(p => !p.archived && (!p.from_date || p.from_date <= today) && (!p.to_date || p.to_date >= today)).length };
   }
@@ -112,8 +119,17 @@
           group: [cell(r, c.group), cell(r, c.sub)].filter(Boolean).join(' › '),
           found: app.now.get(k) || null, last };
       });
+      items.forEach(x => {
+        if (!x.found) return;
+        const fp = num(x.price), withPrice = x.found.filter(w => w.price !== null);
+        x.filePrice = fp;
+        // Items sold by the kilo: the promotion often gives the price of 200 g or 100 g (2.10 = 10.50 / kg): the same price.
+        const perKg = /\/\s*KG\b|\bPER\s*KG\b/i.test(x.desc);
+        const same = w => Math.abs(w.price - fp) < 0.005 || (perKg && [5, 10].some(m => Math.abs(w.price * m - fp) < 0.011));
+        x.priceOff = fp !== null && withPrice.length > 0 && !withPrice.some(same);
+      });
       R.file = file.name; R.sheet = sheet; R.result = { items, app };
-      logActivity('tools', 'reconcile', null, `Checked ${items.length} promotion items from "${file.name}" against the sell-outs and promotions: ${items.filter(x => !x.found).length} not found`);
+      logActivity('tools', 'reconcile', null, `Checked ${items.length} promotion items from "${file.name}" against the sell-outs and promotions: ${items.filter(x => !x.found).length} not found, ${items.filter(x => x.priceOff).length} with a different price`);
       renderResult();
     } catch (err) {
       console.error(err);
@@ -123,7 +139,7 @@
 
   function renderResult() {
     const { items, app } = R.result;
-    const miss = items.filter(x => !x.found), found = items.length - miss.length;
+    const miss = items.filter(x => !x.found), found = items.length - miss.length, off = items.filter(x => x.priceOff);
     const dup = new Map(); items.forEach(x => dup.set(key(x.code), (dup.get(key(x.code)) || 0) + 1));
     el('rcOut').innerHTML = `
       <div class="card rc-sum">
@@ -131,10 +147,12 @@
           <div><b>${items.length}</b><span>items in the file</span></div>
           <div class="ok"><b>${found}</b><span>in a running sell-out or promotion</span></div>
           <div class="${miss.length ? 'bad' : 'ok'}"><b>${miss.length}</b><span>not found</span></div>
+          <div class="${off.length ? 'warn' : 'ok'}"><b>${off.length}</b><span>found, but the price differs</span></div>
         </div>
         <p class="muted-note" style="margin:10px 0 0;">"${esc(R.file)}" · compared with ${app.sellouts} running sell-out${app.sellouts === 1 ? '' : 's'} and ${app.promotions} running promotion${app.promotions === 1 ? '' : 's'}.</p>
         <div class="rc-actions">
           <button type="button" class="btn small" id="rcExportMiss" ${miss.length ? '' : 'disabled'}>Download the ${miss.length} not found</button>
+          <button type="button" class="btn small" id="rcExportOff" ${off.length ? '' : 'disabled'}>Download the ${off.length} with a different price</button>
           <button type="button" class="btn secondary small" id="rcExportAll">Download the file with the marks</button>
         </div>
       </div>
@@ -143,11 +161,29 @@
         <tbody>${miss.map(x => `<tr><td class="mono"><b>${esc(x.code)}</b>${dup.get(key(x.code)) > 1 ? ' <span class="badge warn">twice</span>' : ''}</td><td>${esc(x.desc)}</td><td class="rc-type">${esc(x.type)}</td>
           <td class="num">${esc(x.price)}</td><td class="num">${esc(x.old)}</td><td class="rc-group">${esc(x.group)}</td>
           <td>${x.last ? `${esc(x.last.kind)} <b>${esc(x.last.name)}</b>${x.last.to ? ` · ended ${esc(fmtDate(String(x.last.to).slice(0, 10)))}` : ''}${x.last.archived ? ' · archived' : ''}` : '<span class="rc-never">never</span>'}</td></tr>`).join('')}</tbody>
-      </table></div></div>` : '<div class="card"><p style="margin:0;"><b>Every item in the file is in a running sell-out or promotion.</b></p></div>'}`;
+      </table></div></div>` : '<div class="card"><p style="margin:0;"><b>Every item in the file is in a running sell-out or promotion.</b></p></div>'}
+      ${off.length ? `<h4 class="cc-h" style="margin:18px 0 8px;">Found, but the price is not the same</h4>
+      <div class="card" style="padding:0;"><div class="items-scroll" style="margin:0;border:0;"><table class="items rc-table rc-off">
+        <thead><tr><th>Code</th><th>Description</th><th class="num">Price in the file</th><th class="num">Price in the app</th><th class="num">Gap</th><th>Where</th></tr></thead>
+        <tbody>${off.map(x => { const w = x.found.filter(y => y.price !== null), best = w.slice().sort((a, b) => Math.abs(a.price - x.filePrice) - Math.abs(b.price - x.filePrice))[0];
+          return `<tr><td class="mono"><b>${esc(x.code)}</b></td><td>${esc(x.desc)}</td><td class="num">${money(x.filePrice)}</td>
+          <td class="num">${w.map(y => money(y.price)).filter((v, i, a) => a.indexOf(v) === i).join(' / ')}</td>
+          <td class="num ${x.filePrice > best.price ? 'rc-up' : 'rc-down'}">${x.filePrice > best.price ? '+' : '-'}${money(Math.abs(x.filePrice - best.price))}</td>
+          <td>${w.map(y => `${esc(y.kind)} <b>${esc(y.name)}</b>`).join('<br>')}</td></tr>`; }).join('')}</tbody>
+      </table></div></div>` : ''}`;
     el('rcExportMiss').onclick = () => exportMissing(miss);
+    el('rcExportOff').onclick = () => exportOff(off);
     el('rcExportAll').onclick = exportMarked;
   }
 
+  function exportOff(off) {
+    const aoa = [['Code', 'Description', 'Price in the file', 'Price in the app', 'Where']];
+    off.forEach(x => { const w = x.found.filter(y => y.price !== null);
+      aoa.push([x.code, x.desc, x.filePrice, w.map(y => y.price).filter((v, i, a) => a.indexOf(v) === i).join(' / '), w.map(y => `${y.kind} ${y.name}`).join(', ')]); });
+    const ws = XLSX.utils.aoa_to_sheet(aoa); ws['!cols'] = [{ wch: 10 }, { wch: 44 }, { wch: 16 }, { wch: 16 }, { wch: 40 }];
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Price differs');
+    XLSX.writeFile(wb, `price-differs-${todayStr()}.xlsx`);
+  }
   function exportMissing(miss) {
     const aoa = [['Code', 'Description', 'Type', 'Price', 'Old price', 'Group', 'Last seen in the app']];
     miss.forEach(x => aoa.push([x.code, x.desc, x.type, x.price, x.old, x.group, x.last ? `${x.last.kind} ${x.last.name}${x.last.to ? ', ended ' + String(x.last.to).slice(0, 10) : ''}` : 'never']));
@@ -162,7 +198,9 @@
     let k = 0;
     for (let r = s.headerIndex + 1; r < out.length; r++) {
       if (String(out[r][s.cols.code] ?? '').trim() === '') continue;
-      const x = items[k++]; out[r][s.header.length] = x && !x.found ? 'NOT FOUND' : '';
+      const x = items[k++];
+      out[r][s.header.length] = !x ? '' : !x.found ? 'NOT FOUND'
+        : x.priceOff ? 'PRICE DIFFERS (app ' + x.found.filter(y => y.price !== null).map(y => money(y.price)).filter((v, i, a) => a.indexOf(v) === i).join(' / ') + ')' : '';
     }
     const ws = XLSX.utils.aoa_to_sheet(out);
     const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, (s.sheet || 'Sheet1').slice(0, 31));
