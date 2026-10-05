@@ -150,7 +150,9 @@ Deno.serve(async req => {
     if (body.action === 'last_cost') {
       const codes = [...new Set((Array.isArray(body.codes) ? body.codes : []).map(c => String(c).trim()).filter(Boolean))].slice(0, 60);
       const key = (c: string) => c.replace(/^0+(?=\d)/, '').toUpperCase();
-      const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Beirut' }), y = Number(today.slice(0, 4));
+      // until (optional): the last purchase on or before that day (a sell-out's credit note uses its last day)
+      const now = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Beirut' });
+      const today = /^\d{4}-\d{2}-\d{2}$/.test(String(body.until || '')) && String(body.until) < now ? String(body.until) : now, y = Number(today.slice(0, 4));
       const last: Record<string, string> = {};
       const byItem = (d: unknown) => (((d as Record<string, unknown>)?.data as Record<string, unknown>)?.branches as Record<string, Record<string, unknown>[]>)?.[BRANCH] || [];
       for (const yr of [y, y - 1]) {
@@ -198,7 +200,7 @@ Deno.serve(async req => {
     if (body.action === 'sales_compare') {
       const codes = [...new Set((Array.isArray(body.codes) ? body.codes : []).map(c => String(c).trim()).filter(Boolean))].slice(0, 300);
       const okDate = (d: unknown) => /^\d{4}-\d{2}-\d{2}$/.test(String(d || ''));
-      const periods = { during: [body.from, body.to], before: [body.baseFrom, body.baseTo] } as Record<string, unknown[]>;
+      const periods = (body.onlyDuring ? { during: [body.from, body.to] } : { during: [body.from, body.to], before: [body.baseFrom, body.baseTo] }) as Record<string, unknown[]>;   // onlyDuring: a sell-out's credit note
       if (!codes.length || !Object.values(periods).every(([a, b]) => okDate(a) && okDate(b) && String(a) <= String(b))) return json({ error: 'Bad dates or no codes.' }, 400);
       const key = (c: string) => c.replace(/^0+(?=\d)/, '').toUpperCase();
       const codeOf = new Map(codes.map(c => [key(c), c]));

@@ -760,6 +760,9 @@ function renderSellouts() {
           <button class="icon-btn" data-role="export" title="Download the sell-out (Excel with the prices)" aria-label="Download the sell-out">
             <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 19h14"/></svg>
           </button>
+          ${window.CreditNote ? `<button class="icon-btn" data-role="credit-note" title="Turnover and credit note (from the system)" aria-label="Turnover and credit note">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"/><path d="M9 7h6M9 11h6M9 15h3"/></svg>
+          </button>` : ''}
           ${archiveBtn}
           <button class="icon-btn danger" data-role="delete" title="Delete sell-out" aria-label="Delete sell-out">
             <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/><path d="M10 11v6M14 11v6"/></svg>
@@ -785,6 +788,7 @@ function renderSellouts() {
       renderSellouts();
     }));
     el.querySelector('[data-role="export"]')?.addEventListener('click', ev => { ev.stopPropagation(); exportSelloutPricing(so); });
+    el.querySelector('[data-role="credit-note"]')?.addEventListener('click', ev => { ev.stopPropagation(); CreditNote.open(so); });
     if (!isEditing && st.view === 'pricing') wirePricingPanel(el, so);
 
     el.querySelector('[data-role="replace-file"]')?.addEventListener('click', ev => { ev.stopPropagation(); pickReplacement(so); });
