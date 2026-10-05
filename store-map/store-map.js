@@ -175,6 +175,25 @@
   // A temporary display (owner, 2026-10-04): the spot is filled for now (the store's own goods, or a supplier
   // for a while) but is still for rent — not counted as rented, no amount, shown as available to renters.
   const isTemp = c => !!c && c.term === 'temporary';
+  // Libraries loaded on first use (owner, 2026-10-06): jsPDF (the map PDF) and pdf.js (a PDF floor plan).
+  let jsPdfP = null, pdfjsP = null;
+  function loadJsPdf() {
+    if (!jsPdfP) jsPdfP = new Promise((res, rej) => {
+      if (global.jspdf) return res(global.jspdf.jsPDF);
+      const s = document.createElement('script'); s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+      s.onload = () => res(global.jspdf.jsPDF); s.onerror = () => { jsPdfP = null; rej(new Error('PDF library')); }; document.head.appendChild(s);
+    });
+    return jsPdfP;
+  }
+  async function pdfFirstPage(file) {
+    if (!pdfjsP) pdfjsP = import('https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs').then(m => { m.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs'; return m; });
+    const pdfjs = await pdfjsP, pdf = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise, page = await pdf.getPage(1);
+    const v1 = page.getViewport({ scale: 1 }), scale = Math.min(4, 3000 / Math.max(v1.width, v1.height)), vp = page.getViewport({ scale });
+    const c = document.createElement('canvas'); c.width = Math.round(vp.width); c.height = Math.round(vp.height);
+    const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
+    await page.render({ canvasContext: g, viewport: vp }).promise;
+    return c.toDataURL('image/jpeg', 0.85);
+  }
   const ENDING_DAYS = 30;
 
   /* ---------------- small helpers ---------------- */
@@ -198,7 +217,7 @@
     copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>',
     rotate: '<path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/>',
     undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/>', redo: '<path d="m15 14 5-5-5-5"/><path d="M20 9H10a6 6 0 0 0 0 12h3"/>',
-    download: '<path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 19h14"/>', image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 17-5-5-9 8"/>',
+    download: '<path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 19h14"/>', mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/>', image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 17-5-5-9 8"/>',
     layers: '<path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 13 9 5 9-5"/>', history: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/>',
     list: '<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>', check: '<path d="M20 6 9 17l-5-5"/>'
   };
@@ -466,6 +485,7 @@
           <div class="sm-menu-wrap">
             <button class="sm-btn" data-role="export">${ic('download')} Export</button>
             <div class="sm-menu" hidden>
+              <button data-exp="pdf">Download PDF</button>
               <button data-exp="print">Print this floor</button>
               <button data-exp="png">Download image (PNG)</button>
               <button data-exp="svg">Download drawing (SVG)</button>
@@ -1350,6 +1370,7 @@
               ${!shown.paid ? `<button class="sm-btn" data-c="paid" data-id="${shown.id}">Mark paid</button>` : ''}
               ${active && !upcoming.length ? `<button class="sm-btn primary" data-c="renew" data-id="${shown.id}">Renew</button>` : ''}
               ${active ? `<button class="sm-btn" data-c="endnow" data-id="${shown.id}">End today</button>` : ''}
+              <button class="sm-btn" data-c="email" data-id="${shown.id}">${ic('mail')} Email</button>
             </div>` : ''}</div>`;
         } else {
           const last = list[0];
@@ -1359,6 +1380,7 @@
             ${can ? `<div class="sm-actions">
               ${status === 'expired' ? `<button class="sm-btn primary" data-c="renew" data-id="${last.id}">Renew for ${esc(last.supplier)}</button>` : ''}
               <button class="sm-btn ${status === 'expired' ? '' : 'primary'}" data-c="new">${status === 'nocontract' ? `Add contract for ${esc(o.occupant)}` : 'Rent this spot'}</button>
+              <button class="sm-btn" data-c="email">${ic('mail')} Email (inquiry)</button>
             </div>` : ''}</div>`;
         }
         body += `<div class="sm-p-sec sm-money"><h4>History</h4>${list.length ? `<ul class="sm-list sm-hist">${list.map(c => `
@@ -1508,6 +1530,7 @@
     async contractAction(act, id, o) {
       const c = this.contracts.find(x => x.id === id);
       const t = this.today();
+      if (act === 'email') return this.emailSpot(o, c || null);
       if (act === 'new') {
         this.contractForm = { spotId: o.id, supplier: o.occupant || '', term: 'yearly', start: t, end: addDays(addYears(t, 1), -1), amount: '', billed: false, paid: false };
         return this.renderPanel();
@@ -1752,9 +1775,9 @@
             <label>Height<input class="sm-input" name="height" inputmode="numeric" value="${f.height}"></label>
           </form></div>
           <div class="sm-p-sec"><h4>Tracing image</h4>
-            <p class="sm-hint" style="margin:0 0 8px">Put a picture of the floor plan behind the map to trace over it (a screenshot or photo of the PDF works). It is only a guide, and you can hide it.</p>
+            <p class="sm-hint" style="margin:0 0 8px">Put the floor plan behind the map to trace over it: a PDF (its first page) or a picture. It is only a guide, and you can hide it.</p>
             <div class="sm-actions" style="margin-top:0">
-              <label class="sm-btn">${ic('image')} ${tr.src ? 'Replace image' : 'Upload image'}<input type="file" accept="image/*" data-role="traceimg" hidden></label>
+              <label class="sm-btn">${ic('image')} ${tr.src ? 'Replace image' : 'Upload image'}<input type="file" accept="image/*,application/pdf" data-role="traceimg" hidden></label>
               ${tr.src ? `<button class="sm-btn" data-role="tracetoggle">${tr.visible === false ? 'Show' : 'Hide'}</button><button class="sm-btn danger" data-role="traceremove">Remove</button>` : ''}
             </div>
             ${tr.src ? `<label class="sm-hint" style="display:block;margin-top:10px">Opacity <input type="range" min="0.05" max="1" step="0.05" value="${tr.opacity ?? 0.35}" data-role="traceop" style="width:100%"></label>` : ''}
@@ -1767,22 +1790,30 @@
           Object.assign(f, n); await this.call(() => this.adapter.saveFloor(f), 'Could not save the floor');
           this.renderFloors(); this.renderSvg(); this.renderBar();
         };
-        P.querySelector('[data-role="traceimg"]').onchange = (e) => {
+        P.querySelector('[data-role="traceimg"]').onchange = async (e) => {
           const file = e.target.files[0]; if (!file) return;
-          if (file.size > 6 * 1024 * 1024) return this.toast('That image is over 6 MB — please use a smaller one.', true);
-          const rd = new FileReader();
-          rd.onload = async () => {
+          const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+          if (file.size > (isPdf ? 25 : 6) * 1024 * 1024) return this.toast(`That file is over ${isPdf ? 25 : 6} MB — please use a smaller one.`, true);
+          const useImage = (src) => {
             const img = new Image();
             img.onload = async () => {
               // fit the picture to the floor's width, keeping its proportions
               const w = f.width, h = Math.round(f.width * img.height / img.width);
-              f.trace = { src: rd.result, x: 0, y: 0, w, h, opacity: 0.35, visible: true };
+              f.trace = { src, x: 0, y: 0, w, h, opacity: 0.35, visible: true };
               if (h > f.height) f.height = h;
               await this.call(() => this.adapter.saveFloor(f), 'Could not save the tracing image');
               this.renderSvg(); this.renderPanel(); this.fit();
             };
-            img.src = rd.result;
+            img.onerror = () => this.toast('Could not read that picture.', true);
+            img.src = src;
           };
+          if (isPdf) {
+            try { this.toast('Reading the PDF…'); useImage(await pdfFirstPage(file)); }
+            catch (err) { console.error(err); this.toast('Could not read that PDF.', true); }
+            return;
+          }
+          const rd = new FileReader();
+          rd.onload = () => useImage(rd.result);
           rd.readAsDataURL(file);
         };
         P.querySelector('[data-role="tracetoggle"]')?.addEventListener('click', async () => { f.trace.visible = f.trace.visible === false; await this.call(() => this.adapter.saveFloor(f), 'Could not save'); this.renderSvg(); this.renderPanel(); });
@@ -1966,11 +1997,113 @@
       clone2.removeAttribute('class'); clone2.removeAttribute('style');
       return new XMLSerializer().serializeToString(clone2);
     }
+    /* ---------------- PDF (owner, 2026-10-06) ---------------- */
+    // A4 landscape: La Valeur header, floor, date, the map, the legend. customer: the store layout (departments,
+    // no rental details of others) with their spot highlighted.
+    async makePdf({ highlight = null, customer = false, title = '' }) {
+      const f = this.floor; if (!f) return null;
+      const jsPDF = await loadJsPdf();
+      let svg;
+      if (customer && this.mode === 'rentals') { this.mode = 'categories'; this.renderSvg(); svg = this.standaloneSvg(); this.mode = 'rentals'; this.renderSvg(); }
+      else svg = this.standaloneSvg();
+      if (highlight) {
+        const o = highlight, w = Math.max(1, o.w), h = Math.max(1, o.h), rot = normRot(o.rot), pad = 10;
+        const mark = `<g transform="translate(${o.x} ${o.y})${rot ? ` rotate(${rot} ${w / 2} ${h / 2})` : ''}">
+          <rect x="${-pad}" y="${-pad}" width="${w + pad * 2}" height="${h + pad * 2}" rx="8" fill="#E53935" fill-opacity="0.22" stroke="#C62828" stroke-width="8"/></g>
+          <g transform="translate(${o.x + w / 2} ${o.y - pad - 18})"><rect x="-95" y="-34" width="190" height="44" rx="10" fill="#C62828"/>
+          <text x="0" y="-4" text-anchor="middle" font-family="Arial, sans-serif" font-size="26" font-weight="700" fill="#fff">${esc(customer ? 'Your spot' : (o.label || 'Spot'))}</text></g>`;
+        svg = svg.replace(/<\/svg>\s*$/, mark + '</svg>');
+      }
+      const png = await new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => {
+          const k = Math.min(1.5, 3200 / Math.max(f.width, f.height)), c = document.createElement('canvas');   // print-sharp on A4, a small file
+          c.width = Math.round(f.width * k); c.height = Math.round(f.height * k);
+          const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, 0, 0, c.width, c.height);
+          resolve(c.toDataURL('image/jpeg', 0.9));
+        };
+        img.onerror = reject;
+        img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+      });
+      const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+      const W = 297, H = 210, M = 12;
+      doc.setFillColor(25, 67, 175); doc.rect(0, 0, W, 18, 'F');
+      doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(15); doc.text('La Valeur — Ajaltoun', M, 12);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.text(fmtD(this.today()), W - M, 12, { align: 'right' });
+      doc.setTextColor(26, 36, 32); doc.setFont('helvetica', 'bold'); doc.setFontSize(13);
+      doc.text(title || `${f.name} — ${customer ? 'store map' : this.mode === 'rentals' ? 'rentals' : 'departments'}`, M, 28);
+      let top = 33;
+      if (highlight) {
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(198, 40, 40);
+        doc.text(`Highlighted in red: ${highlight.label || this.typeOf(highlight).name} (${this.typeOf(highlight).name}, ${f.name})`, M, top); top += 5;
+      }
+      const boxW = W - M * 2, boxH = H - top - 16, r = Math.min(boxW / f.width, boxH / f.height);
+      const iw = f.width * r, ih = f.height * r;
+      doc.setDrawColor(203, 207, 195); doc.rect(M + (boxW - iw) / 2 - 1, top - 1, iw + 2, ih + 2);
+      doc.addImage(png, 'JPEG', M + (boxW - iw) / 2, top, iw, ih);
+      // legend (rentals view only)
+      if (!customer && this.mode === 'rentals') {
+        const css = getComputedStyle(this.el); let x = M;
+        Object.entries(STATUS).filter(([k]) => !(this.opts.hideMoney && k === 'unbilled')).forEach(([k, s]) => {
+          const col = (css.getPropertyValue('--st-' + k) || '#ccc').trim();
+          doc.setFillColor(col); doc.rect(x, H - 11, 4, 4, 'F'); doc.setTextColor(80, 90, 85); doc.setFontSize(8); doc.text(s.label, x + 5.5, H - 8); x += 6 + doc.getTextWidth(s.label) + 5;
+        });
+      } else { doc.setTextColor(120, 128, 122); doc.setFontSize(8); doc.text('La Valeur Supermarché · Ajaltoun · lavaleursupermarche.com', M, H - 8); }
+      return doc.output('blob');
+    }
+
+    /* ---------------- rent / inquiry email (owner, 2026-10-06) ---------------- */
+    // One click: the map with their spot highlighted is saved (a link valid 60 days) and your email app opens with
+    // the message written; you check it and press Send.
+    async emailSpot(o, c) {
+      const f = this.floor, t = this.typeOf(o), rented = !!(c && !isTemp(c));
+      const me = this.opts.userName || '';
+      const spot = o.label || this.nearLabel(o) || t.name;
+      const money = c ? `${this.opts.currency || '$'}${Number(c.amount || 0).toLocaleString('en-US')}${c.term === 'monthly' ? ' per month' : c.term === 'yearly' ? ' per year' : ' for the contract'}` : '';
+      const tpl = {
+        rent: { subject: `La Valeur Ajaltoun — your spot: ${spot}`,
+          body: `Dear ${c?.supplier || ''},\n\nThank you for renting a spot at La Valeur Ajaltoun. Here are the details:\n\nSpot: ${spot} (${t.name}, ${f.name})\n${c ? `Period: ${fmtD(c.start)} to ${fmtD(c.end)}\n` : ''}${c && !this.opts.hideMoney ? `Amount: ${money}\n` : ''}\nThe store map with your spot highlighted in red:\n[MAP LINK]\n\nBest regards,\n${me}\nLa Valeur Ajaltoun` },
+        inquiry: { subject: `La Valeur Ajaltoun — the spot you asked about: ${spot}`,
+          body: `Dear [NAME],\n\nThank you for your interest in renting a spot at La Valeur Ajaltoun.\n\nThe spot you asked about: ${spot} (${t.name}, ${f.name}).\n\nYou can see where it is in the store, highlighted in red:\n[MAP LINK]\n\nWe would be happy to discuss the terms with you.\n\nBest regards,\n${me}\nLa Valeur Ajaltoun` },
+      };
+      let kind = rented ? 'rent' : 'inquiry';
+      const saved = (() => { try { return JSON.parse(localStorage.getItem('lv:rentEmails') || '{}'); } catch (e) { return {}; } })();
+      const res = await this.modal({ title: 'Email with the map', wide: true, ok: 'Open in my email', html: `
+        <form class="sm-form sm-mail" onsubmit="return false">
+          <div class="sm-seg full" data-role="kind"><button type="button" data-k="rent" class="${kind === 'rent' ? 'on' : ''}">Rental</button><button type="button" data-k="inquiry" class="${kind === 'inquiry' ? 'on' : ''}">Inquiry</button></div>
+          <label class="full">To (email)<input class="sm-input" name="to" type="email" placeholder="name@company.com" value="${esc((c && saved[c.supplier]) || '')}"></label>
+          <label class="full">Subject<input class="sm-input" name="subject" value=""></label>
+          <label class="full">Message<textarea class="sm-input" name="body" rows="12"></textarea></label>
+          <p class="sm-hint full" style="margin:0">[MAP LINK] becomes a link to the PDF of the map with this spot highlighted (valid 60 days). Your email app opens with everything written: check it and press Send.</p>
+        </form>`,
+        onOpen: (w) => {
+          const fm = w.querySelector('form'), fill = () => { fm.subject.value = tpl[kind].subject; fm.body.value = tpl[kind].body; };
+          fill();
+          w.querySelectorAll('[data-k]').forEach(b => b.onclick = () => { kind = b.dataset.k; w.querySelectorAll('[data-k]').forEach(x => x.classList.toggle('on', x === b)); fill(); });
+        },
+        collect: (w) => { const fm = w.querySelector('form'); return { to: fm.to.value.trim(), subject: fm.subject.value, body: fm.body.value }; } });
+      if (!res) return;
+      if (c && res.to) { saved[c.supplier] = res.to; try { localStorage.setItem('lv:rentEmails', JSON.stringify(saved)); } catch (e) { /* ignore */ } }
+      // a window opened now (still inside the click) so the browser does not block it; it becomes the email
+      this.toast('Making the map PDF…');
+      let link = '';
+      try {
+        const blob = await this.makePdf({ highlight: o, customer: true, title: `La Valeur Ajaltoun — ${spot}` });
+        link = await this.call(() => this.adapter.sharePdf(blob, spot), 'Could not save the map PDF');
+      } catch (e) { return; }
+      const body = res.body.replace(/\[MAP LINK\]/g, link);
+      this.activity('rental_email', `Email (${kind === 'rent' ? 'rental' : 'inquiry'}) about ${spot}${res.to ? ' to ' + res.to : ''}`, { id: c?.id || null, spotId: o.id, kind, to: res.to });
+      location.href = `mailto:${encodeURIComponent(res.to)}?subject=${encodeURIComponent(res.subject)}&body=${encodeURIComponent(body)}`;
+      try { await navigator.clipboard.writeText(link); } catch (e) { /* not allowed: fine */ }
+      this.toast('Your email app is opening. (The map link is also copied.)');
+    }
+
     download(name, blob) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); }
     exportAs(kind) {
       const f = this.floor; if (!f && kind !== 'csv') return;
       const base = `${(f?.name || 'store').replace(/[^\w-]+/g, '-')}-${this.today()}`;
       if (kind === 'svg') return this.download(base + '.svg', new Blob([this.standaloneSvg()], { type: 'image/svg+xml' }));
+      if (kind === 'pdf') return this.makePdf({}).then(b => b && this.download(base + '.pdf', b)).catch(e => { console.error(e); this.toast('Could not make the PDF.', true); });
       if (kind === 'png') {
         const img = new Image(), svg = this.standaloneSvg();
         img.onload = () => {

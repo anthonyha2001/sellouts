@@ -63,6 +63,14 @@
     }
 
     return {
+      // The map PDF sent by email (owner, 2026-10-06): saved under shared/, a link valid 60 days.
+      async sharePdf(blob, name) {
+        const path = `shared/${new Date().toISOString().slice(0, 10)}-${String(name || 'map').replace(/[^\w-]+/g, '-').slice(0, 40)}-${Math.random().toString(36).slice(2, 8)}.pdf`;
+        must(await sb.storage.from(bucket).upload(path, blob, { contentType: 'application/pdf', upsert: false }));
+        const { data, error } = await sb.storage.from(bucket).createSignedUrl(path, 60 * 60 * 24 * 60);
+        if (error) throw error;
+        return data.signedUrl;
+      },
       async loadConfig() {
         const r = must(await sb.from('store_map_config').select('*').eq('id', 'singleton').maybeSingle());
         return r ? { types: r.types || null, cats: r.cats || null } : null;

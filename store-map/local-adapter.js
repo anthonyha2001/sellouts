@@ -21,6 +21,7 @@
     const delay = (v) => new Promise(r => setTimeout(() => r(clone(v)), 60));
 
     return {
+      async sharePdf(blob) { return URL.createObjectURL(blob); },   // demo: a link on this device only
       async loadConfig() { return delay(read().config || null); },
       async saveConfig(cfg) { read().config = clone(cfg); write(); return delay(cfg); },
 

@@ -89,6 +89,7 @@ const Rentals = (function () {
       canManageRentals: can('rentals.contracts'),
       hideMoney: mapOnly(),
       currency: '$',
+      userName: Session.profile?.display_name || Session.profile?.username || '',   // signs the rent / inquiry email
       today,
       toast: (msg, isError) => showToast(msg, isError),
       confirm: (msg, okLabel) => showConfirm(msg, okLabel),
