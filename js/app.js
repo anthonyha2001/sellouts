@@ -2161,7 +2161,7 @@ function buildPromoRowHtml(row) {
   <tr data-row-id="${row.id}" class="${selectedRowIds.has(row.id) ? 'row-selected' : ''} ${row.toOrder ? 'row-to-order' : ''} ${onSelloutOf(row).length && !row.selloutOk ? 'row-on-sellout' : ''}">
     <td class="rowact-col">
       <div class="icon-actions">
-        <button class="icon-btn" data-role="insert-rows-bulk" tabindex="-1" title="Insert multiple rows below" aria-label="Insert multiple rows below">
+        <button class="icon-btn" data-role="insert-rows-bulk" tabindex="-1" title="Insert items below: paste barcodes and discounts" aria-label="Insert items below">
           <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M3 12h10"/><path d="M17 15v6M14 18h6"/></svg>
         </button>
         <button class="icon-btn danger" data-role="remove-row" tabindex="-1" title="Remove row" aria-label="Remove row">
@@ -3128,6 +3128,27 @@ function wirePromoRowElement(tr) {
     });
 
     tr.querySelector('[data-role="insert-rows-bulk"]').addEventListener('click', async () => {
+      // Paste barcodes / codes and discounts (owner, 2026-10-06): as many rows as items found, below this row,
+      // with the item, its normal price, the discount and the promo price. "Insert empty rows instead" = before.
+      if (window.PasteItems) {
+        const res = await PasteItems.open({ title: 'Insert items below this row', okLabel: 'Insert', extraLink: 'Insert empty rows instead' });
+        if (!res) return;
+        if (res.rows) {
+          const at = currentRows.findIndex(r => r.id === rowId), added = [];
+          res.rows.forEach((x, i) => {
+            const row = Object.assign(blankPromoRow(), { code: x.item.code, description: x.item.description || '', _lastLookupCode: x.item.code,
+              salePrice: x.item.salePrice ?? null, beforePrice: x.item.salePrice ?? null, balance: x.item.stock ?? null, supplier: x.item.supplier || '' });
+            if (x.pct !== null) { row.discount = x.pct; applyReverseDiscount(row); autoSelloutOnDiscount(row); }
+            currentRows.splice(at + 1 + i, 0, row); added.push(row);
+          });
+          const moved = renumberRows();
+          await renderPromoWorkspace();
+          await persistRowsBulk(withMoved(added, moved));
+          logActivity('promotions', 'paste_items', { type: 'promotion', id: currentPromoId }, `Inserted ${added.length} items from pasted barcodes`);
+          showToast(`${added.length} item${added.length === 1 ? '' : 's'} inserted below row ${at + 1}.`);
+          return;
+        }
+      }
       const val = await showPrompt('How many rows do you want to insert below this row?', { defaultValue: '5', confirmLabel: 'Insert rows', placeholder: 'e.g. 5' });
       if (val === null) return;
       const n = parseInt(val, 10);
