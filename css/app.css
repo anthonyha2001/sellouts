@@ -1967,3 +1967,10 @@ span.cc-slipbtn{cursor:default;display:inline-block;}
 .ip-table td.num,.ip-table th.num{text-align:right;font-family:var(--font-mono);}
 .ip-foot{display:flex;align-items:center;gap:8px;margin-top:12px;flex-wrap:wrap;}
 .so-from-system{margin-top:8px;}
+
+/* New sell-out: paste barcodes and discounts (owner, 2026-10-06) */
+.sp-text{width:100%;font-family:var(--font-mono);font-size:13.5px;}
+.sp-row{display:flex;align-items:center;gap:10px;margin:8px 0 10px;flex-wrap:wrap;}
+.sp-row label{display:flex;align-items:center;gap:6px;font-size:13px;}
+.sp-miss td{color:var(--brick);}
+.sp-skip td{color:var(--ink-faint);}

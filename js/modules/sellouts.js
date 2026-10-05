@@ -290,6 +290,96 @@ async function takeSelloutFile(file) {
   renderMappingStep();
 }
 document.getElementById('soFile').addEventListener('change', e => takeSelloutFile(e.target.files[0]));
+// Pasted barcodes with a discount (owner, 2026-10-06): each item keeps its exact % (rule "percent"), so the new price
+// is the app's usual one (normal price - %, to 0.05) and the credit note uses that %.
+function withPastedDiscounts(priced, discounts) {
+  if (!discounts || !discounts.size) return priced;
+  return priced.map(p => {
+    const pct = discounts.get(String(p.code || '').trim());
+    if (pct === undefined) return p;
+    return { ...p, mode: 'percent', value: pct, newPrice: computeNewPrice(p.oldPrice, 'percent', pct) };
+  });
+}
+document.getElementById('soPaste')?.addEventListener('click', openPasteBarcodes);
+function openPasteBarcodes() {
+  document.getElementById('spOverlay')?.remove();
+  document.body.insertAdjacentHTML('beforeend', `<div class="modal-overlay open" id="spOverlay"><div class="modal-box ip-box" role="dialog" aria-modal="true">
+    <div class="ip-head"><h3>Paste barcodes and discounts</h3><button type="button" class="icon-btn" data-sp="close" title="Close" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+    <p class="muted-note" style="margin:0 0 8px;">One item per line: a barcode or an item code, then its discount (15, 15% or 0.15). Paste the two columns from Excel as they are. A line without a discount takes the one below.</p>
+    <textarea id="spText" rows="8" class="sp-text" placeholder="5283003400038   15&#10;5281056010266   20%&#10;128420"></textarea>
+    <div class="sp-row"><label>Discount for lines without one <input type="text" inputmode="decimal" id="spDefault" placeholder="e.g. 10" style="width:90px;"> %</label>
+      <span style="flex:1"></span><button type="button" class="btn" id="spFind">Find the items</button></div>
+    <div id="spResult"></div>
+    <div class="ip-foot"><span class="muted-note" id="spCount"></span><span style="flex:1"></span><button type="button" class="btn" id="spUse" disabled>Use these items</button></div>
+  </div></div>`);
+  const ov = document.getElementById('spOverlay'), $ = id => document.getElementById(id);
+  const close = () => { ov.remove(); document.removeEventListener('keydown', onKey); };
+  const onKey = e => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey);
+  ov.addEventListener('click', e => { if (e.target === ov || e.target.closest('[data-sp="close"]')) close(); });
+  let found = [];
+  // "5283003400038 15" · "5283003400038\t15%" · "128420;0.2" · "128420"
+  const parse = () => {
+    const def = $('spDefault').value.trim(), lines = [];
+    $('spText').value.split(/\r?\n/).forEach(l => {
+      const parts = l.trim().split(/[\s;,|]+/).filter(Boolean); if (!parts.length) return;
+      const token = parts[0].replace(/^'/, '');
+      let d = parts[1] ?? def; d = String(d || '').replace('%', '').trim();
+      let pct = d === '' ? null : Number(d.replace(',', '.'));
+      if (pct !== null && pct > 0 && pct < 1) pct = Math.round(pct * 1000) / 10;   // 0.15 = 15%
+      lines.push({ token, pct: pct !== null && Number.isFinite(pct) && pct > 0 && pct < 100 ? pct : null });
+    });
+    return lines;
+  };
+  $('spFind').onclick = async () => {
+    const lines = parse();
+    if (!lines.length) return showToast('Paste at least one barcode.', true);
+    if (lines.length > 200) return showToast('200 lines at most at a time.', true);
+    $('spFind').disabled = true; $('spFind').textContent = `Finding ${lines.length} item${lines.length === 1 ? '' : 's'}…`;
+    let items = {};
+    try {
+      const { data, error } = await sb.functions.invoke('lv-dashboard', { body: { action: 'items_lookup', tokens: lines.map(l => l.token) } });
+      if (error || !data?.items) throw error || new Error('no answer');
+      items = data.items;
+    } catch (e) { showToast('The system did not answer. Check the "Link to the system" card on the Dashboard.', true); }
+    finally { $('spFind').disabled = false; $('spFind').textContent = 'Find the items'; }
+    const seen = new Set();
+    const rows = lines.map(l => {
+      const it = items[l.token] || null, dup = it && seen.has(it.code); if (it) seen.add(it.code);
+      const old = it ? Number(it.salePrice) : null, np = it && l.pct !== null && old ? computeNewPrice(old, 'percent', l.pct) : null;
+      return { ...l, it, dup, old, np };
+    });
+    found = rows.filter(r => r.it && !r.dup && r.pct !== null);
+    const miss = rows.filter(r => !r.it), noPct = rows.filter(r => r.it && r.pct === null), dups = rows.filter(r => r.dup);
+    const f2 = v => v === null || v === undefined || v === '' ? '—' : (Math.round(Number(v) * 100) / 100).toFixed(2);
+    $('spResult').innerHTML = `
+      ${miss.length || noPct.length || dups.length ? `<p class="cn-warn">${[miss.length ? `${miss.length} not found in the system: ${miss.map(r => escapeHtml(r.token)).join(', ')}` : '',
+        noPct.length ? `${noPct.length} without a discount: ${noPct.map(r => escapeHtml(r.token)).join(', ')}` : '', dups.length ? `${dups.length} twice (kept once)` : ''].filter(Boolean).join(' · ')}</p>` : ''}
+      <div class="items-scroll ip-scroll"><table class="items ip-table"><thead><tr><th>Pasted</th><th>Code</th><th>Description</th><th class="num">Normal price</th><th class="num">Discount</th><th class="num">New price</th><th class="num">Stock</th></tr></thead>
+      <tbody>${rows.map(r => `<tr class="${!r.it ? 'sp-miss' : r.dup || r.pct === null ? 'sp-skip' : ''}"><td class="mono">${escapeHtml(r.token)}</td>
+        <td class="mono">${r.it ? escapeHtml(r.it.code) : ''}</td><td>${r.it ? escapeHtml(r.it.description) : '<b>not found</b>'}</td>
+        <td class="num">${r.it ? f2(r.old) : ''}</td><td class="num">${r.pct === null ? '—' : r.pct + '%'}</td><td class="num"><b>${f2(r.np)}</b></td>
+        <td class="num">${r.it && r.it.stock !== null ? escapeHtml(String(Math.round(Number(r.it.stock) * 100) / 100)) : ''}</td></tr>`).join('')}</tbody></table></div>`;
+    $('spCount').textContent = `${found.length} item${found.length === 1 ? '' : 's'} ready`;
+    $('spUse').disabled = !found.length;
+  };
+  $('spUse').onclick = async () => {
+    const rows = found.map(r => ({ Code: r.it.code, Description: r.it.description, 'Bar Code': r.it.barcode || r.token, 'Sale Price': r.old, 'New Price': r.np,
+      'Discount %': r.pct, Supplier: r.it.supplier || '', Group: r.it.group || '', Brand: r.it.brand || '', Stock: r.it.stock ?? '' }));
+    const ws = XLSX.utils.json_to_sheet(rows), wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Items');
+    const file = new File([XLSX.write(wb, { type: 'array', bookType: 'xlsx' })], `pasted barcodes ${todayStr()}.xlsx`, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    // the supplier most of the items come from
+    const count = {}; found.forEach(r => { const s = r.it.supplier || ''; if (s) count[s] = (count[s] || 0) + 1; });
+    const top = Object.entries(count).sort((a, b) => b[1] - a[1])[0]?.[0] || '';
+    if (top && !document.getElementById('soSupplier').value.trim()) document.getElementById('soSupplier').value = top;
+    if (!document.getElementById('soName').value.trim()) document.getElementById('soName').value = top || 'Sell-out';
+    close();
+    await takeSelloutFile(file);
+    if (pendingImport) pendingImport.discounts = new Map(found.map(r => [String(r.it.code), r.pct]));
+  };
+  setTimeout(() => $('spText').focus(), 30);
+}
 // No file: the items picked from the system (owner, 2026-10-06) become the sell-out's item file, with their
 // prices now (Sale Price = the normal price), so everything after works the same (rule, floor check, credit note).
 document.getElementById('soFromSystem')?.addEventListener('click', async () => {
@@ -341,7 +431,7 @@ document.getElementById('selloutForm').addEventListener('submit', async (e) => {
   const record = {
     id: uid(), name, from, to, note, supplier, online, fileName: file.name, fileBlob: file, items,
     active: false, log: [], notifiedFlags: {},
-    priceColumn: map.price, pricing: null, pricedItems: buildPricedItems(items, map),
+    priceColumn: map.price, pricing: null, pricedItems: withPastedDiscounts(buildPricedItems(items, map), pendingImport.discounts),
     createdAt: new Date().toISOString()
   };
   await idbPut('sellouts', record);

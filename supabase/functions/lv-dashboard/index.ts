@@ -297,6 +297,26 @@ Deno.serve(async req => {
       }
       return json({ items: out });
     }
+    // Pasted barcodes or codes (owner, 2026-10-06), up to 200: the item each one is (its barcode or its code, or
+    // the only answer), with description, normal price, price now, supplier, stock — or null when not found.
+    if (body.action === 'items_lookup') {
+      const tokens = [...new Set((Array.isArray(body.tokens) ? body.tokens : []).map(t => String(t).trim()).filter(Boolean))].slice(0, 200);
+      const key = (c: string) => c.replace(/^0+(?=\d)/, '').toUpperCase();
+      const y = year(), out: Record<string, unknown> = {};
+      for (let i = 0; i < tokens.length; i += 6) {
+        await Promise.all(tokens.slice(i, i + 6).map(async tk => {
+          try {
+            const d = await dash(`/item-price-checker?${new URLSearchParams({ search: tk, year: y, branches: BRANCH })}`) as Record<string, unknown>;
+            const rows = (Object.values(((d.branches as Record<string, Record<string, unknown[]>>) || {})[BRANCH] || {}).flat() as Record<string, unknown>[]);
+            const hit = rows.find(r => key(String(r.Barcode ?? '')) === key(tk)) || rows.find(r => key(String(r.ItemCode ?? '')) === key(tk)) || (rows.length === 1 ? rows[0] : null);
+            const t = (v: unknown) => String(v ?? '').trim();
+            out[tk] = hit ? { code: t(hit.ItemCode), description: t(hit.Description), barcode: t(hit.Barcode), supplier: t(hit.Supplier), group: t(hit.Group), brand: t(hit.Brand),
+              pack: hit.Pack ?? null, price: hit.Price ?? null, salePrice: hit.SalePrice ?? null, promoted: !!Number(hit.isPromoted || 0), stock: hit.AvailableQuantity ?? null } : null;
+          } catch (e) { console.warn('lookup', tk, e); out[tk] = null; }
+        }));
+      }
+      return json({ items: out });
+    }
     // Pick items from the system (owner, 2026-10-06): the lists (supplier, brand, group, sub-group, section…) …
     const FIELDS = ['supplier', 'brand', 'group', 'subgroup', 'section', 'segment', 'subsegment', 'department', 'area'];
     if (body.action === 'filter_options') {
