@@ -44,6 +44,7 @@
       <button class="btn ghost small" id="cpDone" type="button">Log out</button>
     </div>
     <div class="cp-notify" id="cpNotify" hidden></div>
+    <div id="cpCountEntry"></div>
     <div id="cpSchedule"></div>
     <div id="cpReq"></div>
     <div id="cpTeam"></div>
@@ -71,6 +72,9 @@
       </form>
     </details>
   </section>
+
+  <!-- Cash count by a cashier supervisor (js/cashier.js; migration 061) -->
+  <section id="cpCountView" hidden></section>
 
   <p class="muted-note" id="cpBoot">Loading…</p>
 

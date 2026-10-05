@@ -19,6 +19,9 @@
 //   status: 'none' | 'draft' | 'sent' | 'published' (published = read-only); weeks = this week and the next three
 // POST { action: 'draft_create', week_start, copy } -> { ok }  start a week (copy of the week before, or empty)
 // POST { action: 'draft_set', week_start, staff_id, day, code } -> { days }  one cell (schedule_set_cell)
+// Cash count (migration 061; a cashier SUPERVISOR, with their PIN; blind — nothing of a count is ever sent back):
+// POST { action: 'count_init' }                    -> { taken: [{ count_date, pos, shift }], cashiers: [{ id, name, position }], today }
+// POST { action: 'count_submit', count, cashier_pin? } -> { ok, signed }  count = { count_date, pos, shift, cashier_id, lbp, usd, card_items, expense_items }
 // Requests (migration 027; any active cashier or supervisor, with their PIN):
 // POST { action: 'req_get' }                       -> { weeks: [{ week_start, published, days, note, updated_at }] }  the next three weeks
 // POST { action: 'req_save', week_start, days, note } -> { ok }  refused once the week is published
@@ -52,6 +55,8 @@ function beirutMonths() {
   const prev = m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`;
   return [cur, prev];
 }
+// Today in Beirut time, 'YYYY-MM-DD'.
+const beirutToday = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Beirut' });
 // Monday of this week and of next week in Beirut time.
 function beirutWeeks() {
   const d = new Date(new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Beirut' }) + 'T00:00:00Z');
@@ -304,6 +309,39 @@ Deno.serve(async req => {
         return json({ ok: true });
       }
       return json({ error: 'Unknown action' }, 400);
+    }
+
+    // Cash count by a cashier SUPERVISOR (migration 061), blind: they send the count, they never read it back.
+    if (body.action === 'count_init' || body.action === 'count_submit') {
+      const bad = await pinError(body);
+      if (bad) return bad;
+      const { data: me } = await db.from('cashiers').select('name, position, active').eq('id', String(body.cashier_id)).maybeSingle();
+      if (!me || !me.active || me.position !== 'supervisor') return json({ error: 'Only the cashier supervisors can count a drawer.' }, 403);
+
+      if (body.action === 'count_init') {
+        const [{ data: taken, error }, { data: people }] = await Promise.all([
+          db.rpc('cash_count_taken'),
+          db.from('cashiers').select('id, name, position').eq('active', true).order('sort_order').order('name'),
+        ]);
+        if (error) throw error;
+        return json({ taken: taken || [], cashiers: people || [], today: beirutToday() });
+      }
+
+      const count = (body.count && typeof body.count === 'object') ? body.count : {};
+      const cpin = String(body.cashier_pin ?? '');
+      if (cpin && !/^\d{4}$/.test(cpin)) return json({ error: 'The cashier\'s PIN is 4 digits.' }, 400);
+      const { data, error } = await db.rpc('cash_count_from_page', { p_sup: String(body.cashier_id), p_count: count, p_cashier_pin: cpin || null });
+      if (error) return json({ error: error.message || 'Not saved. Try again.' }, 400);
+      const [st, left] = String(data).split(':');
+      if (st === 'exists') return json({ error: 'This POS and shift is already counted on that day.' }, 409);
+      if (st === 'wrong') return json({ error: `Wrong PIN for the cashier${left ? ` (${left} tries left)` : ''}.`, cashier_pin: 'wrong' }, 401);
+      if (st === 'locked') return json({ error: 'The cashier typed too many wrong PINs: they can sign later in the office.', cashier_pin: 'locked' }, 423);
+      if (st === 'no_pin') return json({ error: 'The cashier has no PIN yet: send the count without the signature.', cashier_pin: 'no_pin' }, 403);
+      if (st !== 'ok') return json({ error: 'Not saved. Try again.' }, 400);
+      const c = count as Record<string, unknown>;
+      await logAs(String(body.cashier_id), 'cash_count', `counted the drawer of POS ${c.pos} (${String(c.shift).toUpperCase()}, ${c.count_date})${cpin ? ', signed by the cashier' : ', not signed yet'}`,
+        { pos: c.pos, shift: c.shift, count_date: c.count_date, cashier_id: c.cashier_id, signed: !!cpin });
+      return json({ ok: true, signed: !!cpin });
     }
 
     if (body.action === 'unsubscribe') {

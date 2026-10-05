@@ -52,6 +52,7 @@
     clearTimeout(idleTimer);
     $('cpPin').value = '';
     $('cpView').hidden = true;
+    $('cpCountView').hidden = true;   // a count in progress stays on this phone (lv:ccDraft)
     $('cpLogin').hidden = false;
     $('cpPin').focus();
   }
@@ -371,8 +372,196 @@
     setPushFor(null);
   }
 
+  // ---- Cash count by a cashier supervisor (cashier-view count_*; migration 061), on the phone, BLIND:
+  // the bills (how many of each), the card slips and the expenses one by one — never a total. The cashier signs
+  // with their PIN on this phone (or later in the office). Once sent, the count is gone from the phone.
+  // Until then it is kept on this phone only (lv:ccDraft:<supervisor>), so a closed page loses nothing.
+  const CC_LBP = [100000, 50000, 20000, 10000, 5000, 1000], CC_USD = [100, 50, 20, 10, 5, 1];
+  const CC_CARDS = [['visa_bankmed', 'Visa Bankmed'], ['master_bankmed', 'Master Bankmed'], ['areeba', 'Areeba'], ['ccm_master', 'CCM Master'],
+    ['ccm_visa', 'CCM Visa'], ['on_account', 'On account'], ['amex', 'Amex'], ['voucher', 'Special voucher'], ['points', 'Points']];
+  const CC_SHIFTS = { am: 'AM', pm: 'PM', full: 'Full day' };
+  const cc = { init: null, d: null, type: 'visa_bankmed', cur: 'lbp', ecur: 'lbp', busy: false };
+  const ccKey = () => 'lv:ccDraft:' + (session && session.cashier_id);
+  const ccNew = () => ({ count_date: null, pos: null, shift: null, cashier_id: '', lbp: {}, usd: {}, card_items: [], expense_items: [] });
+  const ccLoad = () => { try { return JSON.parse(localStorage.getItem(ccKey())) || null; } catch (e) { return null; } };
+  const ccSave = () => { try { localStorage.setItem(ccKey(), JSON.stringify(cc.d)); } catch (e) { /* storage blocked */ } };
+  const ccClear = () => { try { localStorage.removeItem(ccKey()); } catch (e) { /* ignore */ } };
+  const ccNum = v => Math.round(Number(v) * 100) / 100;
+  const ccFmt = v => Number(v).toLocaleString('en-US', { maximumFractionDigits: 2 });
+  // "150k" = 150,000 · "1.5m" = 1,500,000 · "40u" / "$40" = USD
+  function ccParse(t) {
+    const x = String(t || '').trim().toLowerCase().replace(/,/g, '');
+    const m = x.match(/^(\$)?(\d+(?:\.\d+)?)\s*([km])?\s*(u|usd|\$)?$/); if (!m) return null;
+    return { amount: Number(m[2]) * (m[3] === 'k' ? 1e3 : m[3] === 'm' ? 1e6 : 1), usd: !!(m[1] || m[4]) };
+  }
+  function renderCountEntry() {
+    const box = $('cpCountEntry');
+    if (!session || session.data.cashier.position !== 'supervisor') { box.innerHTML = ''; return; }
+    const draftOn = !!ccLoad();
+    box.innerHTML = `<button type="button" class="card cp-cc-entry" id="cpCcOpen">
+      ${icon('<rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 10v4M18 10v4"/>')}
+      <span><b>Count a drawer</b><small>${draftOn ? 'A count is in progress on this phone' : 'Bills, card slips and expenses'}</small></span>
+      ${icon('<path d="M9 6l6 6-6 6"/>')}</button>`;
+    $('cpCcOpen').onclick = openCount;
+  }
+  async function openCount() {
+    $('cpView').hidden = true; $('cpCountView').hidden = false; window.scrollTo(0, 0);
+    $('cpCountView').innerHTML = '<p class="muted-note">Loading…</p>';
+    try { cc.init = await call({ action: 'count_init', cashier_id: session.cashier_id, pin: session.pin }); }
+    catch (err) { $('cpCountView').innerHTML = `<p class="login-err">${esc(err.message)}</p><button type="button" class="btn ghost" id="cpCcBack2">Back</button>`; $('cpCcBack2').onclick = closeCount; return; }
+    cc.d = ccLoad() || ccNew();
+    if (!cc.d.count_date || ![cc.init.today, ccYesterday()].includes(cc.d.count_date)) cc.d.count_date = cc.init.today;
+    renderCount();
+  }
+  const ccYesterday = () => { const d = new Date(cc.init.today + 'T00:00:00'); d.setDate(d.getDate() - 1); return d.toLocaleDateString('en-CA'); };
+  function closeCount() { $('cpCountView').hidden = true; $('cpView').hidden = false; renderCountEntry(); window.scrollTo(0, 0); }
+  const ccTaken = (pos, shift) => (cc.init.taken || []).some(t => t.count_date === cc.d.count_date && t.pos === pos && (t.shift === shift || t.shift === 'full' || shift === 'full'));
+
+  function renderCount() {
+    const d = cc.d, init = cc.init, yest = ccYesterday();
+    const bills = (list, key, cur) => list.map(b => `<div class="cp-cc-bill">
+        <span class="cp-cc-den">${ccFmt(b)}<small>${cur}</small></span>
+        <button type="button" class="cp-cc-step" data-step="${key}:${b}:-1" aria-label="One less">−</button>
+        <input type="text" inputmode="numeric" pattern="[0-9]*" class="cp-cc-qty" data-bill="${key}:${b}" value="${d[key][b] || ''}" placeholder="0" aria-label="${ccFmt(b)} ${cur} bills">
+        <button type="button" class="cp-cc-step" data-step="${key}:${b}:1" aria-label="One more">+</button></div>`).join('');
+    const label = k => (CC_CARDS.find(c => c[0] === k) || [k, k])[1];
+    $('cpCountView').innerHTML = `
+      <div class="cp-cc-top"><button type="button" class="btn ghost small" id="cpCcBack">${icon('<path d="M15 18l-6-6 6-6"/>')} Back</button><h2>Cash count</h2></div>
+      <p class="muted-note cp-cc-blind">Count only: the totals are not shown here. Once sent, the count goes to the accountant.</p>
+
+      <div class="card cp-cc-sec">
+        <h3>Which drawer</h3>
+        <div class="cp-cc-seg" data-seg="count_date"><button type="button" data-v="${init.today}" class="${d.count_date === init.today ? 'on' : ''}">Today</button><button type="button" data-v="${yest}" class="${d.count_date === yest ? 'on' : ''}">Yesterday</button></div>
+        <div class="cp-cc-seg" data-seg="shift">${Object.entries(CC_SHIFTS).map(([k, l]) => `<button type="button" data-v="${k}" class="${d.shift === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+        <div class="cp-cc-pos">${[1, 2, 3, 4, 5, 6, 7, 8].map(p => { const t = d.shift && ccTaken(p, d.shift);
+          return `<button type="button" data-pos="${p}" class="${d.pos === p ? 'on' : ''} ${t ? 'taken' : ''}" ${t ? 'disabled' : ''}>POS ${p}${t ? '<small>counted</small>' : ''}</button>`; }).join('')}</div>
+        <label class="cp-cc-lbl">Cashier<select id="cpCcCashier"><option value="">Choose…</option>${init.cashiers.map(c => `<option value="${esc(c.id)}" ${d.cashier_id === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></label>
+      </div>
+
+      <div class="card cp-cc-sec"><h3>LBP bills <small>how many of each</small></h3>${bills(CC_LBP, 'lbp', 'LBP')}</div>
+      <div class="card cp-cc-sec"><h3>USD bills <small>how many of each</small></h3>${bills(CC_USD, 'usd', 'USD')}</div>
+
+      <div class="card cp-cc-sec">
+        <h3>Card slips <small>one at a time</small></h3>
+        <div class="cp-cc-chips">${CC_CARDS.map(([k, l]) => `<button type="button" data-ctype="${k}" class="${cc.type === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+        <div class="cp-cc-add">
+          <input type="text" inputmode="decimal" id="cpCcSlip" placeholder="Amount (150k)" autocomplete="off" enterkeyhint="done">
+          <div class="cp-cc-cur" data-curfor="cur"><button type="button" data-v="lbp" class="${cc.cur === 'lbp' ? 'on' : ''}">LBP</button><button type="button" data-v="usd" class="${cc.cur === 'usd' ? 'on' : ''}">USD</button></div>
+          <button type="button" class="btn" id="cpCcSlipAdd">Add</button>
+        </div>
+        <ul class="cp-cc-items">${d.card_items.length ? d.card_items.map((i, idx) => `<li><span>${esc(label(i.type))}</span><b>${ccFmt(i.amount)} ${i.cur.toUpperCase()}</b><button type="button" data-rmslip="${idx}" aria-label="Remove">${icon('<path d="M6 6l12 12M18 6L6 18"/>')}</button></li>`).reverse().join('')
+          : '<li class="cp-cc-none">No slip yet</li>'}</ul>
+        ${d.card_items.length ? `<p class="muted-note cp-cc-n">${d.card_items.length} slip${d.card_items.length === 1 ? '' : 's'}</p>` : ''}
+      </div>
+
+      <div class="card cp-cc-sec">
+        <h3>Expenses <small>paid from the drawer</small></h3>
+        <div class="cp-cc-add cp-cc-add-exp">
+          <input type="text" inputmode="decimal" id="cpCcExpAmt" placeholder="Amount" autocomplete="off">
+          <div class="cp-cc-cur" data-curfor="ecur"><button type="button" data-v="lbp" class="${cc.ecur === 'lbp' ? 'on' : ''}">LBP</button><button type="button" data-v="usd" class="${cc.ecur === 'usd' ? 'on' : ''}">USD</button></div>
+          <input type="text" id="cpCcExpNote" placeholder="What for (e.g. water)" maxlength="120" autocomplete="off" enterkeyhint="done">
+          <button type="button" class="btn" id="cpCcExpAdd">Add</button>
+        </div>
+        <ul class="cp-cc-items">${d.expense_items.length ? d.expense_items.map((i, idx) => `<li><span>${esc(i.note || 'Expense')}</span><b>${ccFmt(i.amount)} ${i.cur.toUpperCase()}</b><button type="button" data-rmexp="${idx}" aria-label="Remove">${icon('<path d="M6 6l12 12M18 6L6 18"/>')}</button></li>`).reverse().join('')
+          : '<li class="cp-cc-none">No expense</li>'}</ul>
+      </div>
+
+      <div class="cp-cc-actions">
+        <button type="button" class="btn ghost" id="cpCcReset">Start over</button>
+        <button type="button" class="btn" id="cpCcSend">Send the count</button>
+      </div>
+      <div class="cp-cc-sheet" id="cpCcSheet" hidden></div>`;
+    wireCount();
+  }
+
+  function wireCount() {
+    const v = $('cpCountView'), d = cc.d;
+    $('cpCcBack').onclick = closeCount;
+    v.querySelectorAll('[data-seg]').forEach(g => g.onclick = e => {
+      const b = e.target.closest('[data-v]'); if (!b) return;
+      d[g.dataset.seg] = b.dataset.v;
+      if (d.pos && d.shift && ccTaken(d.pos, d.shift)) d.pos = null;
+      ccSave(); renderCount();
+    });
+    v.querySelectorAll('[data-pos]').forEach(b => b.onclick = () => { d.pos = Number(b.dataset.pos); ccSave(); v.querySelectorAll('[data-pos]').forEach(x => x.classList.toggle('on', x === b)); });
+    $('cpCcCashier').onchange = e => { d.cashier_id = e.target.value; ccSave(); };
+    // bills: + / − and typing
+    const setBill = (key, b, n) => { n = Math.max(0, Math.min(99999, Math.floor(Number(n) || 0))); if (n) d[key][b] = n; else delete d[key][b]; ccSave(); return n; };
+    v.querySelectorAll('[data-step]').forEach(b => b.onclick = () => {
+      const [key, den, k] = b.dataset.step.split(':'), inp = v.querySelector(`[data-bill="${key}:${den}"]`);
+      const n = setBill(key, den, (d[key][den] || 0) + Number(k)); inp.value = n || '';
+    });
+    v.querySelectorAll('[data-bill]').forEach(inp => {
+      inp.oninput = () => { const [key, den] = inp.dataset.bill.split(':'); inp.value = inp.value.replace(/\D/g, '').slice(0, 5); setBill(key, den, inp.value); };
+      inp.onfocus = () => inp.select();
+      inp.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); const all = [...v.querySelectorAll('[data-bill]')]; const nx = all[all.indexOf(inp) + 1]; (nx || $('cpCcSlip')).focus(); } };
+    });
+    // slips
+    v.querySelectorAll('[data-ctype]').forEach(b => b.onclick = () => { cc.type = b.dataset.ctype; v.querySelectorAll('[data-ctype]').forEach(x => x.classList.toggle('on', x === b)); $('cpCcSlip').focus(); });
+    v.querySelectorAll('[data-curfor]').forEach(g => g.onclick = e => { const b = e.target.closest('[data-v]'); if (!b) return; cc[g.dataset.curfor] = b.dataset.v; g.querySelectorAll('[data-v]').forEach(x => x.classList.toggle('on', x === b)); });
+    const err = m => { const p = $('cpCcSheet'); showSheet(`<p class="login-err" style="margin:0 0 12px;">${esc(m)}</p><button type="button" class="btn" data-close>OK</button>`); };
+    const addSlip = () => {
+      const a = ccParse($('cpCcSlip').value); if (!a || !a.amount) return err('Type the slip amount, e.g. 150k or 40.');
+      d.card_items.push({ type: cc.type, cur: a.usd ? 'usd' : cc.cur, amount: ccNum(a.amount) }); ccSave(); renderCount(); $('cpCcSlip').focus();
+    };
+    $('cpCcSlipAdd').onclick = addSlip;
+    $('cpCcSlip').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); addSlip(); } };
+    const addExp = () => {
+      const a = ccParse($('cpCcExpAmt').value); if (!a || !a.amount) return err('Type the expense amount.');
+      d.expense_items.push({ cur: a.usd ? 'usd' : cc.ecur, amount: ccNum(a.amount), note: $('cpCcExpNote').value.trim().slice(0, 120) }); ccSave(); renderCount();
+    };
+    $('cpCcExpAdd').onclick = addExp;
+    $('cpCcExpNote').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); addExp(); } };
+    v.querySelectorAll('[data-rmslip]').forEach(b => b.onclick = () => { d.card_items.splice(Number(b.dataset.rmslip), 1); ccSave(); renderCount(); });
+    v.querySelectorAll('[data-rmexp]').forEach(b => b.onclick = () => { d.expense_items.splice(Number(b.dataset.rmexp), 1); ccSave(); renderCount(); });
+    $('cpCcReset').onclick = () => showSheet(`<p style="margin:0 0 12px;">Clear this count and start over?</p><div class="cp-cc-row"><button type="button" class="btn ghost" data-close>Cancel</button><button type="button" class="btn danger" id="cpCcResetYes">Clear</button></div>`,
+      () => { $('cpCcResetYes').onclick = () => { const keep = { count_date: d.count_date }; cc.d = Object.assign(ccNew(), keep); ccSave(); renderCount(); }; });
+    $('cpCcSend').onclick = askSend;
+  }
+  function showSheet(html, after) {
+    const s = $('cpCcSheet'); s.innerHTML = `<div class="cp-cc-sheet-in card">${html}</div>`; s.hidden = false;
+    s.onclick = e => { if (e.target === s || e.target.closest('[data-close]')) s.hidden = true; };
+    if (after) after();
+  }
+  function askSend() {
+    const d = cc.d, who = cc.init.cashiers.find(c => c.id === d.cashier_id);
+    const miss = !d.pos ? 'Choose the POS.' : !d.shift ? 'Choose the shift.' : !who ? 'Choose the cashier.' : null;
+    if (miss) return showSheet(`<p class="login-err" style="margin:0 0 12px;">${miss}</p><button type="button" class="btn" data-close>OK</button>`);
+    const nothing = !Object.keys(d.lbp).length && !Object.keys(d.usd).length && !d.card_items.length;
+    showSheet(`<h3 style="margin:0 0 4px;">Send the count</h3>
+      <p class="muted-note" style="margin:0 0 12px;">POS ${d.pos} · ${CC_SHIFTS[d.shift]} · ${esc(who.name)} · ${d.count_date === cc.init.today ? 'today' : 'yesterday'}${nothing ? '<br><b>Nothing is counted yet.</b>' : ''}</p>
+      <label class="cp-cc-lbl">${esc(who.name)} signs: their PIN
+        <input type="password" id="cpCcPin" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" placeholder="••••" class="cp-cc-pin"></label>
+      <p class="login-err" id="cpCcErr" role="alert"></p>
+      <button type="button" class="btn" id="cpCcSignSend">Sign and send</button>
+      <button type="button" class="btn ghost" id="cpCcLater">Send, ${esc(who.name)} signs later</button>
+      <button type="button" class="link-btn" data-close style="margin-top:6px;">Back to the count</button>`, () => {
+      setTimeout(() => $('cpCcPin')?.focus(), 50);
+      $('cpCcSignSend').onclick = () => { const p = $('cpCcPin').value.trim(); if (!/^\d{4}$/.test(p)) { $('cpCcErr').textContent = 'The cashier types their 4-digit PIN.'; return; } sendCount(p); };
+      $('cpCcPin').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); $('cpCcSignSend').click(); } };
+      $('cpCcLater').onclick = () => sendCount('');
+    });
+  }
+  async function sendCount(cpin) {
+    if (cc.busy) return; cc.busy = true;
+    const btns = ['cpCcSignSend', 'cpCcLater'].map($).filter(Boolean); btns.forEach(b => { b.disabled = true; });
+    try {
+      const r = await call({ action: 'count_submit', cashier_id: session.cashier_id, pin: session.pin, count: cc.d, cashier_pin: cpin });
+      ccClear(); cc.d = null;
+      $('cpCountView').innerHTML = `<div class="card cp-cc-done">${icon(IC.check)}<h2>Count sent</h2>
+        <p class="muted-note">${r.signed ? 'Signed by the cashier.' : 'The cashier signs it later in the office.'} It is with the accountant now.</p>
+        <button type="button" class="btn" id="cpCcAnother">Count another drawer</button><button type="button" class="btn ghost" id="cpCcDone">Done</button></div>`;
+      $('cpCcAnother').onclick = openCount; $('cpCcDone').onclick = closeCount;
+    } catch (err) {
+      if ($('cpCcErr')) $('cpCcErr').textContent = err.message; else alert(err.message);
+      if (err.cashier_pin === 'wrong' && $('cpCcPin')) { $('cpCcPin').value = ''; $('cpCcPin').focus(); }
+      if (err.status === 409) { try { cc.init = await call({ action: 'count_init', cashier_id: session.cashier_id, pin: session.pin }); } catch (e) { /* ignore */ } }
+    } finally { cc.busy = false; btns.forEach(b => { b.disabled = false; }); }
+  }
+
   function render() {
     const d = session.data, lv = d.levels;
+    renderCountEntry();
     renderNotify();
     renderSchedule(d.schedule);
     loadReq();
