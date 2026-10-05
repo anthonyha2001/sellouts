@@ -1778,3 +1778,18 @@ span.cc-slipbtn{cursor:default;display:inline-block;}
 .cc-delete{margin-top:12px;text-align:right;}
 .cc-delete .link-btn.danger{color:var(--brick);display:inline-flex;align-items:center;gap:5px;}
 .cc-delete svg{width:15px;height:15px;stroke:currentColor;}
+
+/* Tools: sell-out & promotion check (owner, 2026-10-05) */
+.rc-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;}
+.rc-stats div{padding:10px 12px;border-radius:var(--radius-sm);border:1px solid var(--line);background:var(--paper);}
+.rc-stats b{display:block;font:600 22px var(--font-mono);}
+.rc-stats span{font-size:12px;color:var(--ink-soft);}
+.rc-stats .ok b{color:var(--ok-green, var(--pine));}
+.rc-stats .bad{border-color:var(--brick);}
+.rc-stats .bad b{color:var(--brick);}
+.rc-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;}
+.rc-table td.num,.rc-table th.num{text-align:right;font-family:var(--font-mono);}
+.rc-table tbody tr td{background:var(--brick-tint);}
+.rc-type,.rc-group{font-size:12px;color:var(--ink-soft);}
+.rc-never{color:var(--brick);font-weight:600;}
+@media (max-width:520px){ .rc-stats{grid-template-columns:1fr;} }

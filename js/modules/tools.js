@@ -10,6 +10,7 @@
    into the one above) and downloaded as .xlsx (SheetJS, already loaded),
    every cell as text.
    Libraries come from jsDelivr, only when the page is first used.
+   Second tool (owner, 2026-10-05): Sell-out & promotion check (js/modules/reconcile.js).
    Permission: tools.convert. Public API: window.Tools = { show }.
    ============================================================ */
 (function () {
@@ -25,6 +26,9 @@
   /* ---------------- shell ---------------- */
   function shell() {
     panel.innerHTML = `
+      <div class="filter-row" id="toolPick" style="margin:0 0 12px;"><button type="button" data-tool="convert" class="active">PDF / photo to Excel</button>${window.Reconcile ? '<button type="button" data-tool="recon">Sell-out &amp; promotion check</button>' : ''}</div>
+      <div id="toolReconBox" hidden></div>
+      <div id="toolConvertBox">
       <div class="card tool-card">
         <p class="muted-note" style="margin:0 0 14px;">Price lists, invoices, statements… Everything happens on this device — the file is not uploaded anywhere.</p>
         <label class="tool-drop" id="toolDrop">
@@ -45,7 +49,18 @@
         <p class="muted-note" style="margin:10px 0 0;">Tips for photos: flat page, good light, straight on, the table filling the picture.</p>
       </div>
       <div id="toolProgress"></div>
-      <div id="toolResult"></div>`;
+      <div id="toolResult"></div>
+      </div>`;
+    // The two tools: PDF / photo to Excel, and the sell-out & promotion check.
+    el('toolPick').onclick = e => {
+      const b = e.target.closest('[data-tool]'); if (!b) return;
+      el('toolPick').querySelectorAll('[data-tool]').forEach(x => x.classList.toggle('active', x === b));
+      const recon = b.dataset.tool === 'recon';
+      el('toolConvertBox').hidden = recon; el('toolReconBox').hidden = !recon;
+      if (recon && !el('toolReconBox').innerHTML) Reconcile.mount(el('toolReconBox'));
+      document.getElementById('pageTitle').textContent = recon ? 'Sell-out & promotion check' : PAGES.tools.title;
+      document.getElementById('pageSub').textContent = recon ? 'The promotion list of the system against the sell-outs and promotions in the app: what is missing.' : PAGES.tools.sub;
+    };
     const file = el('toolFile'), drop = el('toolDrop');
     file.onchange = () => { if (file.files.length) convert([...file.files]); file.value = ''; };
     ['dragenter', 'dragover'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add('over'); }));
