@@ -1864,3 +1864,10 @@ span.cc-slipbtn{cursor:default;display:inline-block;}
 .vc-rform{width:100%;display:grid;grid-template-columns:auto 1fr 1.5fr auto;gap:8px;align-items:center;padding:10px;border-radius:var(--radius-sm);background:var(--paper);border:1px solid var(--line);}
 .vc-rform-act{display:flex;gap:6px;}
 @media (max-width:700px){ .vc-rform{grid-template-columns:1fr;} .vc-rrow .btn{width:100%;min-height:44px;} }
+
+/* Staff: icon buttons (owner, 2026-10-06) */
+.st-ib{width:34px;height:34px;display:inline-grid;place-items:center;vertical-align:middle;}
+.st-ib svg{width:17px;height:17px;stroke:currentColor;}
+.st-ib-main{background:var(--pine);border-color:var(--pine);color:#fff;}
+.st-ib-main:hover{background:var(--pine-deep);color:#fff;}
+.st-table td .st-ib + .st-ib{margin-left:4px;}

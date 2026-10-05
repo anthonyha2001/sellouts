@@ -66,8 +66,6 @@
   /* ---------------- page ---------------- */
   function shell() {
     panel.innerHTML = `
-      ${window.Cash && Cash.mountCashiers ? '<div class="filter-row" id="stView" style="margin:0 0 12px;"><button type="button" data-view="people" class="active">People</button><button type="button" data-view="cashier">Cashier page</button></div>' : ''}
-      <div id="stPeople">
       <div class="st-bar">
         <input type="search" id="stSearch" placeholder="Search name, job, section, phone…" autocomplete="off" aria-label="Search staff">
         <div class="filter-row" id="stShow" style="margin:0;">
@@ -78,20 +76,10 @@
           Filter<span class="st-filter-n" id="stFilterN" hidden></span></button>
           <div class="st-filter-panel" id="stFilterPanel" hidden></div></div>
         <span style="flex:1"></span>
-        <button type="button" class="btn secondary small" id="stExport">Export (Excel)</button>
-        <button type="button" class="btn small" id="stAdd">+ Add person</button>
+        <button type="button" class="icon-btn st-ib" id="stExport" title="Export (Excel)" aria-label="Export (Excel)"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${ICO.export}</svg></button>
+        <button type="button" class="icon-btn st-ib st-ib-main" id="stAdd" title="Add a person" aria-label="Add a person"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${ICO.add}</svg></button>
       </div>
-      <div id="stBody"></div>
-      </div>
-      <div id="stCashier" hidden></div>`;
-    // Cashier page tab (owner, 2026-10-06): PINs, lock-outs, who uses the cashier page, the Cash grid order (js/modules/cash.js).
-    el('stView')?.addEventListener('click', e => {
-      const b = e.target.closest('[data-view]'); if (!b) return;
-      el('stView').querySelectorAll('[data-view]').forEach(x => x.classList.toggle('active', x === b));
-      const cashier = b.dataset.view === 'cashier';
-      el('stPeople').hidden = cashier; el('stCashier').hidden = !cashier;
-      if (cashier) Cash.mountCashiers(el('stCashier'));
-    });
+      <div id="stBody"></div>`;
     el('stSearch').oninput = e => { S.q = e.target.value.trim().toLowerCase(); render(); };
     el('stShow').onclick = e => { const b = e.target.closest('[data-show]'); if (b) { S.show = b.dataset.show; render(); } };
     el('stFilterBtn').onclick = e => { e.stopPropagation(); S.filterOpen = !S.filterOpen; renderFilter(); };
@@ -143,6 +131,18 @@
     ['cleaning', 'Cleaning', ['cleaning']], ['parking', 'Parking', ['parking']],
     ['office', 'Office', ['purchasing', 'senior accountant', 'accountant', 'data entry', 'hr']], ['other', 'Other', []]];
   const deptOf = p => DEPTS.find(([, , jobs]) => jobs.includes(String(p.job || '').trim().toLowerCase()))?.[0] || 'other';
+  // Icons (owner, 2026-10-06: SVG icons rather than text buttons; never emojis).
+  const ICO = {
+    edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M14 6l4 4"/>',
+    left: '<path d="M15 4h4v16h-4"/><path d="M10 8l-4 4 4 4M6 12h10"/>',
+    back: '<path d="M9 4H5v16h4"/><path d="M14 8l4 4-4 4M18 12H8"/>',
+    pin: '<circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l3 3M14 9l2 2"/>',
+    unlock: '<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.5-2"/>',
+    login: '<circle cx="10" cy="8" r="4"/><path d="M3 21a7 7 0 0 1 14 0M19 8v6M16 11h6"/>',
+    add: '<circle cx="10" cy="8" r="4"/><path d="M3 21a7 7 0 0 1 14 0M19 8v6M16 11h6"/>',
+    export: '<path d="M12 3v12M7 10l5 5 5-5M5 21h14"/>',
+  };
+  const icoBtn = (act, ico, label, cls = '') => `<button type="button" class="icon-btn st-ib ${cls}" data-act="${act}" title="${label}" aria-label="${label}"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${ICO[ico]}</svg></button>`;
   const loginName = p => p.user_id ? (S.users.get(p.user_id)?.username || 'yes') : '';
 
   function render() {
@@ -171,10 +171,10 @@
             <td class="mono">${p.start_date ? esc(fmtDate(p.start_date)) : ''}</td>
             <td class="num mono">${esc(salaryText(p.salary))}</td>
             <td>${pinCell(p)}</td>
-            <td>${p.user_id ? `<span class="badge active">${esc(loginName(p))}</span>` : isAdmin() && p.active ? '<button type="button" class="btn secondary small" data-act="login">Create login</button>' : '<span class="muted-note">—</span>'}</td>
+            <td>${p.user_id ? `<span class="badge active">${esc(loginName(p))}</span>` : isAdmin() && p.active ? icoBtn('login', 'login', 'Create an app login') : '<span class="muted-note">—</span>'}</td>
             <td><div class="icon-actions" style="justify-content:flex-end;">
-              <button type="button" class="btn ghost small" data-act="edit">Edit</button>
-              <button type="button" class="btn ghost small" data-act="toggle">${p.active ? 'Left' : 'Back'}</button>
+              ${icoBtn('edit', 'edit', 'Edit')}
+              ${p.active ? icoBtn('toggle', 'left', 'Left (no longer working here)') : icoBtn('toggle', 'back', 'Back (working again)')}
             </div></td></tr>`;
   }
   // Reorder: the Working list without a search, so the order is the whole list's (migration 044).
@@ -192,7 +192,7 @@
     if (!c) return inCashList(p.job) && p.active ? '<span class="muted-note">saving…</span>' : '';
     const locked = c.locked_until && new Date(c.locked_until) > new Date();
     return `${locked ? '<span class="badge danger">Locked out</span>' : c.has_pin ? '<span class="badge active">Set</span>' : '<span class="badge warn">No PIN</span>'}
-      ${p.active ? `<button type="button" class="btn ghost small" data-act="pin">${c.has_pin ? 'Reset' : 'Set PIN'}</button>` : ''}`;
+      ${p.active ? icoBtn('pin', 'pin', c.has_pin ? 'Reset the PIN' : 'Set a PIN') : ''}${locked ? icoBtn('unlock', 'unlock', 'Unlock (too many wrong PINs)') : ''}`;
   }
   async function setPin(p) {
     const suggestion = String(crypto.getRandomValues(new Uint16Array(1))[0] % 10000).padStart(4, '0');
@@ -304,6 +304,13 @@
     }
     if (b.dataset.act === 'login') return createLogin(p);
     if (b.dataset.act === 'pin') return setPin(p);
+    if (b.dataset.act === 'unlock') {
+      const { error } = await sb.from('cashiers').update({ failed_attempts: 0, locked_until: null }).eq('id', p.cashier_id);
+      if (error) return showToast('Not unlocked — ' + friendlyError(error), true);
+      logActivity('staff', 'unlock_pin', { type: 'cashier', id: p.cashier_id }, `Unlocked the cashier-page PIN of ${p.name}`);
+      showToast(`${p.name} can try their PIN again.`);
+      await load(); return render();
+    }
   }
   // The person's app login: username from their name, role from their job, a temporary password.
   function askLogin(p) {
