@@ -235,7 +235,7 @@
     const out = [], add = (level, text, tab) => out.push({ level, text, tab });
     const c = D.cash;
     if (c) {
-      c.bigY.forEach(x => add('red', `${x.name} was short ${lbp(-x.v)} LBP yesterday`, 'cash'));
+      c.bigY.forEach(x => add('red', `${x.name}: -${lbp(-x.v)} LBP yesterday`, 'cash'));
       if (!c.lastLocked && c.dayOfMonth >= 5) add('amber', `${monthName(c.lastMonth)} is not locked on the Cash page yet`, 'cash');
     }
     const k = D.cashcount;

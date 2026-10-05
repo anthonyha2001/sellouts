@@ -8,7 +8,7 @@
         signs with their cashier-page PIN.
      2. System & reconciliation (accountant — cashcount.reconcile):
         the system's figures, each card line found / not found; the
-        differences, line by line ("Visa Bankmed: short 50,000 LBP"),
+        differences, line by line ("Visa Bankmed: -50,000 LBP"),
         the cash difference, the allowed margin (1,000 LBP per
         1,000,000 of the system's total) and the total.
    Differences grid (accountant / HR — cashcount.view): every count of
@@ -44,7 +44,8 @@
   const usd = v => (Math.round(n(v) * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
   const fail = (what, error) => { console.error(error); showToast(`${what} — ${friendlyError(error)}`, true); };
   // "short 50,000" / "over 20,000" / "matches"
-  const diffWord = (d, fmt, cur) => Math.abs(d) < 0.005 ? '<span class="ccx-ok">matches</span>' : d < 0 ? `<span class="ccx-short">short ${fmt(-d)} ${cur}</span>` : `<span class="ccx-over">over ${fmt(d)} ${cur}</span>`;
+  // "-50,000 LBP" / "+20,000 LBP" / "0 LBP" (owner: + and -, not short / over)
+  const diffWord = (d, fmt, cur) => Math.abs(d) < 0.005 ? `<span class="ccx-ok">0 ${cur}</span>` : d < 0 ? `<span class="ccx-short">-${fmt(-d)} ${cur}</span>` : `<span class="ccx-over">+${fmt(d)} ${cur}</span>`;
 
   /* ---------------- slips and expenses, one by one (migration 057) ---------------- */
   // "150k" = 150,000 · "1.5m" = 1,500,000 · "40u" or "$40" = USD.
@@ -362,7 +363,7 @@
       <div class="cc-res-row cc-res-sub"><span>Cash difference</span><span>${diffWord(r.cashDiffLbpEq, lbp, 'LBP')}</span></div>
       <div class="cc-res-head">Credit cards and others</div>
       ${lines.map(x => `<div class="cc-res-row"><span>${esc(x.label)}</span><span>${two(x.diff.lbp, x.diff.usd)}</span></div>`).join('')
-        || '<div class="cc-res-row"><span>Every card</span><span><span class="ccx-ok">matches</span></span></div>'}
+        || '<div class="cc-res-row"><span>Every card</span><span><span class="ccx-ok">0</span></span></div>'}
       ${r.toMark.length ? `<div class="cc-nf">Marked as missing slips when reconciled: ${r.toMark.map(i => esc(i.label) + ' ' + amt(i)).join(', ')}</div>` : ''}
       ${r.notFound.length ? `<div class="cc-nf">${r.notFound.length} missing slip${r.notFound.length === 1 ? '' : 's'}, charged to the cashier (${lbp(r.notFoundLbp)} LBP):</div>
         <ul class="cc-misslist">${r.notFound.map(i => `<li><span>${esc(i.label)} <b>${amt(i)}</b></span>${canRec() ? `<button type="button" class="btn small secondary" data-foundkey="${esc(i.key)}">Found</button>` : ''}</li>`).join('')}</ul>` : ''}
@@ -387,7 +388,7 @@
   }
   async function sendCount(c) {
     const r = calc(c);
-    const what = r.afterMargin ? `${sign(r.afterMargin, lbp)} LBP (${r.afterMargin < 0 ? 'short' : 'over'})` : '0 LBP (within the margin)';
+    const what = r.afterMargin ? `${sign(r.afterMargin, lbp)} LBP` : '0 LBP (within the margin)';
     const ok = await showConfirm(`Send ${what} to the Cash page for ${c.cashier_name}, ${fmtDate(c.count_date)}?`, 'Send');
     if (!ok) return false;
     clearTimeout(timers.get(c.id));
@@ -626,7 +627,7 @@
           || '<tr><td colspan="13" class="empty-note">No count this month.</td></tr>'}</tbody>
         ${rows.length ? `<tfoot><tr><th colspan="4">Month</th><th class="num">${lbp(rows.reduce((t, x) => t + x.r.exp.lbp + x.r.exp.usd * x.r.rate, 0))}</th><th class="num">${sign(sum(r => r.cashDiffLbpEq), lbp)}</th><th class="num">${sign(sum(r => r.cardsDiff), lbp)}</th><th class="num">${lbp(sum(r => r.notFoundLbp))}</th><th class="num">${sign(sum(r => r.total), lbp)}</th><th></th><th class="num"><b>${sign(sum(r => r.afterMargin), lbp)}</b></th><th class="num">${sign(rows.reduce((t, x) => t + (x.r.posted || 0), 0), lbp)}</th><th></th></tr></tfoot>` : ''}
       </table></div></div>
-      <p class="muted-note" style="margin:8px 0 0;">Negative = short, positive = over.${canOpen ? ' Click a row to open its count.' : ''}</p>`;
+      <p class="muted-note" style="margin:8px 0 0;">- = less than the system, + = more than the system.${canOpen ? ' Click a row to open its count.' : ''}</p>`;
     host.querySelectorAll('[data-ccm]').forEach(b => b.onclick = async () => { const [y, m] = S.month.split('-').map(Number), d = new Date(y, m - 1 + Number(b.dataset.ccm), 1); S.month = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; await loadMonth(); renderGrid(host); });
     host.querySelector('#ccExport').onclick = () => exportGrid(rows);
     if (!canOpen) host.querySelectorAll('tr[data-open]').forEach(tr => { tr.style.cursor = 'default'; });
