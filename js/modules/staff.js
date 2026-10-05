@@ -66,6 +66,8 @@
   /* ---------------- page ---------------- */
   function shell() {
     panel.innerHTML = `
+      ${window.Cash && Cash.mountCashiers ? '<div class="filter-row" id="stView" style="margin:0 0 12px;"><button type="button" data-view="people" class="active">People</button><button type="button" data-view="cashier">Cashier page</button></div>' : ''}
+      <div id="stPeople">
       <div class="st-bar">
         <input type="search" id="stSearch" placeholder="Search name, job, section, phone…" autocomplete="off" aria-label="Search staff">
         <div class="filter-row" id="stShow" style="margin:0;">
@@ -79,7 +81,17 @@
         <button type="button" class="btn secondary small" id="stExport">Export (Excel)</button>
         <button type="button" class="btn small" id="stAdd">+ Add person</button>
       </div>
-      <div id="stBody"></div>`;
+      <div id="stBody"></div>
+      </div>
+      <div id="stCashier" hidden></div>`;
+    // Cashier page tab (owner, 2026-10-06): PINs, lock-outs, who uses the cashier page, the Cash grid order (js/modules/cash.js).
+    el('stView')?.addEventListener('click', e => {
+      const b = e.target.closest('[data-view]'); if (!b) return;
+      el('stView').querySelectorAll('[data-view]').forEach(x => x.classList.toggle('active', x === b));
+      const cashier = b.dataset.view === 'cashier';
+      el('stPeople').hidden = cashier; el('stCashier').hidden = !cashier;
+      if (cashier) Cash.mountCashiers(el('stCashier'));
+    });
     el('stSearch').oninput = e => { S.q = e.target.value.trim().toLowerCase(); render(); };
     el('stShow').onclick = e => { const b = e.target.closest('[data-show]'); if (b) { S.show = b.dataset.show; render(); } };
     el('stFilterBtn').onclick = e => { e.stopPropagation(); S.filterOpen = !S.filterOpen; renderFilter(); };

@@ -129,7 +129,7 @@
       <div class="filter-row cash-tabs" id="cashTabs">
         <button data-tab="grid">Month grid</button>
         <button data-tab="analysis">Analysis</button>
-        ${can('cash.cashiers') ? '<button data-tab="cashiers">Cashiers &amp; settings</button>' : ''}
+        ${can('cash.cashiers') ? '<button data-tab="cashiers">Settings</button>' : ''}
         ${can('cash.enter') ? '<button data-tab="import">Import old sheets</button>' : ''}
         ${window.CashCount && can('cashcount.view', 'cashcount.reconcile') ? '<button data-tab="counts">Cash count</button>' : ''}
       </div>
@@ -166,7 +166,7 @@
     renderLockArea();
     if (S.tab === 'grid') renderBody();
     if (S.tab === 'analysis') renderAnalysis();
-    if (S.tab === 'cashiers') { renderCashiers(); loadUsage().then(() => { if (S.tab === 'cashiers') renderCashiers(); }); }
+    if (S.tab === 'cashiers') renderSettings();   // the cashiers themselves (PINs, cashier page, order) are on the Staff page
     if (S.tab === 'import') renderImport();
     // The cash count differences grid (Cash count page) — never for cashiers: a cash count right is needed.
     if (S.tab === 'counts') CashCount.mountGrid(el('cashBody'), S.month);
@@ -573,37 +573,30 @@
   }
 
   /* ---------------- cashiers & settings ---------------- */
+  // The cashiers (owner, 2026-10-06: on the Staff page, "Cashier page" tab): PINs, lock-outs, cashier page use, the grid order.
   function renderCashiers() {
-    const body = el('cashBody');
+    const body = S.cashHost;
+    if (!body || !body.isConnected) return;
     const pageUrl = new URL('cashier.html', location.href).href;
     const now = Date.now();
     const s = S.settings;
     body.innerHTML = `
       <div class="card">
-        <div class="cash-card-head"><h3 style="margin:0;">Cashiers</h3><span class="muted-note">The grid shows active cashiers in this order. Drag a row by its handle (⋮⋮) to move it.</span></div>
+        <div class="cash-card-head"><h3 style="margin:0;">Cashiers</h3><span class="muted-note">Everyone with a cashier-page PIN. The Cash page grid shows the active ones in this order: drag a row by its handle (⋮⋮) to move it. Names, jobs, working / left: in the list.</span></div>
         ${isAdmin() ? `<div class="cash-pin-bar">
           <button type="button" class="btn secondary small" id="cashShowPins">${S.pins ? 'Hide PINs' : 'Show PINs'}</button>
           <button type="button" class="btn secondary small" id="cashExportPins">Export PINs (Excel)</button>
           ${S.pins && S.cashiers.some(c => c.active && !S.pins.get(c.id)) ? `<button type="button" class="btn small" id="cashNewPins">New PINs for the ${S.cashiers.filter(c => c.active && !S.pins.get(c.id)).length} without a visible one</button>` : ''}
           <span class="muted-note">Only you (admin) can see PINs. PINs set before 3 Oct 2026 can't be shown — set them again (or use the button). Cashiers can change their own PIN on the cashier page.</span>
         </div>` : ''}
-        <form id="cashAddForm" class="cash-add">
-          <input type="text" id="cashNewName" placeholder="New cashier's name" required>
-          <button class="btn small" type="submit">+ Add cashier</button>
-        </form>
         <div class="items-scroll" style="margin-bottom:0;">
           <table class="items">
-            <thead><tr><th></th><th>Name</th><th>Position</th><th>Status</th><th>PIN</th><th>Last opened the cashier page</th><th>Phone / app</th><th></th></tr></thead>
+            <thead><tr><th></th><th>Name</th><th>Status</th><th>PIN</th><th>Last opened the cashier page</th><th>Phone / app</th><th></th></tr></thead>
             <tbody>${S.cashiers.map((c, i) => {
               const locked = c.locked_until && new Date(c.locked_until).getTime() > now;
               return `<tr data-id="${esc(c.id)}">
                 <td>${RowDrag.handle()}</td>
                 <td><b>${esc(c.name)}</b></td>
-                <td><select data-f="position" aria-label="Position of ${esc(c.name)}" style="width:auto;padding:5px 8px;">
-                  <option value="cashier" ${!['supervisor', 'picker', 'delivery_supervisor'].includes(c.position) ? 'selected' : ''}>Cashier</option>
-                  <option value="supervisor" ${c.position === 'supervisor' ? 'selected' : ''}>Supervisor</option>
-                  <option value="picker" ${c.position === 'picker' ? 'selected' : ''}>Picker</option>
-                  <option value="delivery_supervisor" ${c.position === 'delivery_supervisor' ? 'selected' : ''}>Delivery supervisor</option></select></td>
                 <td>${c.active ? '<span class="badge active">Active</span>' : '<span class="badge inactive">Inactive</span>'}</td>
                 <td>${locked ? `<span class="badge danger">Locked out</span>` : c.has_pin ? '<span class="badge active">Set</span>' : '<span class="badge warn">Not set</span>'}${S.pins && c.has_pin ? (S.pins.get(c.id) ? ` <code class="cash-pin">${esc(S.pins.get(c.id))}</code>` : ' <span class="muted-note">not visible</span>') : ''}</td>
                 <td class="muted-note" style="white-space:nowrap;">${esc(seenLabel(c.last_seen_at))}</td>
@@ -611,10 +604,8 @@
                 <td><div class="icon-actions" style="justify-content:flex-end;">
                   <button class="btn secondary small" data-act="pin">${c.has_pin ? 'Reset PIN' : 'Set PIN'}</button>
                   ${locked ? '<button class="btn secondary small" data-act="unlock">Unlock</button>' : ''}
-                  <button class="btn ghost small" data-act="rename">Rename</button>
-                  <button class="btn ghost small" data-act="toggle">${c.active ? 'Deactivate' : 'Activate'}</button>
                 </div></td></tr>`;
-            }).join('') || '<tr><td colspan="8" class="empty-note">No cashiers yet.</td></tr>'}</tbody>
+            }).join('') || '<tr><td colspan="7" class="empty-note">No cashiers yet.</td></tr>'}</tbody>
           </table>
         </div>
       </div>
@@ -623,6 +614,18 @@
         <p style="margin:0 0 10px;">Cashiers see their own differences (this month and last month) by choosing their name and typing their 4-digit PIN. Nothing else is shown to them.</p>
         <div class="cash-link"><code id="cashPageUrl">${esc(pageUrl)}</code><button class="btn secondary small" id="cashCopyUrl">Copy link</button></div>
       </div>
+`;
+    el('cashShowPins')?.addEventListener('click', togglePins);
+    el('cashExportPins')?.addEventListener('click', exportPins);
+    el('cashNewPins')?.addEventListener('click', renewPins);
+    el('cashCopyUrl').onclick = async () => showToast((await copyTextToClipboard(pageUrl)) ? 'Link copied.' : 'Could not copy — select the link and copy it.', false);
+    wireDrag(body.querySelector('tbody'));
+    body.querySelector('tbody').onclick = e => { const b = e.target.closest('[data-act]'); if (b) cashierAction(b.dataset.act, b.closest('tr').dataset.id); };
+  }
+  // Cash page › Settings: colours, alerts and the reminder.
+  function renderSettings() {
+    const s = S.settings;
+    el('cashBody').innerHTML = `
       <div class="card">
         <h3>Colours, alerts and reminder</h3>
         <form id="cashSettingsForm">
@@ -636,35 +639,6 @@
           <div class="actions-row"><button class="btn small" type="submit">Save settings</button></div>
         </form>
       </div>`;
-
-    el('cashShowPins')?.addEventListener('click', togglePins);
-    el('cashExportPins')?.addEventListener('click', exportPins);
-    el('cashNewPins')?.addEventListener('click', renewPins);
-    el('cashAddForm').onsubmit = async e => {
-      e.preventDefault();
-      const name = el('cashNewName').value.trim(); if (!name) return;
-      const sort = Math.max(0, ...S.cashiers.map(c => c.sort_order)) + 1;
-      const { data, error } = await sb.from('cashiers').insert({ name, sort_order: sort }).select(CASHIER_COLS + ', position').single();
-      if (error) return fail(/duplicate|unique/i.test(error.message) ? `"${name}" already exists` : 'Could not add the cashier', error);
-      S.cashiers.push(data);
-      logActivity('cash', 'add_cashier', { type: 'cashier', id: data.id }, `Added cashier ${name}`);
-      renderCashiers();
-      showToast(`${name} added. Set a PIN so they can open the cashier page.`);
-    };
-    el('cashCopyUrl').onclick = async () => showToast((await copyTextToClipboard(pageUrl)) ? 'Link copied.' : 'Could not copy — select the link and copy it.', false);
-    wireDrag(body.querySelector('tbody'));
-    body.querySelector('tbody').onclick = e => { const b = e.target.closest('[data-act]'); if (b) cashierAction(b.dataset.act, b.closest('tr').dataset.id); };
-    // Cashier / Supervisor (the Staff schedule uses it; both keep their cash differences).
-    body.querySelector('tbody').onchange = async e => {
-      const sel = e.target.closest('select[data-f="position"]'); if (!sel) return;
-      const c = S.cashiers.find(x => x.id === sel.closest('tr').dataset.id); if (!c) return;
-      const patch = { position: sel.value };
-      const { error } = await sb.from('cashiers').update(patch).eq('id', c.id);
-      if (error) { sel.value = c.position || 'cashier'; return fail('Could not change the position', error); }
-      c.position = sel.value;
-      logActivity('cash', 'cashier_position', { type: 'cashier', id: c.id }, `${c.name} is now ${sel.value === 'supervisor' ? 'a supervisor' : 'a cashier'}`);
-      showToast(`${c.name} is now ${sel.value === 'supervisor' ? 'a supervisor' : 'a cashier'}.`);
-    };
     el('cashSettingsForm').onsubmit = saveSettings;
   }
 
@@ -991,5 +965,12 @@
     if (S.tab === 'analysis') await loadHistory();
     render();
   }
-  window.Cash = { start, show, refresh, _state: S };
+  // The Staff page's "Cashier page" tab draws the cashiers here (owner, 2026-10-06).
+  async function mountCashiers(host) {
+    S.cashHost = host;
+    host.innerHTML = '<p class="muted-note">Loading…</p>';
+    await loadCashiers(); renderCashiers();
+    await loadUsage(); renderCashiers();
+  }
+  window.Cash = { mountCashiers, start, show, refresh, _state: S };
 })();
