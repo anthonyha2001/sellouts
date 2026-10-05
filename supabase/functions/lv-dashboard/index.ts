@@ -86,8 +86,12 @@ Deno.serve(async req => {
   try {
     if (body.action === 'status') {
       if (!isServer && role !== 'admin') return json({ error: 'Admin only.' }, 403);
-      token = null; await login();
-      return json({ ok: true, user: Deno.env.get('LV_DASH_USER'), expires_at: new Date(tokenExp).toISOString() });
+      // a real, light read (logs in only when needed): proves the login and the data both work
+      if (body.fresh) token = null;
+      const t0 = Date.now();
+      const sample = await search(String(body.code || '128420'));
+      return json({ ok: true, user: Deno.env.get('LV_DASH_USER'), expires_at: new Date(tokenExp).toISOString(), ms: Date.now() - t0,
+        sample: sample[0] ? { code: sample[0].code, description: sample[0].description, stock: sample[0].available_quantity ?? null } : null });
     }
     // Server key only (maintenance): one read-only report, as the dashboard answers it, to map its fields.
     if (body.action === 'probe') {

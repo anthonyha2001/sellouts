@@ -223,12 +223,20 @@
     };
   }
 
+  // The app's link to the system (lv-dashboard, owner 2026-10-06): a real read of one item proves it works.
+  async function loadLink() {
+    try {
+      const { data, error } = await sb.functions.invoke('lv-dashboard', { body: { action: 'status' } });
+      if (error) { let msg = error.message; try { msg = (await error.context.json()).error || msg; } catch (e) { /* keep */ } return { ok: false, error: msg }; }
+      return data?.ok ? data : { ok: false, error: data?.error || 'No answer' };
+    } catch (e) { return { ok: false, error: e.message || 'No answer' }; }
+  }
   async function loadActivity() {
     return q(sb.from('activity_log').select('at, username, module, summary').order('at', { ascending: false }).limit(14));
   }
 
   const PARTS = { cash: loadCash, cashcount: loadCashCount, sellouts: loadSellouts, promotions: loadPromotions, credit: loadCredit, orders: loadOrders,
-    rentals: loadRentals, delivery: loadDelivery, floor: loadFloor, labels: loadLabels, ladies: loadLadies, schedule: loadSchedule, people: loadPeople, activity: loadActivity };
+    rentals: loadRentals, delivery: loadDelivery, floor: loadFloor, labels: loadLabels, ladies: loadLadies, schedule: loadSchedule, people: loadPeople, activity: loadActivity, link: loadLink };
 
   /* ---------------- what needs attention ---------------- */
   function alerts(D) {
@@ -272,6 +280,7 @@
     if (sc && !sc.nextPub && sc.dow >= 3) add('amber', `Next week's cashier schedule is not published yet`, 'schedule');
     const p = D.people;
     if (p?.noPin.length) add('amber', `${p.noPin.length} active cashier${p.noPin.length === 1 ? ' has' : 's have'} no PIN: ${p.noPin.slice(0, 4).map(x => x.name).join(', ')}`, 'staff');
+    if (D.link && !D.link.ok) add('red', `The link to the system is not working (${D.link.error}): Promotions and stock are not live. If the dashboard password changed, update it in the app.`, null);
     const c2 = D.credit;
     if (c2?.old) add('amber', `${c2.old} credit note${c2.old === 1 ? '' : 's'} issued over 30 days ago, not signed`, 'creditnotes');
     return out.sort((a, b) => (a.level === 'red' ? 0 : 1) - (b.level === 'red' ? 0 : 1));
@@ -377,6 +386,16 @@
 
         ${card('users', 'users', 'phone', 'App users', box('people', p => `
           <ul class="db-list">${p.users.map(u => line(`${esc(u.display_name || u.username)} <span class="muted-note">${esc(u.role || '')}${u.installed_at ? ' · app' : ''}${u.notif ? ' · notifications' : ''}</span>`, esc(ago(u.last_seen_at)))).join('')}</ul>`))}
+
+        ${card('link', null, 'refresh', 'Link to the system', box('link', l => l.ok ? `
+          <div class="db-link ok"><span class="db-dot" style="background:var(--ok-green, var(--pine))"></span><b>Working</b><span class="muted-note">read in ${(l.ms / 1000).toFixed(1)} s</span></div>
+          <ul class="db-list">
+            ${l.sample ? line(esc(l.sample.description), 'stock ' + esc(String(l.sample.stock ?? '—'))) : ''}
+            ${line('Signed in as', esc(l.user || ''))}
+            ${line('Login renews by itself', 'next ' + esc(new Date(l.expires_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })))}
+          </ul>
+          <p class="db-note">Promotions, stock and the sell-out check read the system through this link.</p>`
+          : `<div class="db-link bad"><span class="db-dot red"></span><b>Not working</b></div><p class="db-note">${esc(l.error)}</p>`))}
 
         ${card('activity', 'activity', 'clock', 'Latest activity', box('activity', a => a.length ? `
           <ul class="db-feed">${a.map(x => `<li><span class="db-when">${esc(ago(x.at))}</span><span><b>${esc(x.username || '')}</b> ${esc(x.summary || x.module || '')}</span></li>`).join('')}</ul>` : '<p class="muted-note">No activity yet.</p>'))}
