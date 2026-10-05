@@ -1770,3 +1770,11 @@ span.cc-slipbtn{cursor:default;display:inline-block;}
 .db-feed li:first-child{border-top:0;}
 .db-when{flex:0 0 64px;color:var(--ink-faint);font-family:var(--font-mono);font-size:11px;padding-top:2px;}
 @media (max-width:520px){ .db-grid{grid-template-columns:1fr;} .db-stat b{font-size:16px;} }
+
+/* Cash count: modified after the signature, delete (owner, 2026-10-05) */
+.cc-modified{margin-top:10px;padding:10px 12px;border-radius:var(--radius-sm);border:1px solid var(--gold);background:var(--gold-tint, var(--paper));font-size:13px;}
+.cc-was{margin-top:8px;}
+.cc-was .cc-chg{color:var(--brick);font-weight:700;}
+.cc-delete{margin-top:12px;text-align:right;}
+.cc-delete .link-btn.danger{color:var(--brick);display:inline-flex;align-items:center;gap:5px;}
+.cc-delete svg{width:15px;height:15px;stroke:currentColor;}

@@ -25,6 +25,10 @@
    USD -> LBP: one rate (cash_settings.usd_rate), kept on each count.
    The grid is also a tab of the Cash page (not for cashiers: only with a
    cash count right): CashCount.mountGrid(container, month).
+   Corrections (060): after the cashier signed, the accountant (or the
+   admin) can still change the count; the signature stays and the count
+   is flagged "Modified" (who, when), with what the cashier signed kept
+   (signed_snapshot) and shown next to it. The admin can delete a count.
    Public API: window.CashCount = { show, mountGrid }.
    ============================================================ */
 (function () {
@@ -38,6 +42,8 @@
   const S = { ctype: 'visa_bankmed', ccur: 'lbp', ecur: 'lbp', started: false, tab: 'day', date: todayStr(), counts: [], openId: null, cashiers: [], rate: null, month: todayStr().slice(0, 7), monthCounts: [], adding: false, missingList: [] };
   const el = id => document.getElementById(id);
   const esc = escapeHtml;
+  // Part 1: counters before the signature; after it, the accountant (reconcile) or the admin, flagged "Modified".
+  const canEdit1 = c => (can('cashcount.count') || can('cashcount.reconcile')) && (!c.signed_at || isAdmin() || can('cashcount.reconcile'));
   const canCount = () => can('cashcount.count'), canRec = () => can('cashcount.reconcile'), canGrid = () => can('cashcount.view', 'cashcount.reconcile');
   const n = v => { const x = Number(String(v ?? '').replace(/,/g, '')); return Number.isFinite(x) ? x : 0; };
   const lbp = v => Math.round(n(v)).toLocaleString('en-US');
@@ -178,7 +184,13 @@
     clearTimeout(timers.get(c.id));
     timers.set(c.id, setTimeout(async () => {
       const { error } = await sb.from('cash_counts').update(patch.__all ? { lbp: c.lbp, usd: c.usd, cards: c.cards } : patch).eq('id', c.id);
-      if (error) fail('Not saved', error);
+      if (error) return fail('Not saved', error);
+      const part1 = ['lbp', 'usd', 'cards', 'expenses', 'card_items', 'expense_items'].some(k => k in patch) || patch.__all;
+      if (part1 && c.signed_at) {
+        if (!c.modified_at) logActivity('cashcount', 'modify', { type: 'cash_count', id: c.id }, `Corrected the signed cash count of POS ${c.pos} — ${c.cashier_name}, ${fmtDate(c.count_date)}`);
+        c.modified_at = new Date().toISOString(); c.modified_by_name = Session.profile?.display_name || Session.profile?.username || '';
+        const box = el('ccSignArea'); if (box) box.innerHTML = signHtml(c);
+      }
     }, 500));
   }
 
@@ -237,7 +249,7 @@
           <thead><tr><th>POS</th><th>Shift</th><th>Cashier</th><th>Signed</th><th>Reconciled</th><th class="num">Total difference</th><th class="num">After margin</th><th>Cash page</th></tr></thead>
           <tbody>${S.counts.map(c => { const r = calc(c); return `<tr data-cc="${esc(c.id)}" class="${c.id === S.openId ? 'on' : ''}">
             <td><b>POS ${c.pos}</b></td><td>${SHIFTS[c.shift]}</td><td>${esc(c.cashier_name)}</td>
-            <td>${c.signed_at ? '<span class="badge active">Signed</span>' : '<span class="badge warn">Not signed</span>'}</td>
+            <td>${c.signed_at ? '<span class="badge active">Signed</span>' : '<span class="badge warn">Not signed</span>'}${c.modified_at ? ' <span class="badge warn">Modified</span>' : ''}</td>
             <td>${c.reconciled_at ? '<span class="badge active">Reconciled</span>' : r.hasSystem ? '<span class="badge inactive">In progress</span>' : '<span class="muted-note">—</span>'}</td>
             <td class="num" data-tot>${r.hasSystem ? diffWord(r.total, lbp, 'LBP') : '<span class="muted-note">no system figures yet</span>'}</td>
             <td class="num" data-after>${r.hasSystem ? diffWord(r.afterMargin, lbp, 'LBP') : ''}</td>
@@ -267,7 +279,7 @@
   // The sheet: 1. the count (left), 2. the system and the differences (right).
   function sheetHtml(c) {
     const r = calc(c), adm = isAdmin();
-    const lock1 = !canCount() || (!!c.signed_at && !adm);
+    const lock1 = !canEdit1(c);
     const lock2 = !canRec() || (!!c.reconciled_at && !adm);
     const sys = c.system || {};
     const billRows = (bills, key, fmt) => bills.map(b => `<tr><td class="num">${fmt(b)}</td>
@@ -300,9 +312,8 @@
           </div></div>`}
         <div id="ccExps">${expensesHtml(c, lock1)}</div>
         <p class="muted-note cc-keys">Keys: Enter = next bill / add · Alt+1…9 = card type · Alt+U = LBP / USD · Backspace in an empty box = remove the last one · Alt+S = sign · Alt+R = reconciled</p>
-        <div class="cc-sign">${c.signed_at
-          ? `<span class="badge active">Signed</span> <span>${esc(c.cashier_name)} confirmed this count with their PIN · ${esc(fmtTs(c.signed_at))}</span>${adm ? ' <span class="muted-note">(changing it removes the signature)</span>' : ''}`
-          : canCount() ? `<button type="button" class="btn" id="ccSign">${esc(c.cashier_name)} signs with their PIN</button><span class="muted-note">Hand the device to the cashier.</span>` : '<span class="badge warn">Not signed yet</span>'}</div>
+        <div id="ccSignArea">${signHtml(c)}</div>
+        ${adm ? `<div class="cc-delete"><button type="button" class="link-btn danger" id="ccDelete">${svgTrash} Delete this count</button></div>` : ''}
       </section>
       <section class="card cc-part">
         <div class="cc-part-head"><span class="cc-step">2</span><div><h3>System and reconciliation</h3>
@@ -327,6 +338,25 @@
     const nf = c.not_found || {}, mine = cardItems(c).map((i, idx) => ({ ...i, idx })).filter(i => i.type === k);
     if (!mine.length) return '<span class="muted-note">—</span>';
     return mine.map(i => `<span class="cc-slipbtn ${nf[k + '#' + i.idx] === true || nf[k] === true ? 'no' : ''}">${i.cur === 'usd' ? usd(i.amount) + ' $' : lbp(i.amount)}</span>`).join('');
+  }
+  const svgTrash = '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>';
+  function signHtml(c) {
+    const head = c.signed_at
+      ? `<span class="badge active">Signed</span> <span>${esc(c.cashier_name)} confirmed this count with their PIN · ${esc(fmtTs(c.signed_at))}</span>${!c.modified_at && c.signed_at && canEdit1(c) ? ' <span class="muted-note">(a change is flagged as modified)</span>' : ''}`
+      : canCount() ? `<button type="button" class="btn" id="ccSign">${esc(c.cashier_name)} signs with their PIN</button><span class="muted-note">Hand the device to the cashier.</span>` : '<span class="badge warn">Not signed yet</span>';
+    return `<div class="cc-sign">${head}</div>${c.modified_at ? modifiedHtml(c) : ''}`;
+  }
+  // "Modified": who and when, and what the cashier signed next to what it is now.
+  function modifiedHtml(c) {
+    const snap = c.signed_snapshot, now = calc(c);
+    const was = snap ? calc({ ...c, ...snap, _items: true, card_items: snap.card_items || [], expense_items: snap.expense_items || [] }) : null;
+    const row = (label, a, b, fmt) => `<tr><td>${label}</td><td class="num">${fmt(a)}</td><td class="num ${Math.abs(b - a) >= 0.005 ? 'cc-chg' : ''}">${fmt(b)}</td></tr>`;
+    return `<div class="cc-modified"><div><span class="badge warn">Modified</span> after the signature${c.modified_by_name ? ' by <b>' + esc(c.modified_by_name) + '</b>' : ''} · ${esc(fmtTs(c.modified_at))}</div>
+      ${was ? `<table class="cc-bills cc-was"><thead><tr><th></th><th class="num">Signed</th><th class="num">Now</th></tr></thead><tbody>
+        ${row('Cash LBP', was.billsLbp, now.billsLbp, lbp)}${row('Cash USD', was.billsUsd, now.billsUsd, usd)}
+        ${row('Slips LBP', was.cardsCounted.lbp, now.cardsCounted.lbp, lbp)}${row('Slips USD', was.cardsCounted.usd, now.cardsCounted.usd, usd)}
+        ${row('Expenses LBP', was.exp.lbp, now.exp.lbp, lbp)}${row('Expenses USD', was.exp.usd, now.exp.usd, usd)}
+      </tbody></table>` : ''}</div>`;
   }
   // The slips, grouped by card, with their total; and the expenses.
   function slipsHtml(c, lock) {
@@ -404,7 +434,7 @@
     const refreshNumbers = () => {
       const r = calc(c);
       el('ccTotLbp').textContent = lbp(r.billsLbp); el('ccTotUsd').textContent = usd(r.billsUsd); el('ccSysTot').innerHTML = sysTotHtml(r);
-      const lock1 = !canCount() || (!!c.signed_at && !isAdmin());
+      const lock1 = !canEdit1(c);
       el('ccSlips').innerHTML = slipsHtml(c, lock1); el('ccExps').innerHTML = expensesHtml(c, lock1);
       el('ccResult').innerHTML = resultHtml(c);
       const tr = el('ccBody').querySelector(`tr[data-cc="${CSS.escape(c.id)}"]`);
@@ -543,6 +573,19 @@
       logActivity('cashcount', 'reconcile', { type: 'cash_count', id: c.id }, `Reconciled POS ${c.pos} — ${c.cashier_name}: total difference ${lbp(r.total)} LBP`, { total: r.total, cash: r.cashDiffLbpEq, not_found: r.notFoundLbp });
       await loadDay(); renderDay();
     });
+    el('ccDelete')?.addEventListener('click', async () => {
+      const r = calc(c);
+      const sent = r.posted !== null ? ` It was sent to the Cash page: ${c.cashier_name}'s day there is worked out again without it.` : '';
+      if (!await showConfirm(`Delete the cash count of POS ${c.pos} — ${c.cashier_name}, ${SHIFTS[c.shift]}, ${fmtDate(c.count_date)}?${sent} This cannot be undone.`, 'Delete')) return;
+      clearTimeout(timers.get(c.id));
+      const { data, error } = await sb.from('cash_counts').delete().eq('id', c.id).select('id');
+      if (error) return fail('Not deleted', error);
+      if (!data?.length) return showToast('Not deleted: only the admin can delete a count.', true);
+      const { _items, ...kept } = c;
+      logActivity('cashcount', 'delete', { type: 'cash_count', id: c.id }, `Deleted the cash count of POS ${c.pos} — ${c.cashier_name}, ${SHIFTS[c.shift]}, ${fmtDate(c.count_date)} (total ${lbp(r.total)} LBP)`, { count: kept });
+      showToast('Count deleted.');
+      S.openId = null; await loadDay(); renderDay();
+    });
     el('ccUnrec')?.addEventListener('click', async () => {
       const { error } = await sb.from('cash_counts').update({ reconciled_at: null }).eq('id', c.id);
       if (error) return fail('Not saved', error);
@@ -623,7 +666,7 @@
           <td class="num">${lbp(r.margin)}</td>
           <td class="num ${cls(r.afterMargin)}"><b>${sign(r.afterMargin, lbp)}</b></td>` : '<td colspan="6" class="muted-note">no system figures yet</td>'}
           <td>${r.posted === null ? '<span class="muted-note">—</span>' : `<span class="mono">${sign(r.posted, lbp)}</span>${r.needsResend ? ' <span class="badge warn">Send again</span>' : ''}`}</td>
-          <td>${c.reconciled_at ? '<span class="badge active">Reconciled</span>' : c.signed_at ? '<span class="badge inactive">Signed</span>' : '<span class="badge warn">Not signed</span>'}</td></tr>`).join('')
+          <td>${c.reconciled_at ? '<span class="badge active">Reconciled</span>' : c.signed_at ? '<span class="badge inactive">Signed</span>' : '<span class="badge warn">Not signed</span>'}${c.modified_at ? ' <span class="badge warn">Modified</span>' : ''}</td></tr>`).join('')
           || '<tr><td colspan="13" class="empty-note">No count this month.</td></tr>'}</tbody>
         ${rows.length ? `<tfoot><tr><th colspan="4">Month</th><th class="num">${lbp(rows.reduce((t, x) => t + x.r.exp.lbp + x.r.exp.usd * x.r.rate, 0))}</th><th class="num">${sign(sum(r => r.cashDiffLbpEq), lbp)}</th><th class="num">${sign(sum(r => r.cardsDiff), lbp)}</th><th class="num">${lbp(sum(r => r.notFoundLbp))}</th><th class="num">${sign(sum(r => r.total), lbp)}</th><th></th><th class="num"><b>${sign(sum(r => r.afterMargin), lbp)}</b></th><th class="num">${sign(rows.reduce((t, x) => t + (x.r.posted || 0), 0), lbp)}</th><th></th></tr></tfoot>` : ''}
       </table></div></div>
@@ -641,12 +684,12 @@
   const sign = (d, fmt) => Math.abs(d) < 0.005 ? '0' : (d < 0 ? '-' : '+') + fmt(Math.abs(d));
   function exportGrid(rows) {
     const aoa = [['Date', 'POS', 'Shift', 'Cashier', 'Expenses LBP', 'Expenses USD', 'Expenses note', 'Cash LBP', 'Cash USD', 'Cash difference (LBP)', ...CARDS.map(([, l]) => l + ' (LBP eq.)'),
-      'Credit card difference (LBP)', 'Missing slips', 'Missing slips (LBP)', 'Total (LBP)', 'Allowed ±', 'After margin (LBP)', 'Sent to the Cash page (LBP)', 'Signed', 'Reconciled']];
+      'Credit card difference (LBP)', 'Missing slips', 'Missing slips (LBP)', 'Total (LBP)', 'Allowed ±', 'After margin (LBP)', 'Sent to the Cash page (LBP)', 'Signed', 'Modified after signing', 'Reconciled']];
     rows.forEach(({ c, r }) => { const h = r.hasSystem, R = v => h ? Math.round(v) : '';
       aoa.push([c.count_date, c.pos, SHIFTS[c.shift], c.cashier_name, r.exp.lbp || '', r.exp.usd || '', c.expenses?.note || '',
         R(r.cashDiff.lbp), h ? r.cashDiff.usd : '', R(r.cashDiffLbpEq), ...r.cards.map(x => R(x.diff.lbp + x.diff.usd * r.rate)),
         R(r.cardsDiff), r.notFound.map(i => i.label + ' ' + amt(i)).join(', '), r.notFoundLbp ? Math.round(r.notFoundLbp) : '', R(r.total), r.margin, R(r.afterMargin),
-        r.posted === null ? '' : r.posted, c.signed_at ? 'Yes' : 'No', c.reconciled_at ? 'Yes' : 'No']); });
+        r.posted === null ? '' : r.posted, c.signed_at ? 'Yes' : 'No', c.modified_at ? `Yes — ${c.modified_by_name || ''} ${fmtTs(c.modified_at)}` : '', c.reconciled_at ? 'Yes' : 'No']); });
     const ws = XLSX.utils.aoa_to_sheet(aoa);
     const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Cash count');
     XLSX.writeFile(wb, `cash-count-${S.month}.xlsx`);
