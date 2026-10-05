@@ -1871,3 +1871,5 @@ span.cc-slipbtn{cursor:default;display:inline-block;}
 .st-ib-main{background:var(--pine);border-color:var(--pine);color:#fff;}
 .st-ib-main:hover{background:var(--pine-deep);color:#fff;}
 .st-table td .st-ib + .st-ib{margin-left:4px;}
+
+.rc-zero{display:inline-block;min-width:22px;padding:1px 6px;border-radius:6px;background:var(--brick);color:#fff;font-weight:700;text-align:center;}

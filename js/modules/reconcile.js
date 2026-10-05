@@ -13,6 +13,8 @@
    a promotion price for 200 g or 100 g (x5 / x10 = the file's price per kg)
    is the same price.
    Codes match with or without leading zeros ("0124" = "124").
+   Stock (owner, 2026-10-06): the flagged items show their stock at Ajaltoun now, read live from the La Valeur
+   Dashboard (server function lv-dashboard); 0 is marked.
    Everything runs in this browser; nothing is changed in the app.
    Public API: window.Reconcile = { mount(container) }.
    ============================================================ */
@@ -128,7 +130,7 @@
         const same = w => Math.abs(w.price - fp) < 0.005 || (perKg && [5, 10].some(m => Math.abs(w.price * m - fp) < 0.011));
         x.priceOff = fp !== null && withPrice.length > 0 && !withPrice.some(same);
       });
-      R.file = file.name; R.sheet = sheet; R.result = { items, app };
+      R.file = file.name; R.sheet = sheet; R.result = { items, app }; R.stock = {};
       logActivity('tools', 'reconcile', null, `Checked ${items.length} promotion items from "${file.name}" against the sell-outs and promotions: ${items.filter(x => !x.found).length} not found, ${items.filter(x => x.priceOff).length} with a different price`);
       renderResult();
     } catch (err) {
@@ -157,22 +159,62 @@
         </div>
       </div>
       ${miss.length ? `<div class="card" style="padding:0;"><div class="items-scroll" style="margin:0;border:0;"><table class="items rc-table">
-        <thead><tr><th>Code</th><th>Description</th><th>Type</th><th class="num">Price</th><th class="num">Old price</th><th>Group</th><th>Last seen in the app</th></tr></thead>
+        <thead><tr><th>Code</th><th>Description</th><th>Type</th><th class="num">Price</th><th class="num">Old price</th><th>Group</th><th class="num">Stock</th><th>Last seen in the app</th></tr></thead>
         <tbody>${miss.map(x => `<tr><td class="mono"><b>${esc(x.code)}</b>${dup.get(key(x.code)) > 1 ? ' <span class="badge warn">twice</span>' : ''}</td><td>${esc(x.desc)}</td><td class="rc-type">${esc(x.type)}</td>
-          <td class="num">${esc(x.price)}</td><td class="num">${esc(x.old)}</td><td class="rc-group">${esc(x.group)}</td>
+          <td class="num">${esc(x.price)}</td><td class="num">${esc(x.old)}</td><td class="rc-group">${esc(x.group)}</td><td class="num rc-stock" data-stock="${esc(x.code)}"><span class="muted-note">…</span></td>
           <td>${x.last ? `${esc(x.last.kind)} <b>${esc(x.last.name)}</b>${x.last.to ? ` · ended ${esc(fmtDate(String(x.last.to).slice(0, 10)))}` : ''}${x.last.archived ? ' · archived' : ''}` : '<span class="rc-never">never</span>'}</td></tr>`).join('')}</tbody>
       </table></div></div>` : '<div class="card"><p style="margin:0;"><b>Every item in the file is in a running sell-out or promotion.</b></p></div>'}
       ${off.length ? `<h4 class="cc-h" style="margin:18px 0 8px;">Found, but the price is not the same</h4>
       <div class="card" style="padding:0;"><div class="items-scroll" style="margin:0;border:0;"><table class="items rc-table rc-off">
-        <thead><tr><th>Code</th><th>Description</th><th class="num">Price in the file</th><th class="num">Price in the app</th><th class="num">Gap</th><th>Where</th></tr></thead>
+        <thead><tr><th>Code</th><th>Description</th><th class="num">Price in the file</th><th class="num">Price in the app</th><th class="num">Gap</th><th class="num">Stock</th><th>Where</th></tr></thead>
         <tbody>${off.map(x => { const w = x.found.filter(y => y.price !== null), best = w.slice().sort((a, b) => Math.abs(a.price - x.filePrice) - Math.abs(b.price - x.filePrice))[0];
           return `<tr><td class="mono"><b>${esc(x.code)}</b></td><td>${esc(x.desc)}</td><td class="num">${money(x.filePrice)}</td>
           <td class="num">${w.map(y => money(y.price)).filter((v, i, a) => a.indexOf(v) === i).join(' / ')}</td>
           <td class="num ${x.filePrice > best.price ? 'rc-up' : 'rc-down'}">${x.filePrice > best.price ? '+' : '-'}${money(Math.abs(x.filePrice - best.price))}</td>
+          <td class="num rc-stock" data-stock="${esc(x.code)}"><span class="muted-note">…</span></td>
           <td>${w.map(y => `${esc(y.kind)} <b>${esc(y.name)}</b>`).join('<br>')}</td></tr>`; }).join('')}</tbody>
       </table></div></div>` : ''}`;
     el('rcExportMiss').onclick = () => exportMissing(miss);
     el('rcExportOff').onclick = () => exportOff(off);
+    const flagged = [...new Set([...off, ...miss].map(x => x.code))];
+    R.flagged = flagged;
+    fillStock(flagged.slice(0, STOCK_AUTO));
+  }
+  // Live stock (lv-dashboard), kept for this file. One lookup per item on the dashboard, a few at a time (light on
+  // their server): the first STOCK_AUTO flagged items by themselves, the rest with "Show the stock of all".
+  const STOCK_AUTO = 60, STOCK_BATCH = 60;
+  async function fillStock(codes) {
+    R.stock = R.stock || {};
+    const want = [...new Set(codes)].filter(c => !(c in R.stock));
+    for (let i = 0; i < want.length; i += STOCK_BATCH) {
+      const part = want.slice(i, i + STOCK_BATCH);
+      try {
+        const { data, error } = await sb.functions.invoke('lv-dashboard', { body: { action: 'items_stock', codes: part } });
+        if (error || !data?.stock) throw error || new Error('no stock');
+        Object.assign(R.stock, data.stock);
+      } catch (e) { console.warn('stock', e); part.forEach(c => { R.stock[c] = undefined; }); }
+      paintStock();
+    }
+    paintStock();
+  }
+  function paintStock() {
+    const left = (R.flagged || []).filter(c => !(c in (R.stock || {}))).length;
+    let bar = document.getElementById('rcStockMore');
+    if (left && !bar) {
+      document.querySelector('#rcOut .rc-actions')?.insertAdjacentHTML('beforeend', '<button type="button" class="btn secondary small" id="rcStockMore"></button>');
+      bar = document.getElementById('rcStockMore');
+      bar.onclick = () => { bar.disabled = true; bar.textContent = 'Loading the stock…'; fillStock(R.flagged); };
+    }
+    if (bar && !left) bar.remove();
+    else if (bar && !bar.disabled) bar.textContent = `Show the stock of all (${left} more)`;
+    else if (bar) bar.textContent = `Loading the stock… ${left} left`;
+    document.querySelectorAll('#rcOut [data-stock]').forEach(td => {
+      if (!(td.dataset.stock in (R.stock || {}))) { td.innerHTML = '<span class="muted-note">·</span>'; return; }
+      const v = R.stock[td.dataset.stock];
+      td.innerHTML = v === undefined ? '<span class="muted-note" title="The dashboard did not answer">—</span>'
+        : v === null ? '<span class="muted-note" title="Not found in the system">?</span>'
+        : Number(v) <= 0 ? '<span class="rc-zero" title="Nothing in stock">0</span>' : (Math.round(Number(v) * 100) / 100).toLocaleString('en-US');
+    });
     el('rcExportAll').onclick = exportMarked;
   }
 
@@ -185,8 +227,8 @@
     XLSX.writeFile(wb, `price-differs-${todayStr()}.xlsx`);
   }
   function exportMissing(miss) {
-    const aoa = [['Code', 'Description', 'Type', 'Price', 'Old price', 'Group', 'Last seen in the app']];
-    miss.forEach(x => aoa.push([x.code, x.desc, x.type, x.price, x.old, x.group, x.last ? `${x.last.kind} ${x.last.name}${x.last.to ? ', ended ' + String(x.last.to).slice(0, 10) : ''}` : 'never']));
+    const aoa = [['Code', 'Description', 'Type', 'Price', 'Old price', 'Group', 'Stock', 'Last seen in the app']];
+    miss.forEach(x => aoa.push([x.code, x.desc, x.type, x.price, x.old, x.group, R.stock?.[x.code] ?? '', x.last ? `${x.last.kind} ${x.last.name}${x.last.to ? ', ended ' + String(x.last.to).slice(0, 10) : ''}` : 'never']));
     const ws = XLSX.utils.aoa_to_sheet(aoa); ws['!cols'] = [{ wch: 10 }, { wch: 44 }, { wch: 22 }, { wch: 9 }, { wch: 9 }, { wch: 12 }, { wch: 40 }];
     const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Not found');
     XLSX.writeFile(wb, `not-found-${todayStr()}.xlsx`);

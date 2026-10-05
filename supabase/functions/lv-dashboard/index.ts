@@ -1,0 +1,114 @@
+// lv-dashboard — the app's read-only link to the La Valeur Dashboard (dashboard.lavaleursupermarche.com) (owner, 2026-10-06).
+// The dashboard's login is a server secret (LV_DASH_USER / LV_DASH_PASS, typed by the owner, never in the code or the
+// browser). This function logs in (POST /api/lavaleur/auth/token), keeps the token (about a day) and logs in again when
+// it expires, and answers only what the app needs:
+//   POST { action: 'status' }                         -> { ok, user, expires_at }      admin (or the server key): the link works
+//   POST { action: 'item_search', search, branch? }   -> { items: [...] }               code / barcode / name -> code, barcodes, description, stock
+//   POST { action: 'items_stock', codes: [...] }      -> { stock: { code: qty|null } }  up to 300 codes (exact code match)
+// Callers: a signed-in, active app user (Authorization: Bearer <their session>). Read only: nothing is ever written there.
+// Deploy with JWT verification OFF (the user is checked here).
+import { createClient } from 'npm:@supabase/supabase-js@2';
+
+const BASE = 'https://dashboard.lavaleursupermarche.com/api/lavaleur';
+const BRANCH = 'Ajaltoun';
+const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
+const SERVICE_KEY = Deno.env.get('LV_SECRET_KEY') ?? Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+const db = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
+
+const cors = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+};
+const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } });
+
+// The server's own keys (for a check from the server side only).
+function serverKeys(): string[] {
+  const out = [Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || ''];
+  try { const k = JSON.parse(Deno.env.get('SUPABASE_SECRET_KEYS') || '{}'); Object.values(k).forEach(v => out.push(String(v))); } catch { /* not JSON */ }
+  return out.filter(Boolean);
+}
+
+/* ---------------- the dashboard's token ---------------- */
+let token: string | null = null, tokenExp = 0;
+// "eyJleHAiOjE3OTEyNjExNDgsInN1YiI6Ii4uLiJ9.signature": the first part says when it expires.
+function expOf(t: string): number {
+  try { const p = JSON.parse(atob(t.split('.')[0])); return Number(p.exp) * 1000 || 0; } catch { return 0; }
+}
+async function login(): Promise<string> {
+  const username = Deno.env.get('LV_DASH_USER'), password = Deno.env.get('LV_DASH_PASS');
+  if (!username || !password) throw new Error('The dashboard login is not set (server secrets).');
+  const r = await fetch(`${BASE}/auth/token`, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify({ username, password }) });
+  const text = await r.text();
+  if (!r.ok) throw new Error(`Dashboard login refused (${r.status})`);
+  let d: Record<string, unknown> = {};
+  try { d = JSON.parse(text); } catch { /* the token as plain text */ }
+  const t = String(d.access_token ?? d.token ?? (d.data as Record<string, unknown>)?.access_token ?? (d.data as Record<string, unknown>)?.token ?? (text.startsWith('ey') ? text : ''));
+  if (!t) throw new Error('Dashboard login: no token in the answer');
+  token = t; tokenExp = expOf(t) || Date.now() + 6 * 3600e3;
+  return t;
+}
+async function dash(path: string, init: RequestInit = {}, retry = true): Promise<unknown> {
+  if (!token || Date.now() > tokenExp - 5 * 60e3) await login();
+  const r = await fetch(`${BASE}${path}`, { ...init, headers: { ...(init.headers || {}), Authorization: `Bearer ${token}`, Accept: 'application/json' } });
+  if (r.status === 401 && retry) { token = null; return dash(path, init, false); }
+  if (!r.ok) throw new Error(`Dashboard answered ${r.status}`);
+  return r.json();
+}
+const year = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Beirut' }).slice(0, 4);
+type Item = { code: string; barcode?: string; barcodes?: string[]; description?: string; description4?: string; available_quantity?: number | null; available_quantity_branch?: string };
+const slim = (i: Item) => ({ code: String(i.code ?? ''), barcodes: i.barcodes || (i.barcode ? [i.barcode] : []), description: i.description || '', size: i.description4 || '', stock: i.available_quantity ?? null, branch: i.available_quantity_branch || BRANCH });
+async function search(q: string, branch = BRANCH): Promise<Item[]> {
+  const p = new URLSearchParams({ search: q, year: year(), preferred_branch: branch });
+  const d = await dash(`/items/search?${p}`);
+  return Array.isArray(d) ? d as Item[] : [];
+}
+
+Deno.serve(async req => {
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
+  if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
+  let body: Record<string, unknown>;
+  try { body = await req.json(); } catch { return json({ error: 'Bad request' }, 400); }
+
+  // who is asking: a signed-in, active app user (or the server itself, for "status")
+  const bearer = (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '');
+  const apikey = req.headers.get('apikey') || '';
+  const isServer = (!!bearer && serverKeys().includes(bearer)) || (!!apikey && serverKeys().includes(apikey));
+  let role = '';
+  if (!isServer) {
+    const { data: u } = await db.auth.getUser(bearer);
+    if (!u?.user) return json({ error: 'Sign in first.' }, 401);
+    const { data: prof } = await db.from('profiles').select('role, active').eq('id', u.user.id).maybeSingle();
+    if (!prof?.active) return json({ error: 'Not allowed.' }, 403);
+    role = prof.role || '';
+  }
+
+  try {
+    if (body.action === 'status') {
+      if (!isServer && role !== 'admin') return json({ error: 'Admin only.' }, 403);
+      token = null; await login();
+      return json({ ok: true, user: Deno.env.get('LV_DASH_USER'), expires_at: new Date(tokenExp).toISOString() });
+    }
+    if (body.action === 'item_search') {
+      const q = String(body.search ?? '').trim();
+      if (q.length < 2) return json({ items: [] });
+      return json({ items: (await search(q, String(body.branch || BRANCH))).map(slim) });
+    }
+    if (body.action === 'items_stock') {
+      const codes = (Array.isArray(body.codes) ? body.codes : []).map(c => String(c).trim()).filter(Boolean).slice(0, 300);
+      const stock: Record<string, number | null> = {};
+      const key = (c: string) => c.replace(/^0+(?=\d)/, '');
+      for (let i = 0; i < codes.length; i += 6) {                 // a few at a time: light on their server
+        await Promise.all(codes.slice(i, i + 6).map(async c => {
+          try { const hit = (await search(c)).find(x => key(String(x.code)) === key(c)); stock[c] = hit ? (hit.available_quantity ?? null) : null; }
+          catch { stock[c] = null; }
+        }));
+      }
+      return json({ stock });
+    }
+    return json({ error: 'Unknown action' }, 400);
+  } catch (e) {
+    console.error(e);
+    return json({ error: e instanceof Error ? e.message : 'Something went wrong' }, 502);
+  }
+});
