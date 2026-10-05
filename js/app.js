@@ -1084,7 +1084,7 @@ const PAGES = {
   onlinepromo: { eyebrow: 'Online shop', title: 'Online promotion', sub: 'Every item on an online-only sell-out, its promo price and its due date.' },
   creditnotes: { eyebrow: 'Tracker', title: 'Credit notes', sub: 'Every credit note logged against your suppliers, issued or signed.' },
   promotions:  { eyebrow: 'Builder', title: 'Promotions', sub: 'Look up items by code, build a flyer, and export it when it’s ready.' },
-  vendors:     { eyebrow: 'Directory', title: 'Vendors', sub: 'Salesman contacts, delivery schedule, and placing orders.' },
+  vendors:     { eyebrow: 'Suppliers', title: 'Vendors', sub: 'Salesmen, order days, deliveries and receiving.' },
   rentals:     { eyebrow: 'Store map', title: 'Rentals', sub: 'Every rented spot on the store map: its contract, billing, renewal and the supplier’s sales.' },
   delivery:    { eyebrow: 'Deliveries', title: 'Delivery', sub: 'Home-delivery orders, driver payments and customers.' },
   cashcount:   { eyebrow: 'Cashiers', title: 'Cash count', sub: 'Count a drawer, have the cashier sign, reconcile it with the system.' },
@@ -4072,7 +4072,10 @@ async function loadOrdersData() {
   ordersList = (data || []).map(r => ({
     id: r.id, vendorId: r.vendor_id, vendorName: r.vendor_name || '',
     orderDate: r.order_date, leadTimeDays: r.lead_time_days === undefined ? null : r.lead_time_days,
-    expectedDelivery: r.expected_delivery, status: r.status || 'pending', deliveredDate: r.delivered_date
+    expectedDelivery: r.expected_delivery, status: r.status || 'pending', deliveredDate: r.delivered_date,
+    // receiving (migration 062)
+    receivedAt: r.received_at || null, receivedByName: r.received_by_name || null, receiveStatus: r.receive_status || null,
+    invoiceNo: r.invoice_no || null, receiveNote: r.receive_note || null
   }));
 }
 async function saveOrderRemote(o) {
@@ -4112,7 +4115,10 @@ document.querySelectorAll('#vendorSubTabs button').forEach(btn => {
     document.querySelectorAll('#vendorSubTabs button').forEach(b => b.classList.toggle('active', b === btn));
     document.getElementById('vendorDirectoryView').style.display = vendorSubTab === 'directory' ? 'block' : 'none';
     document.getElementById('vendorOrdersView').style.display = vendorSubTab === 'orders' ? 'block' : 'none';
+    document.getElementById('vendorCalendarView').style.display = vendorSubTab === 'calendar' ? 'block' : 'none';
+    document.getElementById('vendorReceivingView').style.display = vendorSubTab === 'receiving' ? 'block' : 'none';
     if (vendorSubTab === 'orders') renderOrdersView();
+    if (window.VendorCal) { if (vendorSubTab === 'calendar') VendorCal.renderCalendar(); if (vendorSubTab === 'receiving') VendorCal.renderReceiving(); }
   });
 });
 
@@ -4659,6 +4665,18 @@ async function refreshVendors() {
   await loadOrdersData();
   await loadSkipsData();
   renderOrdersView();
+  renderVendorExtras();
+}
+// Calendar / receiving tabs and the stats strip (js/modules/vendorcal.js). Receiving only (vendors.receive
+// without vendors.manage): the calendar (deliveries) and the receiving page, nothing else.
+function renderVendorExtras() {
+  if (!window.VendorCal) return;
+  const manage = can('vendors.manage');
+  document.querySelectorAll('#vendorSubTabs [data-vsub="directory"], #vendorSubTabs [data-vsub="orders"]').forEach(b => { b.hidden = !manage; });
+  if (!manage && (vendorSubTab === 'directory' || vendorSubTab === 'orders')) { document.querySelector('#vendorSubTabs [data-vsub="receiving"]')?.click(); return; }
+  VendorCal.renderStats();
+  if (vendorSubTab === 'calendar') VendorCal.renderCalendar();
+  if (vendorSubTab === 'receiving') VendorCal.renderReceiving();
 }
 
 async function initVendors() {
@@ -4667,7 +4685,8 @@ async function initVendors() {
   await loadOrdersData();
   await loadSkipsData();
   renderOrdersView();
-  runVendorNotificationCheck();
+  renderVendorExtras();
+  if (can('vendors.manage')) runVendorNotificationCheck();
 }
 
 // Called by auth.js after sign-in, once the role is known. Each module only

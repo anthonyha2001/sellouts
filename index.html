@@ -289,10 +289,19 @@
     <!-- VENDORS -->
     <section class="panel" id="panel-vendors">
 
+      <!-- At a glance (js/modules/vendorcal.js) -->
+      <div class="vc-stats" id="vendorStats"></div>
+
       <div class="filter-row" id="vendorSubTabs">
         <button class="active" data-vsub="directory">Directory</button>
         <button data-vsub="orders">Orders</button>
+        <button data-vsub="calendar">Calendar</button>
+        <button data-vsub="receiving">Receiving</button>
       </div>
+
+      <!-- Calendar (order days / deliveries) and Receiving (js/modules/vendorcal.js; migration 062) -->
+      <div id="vendorCalendarView" style="display:none;"></div>
+      <div id="vendorReceivingView" style="display:none;"></div>
 
       <div id="vendorDirectoryView">
 
@@ -986,6 +995,7 @@
 <script src="js/modules/users.js"></script>
 <script src="js/modules/staff.js"></script>
 <script src="js/modules/cashcount.js"></script>
+<script src="js/modules/vendorcal.js"></script>
 <script src="js/modules/dashboard.js"></script>
 <script src="js/core/live.js"></script>
 <script src="js/core/auth.js"></script>
