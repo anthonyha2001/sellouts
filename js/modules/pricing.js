@@ -6,7 +6,9 @@
      3. PU by PU (supplier by supplier): every line with its price, the
         previous purchase price and the difference, the stock we had when
         it arrived; the PU's total and its flags in the footer.
-   Returns to the supplier (PT) are read too, as their own pages.
+   Two tabs: Purchases (the wizard, deliveries only) and Returns (every
+   item returned to a supplier, PT, between two days: grouped by PT, with
+   the last purchase price on request).
    Flags: a price different from the previous purchase (net price, or the
    real cost of a trade deal), and an item that arrived while we already
    had more than 2 months of stock (stock before / daily sales of the 90
@@ -28,19 +30,31 @@
   const isLbp = c => /l\.?l|lbp|ل/i.test(String(c || '')) ;
   const price = (v, cur) => v === null || v === undefined ? '—' : (n(v) >= 1000 || isLbp(cur))
     ? Math.round(n(v)).toLocaleString('en-US') : (Math.round(n(v) * 1000) / 1000).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 3 });
-  const S = { day: null, list: null, supIdx: 0, cache: new Map(), pus: [], puIdx: 0, sel: 0, busy: false, wired: false };
+  const S = { day: null, list: null, supIdx: 0, cache: new Map(), pus: [], puIdx: 0, sel: 0, busy: false, wired: false, tab: 'purchases' };
+  // the suppliers the wizard goes through: the ones that delivered (a supplier that only returned goods is under Returns)
+  const sups = () => (S.list?.suppliers || []).filter(x => x.value > 0);
 
   function show() {
     const root = el('panel-pricing'); if (!root) return;
     if (!S.day) S.day = todayStr();
     if (!root.dataset.built) {
       root.dataset.built = '1';
-      root.innerHTML = `<div class="pr-steps" id="prSteps"></div><div id="prBody"></div>`;
+      root.innerHTML = `<div class="filter-row pr-tabs" id="prTabs"><button type="button" data-t="purchases" class="active">Purchases</button><button type="button" data-t="returns">Returns</button></div>
+        <div id="prWiz"><div class="pr-steps" id="prSteps"></div><div id="prBody"></div></div><div id="prRet" hidden></div>`;
+      el('prTabs').onclick = e => { const b = e.target.closest('[data-t]'); if (b) tab(b.dataset.t); };
     }
+    if (S.tab === 'returns') return tab('returns');
     if (!S.wired) { S.wired = true; document.addEventListener('keydown', onKey); }
     if (S.list && S.pus.length) paintPu(); else if (S.list) paintSuppliers(); else paintDay();
   }
-  const active = () => el('panel-pricing')?.classList.contains('active');
+  const active = () => el('panel-pricing')?.classList.contains('active') && S.tab === 'purchases';
+  function tab(t, opts) {
+    S.tab = t;
+    el('prTabs').querySelectorAll('[data-t]').forEach(b => b.classList.toggle('active', b.dataset.t === t));
+    el('prWiz').hidden = t !== 'purchases'; el('prRet').hidden = t !== 'returns';
+    if (t === 'returns') Returns.show(opts);
+    else if (S.list && S.pus.length) paintPu(); else if (S.list) paintSuppliers(); else paintDay();
+  }
   function steps(k) {
     el('prSteps').innerHTML = ['Day', 'Suppliers', 'Purchases'].map((t, i) => `<button type="button" class="pr-step${i === k ? ' on' : ''}${i < k ? ' done' : ''}" data-step="${i}" ${i > k ? 'disabled' : ''}><b>${i + 1}</b> ${t}</button>`).join('<span class="pr-step-sep"></span>');
     el('prSteps').querySelectorAll('[data-step]').forEach(b => b.onclick = () => { const i = Number(b.dataset.step); if (i === 0) paintDay(); if (i === 1 && S.list) paintSuppliers(); });
@@ -80,7 +94,7 @@
   function flagsOf(code) { const c = S.cache.get(code); if (!c) return null; const p = puList(c); if (!p.length) return { none: true }; return { price: p.reduce((t, x) => t + x.flags.price.length, 0), over: p.reduce((t, x) => t + x.flags.over.length, 0), pus: p.length }; }
   function paintSuppliers() {
     steps(1); S.pus = [];
-    const L = S.list.suppliers;
+    const L = sups(), backOnly = S.list.suppliers.filter(x => x.value <= 0);
     el('prBody').innerHTML = `<div class="card">
       <div class="pr-head"><h3>${L.length} supplier${L.length === 1 ? '' : 's'} delivered on ${esc(dmy(S.list.day))}</h3><span style="flex:1"></span>
         ${L.length ? '<button type="button" class="btn" id="prStart">Check them one by one</button>' : ''}</div>
@@ -88,7 +102,9 @@
         <tbody>${L.map((s, i) => { const f = flagsOf(s.code); return `<tr data-i="${i}" tabindex="0"><td><b>${esc(s.name)}</b> <span class="muted-note mono">${esc(s.code)}</span></td><td class="num">${s.items}</td>
           <td class="num">${s.value < 0 ? `<span class="pr-ret">${Math.round(s.value).toLocaleString('en-US')}</span><div class="pr-sub">returned</div>` : Math.round(s.value).toLocaleString('en-US')}</td>
           <td>${f?.none ? '<span class="muted-note">no line found</span>' : f ? `${f.pus} PU${f.pus === 1 ? '' : 's'}${f.price ? ` · <span class="pr-flag-price">${f.price} price change${f.price === 1 ? '' : 's'}</span>` : ''}${f.over ? ` · <span class="pr-flag-over">${f.over} over 2 months</span>` : ''}${!f.price && !f.over ? ' · <span class="pr-ok">nothing flagged</span>' : ''}` : '<span class="muted-note">not yet</span>'}</td></tr>`; }).join('')
-          || '<tr><td colspan="4" class="empty-note">No purchase on that day.</td></tr>'}</tbody></table></div></div>`;
+          || '<tr><td colspan="4" class="empty-note">No purchase on that day.</td></tr>'}</tbody></table></div>
+      ${backOnly.length ? `<p class="muted-note pr-backonly">${backOnly.length} supplier${backOnly.length === 1 ? '' : 's'} only returned goods that day (${backOnly.map(x => esc(x.name)).join(', ')}). <button type="button" class="btn small secondary" id="prSeeRet">See the returns</button></p>` : ''}</div>`;
+    el('prSeeRet')?.addEventListener('click', () => tab('returns', { from: S.list.day, to: S.list.day }));
     el('prStart')?.addEventListener('click', () => openSupplier(0));
     el('prBody').querySelectorAll('tr[data-i]').forEach(tr => { tr.onclick = () => openSupplier(Number(tr.dataset.i)); tr.onkeydown = e => { if (e.key === 'Enter') openSupplier(Number(tr.dataset.i)); }; });
   }
@@ -106,7 +122,7 @@
       const had = it.stockBefore === null || it.stockBefore === undefined ? null : n(it.stockBefore);
       const daysHad = had !== null && had > 0 && perDay > 0 ? had / perDay : null;
       const overArr = had !== null && had > 0.001 && (perDay > 0 ? daysHad > OVER_DAYS : true);
-      (it.docs || []).forEach(d => {
+      (it.docs || []).filter(d => d.kind !== 'return').forEach(d => {
         const paid = d.lines.find(l => !l.free);
         const real = n(d.paidQty) + n(d.freeQty) !== 0 ? n(d.paid) / (n(d.paidQty) + n(d.freeQty)) : null;
         const net = paid ? paid.net : null;
@@ -126,7 +142,7 @@
       flags: { price: p.rows.filter(r => r.priceFlag), over: p.rows.filter(r => r.overArr) } }));
   }
   async function openSupplier(i, atEnd) {
-    const s = S.list.suppliers[i]; if (!s) return;
+    const s = sups()[i]; if (!s) return;
     S.supIdx = i;
     if (!S.cache.has(s.code)) {
       steps(2);
@@ -138,7 +154,7 @@
     }
     S.pus = puList(S.cache.get(s.code));
     S.puIdx = atEnd ? Math.max(0, S.pus.length - 1) : 0; S.sel = 0;
-    if (!S.pus.length) { showToast(`${s.name}: nothing found in the cardex for that day.`, true); paintSuppliers(); return; }
+    if (!S.pus.length) { showToast(`${s.name}: no delivery found in the cardex for that day (returns are under Returns).`, true); paintSuppliers(); return; }
     paintPu();
   }
   function go(step) {
@@ -147,7 +163,7 @@
     if (k >= 0 && k < S.pus.length) { S.puIdx = k; S.sel = 0; paintPu(); return; }
     const j = S.supIdx + step;
     if (j < 0) return showToast('This is the first PU of the day.');
-    if (j >= S.list.suppliers.length) { showToast('That was the last PU of the day.'); paintSuppliers(); return; }
+    if (j >= sups().length) { showToast('That was the last PU of the day.'); paintSuppliers(); return; }
     openSupplier(j, step < 0);
   }
   function diffHtml(x, base, cur) {
@@ -158,13 +174,13 @@
   }
   function paintPu() {
     steps(2);
-    const s = S.list.suppliers[S.supIdx], pu = S.pus[S.puIdx], cur = pu.currency;
+    const s = sups()[S.supIdx], pu = S.pus[S.puIdx], cur = pu.currency;
     const nPu = S.pus.length;
     el('prBody').innerHTML = `<div class="card pr-pu">
       <div class="pr-head">
         <button type="button" class="icon-btn" data-go="-1" title="Previous PU (left arrow)" aria-label="Previous PU"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
         <div class="pr-title"><h3>${pu.kind === 'return' ? '<span class="pr-ret-tag">Return to supplier</span> ' : ''}${esc(pu.doc)} <span class="muted-note">· ${esc(s.name)}</span></h3>
-          <span class="muted-note">${esc(dmy(S.day))} · PU ${S.puIdx + 1} of ${nPu} · supplier ${S.supIdx + 1} of ${S.list.suppliers.length} · ${pu.rows.length} line${pu.rows.length === 1 ? '' : 's'} · prices in ${esc(cur || '$')}</span></div>
+          <span class="muted-note">${esc(dmy(S.day))} · PU ${S.puIdx + 1} of ${nPu} · supplier ${S.supIdx + 1} of ${sups().length} · ${pu.rows.length} line${pu.rows.length === 1 ? '' : 's'} · prices in ${esc(cur || '$')}</span></div>
         <button type="button" class="icon-btn" data-go="1" title="Next PU (right arrow)" aria-label="Next PU"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></button>
       </div>
       <div class="items-scroll pr-scroll"><table class="items pr-table"><thead><tr>
@@ -210,5 +226,101 @@
     else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); go(-1); }
     else if (e.key === 'Enter') { e.preventDefault(); openItem(); }
   }
+  /* ---------------- Returns: every item returned to a supplier between two days ---------------- */
+  const Returns = (() => {
+    const R = { from: null, to: null, lines: [], q: '', prev: false, seq: 0, done: 0, total: 0, busy: false, built: false };
+    const addDays = (d, k) => { const x = new Date(d + 'T00:00:00'); x.setDate(x.getDate() + k); return x.toLocaleDateString('en-CA'); };
+    const daysOf = (a, b) => { const out = []; for (let d = a; d <= b; d = addDays(d, 1)) out.push(d); return out; };
+    const prevOf = l => { const docs = l.prev?.docs || []; const p = docs.flatMap(d => d.lines).find(x => !x.free); return p ? { date: l.prev.date, net: p.net, currency: docs[0]?.currency || '' } : l.prev ? { date: l.prev.date, net: null } : null; };
+    function show(opts) {
+      const box = el('prRet');
+      if (!R.from) { R.from = opts?.from || S.day || todayStr(); R.to = opts?.to || R.from; }
+      if (opts?.from) { R.from = opts.from; R.to = opts.to || opts.from; R.lines = []; R.total = 0; }
+      if (!R.built) {
+        R.built = true;
+        box.innerHTML = `<div class="card pr-ret-controls">
+            <label>From <input type="date" id="rtFrom" max="${esc(todayStr())}"></label><label>to <input type="date" id="rtTo" max="${esc(todayStr())}"></label>
+            <div class="filter-row" id="rtQuick" style="margin:0;"><button type="button" data-q="0">Today</button><button type="button" data-q="1">Yesterday</button><button type="button" data-q="7">Last 7 days</button><button type="button" data-q="m">This month</button></div>
+            <button type="button" class="btn small" id="rtLoad">Load</button>
+            <span style="flex:1"></span>
+            <input type="search" id="rtQ" placeholder="Find a supplier, an item, a PT" aria-label="Find">
+            <button type="button" class="icon-btn" id="rtPrev" title="Compare with the last purchase price (slower)" aria-label="Compare with the last purchase price"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7h11l-3-3M17 17H6l3 3"/></svg></button>
+            <button type="button" class="icon-btn" id="rtXls" title="Download (Excel)" aria-label="Download (Excel)"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg></button>
+          </div><div id="rtBody"></div>`;
+        el('rtQuick').onclick = e => { const b = e.target.closest('[data-q]'); if (!b) return; const t = todayStr(), q = b.dataset.q;
+          if (q === 'm') { el('rtFrom').value = t.slice(0, 8) + '01'; el('rtTo').value = t; }
+          else if (q === '7') { el('rtFrom').value = addDays(t, -6); el('rtTo').value = t; }
+          else { el('rtFrom').value = el('rtTo').value = addDays(t, -Number(q)); }
+          load(); };
+        el('rtLoad').onclick = () => load();
+        el('rtQ').oninput = () => { R.q = el('rtQ').value; paint(); };
+        el('rtPrev').onclick = () => { if (R.prev) return; R.prev = true; el('rtPrev').classList.add('on'); load(); };
+        el('rtXls').onclick = xls;
+      }
+      el('rtFrom').value = R.from; el('rtTo').value = R.to;
+      if (!R.lines.length && !R.busy) load(); else paint();
+    }
+    async function load() {
+      const a = el('rtFrom').value, b = el('rtTo').value;
+      if (!a || !b || a > b) return showToast('Choose the dates (from before to).', true);
+      const days = daysOf(a, b);
+      if (days.length > 31) return showToast('Choose up to 31 days.', true);
+      const my = ++R.seq; R.from = a; R.to = b; R.lines = []; R.done = 0; R.total = days.length; R.busy = true; R.failed = [];
+      paint();
+      for (const d of days.reverse()) {                       // the latest day first
+        try { const x = await call({ action: 'returns_range', from: d, to: d, withPrev: R.prev }); if (my !== R.seq) return; R.lines.push(...x.lines); }
+        catch (e) { if (my !== R.seq) return; R.failed.push(d); }
+        R.done++; paint();
+      }
+      R.busy = false; paint();
+      if (R.failed.length) showToast(`The system did not answer for ${R.failed.map(dmy).join(', ')}.`, true);
+    }
+    const filtered = () => { const q = R.q.trim().toLowerCase(); return !q ? R.lines : R.lines.filter(l => [l.supplierName, l.description, l.code, l.barcode, l.doc].some(v => String(v || '').toLowerCase().includes(q))); };
+    function paint() {
+      const box = el('rtBody'); if (!box) return;
+      const L = filtered();
+      const docs = new Map(); L.forEach(l => { if (!docs.has(l.doc)) docs.set(l.doc, { doc: l.doc, day: l.day, supplier: l.supplierName || l.supplier, currency: l.currency, lines: [] }); docs.get(l.doc).lines.push(l); });
+      const D = [...docs.values()].sort((a, b) => b.day.localeCompare(a.day) || a.doc.localeCompare(b.doc));
+      const byCur = {}; L.forEach(l => { const c = l.currency || '$'; byCur[c] = (byCur[c] || 0) - n(l.paid); });
+      const units = L.reduce((t, l) => t - n(l.paidQty) - n(l.freeQty), 0);
+      const progress = R.busy ? `<p class="muted-note pr-progress">Reading the returns… ${R.done} of ${R.total} day${R.total === 1 ? '' : 's'}${R.prev ? ', with the last purchase prices (slower)' : ''}</p>` : '';
+      const cols = R.prev ? 10 : 8;
+      box.innerHTML = `${progress}
+        <div class="pf-tiles">
+          <div class="pf-tile"><span>Returns (PT)</span><b>${D.length}</b><small>${esc(dmy(R.from))}${R.to !== R.from ? ' → ' + esc(dmy(R.to)) : ''}</small></div>
+          <div class="pf-tile"><span>Items returned</span><b>${L.length}</b><small>${qty(units)} units</small></div>
+          <div class="pf-tile"><span>Value returned</span><b>${Object.entries(byCur).map(([c, v]) => `${price(v, c)} ${esc(c)}`).join('<br>') || '0'}</b></div>
+          <div class="pf-tile"><span>Suppliers</span><b>${new Set(L.map(l => l.supplier)).size}</b></div>
+        </div>
+        <div class="card"><div class="items-scroll pr-scroll"><table class="items pr-table rt-table"><thead><tr>
+          <th>Code</th><th>Description</th><th>Barcode</th><th class="num">Qty returned</th><th class="num">Unit price</th><th class="num">Net</th><th class="num">Total</th><th class="num" title="Our stock after the return">Stock after</th>
+          ${R.prev ? '<th class="num">Last purchase</th><th class="num">Difference</th>' : ''}</tr></thead>
+          <tbody>${D.map(d => `<tr class="rt-doc"><td colspan="${cols}"><span class="pr-ret-tag">${esc(d.doc)}</span> <b>${esc(d.supplier)}</b> <span class="muted-note">· ${esc(dmy(d.day))} · ${d.lines.length} item${d.lines.length === 1 ? '' : 's'} · total ${price(-d.lines.reduce((t, l) => t + n(l.paid), 0), d.currency)} ${esc(d.currency || '$')}</span></td></tr>`
+            + d.lines.map(l => { const p = l.lines.find(x => !x.free) || l.lines[0], pv = R.prev ? prevOf(l) : null;
+              const same = pv && pv.net !== null && (pv.currency || '') === (l.currency || ''), diff = same && p ? p.net - pv.net : null;
+              return `<tr data-code="${esc(l.code)}"><td class="mono">${esc(l.code)}</td><td>${esc(l.description || '')}</td><td class="mono pr-sub-txt">${esc(l.barcode || '')}</td>
+                <td class="num"><b>${qty(-n(l.paidQty))}</b>${n(l.freeQty) ? ` <span class="po-free">+ ${qty(-n(l.freeQty))} free</span>` : ''}</td>
+                <td class="num">${p ? price(p.unit, l.currency) : '—'}${p?.discountPct ? `<div class="pr-sub">-${p.discountPct}%</div>` : ''}</td><td class="num">${p ? price(p.net, l.currency) : '—'}</td>
+                <td class="num">${price(-n(l.paid), l.currency)}</td><td class="num">${qty(l.stockAfter)}</td>
+                ${R.prev ? `<td class="num">${pv ? (pv.net !== null ? price(pv.net, pv.currency) : '<span class="muted-note">no price found</span>') + `<div class="pr-sub">${esc(dmy(pv.date))}</div>` : '<span class="muted-note">no earlier purchase</span>'}</td>
+                  <td class="num">${diff === null ? (pv && pv.net !== null && !same ? '<span class="muted-note">other currency</span>' : '') : diffHtml(diff, pv.net, l.currency)}</td>` : ''}</tr>`; }).join('')).join('')
+            || `<tr><td colspan="${cols}" class="empty-note">${R.busy ? 'Reading…' : 'No return in these days.'}</td></tr>`}</tbody></table></div>
+          <p class="muted-note" style="margin:8px 0 0;">Every item returned to a supplier, grouped by return (PT). ${R.prev ? 'Difference = the return price against the last purchase before the return.' : 'The arrows button adds the last purchase price of each item (slower).'} Double-click an item for its details.</p></div>`;
+      box.querySelectorAll('tr[data-code]').forEach(tr => tr.ondblclick = () => window.ItemDetail && ItemDetail.open(tr.dataset.code));
+    }
+    function xls() {
+      const L = filtered(); if (!L.length) return showToast('Nothing to download.', true);
+      const aoa = [['Date', 'Return (PT)', 'Supplier', 'Code', 'Description', 'Barcode', 'Qty returned', 'Unit price', 'Net', 'Total', 'Currency', 'Stock after', 'Last purchase date', 'Last purchase price', 'Difference']];
+      L.forEach(l => { const p = l.lines.find(x => !x.free) || l.lines[0], pv = prevOf(l), same = pv && pv.net !== null && (pv.currency || '') === (l.currency || '');
+        aoa.push([dmy(l.day), l.doc, l.supplierName || l.supplier, l.code, l.description, l.barcode || '', -n(l.paidQty), p ? p.unit : '', p ? p.net : '', -n(l.paid), l.currency || '$', l.stockAfter,
+          pv ? dmy(pv.date) : '', pv?.net ?? '', same && p ? Math.round((p.net - pv.net) * 1000) / 1000 : '']); });
+      const ws = XLSX.utils.aoa_to_sheet(aoa);
+      for (let i = 2; i <= aoa.length; i++) ['D', 'F'].forEach(c => { const x = ws[c + i]; if (x) { x.t = 's'; x.v = String(x.v); } });
+      ws['!cols'] = [12, 12, 28, 10, 40, 15, 11, 10, 10, 10, 9, 10, 14, 14, 11].map(w => ({ wch: w }));
+      const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Returns');
+      XLSX.writeFile(wb, `Returns ${R.from}${R.to !== R.from ? ' ' + R.to : ''}.xlsx`);
+    }
+    return { show };
+  })();
   window.Pricing = { show };
 })();

@@ -340,7 +340,7 @@ function purchaseDocs(rows: Record<string, unknown>[]) {
     const paidQty = lines.filter(l => !l.free).reduce((t, l) => t + l.qty, 0), freeQty = lines.filter(l => l.free).reduce((t, l) => t + l.qty, 0);
     const paid = lines.reduce((t, l) => t + l.total, 0);
     return { doc, kind: isReturn(ls[0]) ? 'return' : 'purchase', supplier: String(ls[0].details || ''), currency: String(ls[0].currency || '$'), lines, paidQty: r4(paidQty), freeQty: r4(freeQty), paid: r4(paid),
-      tradeDeal: paidQty > 0 && freeQty > 0, realCost: paidQty + freeQty > 0 ? r4(paid / (paidQty + freeQty)) : null };
+      tradeDeal: paidQty > 0 && freeQty > 0, realCost: paidQty + freeQty !== 0 ? r4(paid / (paidQty + freeQty)) : null };
   });
 }
 // a return to the supplier (PT): operation 20, the quantity goes out
@@ -356,6 +356,39 @@ async function pricingDay(day: string) {
   return { day, suppliers: [...m.values()].sort((a, b) => b.value - a.value) };
 }
 // one supplier's deliveries of a day, line by line: the PU, the prices, the previous purchase, the stock we had
+// the returns to suppliers (PT) between two days: every returned line, with the last purchase price before it
+async function returnsRange(from: string, to: string, withPrev = false) {
+  const key = (c: string) => c.replace(/^0+(?=d)/, '').toUpperCase();
+  const cand = new Map<string, { code: string; description: string; supplier: string; supplierName: string }>(), pairs = new Set<string>();
+  for (const [f, t] of byYear(from, to)) {
+    const d = await dash('/items_purchases', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+      branches: [BRANCH], year: f.slice(0, 4), from_date: f, to_date: t, aggregation: 'Daily', group_by: ['item', 'supplier'] }) });
+    branchRows(d).forEach(r => { const c = String(r.item ?? '').trim(); if (!c || Number(r.total_quantity || 0) >= 0) return;
+      pairs.add(`${c}|${String(r.period || '').slice(0, 10)}`);
+      if (!cand.has(c)) cand.set(c, { code: c, description: String(r.item_desc ?? '').trim(), supplier: String(r.supplier ?? '').trim(), supplierName: String(r.supplier_desc ?? '').trim() }); });
+  }
+  const todo = [...pairs].slice(0, 250).map(p => p.split('|'));
+  const lines: Record<string, unknown>[] = [];
+  for (let i = 0; i < todo.length; i += 8) {
+    await Promise.all(todo.slice(i, i + 8).map(async ([c, dd]) => {
+      try {
+        const cx = await dash(`/item-cardex?${new URLSearchParams({ branch: BRANCH, item_code: c, year: dd.slice(0, 4), from_date: dd, to_date: dd })}`) as Record<string, unknown>;
+        const rs = ((((cx.data as Record<string, unknown>)?.rows || []) as Record<string, unknown>[])).filter(isReturn);
+        if (rs.length) purchaseDocs(rs).forEach(doc => lines.push({ ...doc, ...cand.get(c), day: dd, barcode: String(rs[0].barcode ?? '').trim(),
+          stockAfter: Math.round(Number(rs[rs.length - 1].running_balance ?? 0) * 1000) / 1000 }));
+      } catch (e) { console.warn('returns cardex', c, e); }
+    }));
+  }
+  // the last purchase before each return day (on request: it takes longer)
+  const days = withPrev ? [...new Set(lines.map(l => String(l.day)))] : [];
+  for (const dd of days) {
+    const cs = [...new Set(lines.filter(l => l.day === dd).map(l => String(l.code)))];
+    try { const lc = await lastCosts(cs, plusDays(dd, -1)); lines.filter(l => l.day === dd).forEach(l => { const x = lc[String(l.code)]; if (x) l.prev = x; }); }
+    catch (e) { console.warn('returns prev', dd, e); }
+  }
+  lines.sort((a, b) => String(b.day).localeCompare(String(a.day)) || String(a.doc).localeCompare(String(b.doc)));
+  return { from, to, lines, truncated: pairs.size > todo.length };
+}
 async function pricingSupplier(day: string, sup: string) {
   const key = (c: string) => c.replace(/^0+(?=\d)/, '').toUpperCase();
   const d = await dash('/items_purchases', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
@@ -524,7 +557,7 @@ Deno.serve(async req => {
     // A promotion's results (owner, 2026-10-06): units and sales per item over its dates, and over the same number
     // of days just before (the baseline). Up to 300 codes; periods within one year each.
     // Performance (supplier sales vs purchases) and Pricing (a day's purchases checked), owner 2026-10-06: vendors.manage
-    if (['perf_suppliers', 'perf_supplier', 'pricing_day', 'pricing_supplier'].includes(String(body.action))) {
+    if (['perf_suppliers', 'perf_supplier', 'pricing_day', 'pricing_supplier', 'returns_range'].includes(String(body.action))) {
       if (!isServer && role !== 'admin') {
         const anon = Deno.env.get('SUPABASE_ANON_KEY') || '';
         const asUser = createClient(SUPABASE_URL, anon, { global: { headers: { Authorization: `Bearer ${bearer}` } }, auth: { persistSession: false, autoRefreshToken: false } });
@@ -537,6 +570,10 @@ Deno.serve(async req => {
         if (body.action === 'perf_suppliers') return json(await perfSuppliers(from, to));
         if (!body.supplier) return json({ error: 'Choose a supplier.' }, 400);
         return json(await perfSupplier(String(body.supplier), from, to));
+      }
+      if (body.action === 'returns_range') {
+        if (!isDay(from) || !isDay(to) || from > to || (new Date(to).getTime() - new Date(from).getTime()) / 864e5 > 62) return json({ error: 'Choose up to 2 months.' }, 400);
+        return json(await returnsRange(from, to, !!body.withPrev));
       }
       if (!isDay(day) || day > beirutToday()) return json({ error: 'Choose a day.' }, 400);
       if (body.action === 'pricing_day') return json(await pricingDay(day));
