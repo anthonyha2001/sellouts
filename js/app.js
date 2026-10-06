@@ -3380,6 +3380,15 @@ function wirePromoWorkspaceEvents(promo) {
     zone.addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && e.target === zone) { e.preventDefault(); open(); } });
   };
   zonePick('priceDropZone', 'priceSheetInput');
+  // Double-click an item = its details from the system (owner, 2026-10-06): price, stock in the branches, cardex.
+  // Not on the price / discount boxes (a double-click there selects the number to change it).
+  const rowsBody = document.getElementById('promoRowsBody');
+  if (rowsBody && window.ItemDetail) rowsBody.addEventListener('dblclick', e => {
+    if (e.target.closest('input[data-field]:not([data-field="code"]):not([data-field="description"]), button, select')) return;
+    const tr = e.target.closest('tr[data-row-id]'); if (!tr) return;
+    const row = currentRows.find(r => r.id === tr.dataset.rowId);
+    if (row && String(row.code || '').trim()) { e.preventDefault(); window.getSelection()?.removeAllRanges(); ItemDetail.open(row.code); }
+  });
   document.getElementById('liveRefreshBtn')?.addEventListener('click', () => queueLiveItems(currentRows.map(r => r.code), true));
   // Add rows in bulk from the system (owner, 2026-10-06): by supplier, brand, group, sub-group or section.
   document.getElementById('liveAddBtn')?.addEventListener('click', () => importFromSystem(null));

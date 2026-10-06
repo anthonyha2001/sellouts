@@ -70,13 +70,30 @@
     // The system's price changed (nightly watch, migration 064): since the last check, or the last 2 days.
     const { data: changes } = await sb.from('item_price_watch').select('code, description, price, sale_price, prev_price, prev_sale_price, sources, changed_at')
       .gte('changed_at', new Date(`${since || addDaysStr(today, -2)}T00:00:00`).toISOString());
-    return { sellouts, promotions, priceChanges: changes || [] };
+    // Categories (owner, 2026-10-06): promotion rows have none — the system's Group › Sub-group, from the nightly
+    // price watch (migration 065), else asked now (items added since the last night).
+    const cats = new Map();
+    const promoCodes = [...new Set(promotions.flatMap(p => p.rows.map(r => String(r.code || '').trim())).filter(Boolean))];
+    if (promoCodes.length) {
+      for (let i = 0; i < promoCodes.length; i += 500) {
+        const { data } = await sb.from('item_price_watch').select('code, category').in('code', promoCodes.slice(i, i + 500));
+        (data || []).forEach(r => { if (r.category) cats.set(r.code, r.category); });
+      }
+      const missing = promoCodes.filter(c => !cats.has(c)).slice(0, 100);
+      if (missing.length) {
+        try {
+          const { data } = await sb.functions.invoke('lv-dashboard', { body: { action: 'items_info', codes: missing } });
+          Object.entries(data?.items || {}).forEach(([c, it]) => { if (it.group) cats.set(c, it.group); });
+        } catch (e) { console.warn('floor check categories', e); }
+      }
+    }
+    return { sellouts, promotions, priceChanges: changes || [], cats };
   }
   const numOrNull = v => (v === null || v === undefined || v === '' ? null : Number(v));
   // mode 'full': every item running today. mode 'changes' (since = the last check's day): items that start
   // (or were switched on) since, items that ended (or were switched off) since — expected back at the normal
   // price — and `rechecks` (last time's open problems).
-  function itemsFor({ sellouts, promotions, priceChanges = [] }, mode = 'full', since = null, rechecks = []) {
+  function itemsFor({ sellouts, promotions, priceChanges = [], cats = new Map() }, mode = 'full', since = null, rechecks = []) {
     const today = todayStr();
     const out = [];
     const priorityOf = x => (x.from === today || x.to === today) ? 0 : 1;
@@ -107,11 +124,12 @@
       const reason = reasonOf(pm, false); if (!reason) return;
       const ends = reason === 'ends';
       pm.rows.forEach((r, i) => {
-        if (!String(r.code || '').trim() && !String(r.description || '').trim()) return;
+        // a heading row (a supplier's name, no code) is not an item on the shelf (owner, 2026-10-06)
+        if (!String(r.code || '').trim()) return;
         const normal = numOrNull(r.before_price) ?? numOrNull(r.sale_price);
         out.push({ source: 'promotion', promotion_id: pm.id, source_name: pm.name, supplier: String(r.supplier || '').trim() || 'No supplier',
           item_key: `${ends ? 'pr-end' : 'pr'}:${r.id}`, item_row: i, code: String(r.code || '').trim(), description: r.description || '', reason,
-          category: r.category || null,
+          category: r.category || cats.get(String(r.code || '').trim()) || null,
           expected_price: ends ? normal : numOrNull(r.promo_price), old_price: ends ? numOrNull(r.promo_price) : normal, priority: priorityOf(pm),
           barcode: String(r.barcode || '').trim() });
       });
@@ -349,7 +367,7 @@
     const ov = el('fcSheet'), box = el('fcSheetBox');
     const why = REASONS[x.reason];
     box.innerHTML = `
-      <div class="fc-sheet-top">${why ? `<span class="badge ${why[1]}">${why[0]}</span>` : ''}<span class="fc-code">${esc(x.code || '')}</span></div>
+      <div class="fc-sheet-top">${why ? `<span class="badge ${why[1]}">${why[0]}</span>` : ''}<span class="fc-kind ${x.source === 'promotion' ? 'promo' : 'sellout'}">${x.source === 'promotion' ? 'Promotion' : 'Sell-out'}${x.source_name ? ' · ' + esc(x.source_name) : ''}</span><span class="fc-code">${esc(x.code || '')}</span></div>
       <p class="fc-sheet-desc">${esc(x.description || '')}</p>
       <p class="fc-sheet-label">The label must say</p>
       <p class="fc-sheet-price">${x.expected_price === null ? '<span class="muted-note">No price set</span>' : price(x.expected_price)}</p>
@@ -417,7 +435,7 @@
     return `<article class="fc-item fc-${st ? st.cls : 'pending'}" data-id="${esc(x.id)}">
       <div class="fc-item-top">
         <div class="fc-item-info">
-          <div class="fc-meta"><span class="fc-code">${esc(x.code)}</span>${tag}${x.source === 'promotion' ? '<span class="badge active">Promo</span>' : ''}<span class="fc-so">${esc(x.source_name || '')}</span>${subgroupOf(x) ? `<span class="fc-sub">${esc(subgroupOf(x))}</span>` : ''}</div>
+          <div class="fc-meta"><span class="fc-code">${esc(x.code)}</span>${tag}<span class="fc-kind ${x.source === 'promotion' ? 'promo' : 'sellout'}">${x.source === 'promotion' ? 'Promotion' : 'Sell-out'}</span><span class="fc-so">${esc(x.source_name || '')}</span>${subgroupOf(x) ? `<span class="fc-sub">${esc(subgroupOf(x))}</span>` : ''}</div>
           <div class="fc-desc">${esc(x.description || '')}</div>
         </div>
         <div class="fc-price">

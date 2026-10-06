@@ -122,7 +122,8 @@ async function priceWatch(limit: number) {
         const row: Record<string, unknown> = { code: c, sources: watch.get(c), checked_at: now };
         if (hit) {
           const price = hit.Price === null || hit.Price === undefined ? null : Number(hit.Price), sale = unitSale(hit);
-          Object.assign(row, { description: String(hit.Description ?? '').trim(), price, sale_price: sale, promoted: !!Number(hit.isPromoted || 0) });
+          const grp = [String(hit.Group ?? '').trim(), String(hit['Sub-Group'] ?? '').trim()].filter(Boolean).join(' › ');
+          Object.assign(row, { description: String(hit.Description ?? '').trim(), price, sale_price: sale, promoted: !!Number(hit.isPromoted || 0), category: grp || null });
           const diff = (a: unknown, b: unknown) => a !== null && a !== undefined && b !== null && b !== undefined && Math.abs(Number(a) - Number(b)) >= 0.005;
           if (k && (diff(k.price, price) || diff(k.sale_price, sale))) { Object.assign(row, { changed_at: now, prev_price: k.price, prev_sale_price: k.sale_price }); changed++; }
         }
@@ -304,6 +305,55 @@ Deno.serve(async req => {
         }
       }
       return json({ items: out });
+    }
+    // One item's details (owner, 2026-10-06; double-click in a promotion or a sell-out): the item and its prices,
+    // its stock and price in every branch, and its cardex at Ajaltoun (kind: all | purchases | invoices; the last
+    // 400 lines of the period, default the last 90 days).
+    if (body.action === 'item_detail') {
+      const code = String(body.code || '').trim(); if (!code) return json({ error: 'No code.' }, 400);
+      const key = (c: string) => c.replace(/^0+(?=\d)/, '').toUpperCase();
+      const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Beirut' });
+      const ok = (d: unknown) => /^\d{4}-\d{2}-\d{2}$/.test(String(d || ''));
+      const to = ok(body.to) ? String(body.to) : today;
+      const from = ok(body.from) ? String(body.from) : new Date(new Date(to + 'T00:00:00Z').getTime() - 89 * 864e5).toISOString().slice(0, 10);
+      const kind = ['purchases', 'invoices'].includes(String(body.kind)) ? String(body.kind) : 'all';
+      const BRANCHES = ['Ajaltoun', 'Mazraat Yachouh', 'Beit El Kikko', 'Achrafieh', 'Zalka'];
+      const branches = await Promise.all(BRANCHES.map(async b => {
+        try {
+          const d = await dash(`/item-price-checker?${new URLSearchParams({ search: code, year: year(), branches: b })}`) as Record<string, unknown>;
+          const rows = (Object.values(((d.branches as Record<string, Record<string, unknown[]>>) || {})[b] || {}).flat() as Record<string, unknown>[]);
+          const hit = rows.find(r => key(String(r.ItemCode ?? '')) === key(code)) || null;
+          return { branch: b, hit };
+        } catch { return { branch: b, hit: null, error: true }; }
+      }));
+      const main = (branches.find(x => x.branch === BRANCH)?.hit || branches.find(x => x.hit)?.hit) as Record<string, unknown> | null;
+      if (!main) return json({ error: 'Not found in the system.' }, 404);
+      const t = (v: unknown) => String(v ?? '').trim();
+      const item = { code: t(main.ItemCode), description: t(main.Description), size: t(main.Description4), barcode: t(main.Barcode), supplier: t(main.Supplier),
+        section: t(main.Section), group: t(main.Group), subgroup: t(main['Sub-Group']), brand: t(main.Brand), department: t(main.Department), pack: main.Pack ?? null,
+        price: main.Price ?? null, salePrice: unitSale(main), packPrice: main.SalePrice ?? null, promoted: !!Number(main.isPromoted || 0) };
+      let cardex: Record<string, unknown> = { rows: [], summary: null, from, to, kind };
+      try {
+        const pieces = from.slice(0, 4) === to.slice(0, 4) ? [[from, to]] : [[from, `${from.slice(0, 4)}-12-31`], [`${to.slice(0, 4)}-01-01`, to]];
+        let rows: Record<string, unknown>[] = [], summary: unknown = null;
+        for (const [f, tt] of pieces) {
+          const d = await dash(`/item-cardex?${new URLSearchParams({ branch: BRANCH, item_code: item.code, year: f.slice(0, 4), from_date: f, to_date: tt })}`) as Record<string, unknown>;
+          const data = (d.data || {}) as Record<string, unknown>;
+          rows = rows.concat((data.rows || []) as Record<string, unknown>[]); summary = data.summary || summary;
+        }
+        const isP = (r: Record<string, unknown>) => String(r.operation_code) === '15' || /purchase/i.test(String(r.operation_label || ''));
+        const isI = (r: Record<string, unknown>) => String(r.operation_code) === '60' || /invoice/i.test(String(r.operation_label || ''));
+        const all = rows;
+        rows = rows.filter(r => kind === 'purchases' ? isP(r) : kind === 'invoices' ? isI(r) : true);
+        const sum = (l: Record<string, unknown>[], k: string) => l.reduce((s, r) => s + Number(r[k] || 0), 0);
+        cardex = { from, to, kind, summary, count: rows.length,
+          totals: { purchasesIn: sum(all.filter(isP), 'qty_in'), invoicesOut: Math.abs(sum(all.filter(isI), 'qty_out')) },
+          rows: rows.slice(-400).reverse().map(r => ({ date: r.date, doc: r.document_no, op: r.operation_label, type: r.document_type, details: r.details,
+            in: r.qty_in, out: r.qty_out, unit: r.unit_price, net: r.net_unit_price, total: r.line_total, currency: r.currency, balance: r.running_balance })) };
+      } catch (e) { console.warn('detail cardex', e); }
+      return json({ item, branches: branches.map(x => ({ branch: x.branch, found: !!x.hit, stock: x.hit ? (x.hit as Record<string, unknown>).AvailableQuantity ?? null : null,
+        price: x.hit ? (x.hit as Record<string, unknown>).Price ?? null : null, salePrice: x.hit ? unitSale(x.hit as Record<string, unknown>) : null,
+        promoted: x.hit ? !!Number((x.hit as Record<string, unknown>).isPromoted || 0) : false })), cardex });
     }
     // Pasted barcodes or codes (owner, 2026-10-06), up to 200: the item each one is (its barcode or its code, or
     // the only answer), with description, normal price, price now, supplier, stock — or null when not found.

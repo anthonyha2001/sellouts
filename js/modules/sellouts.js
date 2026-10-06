@@ -621,6 +621,13 @@ function wirePricingPanel(el, so) {
   const rerender = () => { panel.innerHTML = pricingPanelHtml(so); wirePricingPanel(el, so); updateSelloutsPill(); };
 
   panel.querySelector('[data-role="price-mode"]').addEventListener('change', e => { st.mode = e.target.value; rerender(); });
+  // Double-click an item = its details from the system (owner, 2026-10-06); not on the new price box.
+  if (window.ItemDetail && !panel._detailWired) panel._detailWired = true, panel.addEventListener('dblclick', e => {
+    if (e.target.closest('input, button, select')) return;
+    const tr = e.target.closest('tr[data-row]'); if (!tr) return;
+    const p = pricedRowsOf(so).find(x => String(x.row) === tr.dataset.row);
+    if (p && String(p.code || '').trim()) { window.getSelection()?.removeAllRanges(); ItemDetail.open(p.code); }
+  });
   panel.querySelector('[data-role="price-value"]').addEventListener('input', e => { st.value = e.target.value; });
   panel.querySelector('[data-role="select-all"]').addEventListener('click', () => {
     const rows = pricedRowsOf(so);
