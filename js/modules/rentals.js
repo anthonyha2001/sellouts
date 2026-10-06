@@ -309,6 +309,7 @@ const Rentals = (function () {
           ${g.unbilled ? `<span class="badge danger">${g.unbilled} not billed</span>` : ''}
           ${g.unplaced ? `<span class="badge inactive">${g.unplaced} not placed</span>` : ''}
           ${sig ? `<span class="badge ${sig.cls}" title="Sales ${cur - 1}: ${money2s(salesTotal(g.sales, cur - 1))} · ${cur}: ${money2s(salesTotal(g.sales, cur))}">${sig.label}</span>` : ''}
+          ${window.Performance && can('vendors.manage') ? `<button type="button" class="icon-btn" data-role="rent-perf" data-name="${esc(g.name)}" title="Is the rent worth it? Its sales against the rent (Performance)" aria-label="Is the rent worth it?"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/></svg></button>` : ''}
         </div>
       </div>
       <div class="sellout-body">
@@ -352,6 +353,8 @@ const Rentals = (function () {
     if (c && e.target.closest('[data-role="show"]')) return goToMap(() => S.map.focusSpot(c.spotId));
     if (c && e.target.closest('[data-role="place"]')) return goToMap(() => S.map.startAssign(c.id));
     if (e.target.closest('[data-role="save-sales"]')) return saveSales(card);
+    const perf = e.target.closest('[data-role="rent-perf"]');
+    if (perf) { e.stopPropagation(); return window.Performance.openRentals(perf.dataset.name); }
     if (e.target.closest('[data-role="toggle"]')) {
       const k = card.dataset.supplier;
       S.expanded.has(k) ? S.expanded.delete(k) : S.expanded.add(k);

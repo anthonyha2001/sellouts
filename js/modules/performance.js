@@ -6,8 +6,10 @@
    one supplier: the months side by side and its items, with the profit:
    sales - units sold x unit cost (the period's purchase cost, else the
    last purchase day in the 12 months before; none: not counted).
+   Rental spots (owner, 2026-10-06, rentals.view too): per supplier renting spots, the rent
+   against its sales vs last year and vs the days before, next to the whole store.
    Permission: vendors.manage.
-   Public API: window.Performance = { show }.
+   Public API: window.Performance = { show, openRentals }.
    ============================================================ */
 (function () {
   const esc = escapeHtml;
@@ -42,17 +44,23 @@
     if (!root.dataset.built) {
       root.dataset.built = '1';
       root.innerHTML = `
+        ${can('rentals.view') ? `<div class="filter-row" id="pfView"><button type="button" data-v="suppliers" class="active">Suppliers</button><button type="button" data-v="rents">Rental spots</button></div>` : ''}
+        <div id="pfMain">
         <div class="card pf-controls">
           <label>From <input type="date" id="pfFrom"></label>
           <label>to <input type="date" id="pfTo"></label>
           <div class="filter-row" id="pfQuick" style="margin:0;">${presets().map((p, i) => `<button type="button" data-p="${i}">${p[0]}</button>`).join('')}</div>
           <button type="button" class="btn small" id="pfLoad">Load</button>
         </div>
-        <div id="pfBody"></div>`;
+        <div id="pfBody"></div>
+        </div>
+        <div id="pfRentBody" hidden></div>`;
+      if (el('pfView')) el('pfView').onclick = e => { const b = e.target.closest('[data-v]'); if (b) setView(b.dataset.v); };
       el('pfQuick').onclick = e => { const b = e.target.closest('[data-p]'); if (!b) return; const p = presets()[Number(b.dataset.p)]; el('pfFrom').value = p[1]; el('pfTo').value = p[2]; load(); };
       el('pfLoad').onclick = load;
     }
     el('pfFrom').value = S.from; el('pfTo').value = S.to;
+    if (view === 'rents') return setView('rents');
     if (!S.list && !S.busy) load(); else paint();
   }
 
@@ -185,6 +193,170 @@
       [], ['Total', '', round2(qb), round2(tb), round2(qs), round2(ts), round2(ts - tb), tb > 0 ? Math.round((ts - tb) / tb * 1000) / 10 : '', '', '', 'profit on ' + money(pSales) + ' of sales with a cost', round2(profit), pSales ? Math.round(profit / pSales * 1000) / 10 : '']],
       `Performance ${s.name} ${d.from} ${d.to}`, true);
   }
+/* ---------------- rental spots: is the supplier's rent worth it? (owner, 2026-10-06) ----------------
+     Per supplier renting spots (rental_contracts, not the temporary displays), from its first current contract to yesterday:
+       the rent of those days (a yearly or by-contract amount spread over its contract's days, a monthly one per (365/12) days),
+       its sales in the system (every system supplier linked to the vendor) against two baselines:
+         the same dates last year (the season: Ajaltoun's summer) and the same number of days just before the contract,
+       each against the whole store over the same dates, so a busy season is not taken for the spot's effect.
+       Extra sales = sales of the period - baseline sales x the store's change (last year when the supplier sold then, else the days before).
+     Nothing guessed: a baseline that could not be read says so; a supplier not linked to the system says so. */
+  const R = { rows: null, busy: false, cache: {}, focus: '', sort: 'ratio', dir: -1 };
+  const addDays = (d, k) => { const x = new Date(d + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() + k); return x.toISOString().slice(0, 10); };
+  const daysBetween = (a, b) => Math.round((Date.parse(b + 'T00:00:00Z') - Date.parse(a + 'T00:00:00Z')) / 864e5) + 1;
+  const lastYear = d => { const y = Number(d.slice(0, 4)) - 1, md = d.slice(5) === '02-29' ? '02-28' : d.slice(5); return y + '-' + md; };
+  const keyOf = v => String(v || '').trim().toLowerCase();
+  function rentOf(c, a, b) {
+    const s = c.start_date > a ? c.start_date : a, e = c.end_date < b ? c.end_date : b;
+    if (e < s) return 0;
+    const o = daysBetween(s, e), amt = n(c.amount);
+    if (c.term === 'monthly') return amt * o / (365 / 12);
+    return amt * o / Math.max(1, daysBetween(c.start_date, c.end_date));   // yearly / by contract: the amount of its own dates (as Rentals counts it)
+  }
+  async function salesOf(from, to) {   // every supplier's sales, once per dates
+    const k = from + '|' + to;
+    if (!R.cache[k]) R.cache[k] = call({ action: 'perf_suppliers', from, to }).then(d => {
+      const by = {}; let store = 0;
+      d.suppliers.forEach(s => { by[s.code] = (by[s.code] || 0) + n(s.sold); store += n(s.sold); });
+      return { by, store };
+    }).catch(e => { delete R.cache[k]; throw e; });
+    return R.cache[k];
+  }
+  async function loadRents(force) {
+    const box = el('pfRentBody'); if (!box || R.busy) return;
+    if (R.rows && !force) return paintRents();
+    R.busy = true;
+    box.innerHTML = '<div class="card"><p class="muted-note" style="margin:0;">Reading the rental contracts, then the sales of their suppliers (this year, the days before, last year)…</p></div>';
+    try {
+      const [{ data: cs, error: e1 }, { data: vs, error: e2 }] = await Promise.all([
+        sb.from('rental_contracts').select('supplier, term, start_date, end_date, amount, spot_id').neq('term', 'temporary'),
+        sb.from('vendors').select('name, system_suppliers')]);
+      if (e1 || e2) throw new Error((e1 || e2).message);
+      const yday = addDays(todayStr(), -1), codesOf = {};
+      (vs || []).forEach(v => { const k = keyOf(v.name); (v.system_suppliers || []).forEach(x => { if (x && x.code) (codesOf[k] = codesOf[k] || new Set()).add(String(x.code)); }); });
+      const groups = new Map();
+      (cs || []).filter(c => c.start_date && c.end_date && c.start_date <= yday && c.end_date >= c.start_date).forEach(c => {
+        const k = keyOf(c.supplier); if (!k) return;
+        if (!groups.has(k)) groups.set(k, { key: k, name: String(c.supplier).trim(), contracts: [] });
+        groups.get(k).contracts.push(c);
+      });
+      const rows = [...groups.values()].map(g => {
+        const cur = g.contracts.filter(c => c.end_date >= yday);
+        const base = cur.length ? cur : g.contracts.filter(c => c.end_date >= addDays(yday, -365));
+        if (!base.length) return null;
+        const a = base.reduce((m, c) => c.start_date < m ? c.start_date : m, base[0].start_date);
+        const last = g.contracts.reduce((m, c) => c.end_date > m ? c.end_date : m, a);
+        const b = last < yday ? last : yday, days = daysBetween(a, b);
+        const inWin = g.contracts.filter(c => c.start_date <= b && c.end_date >= a);
+        return { ...g, a, b, days, spots: inWin.length, codes: [...(codesOf[g.key] || [])],
+          rent: inWin.reduce((t, c) => t + rentOf(c, a, b), 0), yearly: cur.filter(c => c.term === 'yearly').reduce((t, c) => t + n(c.amount), 0),
+          later: inWin.filter(c => c.start_date > a).map(c => c.start_date).sort()[0] || '' };
+      }).filter(Boolean);
+      // the dates to read: one set per contract period (most suppliers share one)
+      const read = async (from, to) => { try { return await salesOf(from, to); } catch (e) { return { failed: e.message || 'could not be read' }; } };
+      const wins = [...new Set(rows.filter(r => r.codes.length && r.days >= 14).map(r => r.a + '|' + r.b))];
+      const got = {};
+      for (const w of wins) {
+        const [a, b] = w.split('|'), d = daysBetween(a, b);
+        const [now, before, ly] = await Promise.all([read(a, b), read(addDays(a, -d), addDays(a, -1)), read(lastYear(a), lastYear(b))]);
+        got[w] = { now, before, ly };
+      }
+      rows.forEach(r => {
+        if (!r.codes.length) { r.state = 'unlinked'; return; }
+        if (r.days < 14) { r.state = 'early'; return; }
+        const g = got[r.a + '|' + r.b];
+        if (g.now.failed) { r.state = 'failed'; return; }
+        const sum = x => x.failed ? null : r.codes.reduce((t, c) => t + n(x.by[c]), 0);
+        r.sold = sum(g.now); r.storeNow = g.now.store;
+        const cmp = x => { if (x.failed) return { failed: true }; const s = sum(x); return { sold: s, store: x.store, sup: s > 0 ? r.sold / s - 1 : null, st: x.store > 0 ? g.now.store / x.store - 1 : null }; };
+        r.ly = cmp(g.ly); r.bf = cmp(g.before);
+        const pick = r.ly.sold > 0 ? ['last year', r.ly] : r.bf.sold > 0 ? ['the days before', r.bf] : null;
+        if (pick) { r.baseName = pick[0]; r.expected = pick[1].sold * (1 + pick[1].st); r.extra = r.sold - r.expected; r.ratio = r.rent > 0 ? r.extra / r.rent : null; }
+        r.rentPct = r.sold > 0 ? r.rent / r.sold : null;
+        r.state = 'ok';
+      });
+      R.rows = rows;
+    } catch (e) { R.rows = null; box.innerHTML = '<div class="card"><p class="login-err" style="margin:0;">' + esc(e.message === 'no answer' ? 'The system did not answer. Check the "Link to the system" card on the Dashboard.' : e.message) + '</p></div>'; return; }
+    finally { R.busy = false; }
+    paintRents();
+  }
+  const pct1 = v => v === null || v === undefined ? '' : (v > 0 ? '+' : '') + (Math.round(v * 1000) / 10).toLocaleString('en-US') + '%';
+  function vsCell(x, r) {
+    if (!x) return '';
+    if (x.failed) return '<span class="muted-note">could not be read</span>';
+    if (x.sup === null) return '<span class="muted-note" title="No sales found for this supplier then (on a past year, its code may not be matched)">no sales then</span>';
+    const beyond = x.st === null ? null : (1 + x.sup) / (1 + x.st) - 1;
+    return '<span class="' + (beyond === null ? '' : beyond < 0 ? 'pf-neg' : 'pf-up') + '">' + pct1(x.sup) + '</span><div class="pf-sub">store ' + pct1(x.st) + '</div>';
+  }
+  function verdict(r) {
+    if (r.state === 'unlinked') return '<span class="badge inactive" title="Link this vendor to its supplier in the system (Vendors)">not linked to the system</span>';
+    if (r.state === 'early') return '<span class="badge inactive">too early (' + r.days + ' day' + (r.days === 1 ? '' : 's') + ')</span>';
+    if (r.state === 'failed') return '<span class="muted-note">could not be read</span>';
+    if (r.extra === undefined) return '<span class="badge inactive">no sales to compare</span>';
+    if (!(r.rent > 0)) return '<span class="badge inactive" title="No rent on these spots">no rent</span>';
+    if (r.extra <= 0) return '<span class="badge danger">sales did not rise</span>';
+    if (r.ratio < 1) return '<span class="badge warn">extra sales below the rent</span>';
+    return '<span class="badge active">covers the rent</span>';
+  }
+  function paintRents() {
+    const box = el('pfRentBody'); if (!box || !R.rows) return;
+    const q = R.focus.trim().toLowerCase();
+    const rows = R.rows.filter(r => !q || r.key.includes(q));
+    const v = (r, k) => k === 'name' ? r.name : k === 'ly' ? r.ly?.sup : k === 'bf' ? r.bf?.sup : r[k];
+    rows.sort((x, y) => { const a = v(x, R.sort), b = v(y, R.sort); if (R.sort === 'name') return R.dir * a.localeCompare(b); const an = typeof a === 'number', bn = typeof b === 'number'; return an && bn ? R.dir * (a - b) : bn - an; });
+    const ok = rows.filter(r => r.state === 'ok' && r.extra !== undefined && r.rent > 0);
+    const rent = rows.reduce((t, r) => t + n(r.rent), 0), extra = ok.reduce((t, r) => t + r.extra, 0);
+    const th = (key, label, num = true) => '<th class="' + (num ? 'num ' : '') + 'pf-rsort" data-k="' + key + '">' + label + sortIcon(key, R.sort, R.dir) + '</th>';
+    box.innerHTML = '<div class="pf-tiles">'
+      + '<div class="pf-tile"><span>Rent of these days</span><b>' + money(rent) + '</b><small>' + rows.length + ' supplier' + (rows.length === 1 ? '' : 's') + '</small></div>'
+      + '<div class="pf-tile"><span>Extra sales</span><b class="' + (extra < 0 ? 'pf-neg' : '') + '">' + signedMoney(extra) + '</b><small>' + ok.length + ' renting supplier' + (ok.length === 1 ? '' : 's') + ' measured</small></div>'
+      + '<div class="pf-tile"><span>Cover the rent</span><b>' + ok.filter(r => r.ratio >= 1).length + ' / ' + ok.length + '</b><small>extra sales at least the rent</small></div>'
+      + '</div><div class="card"><div class="pf-head"><h3>Rental spots</h3>'
+      + '<input type="search" id="pfRentQ" placeholder="Find a supplier" value="' + esc(R.focus) + '" aria-label="Find a supplier"><span style="flex:1"></span>'
+      + '<button type="button" class="icon-btn" id="pfRentReload" title="Read again from the system" aria-label="Read again"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg></button>'
+      + '<button type="button" class="icon-btn" id="pfRentXls" title="Download (Excel)" aria-label="Download (Excel)"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg></button></div>'
+      + '<div class="items-scroll pf-scroll"><table class="items pf-table"><thead><tr>' + th('name', 'Supplier', false) + '<th>Since</th>' + th('rent', 'Rent of these days') + th('sold', 'Sales') + th('rentPct', 'Rent ÷ sales')
+      + th('ly', 'vs last year') + th('bf', 'vs the days before') + th('extra', 'Extra sales') + th('ratio', 'Extra ÷ rent') + '<th>Worth it?</th></tr></thead><tbody>'
+      + (rows.map(r => '<tr class="pf-row" data-rent="' + esc(r.key) + '"' + (r.codes.length ? ' tabindex="0" title="Open its items over these dates"' : '') + '>'
+        + '<td><b>' + esc(r.name) + '</b><div class="pf-sub">' + r.spots + ' spot' + (r.spots === 1 ? '' : 's') + (r.yearly ? ' · ' + money(r.yearly) + ' / year' : '') + (r.later ? ' · one more from ' + esc(dmy(r.later)) : '') + '</div></td>'
+        + '<td>' + esc(dmy(r.a)) + '<div class="pf-sub">' + r.days + ' days to ' + esc(dmy(r.b)) + '</div></td>'
+        + '<td class="num">' + money(r.rent) + '</td>'
+        + '<td class="num">' + (typeof r.sold === 'number' ? money(r.sold) : '') + '</td>'
+        + '<td class="num">' + (r.rentPct === null || r.rentPct === undefined ? '' : (Math.round(r.rentPct * 1000) / 10) + '%') + '</td>'
+        + '<td class="num">' + (r.state === 'ok' ? vsCell(r.ly, r) : '') + '</td><td class="num">' + (r.state === 'ok' ? vsCell(r.bf, r) : '') + '</td>'
+        + '<td class="num ' + (n(r.extra) < 0 ? 'pf-neg' : '') + '">' + (typeof r.extra === 'number' ? signedMoney(r.extra) + '<div class="pf-sub">vs ' + esc(r.baseName) + '</div>' : '') + '</td>'
+        + '<td class="num">' + (typeof r.ratio === 'number' ? (Math.trunc(r.ratio * 10) / 10).toLocaleString('en-US') + '×' : '') + '</td>'
+        + '<td>' + verdict(r) + '</td></tr>').join('') || '<tr><td colspan="10" class="empty-note">No rented spot.</td></tr>')
+      + '</tbody></table></div>'
+      + '<p class="muted-note" style="margin:8px 0 0;">From the first current contract to yesterday. Rent of these days: each contract amount spread over its own dates (a monthly one per month). '
+      + 'Each supplier is compared with the same dates last year (the season) and with the same number of days just before the contract, next to the whole store over the same dates (green: grew more than the store). '
+      + 'Extra sales = sales - the baseline\'s sales x the store\'s change (last year when the supplier sold then). They are sales at the shelf price: the supplier keeps only its margin on them. Click a supplier for its items over these dates.</p></div>';
+    el('pfRentQ').oninput = () => { R.focus = el('pfRentQ').value; const pos = el('pfRentQ').selectionStart; paintRents(); el('pfRentQ').focus(); el('pfRentQ').setSelectionRange(pos, pos); };
+    el('pfRentReload').onclick = () => { R.cache = {}; R.rows = null; loadRents(true); };
+    box.querySelectorAll('.pf-rsort').forEach(h => h.onclick = () => { const key = h.dataset.k; if (R.sort === key) R.dir = -R.dir; else { R.sort = key; R.dir = key === 'name' ? 1 : -1; } paintRents(); });
+    box.querySelectorAll('tr[data-rent]').forEach(tr => { const r = R.rows.find(x => x.key === tr.dataset.rent); if (!r || !r.codes.length) return;
+      const go = () => { setView('suppliers'); el('pfFrom').value = r.a; el('pfTo').value = r.b; S.sup = r.codes[0]; load(); };
+      tr.onclick = go; tr.onkeydown = e => { if (e.key === 'Enter') go(); }; });
+    el('pfRentXls').onclick = () => xls([['Supplier', 'Spots', 'Since', 'To', 'Days', 'Rent of these days ($)', 'Sales ($)', 'Rent / sales %', 'Sales last year ($)', 'vs last year %', 'Store vs last year %', 'Sales the days before ($)', 'vs the days before %', 'Store vs the days before %', 'Extra sales ($)', 'Baseline', 'Extra / rent', 'Worth it?'],
+      ...rows.map(r => { const p = v => v === null || v === undefined ? '' : Math.round(v * 1000) / 10;
+        return [r.name, r.spots, dmy(r.a), dmy(r.b), r.days, round2(r.rent), typeof r.sold === 'number' ? round2(r.sold) : '', p(r.rentPct),
+          r.ly && !r.ly.failed ? round2(r.ly.sold) : r.ly ? 'could not be read' : '', r.ly ? p(r.ly.sup) : '', r.ly ? p(r.ly.st) : '',
+          r.bf && !r.bf.failed ? round2(r.bf.sold) : r.bf ? 'could not be read' : '', r.bf ? p(r.bf.sup) : '', r.bf ? p(r.bf.st) : '',
+          typeof r.extra === 'number' ? round2(r.extra) : '', r.baseName || '', typeof r.ratio === 'number' ? Math.round(r.ratio * 100) / 100 : '',
+          verdict(r).replace(/<[^>]+>/g, '')]; })], 'Performance rental spots ' + todayStr());
+  }
+  let view = 'suppliers';
+  function setView(v) {
+    view = v === 'rents' && can('rentals.view') ? 'rents' : 'suppliers';
+    el('pfView')?.querySelectorAll('[data-v]').forEach(b => b.classList.toggle('active', b.dataset.v === view));
+    el('pfMain').hidden = view !== 'suppliers'; el('pfRentBody').hidden = view !== 'rents';
+    if (view === 'rents') loadRents();
+  }
+  // from Rentals: this supplier's rent against its sales
+  function openRentals(supplier) {
+    R.focus = String(supplier || ''); if (typeof switchTab === 'function') switchTab('performance');
+    setView('rents'); if (R.rows) paintRents();
+  }
   function xls(aoa, name, codeText) {
     const ws = XLSX.utils.aoa_to_sheet(aoa);
     if (codeText) for (let i = 2; i <= aoa.length; i++) { const c = ws['A' + i]; if (c) { c.t = 's'; c.v = String(c.v); } }
@@ -192,5 +364,5 @@
     const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Performance');
     XLSX.writeFile(wb, `${name.replace(/[\\/:*?"<>|]+/g, ' ').trim()}.xlsx`);
   }
-  window.Performance = { show };
+  window.Performance = { show, openRentals };
 })();

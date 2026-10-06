@@ -2310,3 +2310,6 @@ td.num .pr-tag{display:inline-flex;margin:0 6px 0 0;vertical-align:middle;}
 .cn-switch:not(.on) .cn-sw-l,.cn-switch.on .cn-sw-r{color:var(--ink);font-weight:700;}
 /* menu groups: the tabs of a group under the page title (owner, 2026-10-06) */
 .group-tabs{margin:-6px 0 16px;}
+/* Performance › Rental spots (owner, 2026-10-06) */
+#pfView{margin:0 0 12px;}
+.pf-up{color:var(--pine);font-weight:600;}
