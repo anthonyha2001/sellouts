@@ -182,10 +182,8 @@ async function stockWatch(onlyVendor?: string) {
     // what sold in the last 30 days (the only items watched: no sales = not followed)
     const sold = new Map<string, { code: string; description: string; qty: number }>();
     for (const [f, t] of from.slice(0, 4) === today.slice(0, 4) ? [[from, today]] : [[from, `${from.slice(0, 4)}-12-31`], [`${today.slice(0, 4)}-01-01`, today]]) {
-      const d = await dash('/items_sales', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
-        branches: [BRANCH], year: f.slice(0, 4), from_date: f, to_date: t, aggregation: 'Monthly', group_by: ['item'], supplier: sups }) });
-      const rows = (((d as Record<string, unknown>)?.data as Record<string, unknown>)?.branches as Record<string, Record<string, unknown>[]>)?.[BRANCH] || [];
-      rows.forEach(r => { const c = String(r.item ?? '').trim(); if (!c) return; const it = sold.get(c) || { code: c, description: String(r.item_desc ?? '').trim(), qty: 0 }; it.qty += Number(r.total_quantity || 0); sold.set(c, it); });
+      const rows = await yearRows('/items_sales', { branches: [BRANCH], year: f.slice(0, 4), from_date: f, to_date: t, aggregation: 'Monthly', group_by: ['item'], supplier: sups });
+      rows.forEach(r => { const c = String(r.item ?? '').trim(); if (!c || c.includes(':')) return; const it = sold.get(c) || { code: c, description: String(r.item_desc ?? '').trim(), qty: 0 }; it.qty += Number(r.total_quantity || 0); sold.set(c, it); });
     }
     const items = [...sold.values()].filter(i => i.qty > 0).sort((a, b) => b.qty - a.qty).slice(0, 150);
     const cover = Number(v.cover_days) > 0 ? Number(v.cover_days) : (Number(v.lead_time_days) > 0 ? Number(v.lead_time_days) : 3) + 4;
@@ -218,6 +216,140 @@ async function stockWatch(onlyVendor?: string) {
   return { checked: done };
 }
 
+/* ---------------- codes across years (owner, 2026-10-06; migration 069) ----------------
+   The system numbers its items AND its suppliers per year: a year's sales and purchases only know that year's codes
+   (Abboud trading 0768 in 2025 / 1134 in 2026; Taanayel labneh 400g 016580 / 128420), while the app uses today's.
+   code_map (built once per past year: items by barcode, suppliers by name) translates. Every report reaching into a
+   past year goes through yearRows(): today's codes in, today's codes out. A code with no match in that year gets no
+   rows (never another item's or supplier's figures); a year whose codes are not prepared is an error, not a guess. */
+const trimCode = (c: unknown) => String(c ?? '').trim();
+const postJson = (b: unknown) => ({ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) });
+const supNameKey = (s: unknown) => String(s || '').toUpperCase().replace(/\(\s*[\d\s]+\)/g, ' ').replace(/\b\d{5,}\b/g, ' ')
+  .replace(/\bS\.?\s*A\.?\s*R\.?\s*L\.?(?![A-Z])|\bS\.?\s*A\.?\s*L\.?(?![A-Z])|\bS\.?\s*A\.?(?![A-Z])|\bETS\b\.?|\bSTE\b\.?|\bSOCIETE\b/g, ' ').replace(/[^A-Z0-9؀-ۿ]/g, '');
+const mapReady: Record<string, number> = {};
+async function ensureYearMap(yr: string) {
+  if (mapReady[yr] && Date.now() - mapReady[yr] < 3600e3) return;
+  const { count, error } = await db.from('code_map').select('code', { count: 'exact', head: true }).eq('year', Number(yr));
+  if (error) throw error;
+  if (!count) throw new Error('The codes of ' + yr + ' are not prepared yet (the system renumbers its items each year).');
+  mapReady[yr] = Date.now();
+}
+// today's codes -> that year's: { today: [codes in yr] }
+async function toYear(kind: 'item' | 'supplier', codes: string[], yr: string): Promise<Record<string, string[]>> {
+  const out: Record<string, string[]> = {}, list = [...new Set(codes.map(trimCode).filter(Boolean))];
+  if (yr === year()) { list.forEach(c => { out[c] = [c]; }); return out; }
+  await ensureYearMap(yr);
+  for (let i = 0; i < list.length; i += 150) {
+    const part = list.slice(i, i + 150);
+    const { data, error } = await db.from('code_map').select('code, current_codes').eq('year', Number(yr)).eq('kind', kind).overlaps('current_codes', part);
+    if (error) throw error;
+    (data || []).forEach(r => (r.current_codes as string[]).forEach(cc => { if (part.includes(cc)) (out[cc] = out[cc] || []).push(String(r.code)); }));
+  }
+  return out;
+}
+// that year's codes -> today's: { yrCode: todayCode } (one of the asked codes first, when several)
+async function fromYear(kind: 'item' | 'supplier', codes: string[], yr: string, prefer?: Set<string>): Promise<Record<string, string>> {
+  const out: Record<string, string> = {}, list = [...new Set(codes.map(trimCode).filter(Boolean))];
+  if (yr === year()) { list.forEach(c => { out[c] = c; }); return out; }
+  if (!list.length) return out;
+  await ensureYearMap(yr);
+  for (let i = 0; i < list.length; i += 300) {
+    const { data, error } = await db.from('code_map').select('code, current_codes').eq('year', Number(yr)).eq('kind', kind).in('code', list.slice(i, i + 300));
+    if (error) throw error;
+    (data || []).forEach(r => { const cc = (r.current_codes as string[]) || []; const pick = (prefer && cc.find(x => prefer.has(x))) || cc[0]; if (pick) out[String(r.code)] = pick; });
+  }
+  return out;
+}
+// one report request for one year (body.year): today's codes in (supplier / item), today's codes out (r.item, r.supplier;
+// that year's own code kept in r._yrItem). Unmatched rows keep 'yyyy:code' so they never merge with today's items.
+async function yearRows(path: string, body: Record<string, unknown>): Promise<Record<string, unknown>[]> {
+  const yr = String(body.year);
+  if (yr === year()) { const rows = branchRows(await dash(path, postJson(body))); rows.forEach(r => { if (r.item) { r.item = trimCode(r.item); r._yrItem = r.item; } if (r.supplier) r.supplier = trimCode(r.supplier); }); return rows; }
+  const b: Record<string, unknown> = { ...body };
+  const prefItems = new Set<string>(), prefSups = new Set<string>();
+  for (const [field, kind] of [['supplier', 'supplier'], ['item', 'item']] as const) {
+    if (!Array.isArray(b[field])) continue;
+    const asked = (b[field] as unknown[]).map(trimCode);
+    const m = await toYear(kind, asked, yr), list = [...new Set(Object.values(m).flat())];
+    if (!list.length) return [];
+    asked.forEach(c => (kind === 'item' ? prefItems : prefSups).add(c));
+    b[field] = list;
+  }
+  const rows = branchRows(await dash(path, postJson(b)));
+  const [im, sm] = await Promise.all([
+    fromYear('item', rows.map(r => trimCode(r.item)).filter(Boolean), yr, prefItems),
+    fromYear('supplier', rows.map(r => trimCode(r.supplier)).filter(Boolean), yr, prefSups) ]);
+  rows.forEach(r => {
+    if (r.item) { const t = trimCode(r.item); r._yrItem = t; r.item = im[t] || yr + ':' + t; }
+    if (r.supplier) { const t = trimCode(r.supplier); r.supplier = sm[t] || yr + ':' + t; }
+  });
+  return rows;
+}
+
+/* building code_map for a past year (server key / admin; once, then again only if wanted) */
+async function buildCodeMap(yr: string, part: string, offset = 0) {
+  if (!/^\d{4}$/.test(yr) || yr >= year()) throw new Error('Only a past year.');
+  const cy = year(), today = beirutToday();
+  const whole = (y: string, extra: Record<string, unknown>) => ({ branches: [BRANCH], year: y, from_date: y + '-01-01', to_date: y === cy ? today : y + '-12-31', aggregation: 'Monthly', ...extra });
+  const upsert = async (rows: Record<string, unknown>[]) => { for (let i = 0; i < rows.length; i += 1000) { const { error } = await db.from('code_map').upsert(rows.slice(i, i + 1000)); if (error) throw error; } };
+  if (part === 'suppliers') {
+    const past = new Map<string, string>();
+    for (const path of ['/items_purchases', '/items_sales']) branchRows(await dash(path, postJson(whole(yr, { group_by: ['supplier'] })))).forEach(r => { const c = trimCode(r.supplier); if (c && !past.has(c)) past.set(c, String(r.supplier_desc || '').trim()); });
+    const cur = new Map<string, Set<string>>();
+    const add = (c: string, n: unknown) => { const k = supNameKey(n); if (!k || !c) return; if (!cur.has(k)) cur.set(k, new Set()); cur.get(k)!.add(c); };
+    for (const path of ['/items_purchases', '/items_sales']) branchRows(await dash(path, postJson(whole(cy, { group_by: ['supplier'] })))).forEach(r => add(trimCode(r.supplier), r.supplier_desc));
+    for (const q of 'abcdefghijklmnopqrstuvwxyz0123456789'.split('')) {
+      try { const d = await dash('/items/filter-options/supplier?' + new URLSearchParams({ year: cy, limit: '1000', q })) as Record<string, unknown>;
+        (((d.data as Record<string, unknown>)?.options || []) as Record<string, unknown>[]).forEach(o => add(trimCode(o.code), o.description ?? o.label)); } catch (e) { console.warn('suppliers', q, e); }
+    }
+    const rows = [...past.entries()].map(([code, name]) => { const cc = [...(cur.get(supNameKey(name)) || [])]; return { year: Number(yr), kind: 'supplier', code, name, current_codes: cc, how: cc.length ? 'name' : 'not found', built_at: new Date().toISOString() }; });
+    await upsert(rows);
+    return { year: yr, part, suppliers: rows.length, matched: rows.filter(r => r.current_codes.length).length };
+  }
+  if (part === 'items') {
+    const pastSum = (((await dash('/items_sales/summary', postJson(whole(yr, { group_by: ['item'] }))) as Record<string, unknown>).data as Record<string, unknown>)?.items || []) as Record<string, unknown>[];
+    const pastBuy = branchRows(await dash('/items_purchases', postJson(whole(yr, { group_by: ['item'] }))));
+    const curSum = (((await dash('/items_sales/summary', postJson(whole(cy, { group_by: ['item'] }))) as Record<string, unknown>).data as Record<string, unknown>)?.items || []) as Record<string, unknown>[];
+    const curBuy = branchRows(await dash('/items_purchases', postJson(whole(cy, { group_by: ['item'] }))));
+    const byBc = new Map<string, string>(), byDesc = new Map<string, Set<string>>();
+    const dk = (s: unknown) => String(s || '').toUpperCase().replace(/\s+/g, ' ').trim();
+    curSum.forEach(r => { const c = trimCode(r.item), bc = trimCode(r.barcode); if (c && bc) byBc.set(bc, c); });
+    [...curSum, ...curBuy].forEach(r => { const c = trimCode(r.item), d = dk(r.item_desc); if (!c || !d) return; if (!byDesc.has(d)) byDesc.set(d, new Set()); byDesc.get(d)!.add(c); });
+    const past = new Map<string, { barcode: string; name: string }>();
+    pastSum.forEach(r => { const c = trimCode(r.item); if (c) past.set(c, { barcode: trimCode(r.barcode), name: String(r.item_desc || '').trim() }); });
+    pastBuy.forEach(r => { const c = trimCode(r.item); if (c && !past.has(c)) past.set(c, { barcode: '', name: String(r.item_desc || '').trim() }); });
+    const now = new Date().toISOString();
+    const rows = [...past.entries()].map(([code, x]) => {
+      if (x.barcode && byBc.has(x.barcode)) return { year: Number(yr), kind: 'item', code, barcode: x.barcode || null, name: x.name, current_codes: [byBc.get(x.barcode)!], how: 'barcode', built_at: now };
+      const d = byDesc.get(dk(x.name));
+      if (d && d.size === 1) return { year: Number(yr), kind: 'item', code, barcode: x.barcode || null, name: x.name, current_codes: [...d], how: 'name', built_at: now };
+      return { year: Number(yr), kind: 'item', code, barcode: x.barcode || null, name: x.name, current_codes: [] as string[], how: null, built_at: now };
+    });
+    await upsert(rows);
+    return { year: yr, part, items: rows.length, byBarcode: rows.filter(r => r.how === 'barcode').length, byName: rows.filter(r => r.how === 'name').length, left: rows.filter(r => !r.how).length };
+  }
+  if (part === 'items_search') {
+    // the ones left: today's item list searched by their barcode (any of today's barcodes of an item)
+    const { data, error } = await db.from('code_map').select('code, barcode').eq('year', Number(yr)).eq('kind', 'item').is('how', null).not('barcode', 'is', null).order('code').range(offset, offset + 299);
+    if (error) throw error;
+    const list = data || []; let found = 0;
+    for (let i = 0; i < list.length; i += 16) {
+      await Promise.all(list.slice(i, i + 16).map(async r => {
+        let cc: string[] = [];
+        try {
+          const d = await dash('/items/search?' + new URLSearchParams({ search: String(r.barcode), year: cy, preferred_branch: BRANCH }));
+          cc = [...new Set((Array.isArray(d) ? d : []).filter((x: Record<string, unknown>) => trimCode(x.barcode) === r.barcode || ((x.barcodes as unknown[]) || []).map(trimCode).includes(String(r.barcode))).map((x: Record<string, unknown>) => trimCode(x.code)))];
+        } catch (e) { console.warn('item search', r.barcode, e); return; }
+        if (cc.length) found++;
+        await db.from('code_map').update({ current_codes: cc, how: cc.length ? 'barcode (search)' : 'not found', built_at: new Date().toISOString() }).eq('year', Number(yr)).eq('kind', 'item').eq('code', r.code);
+      }));
+    }
+    const { count } = await db.from('code_map').select('code', { count: 'exact', head: true }).eq('year', Number(yr)).eq('kind', 'item').is('how', null).not('barcode', 'is', null);
+    return { year: yr, part, searched: list.length, found, left: count ?? null };
+  }
+  throw new Error('part: suppliers | items | items_search');
+}
+
 /* ---------------- last purchase (shared: Audit, credit note, purchase order) ----------------
    The last purchase day (on or before `until`, this year else last year) and that day's purchase lines from
    the item cardex, per document; a paid line + a 100% discount line = a trade deal, real cost = paid / all units. */
@@ -226,17 +358,16 @@ async function lastCosts(codes: string[], until?: string): Promise<Record<string
   // until (optional): the last purchase on or before that day (a sell-out's credit note uses its last day)
   const now = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Beirut' });
   const today = /^\d{4}-\d{2}-\d{2}$/.test(String(until || '')) && String(until) < now ? String(until) : now, y = Number(today.slice(0, 4));
-  const last: Record<string, string> = {};
+  const last: Record<string, string> = {}, lastCode: Record<string, string> = {};
   const byItem = (d: unknown) => (((d as Record<string, unknown>)?.data as Record<string, unknown>)?.branches as Record<string, Record<string, unknown>[]>)?.[BRANCH] || [];
   // a read that failed is never taken for "no purchase" (nor for an older one from last year): it is marked failed
   const unknown = new Set<string>();
   for (const yr of [y, y - 1]) {
     const want = codes.filter(c => !last[c] && !unknown.has(c)); if (!want.length) break;
     try {
-      const d = await dash('/items_purchases', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
-        branches: [BRANCH], year: String(yr), from_date: `${yr}-01-01`, to_date: yr === y ? today : `${yr}-12-31`, aggregation: 'Daily', group_by: ['item'], item: want }) });
+      const rows = await yearRows('/items_purchases', { branches: [BRANCH], year: String(yr), from_date: `${yr}-01-01`, to_date: yr === y ? today : `${yr}-12-31`, aggregation: 'Daily', group_by: ['item'], item: want });
       const codeOf = new Map(want.map(c => [key(c), c]));
-      byItem(d).forEach(r => { const c = codeOf.get(key(String(r.item ?? ''))); if (c && Number(r.total_quantity || 0) > 0 && String(r.period) > String(last[c] || '')) last[c] = String(r.period); });
+      rows.forEach(r => { const c = codeOf.get(key(String(r.item ?? ''))); if (c && Number(r.total_quantity || 0) > 0 && String(r.period) > String(last[c] || '')) { last[c] = String(r.period); lastCode[c] = String(r._yrItem || c); } });
     } catch (e) { console.warn('last purchase', yr, e); want.forEach(c => unknown.add(c)); }
   }
   const r2 = (n: number) => Math.round(n * 10000) / 10000;
@@ -245,7 +376,7 @@ async function lastCosts(codes: string[], until?: string): Promise<Record<string
   const readDay = async (c: string) => {
       const day = last[c];
       try {
-        const d = await dash(`/item-cardex?${new URLSearchParams({ branch: BRANCH, item_code: c, year: day.slice(0, 4), from_date: day, to_date: day })}`) as Record<string, unknown>;
+        const d = await dash(`/item-cardex?${new URLSearchParams({ branch: BRANCH, item_code: lastCode[c] || c, year: day.slice(0, 4), from_date: day, to_date: day })}`) as Record<string, unknown>;
         const rows = (((d.data as Record<string, unknown>)?.rows || []) as Record<string, unknown>[])
           .filter(r => String(r.operation_code) === '15' || /purchase/i.test(String(r.operation_label || '')))
           .filter(r => Number(r.qty_in || 0) > 0);
@@ -273,9 +404,7 @@ async function poData(sups: string[], from: string, to: string) {
   const rowsOf = (d: unknown) => (((d as Record<string, unknown>)?.data as Record<string, unknown>)?.branches as Record<string, Record<string, unknown>[]>)?.[BRANCH] || [];
   const pieces = from.slice(0, 4) === to.slice(0, 4) ? [[from, to]] : [[from, `${from.slice(0, 4)}-12-31`], [`${to.slice(0, 4)}-01-01`, to]];
   for (const [f, t] of pieces) {
-    const d = await dash('/items_sales', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
-      branches: [BRANCH], year: f.slice(0, 4), from_date: f, to_date: t, aggregation: 'Monthly', group_by: ['item'], supplier: sups }) });
-    rowsOf(d).forEach(r => { const c = String(r.item ?? '').trim(); if (!c) return; const it = items.get(c) || { code: c, description: String(r.item_desc ?? '').trim(), sold: 0, soldValue: 0, bought: 0 };
+    (await yearRows('/items_sales', { branches: [BRANCH], year: f.slice(0, 4), from_date: f, to_date: t, aggregation: 'Monthly', group_by: ['item'], supplier: sups })).forEach(r => { const c = String(r.item ?? '').trim(); if (!c || c.includes(':')) return; const it = items.get(c) || { code: c, description: String(r.item_desc ?? '').trim(), sold: 0, soldValue: 0, bought: 0 };
       it.sold += Number(r.total_quantity || 0); it.soldValue += Number(r.total_sales || 0); items.set(c, it); });
   }
   try {   // items bought this year that did not sell in the period still belong to the supplier's list
@@ -308,9 +437,7 @@ async function poData(sups: string[], from: string, to: string) {
     const codeOf = new Map(list.map(i => [key(i.code), i.code]));
     try {
       for (const [f, t] of parts) {
-        const d = await dash('/items_sales', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
-          branches: [BRANCH], year: f.slice(0, 4), from_date: f, to_date: t, aggregation: 'Daily', group_by: ['item'], supplier: sups }) });
-        rowsOf(d).forEach(r => {
+        (await yearRows('/items_sales', { branches: [BRANCH], year: f.slice(0, 4), from_date: f, to_date: t, aggregation: 'Daily', group_by: ['item'], supplier: sups })).forEach(r => {
           const c = codeOf.get(key(String(r.item ?? ''))); if (!c) return;
           const lp = lastOf(c), p = String(r.period || '').slice(0, 10);
           if (lp && p >= (lp < yearAgo ? yearAgo : lp)) since[c] = (since[c] || 0) + Number(r.total_quantity || 0);
@@ -332,9 +459,7 @@ const branchRows = (d: unknown) => (((d as Record<string, unknown>)?.data as Rec
 async function report(kind: 'sales' | 'purchases', from: string, to: string, extra: Record<string, unknown>) {
   const rows: Record<string, unknown>[] = [];
   for (const [f, t] of byYear(from, to)) {
-    const d = await dash(kind === 'sales' ? '/items_sales' : '/items_purchases', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
-      branches: [BRANCH], year: f.slice(0, 4), from_date: f, to_date: t, aggregation: 'Monthly', ...extra }) });
-    rows.push(...branchRows(d));
+    rows.push(...await yearRows(kind === 'sales' ? '/items_sales' : '/items_purchases', { branches: [BRANCH], year: f.slice(0, 4), from_date: f, to_date: t, aggregation: 'Monthly', ...extra }));
   }
   return rows;
 }
@@ -438,7 +563,11 @@ async function returnsRange(from: string, to: string, withPrev = false) {
   const days = withPrev ? [...new Set(lines.map(l => String(l.day)))] : [];
   for (const dd of days) {
     const cs = [...new Set(lines.filter(l => l.day === dd).map(l => String(l.code)))];
-    try { const lc = await lastCosts(cs, plusDays(dd, -1)); lines.filter(l => l.day === dd).forEach(l => { const x = lc[String(l.code)]; if (x) l.prev = x; }); }
+    try {
+      const cur = dd.slice(0, 4) === year() ? Object.fromEntries(cs.map(c => [c, c])) : await fromYear('item', cs, dd.slice(0, 4));
+      const lc = await lastCosts([...new Set(Object.values(cur))], plusDays(dd, -1));
+      lines.filter(l => l.day === dd).forEach(l => { const x = lc[cur[String(l.code)]]; if (x) l.prev = x; });
+    }
     catch (e) { console.warn('returns prev', dd, e); }
   }
   lines.sort((a, b) => String(b.day).localeCompare(String(a.day)) || String(a.doc).localeCompare(String(b.doc)));
@@ -498,17 +627,22 @@ async function pricingSupplier(day: string, sup: string, part = '', only: string
     } catch (e) { console.warn('pricing cardex', c, e); it.docs = []; it.cardexFailed = true; }
   });
   const more = async () => {
-    const salesDays = 90, sold: Record<string, number> = {}, codeOf = new Map(codes.map(c => [key(c), c]));
-    const prevP = lastCosts(codes, plusDays(day, -1));
-    const salesP = report('sales', plusDays(day, -90), plusDays(day, -1), { group_by: ['item'], item: codes })
-      .then(rows => rows.forEach(r => { const c = codeOf.get(key(String(r.item ?? ''))); if (c) sold[c] = (sold[c] || 0) + Number(r.total_quantity || 0); }))
+    const salesDays = 90, sold: Record<string, number> = {};
+    // a day of a past year: its codes are that year's; today's codes for the lookups (migration 069)
+    const dy = day.slice(0, 4), curOf: Record<string, string> = dy === year() ? Object.fromEntries(codes.map(c => [c, c])) : await fromYear('item', codes, dy);
+    const dayOf = new Map(codes.filter(c => curOf[c]).map(c => [key(curOf[c]), c])), curCodes = codes.map(c => curOf[c]).filter(Boolean);
+    const prevP = (curCodes.length ? lastCosts(curCodes, plusDays(day, -1)) : Promise.resolve({} as Record<string, unknown>))
+      .then(lc => Object.fromEntries(codes.filter(c => curOf[c]).map(c => [c, lc[curOf[c]]])) as Record<string, unknown>);
+    const salesP = (curCodes.length ? report('sales', plusDays(day, -90), plusDays(day, -1), { group_by: ['item'], item: curCodes }) : Promise.resolve([] as Record<string, unknown>[]))
+      .then(rows => rows.forEach(r => { const c = dayOf.get(key(String(r.item ?? ''))); if (c) sold[c] = (sold[c] || 0) + Number(r.total_quantity || 0); }))
       .catch(e => console.warn('pricing sales', e));
     await pool(codes, async c => {
       const it = out[c];
       try {
-        const pc = await dash(`/item-price-checker?${new URLSearchParams({ search: c, year: year(), branches: BRANCH })}`) as Record<string, unknown>;
-        const hit = (Object.values(((pc.branches as Record<string, Record<string, unknown[]>>) || {})[BRANCH] || {}).flat() as Record<string, unknown>[]).find(r => key(String(r.ItemCode ?? '')) === key(c));
-        if (hit) { it.salePrice = unitSale(hit); it.saleCurrency = String(hit.CurrencyCode) === '01' ? 'LBP' : '$'; it.pack = hit.Pack ?? null; it.stockNow = hit.AvailableQuantity ?? null; it.pcBarcode = String(hit.Barcode ?? '').trim(); }
+        const cc = curOf[c]; if (!cc) { it.priceFailed = true; return; }
+        const pc = await dash(`/item-price-checker?${new URLSearchParams({ search: cc, year: year(), branches: BRANCH })}`) as Record<string, unknown>;
+        const hit = (Object.values(((pc.branches as Record<string, Record<string, unknown[]>>) || {})[BRANCH] || {}).flat() as Record<string, unknown>[]).find(r => key(String(r.ItemCode ?? '')) === key(cc));
+        if (hit) { if (cc !== c) it.currentCode = cc; it.salePrice = unitSale(hit); it.saleCurrency = String(hit.CurrencyCode) === '01' ? 'LBP' : '$'; it.pack = hit.Pack ?? null; it.stockNow = hit.AvailableQuantity ?? null; it.pcBarcode = String(hit.Barcode ?? '').trim(); }
         else it.priceFailed = true;
       } catch (e) { console.warn('pricing price', c, e); it.priceFailed = true; }
     });
@@ -633,6 +767,11 @@ Deno.serve(async req => {
     if (body.action === 'stock_check_now') {
       if (!isServer && role !== 'admin') return json({ error: 'Admin only.' }, 403);
       return json(await stockWatch(String(body.vendor || '')));
+    }
+    // Prepare the codes of a past year (migration 069): part suppliers | items | items_search (offset)
+    if (body.action === 'code_map_build') {
+      if (!isServer && role !== 'admin') return json({ error: 'Admin only.' }, 403);
+      return json(await buildCodeMap(String(body.year || ''), String(body.part || ''), Number(body.offset) || 0));
     }
     if (body.action === 'status') {
       if (!isServer && role !== 'admin') return json({ error: 'Admin only.' }, 403);
@@ -775,9 +914,7 @@ Deno.serve(async req => {
       for (const [name, [a, b]] of Object.entries(periods)) {
         for (const [f, t] of pieces(String(a), String(b))) {
           for (let i = 0; i < codes.length; i += 100) {
-            const d = await dash('/items_sales', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
-              branches: [BRANCH], year: f.slice(0, 4), from_date: f, to_date: t, aggregation: 'Monthly', group_by: ['item'], item: codes.slice(i, i + 100) }) });
-            const rows = (((d as Record<string, unknown>)?.data as Record<string, unknown>)?.branches as Record<string, Record<string, unknown>[]>)?.[BRANCH] || [];
+            const rows = await yearRows('/items_sales', { branches: [BRANCH], year: f.slice(0, 4), from_date: f, to_date: t, aggregation: 'Monthly', group_by: ['item'], item: codes.slice(i, i + 100) });
             rows.forEach(r => { const c = codeOf.get(key(String(r.item ?? ''))); if (!c) return; out[c][name].qty += Number(r.total_quantity || 0); out[c][name].sales += Number(r.total_sales || 0); });
           }
         }
@@ -815,7 +952,9 @@ Deno.serve(async req => {
         const pieces = from.slice(0, 4) === to.slice(0, 4) ? [[from, to]] : [[from, `${from.slice(0, 4)}-12-31`], [`${to.slice(0, 4)}-01-01`, to]];
         let rows: Record<string, unknown>[] = [], summary: unknown = null;
         for (const [f, tt] of pieces) {
-          const d = await dash(`/item-cardex?${new URLSearchParams({ branch: BRANCH, item_code: item.code, year: f.slice(0, 4), from_date: f, to_date: tt })}`) as Record<string, unknown>;
+          const yc = (await toYear('item', [item.code], f.slice(0, 4)))[item.code] || [];
+          if (!yc.length) continue;   // not in that year's records
+          const d = await dash(`/item-cardex?${new URLSearchParams({ branch: BRANCH, item_code: yc[0], year: f.slice(0, 4), from_date: f, to_date: tt })}`) as Record<string, unknown>;
           const data = (d.data || {}) as Record<string, unknown>;
           rows = rows.concat((data.rows || []) as Record<string, unknown>[]); summary = data.summary || summary;
         }
@@ -892,9 +1031,7 @@ Deno.serve(async req => {
       const days: Record<string, { qty: number; sales: number }> = {};
       const pieces = from.slice(0, 4) === to.slice(0, 4) ? [[from, to]] : [[from, `${from.slice(0, 4)}-12-31`], [`${to.slice(0, 4)}-01-01`, to]];
       for (const [f, t] of pieces) {
-        const d = await dash('/items_sales', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
-          branches: [BRANCH], year: f.slice(0, 4), from_date: f, to_date: t, aggregation: 'Daily', group_by: [], item: codes }) });
-        const rows = (((d as Record<string, unknown>)?.data as Record<string, unknown>)?.branches as Record<string, Record<string, unknown>[]>)?.[BRANCH] || [];
+        const rows = await yearRows('/items_sales', { branches: [BRANCH], year: f.slice(0, 4), from_date: f, to_date: t, aggregation: 'Daily', group_by: [], item: codes });
         rows.forEach(r => { const p = String(r.period || '').slice(0, 10); if (!p) return; days[p] = days[p] || { qty: 0, sales: 0 }; days[p].qty += Number(r.total_quantity || 0); days[p].sales += Number(r.total_sales || 0); });
       }
       return json({ days });
