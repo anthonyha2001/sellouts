@@ -465,12 +465,14 @@ async function report(kind: 'sales' | 'purchases', from: string, to: string, ext
   return rows;
 }
 // every supplier: purchases vs sales in the period
-async function perfSuppliers(from: string, to: string) {
+// months (owner, 2026-10-06, the rental spots' trend): each supplier's sales per month too, when asked
+async function perfSuppliers(from: string, to: string, months = false) {
   const [p, sl] = await Promise.all([report('purchases', from, to, { group_by: ['supplier'] }), report('sales', from, to, { group_by: ['supplier'] })]);
   const m = new Map<string, { code: string; name: string; bought: number; boughtQty: number; sold: number; soldQty: number }>();
   const get = (r: Record<string, unknown>) => { const c = String(r.supplier ?? '').trim() || '?'; let x = m.get(c); if (!x) { x = { code: c, name: String(r.supplier_desc ?? '').trim() || 'No supplier', bought: 0, boughtQty: 0, sold: 0, soldQty: 0 }; m.set(c, x); } return x; };
   p.forEach(r => { const x = get(r); x.bought += Number(r.total_purchases || 0); x.boughtQty += Number(r.total_quantity || 0); });
-  sl.forEach(r => { const x = get(r); x.sold += Number(r.total_sales || 0); x.soldQty += Number(r.total_quantity || 0); });
+  sl.forEach(r => { const x = get(r) as typeof x & { months?: Record<string, number> }; const v = Number(r.total_sales || 0); x.sold += v; x.soldQty += Number(r.total_quantity || 0);
+    if (months) { const k = String(r.period || '').slice(0, 7); if (k) { x.months = x.months || {}; x.months[k] = (x.months[k] || 0) + v; } } });
   return { from, to, suppliers: [...m.values()] };
 }
 // one supplier: per item and per month
@@ -871,7 +873,7 @@ Deno.serve(async req => {
       const from = String(body.from || ''), to = String(body.to || ''), day = String(body.day || '');
       if (body.action === 'perf_suppliers' || body.action === 'perf_supplier') {
         if (!isDay(from) || !isDay(to) || from > to || Number(to.slice(0, 4)) - Number(from.slice(0, 4)) > 1) return json({ error: 'Choose dates within two years.' }, 400);
-        if (body.action === 'perf_suppliers') return json(await perfSuppliers(from, to));
+        if (body.action === 'perf_suppliers') return json(await perfSuppliers(from, to, body.months === true));
         if (!body.supplier) return json({ error: 'Choose a supplier.' }, 400);
         return json(await perfSupplier(String(body.supplier), from, to));
       }

@@ -2313,3 +2313,21 @@ td.num .pr-tag{display:inline-flex;margin:0 6px 0 0;vertical-align:middle;}
 /* Performance › Rental spots (owner, 2026-10-06) */
 #pfView{margin:0 0 12px;}
 .pf-up{color:var(--pine);font-weight:600;}
+/* Performance › Rental spots: the trend on hover, no amounts (owner, 2026-10-06) */
+.pf-trend-tip{position:fixed;z-index:1000;width:352px;max-width:calc(100vw - 16px);padding:12px 14px;border-radius:12px;background:var(--paper-raised);border:1px solid var(--line);box-shadow:0 10px 30px rgba(0,0,0,.18);pointer-events:none;font-size:12.5px;color:var(--ink);}
+.pf-trend-tip svg{display:block;width:100%;height:auto;margin:4px 0 2px;}
+.pf-tt-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin:0 0 6px;}
+.pf-tt-legend{display:flex;gap:12px;font-size:11px;color:var(--ink-soft);}
+.pf-tt-legend span{display:inline-flex;align-items:center;gap:5px;}
+.pf-tt-k{display:inline-block;width:14px;height:0;border-top:2px solid var(--pine);}
+.pf-tt-k.ly{border-top:2px dashed var(--ink-faint);}
+.pf-tt-now{fill:none;stroke:var(--pine);stroke-width:2;stroke-linejoin:round;stroke-linecap:round;}
+.pf-tt-ly{fill:none;stroke:var(--ink-faint);stroke-width:2;stroke-dasharray:4 3;stroke-linejoin:round;}
+.pf-tt-dot{fill:var(--pine);stroke:var(--paper-raised);stroke-width:1.5;}
+.pf-tt-band{fill:color-mix(in srgb, var(--gold) 16%, transparent);}
+.pf-tt-spot{font-size:9.5px;fill:var(--ink-soft);font-family:var(--font-mono);}
+.pf-tt-pct{font-size:9.5px;font-family:var(--font-mono);fill:var(--ink-soft);}
+.pf-tt-pct.pos{fill:var(--pine);}
+.pf-tt-pct.neg{fill:var(--brick);}
+.pf-tt-rows{display:grid;gap:3px;margin-top:4px;}
+.pf-tt-row{display:flex;justify-content:space-between;gap:8px;}
