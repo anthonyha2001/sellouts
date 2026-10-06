@@ -118,10 +118,11 @@
   function puList(data) {
     const pus = new Map(), pending = !data.moreReady;
     data.items.forEach(it => {
+      // the previous purchase: the last PU before this day (one PU: never several mixed)
       const prevDocs = it.prev?.docs || [];
-      const pPaid = prevDocs.flatMap(d => d.lines).find(l => !l.free);
-      const pAll = prevDocs.reduce((t, d) => t + n(d.paidQty) + n(d.freeQty), 0), pPaidSum = prevDocs.reduce((t, d) => t + n(d.paid), 0);
-      const prev = it.prev && prevDocs.length ? { date: it.prev.date, net: pPaid ? pPaid.net : null, real: pAll > 0 ? pPaidSum / pAll : null, deal: prevDocs.some(d => d.tradeDeal), currency: prevDocs[0]?.currency || '', docs: prevDocs.map(d => d.doc).join(', ') } : null;
+      const pd = [...prevDocs].reverse().find(d => n(d.paidQty) > 0) || prevDocs[prevDocs.length - 1];
+      const docPrice = d => { const p = d.lines.find(l => !l.free); const u = n(d.paidQty) + n(d.freeQty); return { net: p ? p.net : null, real: u ? n(d.paid) / u : null, deal: !!d.tradeDeal, currency: d.currency || '' }; };
+      let prev = it.prev && pd ? { date: it.prev.date, ...docPrice(pd), docs: pd.doc } : null;
       const perDay = n(it.soldBefore) / Math.max(1, n(it.salesDays) || 90);
       const had = it.stockBefore === null || it.stockBefore === undefined ? null : n(it.stockBefore);
       const daysHad = had !== null && had > 0 && perDay > 0 ? had / perDay : null;
@@ -136,9 +137,10 @@
         const changed = (x, base) => x !== null && Math.abs(x) > Math.max(0.0005, Math.abs(n(base)) * 0.0001);
         const generic = GENERIC.test(String(it.description || '')), back = d.kind === 'return';
         const priceFlag = !pending && !generic && (changed(diffNet, prev?.net) || changed(diffReal, prev?.real));
-        const row = { it, doc: d, paid, net, real, prev, diffNet, diffReal, priceFlag, otherCurrency: prev && !same, had, perDay, daysHad, overArr: !pending && overArr && !generic && !back, generic, pending };
+        const row = { it, doc: d, paid, net, real, prev: prev ? { ...prev } : null, diffNet, diffReal, priceFlag, otherCurrency: prev && !same, had, perDay, daysHad, overArr: !pending && overArr && !generic && !back, generic, pending };
         if (!pus.has(d.doc)) pus.set(d.doc, { doc: d.doc, kind: d.kind || 'purchase', currency: d.currency, rows: [] });
         pus.get(d.doc).rows.push(row);
+        if (!back && paid) prev = { date: S.day, ...docPrice(d), docs: d.doc, sameDay: true };
       });
     });
     return [...pus.values()].sort((a, b) => a.doc.localeCompare(b.doc)).map(p => ({ ...p, pending, failed: !!data.moreFailed,
@@ -150,7 +152,7 @@
     if (S.loading.has(code)) return S.loading.get(code);
     const day = S.day;
     const p = (async () => {
-      const data = await call({ action: 'pricing_supplier', day, supplier: code, part: 'lines' });
+      const data = await call({ action: 'pricing_supplier', day, supplier: code, part: 'lines', name: (S.list?.suppliers || []).find(x => x.code === code)?.name || '' });
       data.moreReady = false;
       if (day === S.day) { S.cache.set(code, data); fetchMore(code, data, day); }
       return data;
@@ -167,6 +169,8 @@
     } catch (e) { data.moreFailed = true; }
     data.moreReady = true;
     if (day === S.day) refresh(code);
+    // this one is done: now the next one, in the background (one at a time: lighter on the system)
+    if (day === S.day && sups()[S.supIdx]?.code === code && S.pus.length) prefetch(S.supIdx + 1);
   }
   // repaint what is on screen when a supplier's comparisons arrive (same PU, same row)
   function refresh(code) {
@@ -196,7 +200,7 @@
     S.puIdx = atEnd ? Math.max(0, S.pus.length - 1) : 0; S.sel = 0;
     if (!S.pus.length) { showToast(`${s.name}: no delivery found in the cardex for that day (returns are under Returns).`, true); paintSuppliers(); return; }
     paintPu();
-    prefetch(i + 1);   // the next supplier, while you check this one
+    if (S.cache.get(s.code)?.moreReady) prefetch(i + 1);   // the next supplier, while you check this one (else once this one is fully checked)
   }
   function go(step) {
     if (S.busy) return;
@@ -228,12 +232,12 @@
         <th>Code</th><th>Description</th><th>Barcode</th><th class="num">Qty</th><th class="num">Unit price</th><th class="num">Net</th>
         <th class="num">Previous</th><th class="num">Difference</th><th class="num" title="The stock we had when it arrived, and how many days of sales that was">Stock we had</th><th class="num">Sale price now</th></tr></thead>
         <tbody>${pu.rows.map((r, i) => `<tr data-r="${i}" class="${i === S.sel ? 'pr-sel' : ''}${r.priceFlag ? ' pr-row-price' : ''}${r.overArr ? ' pr-row-over' : ''}">
-          <td class="mono">${esc(r.it.code)}</td><td>${esc(r.it.description || '')}${n(r.it.pack) > 1 ? ` <span class="muted-note">· pack ${n(r.it.pack)}</span>` : ''}</td>
+          <td class="mono">${esc(r.it.code)}</td><td>${esc(r.it.description || '')}${n(r.it.pack) > 1 ? ` <span class="muted-note">· pack ${n(r.it.pack)}</span>` : ''}${(r.it.otherSuppliers || []).length ? `<div class="pr-sub">also delivered today by ${esc(r.it.otherSuppliers.join(', '))}</div>` : ''}</td>
           <td class="mono pr-sub-txt">${esc(r.it.barcode || '')}</td>
           <td class="num">${qty(r.doc.paidQty)}${n(r.doc.freeQty) ? ` <span class="po-free">+ ${qty(r.doc.freeQty)} free</span>` : ''}</td>
           <td class="num">${r.paid ? price(r.paid.unit, cur) : '—'}${r.paid?.discountPct ? `<div class="pr-sub">-${r.paid.discountPct}%</div>` : ''}</td>
           <td class="num"><b>${price(r.net, cur)}</b>${r.doc.tradeDeal ? `<div class="pr-sub"><span class="lp-deal">trade deal</span> real ${price(r.real, cur)}</div>` : ''}</td>
-          <td class="num">${r.pending ? '<span class="pr-wait" title="Checking…">…</span>' : r.prev ? `${price(r.prev.net, r.prev.currency)}${r.prev.deal ? ` <span class="pr-sub">real ${price(r.prev.real, r.prev.currency)}</span>` : ''}<div class="pr-sub">${esc(dmy(r.prev.date))}${r.otherCurrency ? ` · in ${esc(r.prev.currency)}` : ''}</div>` : r.it.prev ? `<span class="muted-note">no price found</span><div class="pr-sub">${esc(dmy(r.it.prev.date))}</div>` : '<span class="muted-note">no earlier purchase</span>'}</td>
+          <td class="num">${r.pending ? '<span class="pr-wait" title="Checking…">…</span>' : r.prev ? `${price(r.prev.net, r.prev.currency)}${r.prev.deal ? ` <span class="pr-sub">real ${price(r.prev.real, r.prev.currency)}</span>` : ''}<div class="pr-sub">${esc(dmy(r.prev.date))} · ${esc(r.prev.docs || '')}${r.prev.sameDay ? ' (same day)' : ''}${r.otherCurrency ? ` · in ${esc(r.prev.currency)}` : ''}</div>` : r.it.prev ? `<span class="muted-note">no price found</span><div class="pr-sub">${esc(dmy(r.it.prev.date))}</div>` : '<span class="muted-note">no earlier purchase</span>'}</td>
           <td class="num">${r.pending ? '<span class="pr-wait" title="Checking…">…</span>' : r.generic ? '<span class="muted-note">catch-all item</span>' : r.otherCurrency ? '<span class="muted-note">other currency</span>' : diffHtml(r.diffNet, r.prev?.net, cur)}${r.diffReal !== null && Math.abs(r.diffReal) > 0.0005 ? `<div class="pr-sub">real ${diffHtml(r.diffReal, r.prev?.real, cur)}</div>` : ''}</td>
           <td class="num">${r.had === null ? '—' : qty(r.had)}<div class="pr-sub${r.overArr ? ' pr-flag-over' : ''}">${r.pending ? '…' : r.generic ? '' : r.daysHad !== null ? `${Math.round(r.daysHad)} days` : r.had > 0.001 && !(r.perDay > 0) ? 'no sales in 90 days' : ''}</div></td>
           <td class="num">${r.pending ? '<span class="pr-wait" title="Checking…">…</span>' : r.it.salePrice ? price(r.it.salePrice, '$') : '—'}</td></tr>`).join('')}</tbody></table></div>

@@ -48,10 +48,24 @@ async function login(): Promise<string> {
   token = t; tokenExp = expOf(t) || Date.now() + 6 * 3600e3;
   return t;
 }
-async function dash(path: string, init: RequestInit = {}, retry = true): Promise<unknown> {
-  if (!token || Date.now() > tokenExp - 5 * 60e3) await login();
-  const r = await fetch(`${BASE}${path}`, { ...init, headers: { ...(init.headers || {}), Authorization: `Bearer ${token}`, Accept: 'application/json' } });
-  if (r.status === 401 && retry) { token = null; return dash(path, init, false); }
+// one login at a time: parallel requests wait for the same one (16 at once used to log in 16 times)
+let loggingIn: Promise<string> | null = null;
+function ensureLogin(): Promise<string> | null {
+  if (token && Date.now() <= tokenExp - 5 * 60e3) return null;
+  if (!loggingIn) loggingIn = login().finally(() => { loggingIn = null; });
+  return loggingIn;
+}
+async function dash(path: string, init: RequestInit = {}, retry = true, tries = 2): Promise<unknown> {
+  const wait = ensureLogin(); if (wait) await wait;
+  let r: Response;
+  try {   // a request that hangs is given up after 25 s and tried once more
+    r = await fetch(`${BASE}${path}`, { ...init, signal: AbortSignal.timeout(25000), headers: { ...(init.headers || {}), Authorization: `Bearer ${token}`, Accept: 'application/json' } });
+  } catch (e) {
+    if (tries > 1) return dash(path, init, retry, tries - 1);
+    throw e;
+  }
+  if (r.status === 401 && retry) { token = null; return dash(path, init, false, tries); }
+  if ((r.status === 429 || r.status >= 500) && tries > 1) { await new Promise(res => setTimeout(res, 800)); return dash(path, init, retry, tries - 1); }
   if (!r.ok) throw new Error(`Dashboard answered ${r.status}${r.status === 422 ? ": " + (await r.text()).slice(0, 300) : ""}`);
   return r.json();
 }
@@ -225,7 +239,10 @@ async function lastCosts(codes: string[], until?: string): Promise<Record<string
         const rows = (((d.data as Record<string, unknown>)?.rows || []) as Record<string, unknown>[])
           .filter(r => String(r.operation_code) === '15' || /purchase/i.test(String(r.operation_label || '')))
           .filter(r => Number(r.qty_in || 0) > 0);
-        costs[c] = { date: day, docs: purchaseDocs(rows) };
+        // the last PU of that day with a paid line (a day can have several PUs, from several suppliers or currencies:
+        // never mixed); a trade deal's paid and free lines are on the same PU, so they stay together
+        const all = purchaseDocs(rows), last = [...all].reverse().find(d => Number(d.paidQty) > 0) || all[all.length - 1];
+        costs[c] = { date: day, docs: last ? [last] : [], otherDocs: all.filter(d => d !== last).map(d => d.doc) };
       } catch (e) { console.warn('cardex', c, e); }
     }));
   }
@@ -345,6 +362,9 @@ function purchaseDocs(rows: Record<string, unknown>[]) {
 }
 // a return to the supplier (PT): operation 20, the quantity goes out
 const isReturn = (r: Record<string, unknown>) => (String(r.operation_code) === '20' || /return to supplier/i.test(String(r.operation_label || ''))) && Number(r.qty_out || 0) !== 0;
+// the supplier on a cardex line ("G.VINCENTI &SONS S.A.L 132002") and the system's supplier name, compared
+const supKey = (s: unknown) => String(s || '').toUpperCase().replace(/\s+\d+\s*$/, '').replace(/[^A-Z0-9\u0600-\u06FF]/g, '');
+const supName = (s: unknown) => String(s || '').replace(/\s+\d+\s*$/, '').trim();
 const isPurchase = (r: Record<string, unknown>) => (String(r.operation_code) === '15' || /purchase/i.test(String(r.operation_label || ''))) && Number(r.qty_in || 0) > 0;
 // the suppliers that delivered on a day
 async function pricingDay(day: string) {
@@ -374,7 +394,7 @@ async function returnsRange(from: string, to: string, withPrev = false) {
       try {
         const cx = await dash(`/item-cardex?${new URLSearchParams({ branch: BRANCH, item_code: c, year: dd.slice(0, 4), from_date: dd, to_date: dd })}`) as Record<string, unknown>;
         const rs = ((((cx.data as Record<string, unknown>)?.rows || []) as Record<string, unknown>[])).filter(isReturn);
-        if (rs.length) purchaseDocs(rs).forEach(doc => lines.push({ ...doc, ...cand.get(c), day: dd, barcode: String(rs[0].barcode ?? '').trim(),
+        if (rs.length) purchaseDocs(rs).forEach(doc => lines.push({ ...doc, ...cand.get(c), supplierName: supName(doc.supplier) || cand.get(c)?.supplierName, day: dd, barcode: String(rs[0].barcode ?? '').trim(),
           stockAfter: Math.round(Number(rs[rs.length - 1].running_balance ?? 0) * 1000) / 1000 }));
       } catch (e) { console.warn('returns cardex', c, e); }
     }));
@@ -393,7 +413,7 @@ async function returnsRange(from: string, to: string, withPrev = false) {
 //   part 'lines': the items and that day's cardex (the PU lines, the prices, the stock we had)
 //   part 'more':  for the given codes: sales of the 90 days before, the price now, the previous purchase
 //   no part:      both
-async function pricingSupplier(day: string, sup: string, part = '', only: string[] = []) {
+async function pricingSupplier(day: string, sup: string, part = '', only: string[] = [], name = '') {
   const key = (c: string) => c.replace(/^0+(?=\d)/, '').toUpperCase();
   const POOL = 16;
   const pool = async (list: string[], fn: (c: string) => Promise<void>) => { for (let i = 0; i < list.length; i += POOL) await Promise.all(list.slice(i, i + POOL).map(fn)); };
@@ -414,7 +434,11 @@ async function pricingSupplier(day: string, sup: string, part = '', only: string
     const it = out[c];
     try {
       const cx = await dash(`/item-cardex?${new URLSearchParams({ branch: BRANCH, item_code: c, year: day.slice(0, 4), from_date: day, to_date: day })}`) as Record<string, unknown>;
-      const today = ((((cx.data as Record<string, unknown>)?.rows || []) as Record<string, unknown>[])).filter(r => isPurchase(r) || isReturn(r));
+      const all = ((((cx.data as Record<string, unknown>)?.rows || []) as Record<string, unknown>[])).filter(r => isPurchase(r) || isReturn(r));
+      // this supplier's documents only (when its name is known and found on the lines)
+      const mine = name ? all.filter(r => supKey(r.details) === supKey(name)) : all;
+      const today = mine.length ? mine : all;
+      it.otherSuppliers = mine.length ? [...new Set(all.filter(r => !mine.includes(r)).map(r => supName(r.details)))] : [];
       it.docs = purchaseDocs(today);
       it.barcode = String(today[0]?.barcode ?? '').trim();
       it.stockBefore = today[0] ? Math.round((Number(today[0].running_balance ?? 0) - (isReturn(today[0]) ? -Math.abs(Number(today[0].qty_out || 0)) : Number(today[0].qty_in || 0))) * 1000) / 1000 : null;
@@ -590,7 +614,7 @@ Deno.serve(async req => {
       if (!isDay(day) || day > beirutToday()) return json({ error: 'Choose a day.' }, 400);
       if (body.action === 'pricing_day') return json(await pricingDay(day));
       if (!body.supplier) return json({ error: 'Choose a supplier.' }, 400);
-      return json(await pricingSupplier(day, String(body.supplier), String(body.part || ''), Array.isArray(body.codes) ? body.codes.map(String) : []));
+      return json(await pricingSupplier(day, String(body.supplier), String(body.part || ''), Array.isArray(body.codes) ? body.codes.map(String) : [], String(body.name || '')));
     }
     if (body.action === 'sales_compare') {
       const codes = [...new Set((Array.isArray(body.codes) ? body.codes : []).map(c => String(c).trim()).filter(Boolean))].slice(0, 300);

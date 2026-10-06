@@ -77,7 +77,7 @@
         const docs = it.last?.docs || [];
         const paidQty = docs.reduce((t, d) => t + n(d.paidQty), 0), freeQty = docs.reduce((t, d) => t + n(d.freeQty), 0), paid = docs.reduce((t, d) => t + n(d.paid), 0);
         const deal = docs.some(d => d.tradeDeal);
-        const unitNet = docs.flatMap(d => d.lines).find(l => !l.free)?.net ?? null;
+        const unitNet = [...docs].reverse().flatMap(d => d.lines).find(l => !l.free)?.net ?? null;   // the last PU's price
         const real = paidQty + freeQty > 0 ? paid / (paidQty + freeQty) : null;
         return { ...it, perDay, periodDay, perMonth: periodDay * 30, bySince, sinceDays, daysLeft, low, over, pack, sug, grp: String(it.group || '').trim() || 'No group', lastDate: it.last?.date || null, paidQty, freeQty, deal, unitNet, real,
           docs: docs.map(d => d.doc).join(', '), dealText: deal ? docs.filter(d => d.tradeDeal).map(d => d.lines.map(l => l.free ? `${fq(l.qty)} free` : `${fq(l.qty)} @ ${f3(l.net)}`).join(' + ')).join('; ') : '' };
