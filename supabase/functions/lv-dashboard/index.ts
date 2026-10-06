@@ -219,20 +219,21 @@ async function lastCosts(codes: string[], until?: string): Promise<Record<string
   const today = /^\d{4}-\d{2}-\d{2}$/.test(String(until || '')) && String(until) < now ? String(until) : now, y = Number(today.slice(0, 4));
   const last: Record<string, string> = {};
   const byItem = (d: unknown) => (((d as Record<string, unknown>)?.data as Record<string, unknown>)?.branches as Record<string, Record<string, unknown>[]>)?.[BRANCH] || [];
+  // a read that failed is never taken for "no purchase" (nor for an older one from last year): it is marked failed
+  const unknown = new Set<string>();
   for (const yr of [y, y - 1]) {
-    const want = codes.filter(c => !last[c]); if (!want.length) break;
+    const want = codes.filter(c => !last[c] && !unknown.has(c)); if (!want.length) break;
     try {
       const d = await dash('/items_purchases', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
         branches: [BRANCH], year: String(yr), from_date: `${yr}-01-01`, to_date: yr === y ? today : `${yr}-12-31`, aggregation: 'Daily', group_by: ['item'], item: want }) });
       const codeOf = new Map(want.map(c => [key(c), c]));
       byItem(d).forEach(r => { const c = codeOf.get(key(String(r.item ?? ''))); if (c && Number(r.total_quantity || 0) > 0 && String(r.period) > String(last[c] || '')) last[c] = String(r.period); });
-    } catch (e) { console.warn('last purchase', yr, e); }
+    } catch (e) { console.warn('last purchase', yr, e); want.forEach(c => unknown.add(c)); }
   }
   const r2 = (n: number) => Math.round(n * 10000) / 10000;
   const costs: Record<string, unknown> = {};
   const todo = Object.keys(last);
-  for (let i = 0; i < todo.length; i += 12) {
-    await Promise.all(todo.slice(i, i + 12).map(async c => {
+  const readDay = async (c: string) => {
       const day = last[c];
       try {
         const d = await dash(`/item-cardex?${new URLSearchParams({ branch: BRANCH, item_code: c, year: day.slice(0, 4), from_date: day, to_date: day })}`) as Record<string, unknown>;
@@ -244,8 +245,13 @@ async function lastCosts(codes: string[], until?: string): Promise<Record<string
         const all = purchaseDocs(rows), last = [...all].reverse().find(d => Number(d.paidQty) > 0) || all[all.length - 1];
         costs[c] = { date: day, docs: last ? [last] : [], otherDocs: all.filter(d => d !== last).map(d => d.doc) };
       } catch (e) { console.warn('cardex', c, e); }
-    }));
-  }
+  };
+  for (let i = 0; i < todo.length; i += 12) await Promise.all(todo.slice(i, i + 12).map(readDay));
+  // the ones that failed: once more, a few at a time
+  const again = todo.filter(c => !(c in costs));
+  for (let i = 0; i < again.length; i += 4) await Promise.all(again.slice(i, i + 4).map(readDay));
+  todo.forEach(c => { if (!(c in costs)) costs[c] = { date: last[c], docs: [], failed: true }; });
+  unknown.forEach(c => { costs[c] = { date: null, docs: [], failed: true }; });
   codes.forEach(c => { if (!(c in costs)) costs[c] = null; });
   return costs;
 }

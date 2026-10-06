@@ -108,7 +108,7 @@
             <td class="num"><input type="text" inputmode="numeric" class="po-qty" data-q="${esc(r.code)}" value="${orderOf(r) || ''}" placeholder="0" aria-label="Quantity to order"><div class="po-sub po-over-txt po-over-tag" hidden>over a month</div></td>
             <td class="num">${r.stock === null || r.stock === undefined ? '—' : n(r.stock) <= 0 ? `<span class="rc-zero">${fq(r.stock)}</span>` : fq(r.stock)}${n(r.stock) <= 0 && r.perDay > 0 ? '<div class="po-sub po-low">out</div>' : r.daysLeft !== null ? `<div class="po-sub${r.over ? ' po-over-txt' : ''}">${r1(r.daysLeft)} days${r.over ? ' · overstock' : ''}</div>` : r.over ? '<div class="po-sub po-over-txt">not selling</div>' : ''}</td>
             <td class="num">${fq(r.sold)}</td><td class="num">${fq(r.perMonth)}</td>
-            <td class="mono">${esc(day(r.lastDate))}${r.docs ? `<div class="po-sub">${esc(r.docs)}</div>` : ''}</td>
+            <td class="mono">${r.last?.failed ? '<span class="login-err">could not be read</span>' : esc(day(r.lastDate))}${r.docs ? `<div class="po-sub">${esc(r.docs)}</div>` : ''}</td>
             <td class="num">${r.lastDate ? fq(r.paidQty) + (r.freeQty ? ` <span class="po-free">+ ${fq(r.freeQty)} free</span>` : '') : '—'}</td>
             <td class="mono po-bc">${esc(r.barcode || '')}</td><td class="num">${fq(r.periodDay)}</td>
             <td class="num">${r.lastDate ? f3(r.unitNet) : '—'}${r.deal ? `<div class="po-sub"><span class="lp-deal">trade deal</span> real ${f3(r.real)}</div>` : ''}</td>

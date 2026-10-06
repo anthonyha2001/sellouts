@@ -2150,3 +2150,12 @@ span.cc-slipbtn{cursor:default;display:inline-block;}
 .pr-checking{animation:prPulse 1.6s ease-in-out infinite;}
 @keyframes prPulse{50%{opacity:.35;}}
 @media (prefers-reduced-motion: reduce){.pr-wait,.pr-checking{animation:none;}}
+/* Pricing tags (owner, 2026-10-06) */
+.pr-tag{display:inline-flex;align-items:center;gap:4px;border-radius:999px;padding:2px 9px 2px 6px;font-size:11px;font-weight:700;font-family:var(--font-body, inherit);white-space:nowrap;margin:0 0 3px;line-height:1.5;}
+.pr-tag svg{width:13px;height:13px;stroke:currentColor;flex:none;}
+td.num .pr-tag{display:flex;width:max-content;margin-left:auto;}
+.pr-tag-up{color:var(--brick);background:color-mix(in srgb, var(--brick) 14%, transparent);}
+.pr-tag-down{color:var(--pine);background:color-mix(in srgb, var(--pine) 14%, transparent);}
+.pr-tag-stock{color:var(--gold);background:color-mix(in srgb, var(--gold) 18%, transparent);}
+.pr-flagline{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+.pr-flagline .pr-tag{margin:0;}

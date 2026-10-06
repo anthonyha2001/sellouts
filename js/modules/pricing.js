@@ -122,6 +122,7 @@
       const prevDocs = it.prev?.docs || [];
       const pd = [...prevDocs].reverse().find(d => n(d.paidQty) > 0) || prevDocs[prevDocs.length - 1];
       const docPrice = d => { const p = d.lines.find(l => !l.free); const u = n(d.paidQty) + n(d.freeQty); return { net: p ? p.net : null, real: u ? n(d.paid) / u : null, deal: !!d.tradeDeal, currency: d.currency || '' }; };
+      const prevFailed = !!it.prev?.failed;
       let prev = it.prev && pd ? { date: it.prev.date, ...docPrice(pd), docs: pd.doc } : null;
       const perDay = n(it.soldBefore) / Math.max(1, n(it.salesDays) || 90);
       const had = it.stockBefore === null || it.stockBefore === undefined ? null : n(it.stockBefore);
@@ -136,14 +137,14 @@
         const diffReal = same && real !== null && prev.real !== null && (d.tradeDeal || prev.deal) ? real - prev.real : null;
         const changed = (x, base) => x !== null && Math.abs(x) > Math.max(0.0005, Math.abs(n(base)) * 0.0001);
         const generic = GENERIC.test(String(it.description || '')), back = d.kind === 'return';
-        const priceFlag = !pending && !generic && (changed(diffNet, prev?.net) || changed(diffReal, prev?.real));
-        const row = { it, doc: d, paid, net, real, prev: prev ? { ...prev } : null, diffNet, diffReal, priceFlag, otherCurrency: prev && !same, had, perDay, daysHad, overArr: !pending && overArr && !generic && !back, generic, pending };
+        const priceFlag = !pending && !prevFailed && !generic && (changed(diffNet, prev?.net) || changed(diffReal, prev?.real));
+        const row = { it, doc: d, paid, net, real, prev: prev ? { ...prev } : null, diffNet, diffReal, priceFlag, otherCurrency: prev && !same, had, perDay, daysHad, overArr: !pending && overArr && !generic && !back, generic, pending, prevFailed };
         if (!pus.has(d.doc)) pus.set(d.doc, { doc: d.doc, kind: d.kind || 'purchase', currency: d.currency, rows: [] });
         pus.get(d.doc).rows.push(row);
         if (!back && paid) prev = { date: S.day, ...docPrice(d), docs: d.doc, sameDay: true };
       });
     });
-    return [...pus.values()].sort((a, b) => a.doc.localeCompare(b.doc)).map(p => ({ ...p, pending, failed: !!data.moreFailed,
+    return [...pus.values()].sort((a, b) => a.doc.localeCompare(b.doc)).map(p => ({ ...p, pending, failed: !!data.moreFailed, unread: p.rows.filter(r => r.prevFailed).length,
       total: p.rows.reduce((t, r) => t + n(r.doc.paid), 0),
       flags: { price: p.rows.filter(r => r.priceFlag), over: p.rows.filter(r => r.overArr) } }));
   }
@@ -211,6 +212,13 @@
     if (j >= sups().length) { showToast('That was the last PU of the day.'); paintSuppliers(); return; }
     openSupplier(j, step < 0);
   }
+  // the tags: price increase / decrease, check the stock
+  const ICON_UP = '<svg viewBox="0 0 24 24" fill="none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg>';
+  const ICON_DOWN = '<svg viewBox="0 0 24 24" fill="none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 7l10 10M17 9v8H9"/></svg>';
+  const ICON_STOCK = '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 8 12 3 3 8v8l9 5 9-5Z"/><path d="M3 8l9 5 9-5M12 13v8"/></svg>';
+  const priceDir = r => { const x = r.diffNet !== null && Math.abs(r.diffNet) > 0.0005 ? r.diffNet : r.diffReal; return n(x) > 0 ? 'up' : 'down'; };
+  const priceTag = r => priceDir(r) === 'up' ? `<span class="pr-tag pr-tag-up">${ICON_UP}Price increase</span>` : `<span class="pr-tag pr-tag-down">${ICON_DOWN}Price decrease</span>`;
+  const stockTag = r => `<span class="pr-tag pr-tag-stock" title="We had ${qty(r.had)}${r.daysHad !== null ? ` = ${Math.round(r.daysHad)} days of sales` : ', with no sales in the 90 days before'} when it arrived">${ICON_STOCK}Check stock</span>`;
   function diffHtml(x, base, cur) {
     if (x === null) return '';
     if (Math.abs(x) <= Math.max(0.0005, Math.abs(n(base)) * 0.0001)) return '<span class="pr-ok">same</span>';
@@ -232,26 +240,28 @@
         <th>Code</th><th>Description</th><th>Barcode</th><th class="num">Qty</th><th class="num">Unit price</th><th class="num">Net</th>
         <th class="num">Previous</th><th class="num">Difference</th><th class="num" title="The stock we had when it arrived, and how many days of sales that was">Stock we had</th><th class="num">Sale price now</th></tr></thead>
         <tbody>${pu.rows.map((r, i) => `<tr data-r="${i}" class="${i === S.sel ? 'pr-sel' : ''}${r.priceFlag ? ' pr-row-price' : ''}${r.overArr ? ' pr-row-over' : ''}">
-          <td class="mono">${esc(r.it.code)}</td><td>${esc(r.it.description || '')}${n(r.it.pack) > 1 ? ` <span class="muted-note">· pack ${n(r.it.pack)}</span>` : ''}${(r.it.otherSuppliers || []).length ? `<div class="pr-sub">also delivered today by ${esc(r.it.otherSuppliers.join(', '))}</div>` : ''}</td>
+          <td class="mono">${esc(r.it.code)}</td><td>${esc(r.it.description || '')}${n(r.it.pack) > 1 ? ` <span class="muted-note">· pack ${n(r.it.pack)}</span>` : ''}${(r.it.otherSuppliers || []).length ? `<div class="pr-sub" title="${esc(r.it.otherSuppliers.join(', '))}">also delivered today by ${r.it.otherSuppliers.length === 1 ? esc(r.it.otherSuppliers[0]) : `${r.it.otherSuppliers.length} other suppliers`}</div>` : ''}</td>
           <td class="mono pr-sub-txt">${esc(r.it.barcode || '')}</td>
           <td class="num">${qty(r.doc.paidQty)}${n(r.doc.freeQty) ? ` <span class="po-free">+ ${qty(r.doc.freeQty)} free</span>` : ''}</td>
           <td class="num">${r.paid ? price(r.paid.unit, cur) : '—'}${r.paid?.discountPct ? `<div class="pr-sub">-${r.paid.discountPct}%</div>` : ''}</td>
           <td class="num"><b>${price(r.net, cur)}</b>${r.doc.tradeDeal ? `<div class="pr-sub"><span class="lp-deal">trade deal</span> real ${price(r.real, cur)}</div>` : ''}</td>
-          <td class="num">${r.pending ? '<span class="pr-wait" title="Checking…">…</span>' : r.prev ? `${price(r.prev.net, r.prev.currency)}${r.prev.deal ? ` <span class="pr-sub">real ${price(r.prev.real, r.prev.currency)}</span>` : ''}<div class="pr-sub">${esc(dmy(r.prev.date))} · ${esc(r.prev.docs || '')}${r.prev.sameDay ? ' (same day)' : ''}${r.otherCurrency ? ` · in ${esc(r.prev.currency)}` : ''}</div>` : r.it.prev ? `<span class="muted-note">no price found</span><div class="pr-sub">${esc(dmy(r.it.prev.date))}</div>` : '<span class="muted-note">no earlier purchase</span>'}</td>
-          <td class="num">${r.pending ? '<span class="pr-wait" title="Checking…">…</span>' : r.generic ? '<span class="muted-note">catch-all item</span>' : r.otherCurrency ? '<span class="muted-note">other currency</span>' : diffHtml(r.diffNet, r.prev?.net, cur)}${r.diffReal !== null && Math.abs(r.diffReal) > 0.0005 ? `<div class="pr-sub">real ${diffHtml(r.diffReal, r.prev?.real, cur)}</div>` : ''}</td>
-          <td class="num">${r.had === null ? '—' : qty(r.had)}<div class="pr-sub${r.overArr ? ' pr-flag-over' : ''}">${r.pending ? '…' : r.generic ? '' : r.daysHad !== null ? `${Math.round(r.daysHad)} days` : r.had > 0.001 && !(r.perDay > 0) ? 'no sales in 90 days' : ''}</div></td>
+          <td class="num">${r.pending ? '<span class="pr-wait" title="Checking…">…</span>' : r.prevFailed ? '<span class="login-err">could not be read</span>' : r.prev ? `${price(r.prev.net, r.prev.currency)}${r.prev.deal ? ` <span class="pr-sub">real ${price(r.prev.real, r.prev.currency)}</span>` : ''}<div class="pr-sub">${esc(dmy(r.prev.date))} · ${esc(r.prev.docs || '')}${r.prev.sameDay ? ' (same day)' : ''}${r.otherCurrency ? ` · in ${esc(r.prev.currency)}` : ''}</div>` : r.it.prev ? `<span class="muted-note">no price found</span><div class="pr-sub">${esc(dmy(r.it.prev.date))}</div>` : '<span class="muted-note">no earlier purchase</span>'}</td>
+          <td class="num">${r.priceFlag ? priceTag(r) : ''}${r.pending ? '<span class="pr-wait" title="Checking…">…</span>' : r.generic ? '<span class="muted-note">catch-all item</span>' : r.otherCurrency ? '<span class="muted-note">other currency</span>' : diffHtml(r.diffNet, r.prev?.net, cur)}${r.diffReal !== null && Math.abs(r.diffReal) > 0.0005 ? `<div class="pr-sub">real ${diffHtml(r.diffReal, r.prev?.real, cur)}</div>` : ''}</td>
+          <td class="num">${r.overArr ? stockTag(r) : ''}${r.had === null ? '—' : qty(r.had)}<div class="pr-sub${r.overArr ? ' pr-flag-over' : ''}">${r.pending ? '…' : r.generic ? '' : r.daysHad !== null ? `${Math.round(r.daysHad)} days` : r.had > 0.001 && !(r.perDay > 0) ? 'no sales in 90 days' : ''}</div></td>
           <td class="num">${r.pending ? '<span class="pr-wait" title="Checking…">…</span>' : r.it.salePrice ? price(r.it.salePrice, '$') : '—'}</td></tr>`).join('')}</tbody></table></div>
       <div class="pr-foot">
         <div class="pr-total"><span>${pu.kind === 'return' ? 'Total returned' : 'Total'} ${esc(pu.doc)}</span><b>${price(pu.total, cur)} ${esc(cur || '$')}</b></div>
         <div class="pr-flags">
-          ${pu.flags.price.length ? `<div><b class="pr-flag-price">Price different from the last purchase (${pu.flags.price.length})</b> ${pu.flags.price.map(r => `<button type="button" class="pr-chip" data-jump="${pu.rows.indexOf(r)}">${esc(r.it.description || r.it.code)}: ${price(r.prev.net, cur)} → ${price(r.net, cur)}</button>`).join('')}</div>` : ''}
-          ${pu.flags.over.length ? `<div><b class="pr-flag-over">Arrived with over 2 months of stock (${pu.flags.over.length})</b> ${pu.flags.over.map(r => `<button type="button" class="pr-chip" data-jump="${pu.rows.indexOf(r)}">${esc(r.it.description || r.it.code)}: had ${qty(r.had)}${r.daysHad !== null ? ` = ${Math.round(r.daysHad)} days` : ', no sales'}</button>`).join('')}</div>` : ''}
+          ${pu.flags.price.length ? `${['up', 'down'].map(dir => { const L = pu.flags.price.filter(r => priceDir(r) === dir); return L.length ? `<div class="pr-flagline">${dir === 'up' ? `<span class="pr-tag pr-tag-up">${ICON_UP}Price increase</span>` : `<span class="pr-tag pr-tag-down">${ICON_DOWN}Price decrease</span>`}<b>${L.length}</b> ${L.map(r => `<button type="button" class="pr-chip" data-jump="${pu.rows.indexOf(r)}">${esc(r.it.description || r.it.code)}: ${price(r.prev.net, cur)} → ${price(r.net, cur)}</button>`).join('')}</div>` : ''; }).join('')}` : ''}
+          ${pu.flags.over.length ? `<div class="pr-flagline"><span class="pr-tag pr-tag-stock">${ICON_STOCK}Check stock</span><b>${pu.flags.over.length}</b> <span class="muted-note">arrived with over 2 months of stock:</span> ${pu.flags.over.map(r => `<button type="button" class="pr-chip" data-jump="${pu.rows.indexOf(r)}">${esc(r.it.description || r.it.code)}: had ${qty(r.had)}${r.daysHad !== null ? ` = ${Math.round(r.daysHad)} days` : ', no sales'}</button>`).join('')}</div>` : ''}
+          ${pu.unread && !pu.pending ? `<div class="login-err">${pu.unread} previous price${pu.unread === 1 ? '' : 's'} could not be read from the system (not compared). <button type="button" class="btn small secondary" id="prRetry">Read again</button></div>` : ''}
           ${pu.pending ? '<span class="muted-note pr-checking">Checking the previous prices and the stock we had…</span>' : pu.failed ? '<span class="login-err">The previous prices could not be read. Open the supplier again to retry.</span>' : !pu.flags.price.length && !pu.flags.over.length ? '<span class="pr-ok">Nothing flagged on this PU.</span>' : ''}
         </div>
       </div>
       <p class="muted-note" style="margin:8px 0 0;">Up / down: move along the rows · left / right: previous / next PU · Enter or double-click: the item's details. Stock we had = the stock just before the PU; days = that stock / what sold per day in the 90 days before.</p>
     </div>`;
     el('prBody').querySelectorAll('[data-go]').forEach(b => b.onclick = () => go(Number(b.dataset.go)));
+    el('prRetry')?.addEventListener('click', () => { const code = sups()[S.supIdx]?.code, d = S.cache.get(code); if (!d) return; d.items.forEach(it => { if (it.prev?.failed) delete it.prev; }); d.moreReady = false; refresh(code); fetchMore(code, d, S.day); });
     el('prBody').querySelectorAll('tr[data-r]').forEach(tr => { tr.onclick = () => select(Number(tr.dataset.r)); tr.ondblclick = () => openItem(); });
     el('prBody').querySelectorAll('[data-jump]').forEach(b => b.onclick = () => select(Number(b.dataset.jump), true));
   }

@@ -82,7 +82,7 @@
       }
       const qty = n(s.qty), after = cost !== null && i.pct !== null ? r3(cost * (100 - i.pct) / 100) : null;
       const credit = after !== null ? r2(qty * (cost - after)) : null;
-      const issue = !qty ? 'not sold' : cost === null ? 'no purchase found' : i.pct === null ? 'no % on the sell-out' : '';
+      const issue = !qty ? 'not sold' : c?.failed ? 'last purchase could not be read: open the credit note again' : cost === null ? 'no purchase found' : i.pct === null ? 'no % on the sell-out' : '';
       return { ...i, qty, turnover: n(s.sales), cost, deal, doc, date, after, credit, issue };
     });
     const T = lines.reduce((t, l) => ({ qty: t.qty + l.qty, turnover: t.turnover + l.turnover, credit: t.credit + n(l.credit) }), { qty: 0, turnover: 0, credit: 0 });

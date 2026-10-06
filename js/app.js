@@ -826,6 +826,7 @@ function lastCostHtml(row) {
   if (!h) return '<span class="muted-note">…</span>';
   if (h.v === undefined) return '<span class="muted-note" title="The system did not answer">—</span>';
   if (!h.v) return '<span class="muted-note">no purchase</span>';
+  if (h.v.failed) return '<span class="login-err" title="The system did not answer for this item">could not be read</span>';
   // the sheet's cost, only when it is a plain number ("1.1 +23%" or "5.74 +25% SELLOUT" can mean several things)
   const sheetTxt = String(row.cost ?? '').trim(), sheet = /^\$?\s*\d+(\.\d+)?$/.test(sheetTxt) ? Number(sheetTxt.replace(/[^\d.]/g, '')) : 0;
   const day = new Date(h.v.date + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
