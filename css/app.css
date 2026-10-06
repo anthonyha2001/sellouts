@@ -2146,3 +2146,7 @@ span.cc-slipbtn{cursor:default;display:inline-block;}
 .pr-ret-controls .icon-btn.on{border-color:var(--pine);color:var(--pine);}
 .pr-progress{margin:10px 0 0 !important;}
 .rt-table tr.rt-doc td{background:var(--paper);padding-top:12px !important;font-size:13px !important;}
+.pr-wait{color:var(--ink-faint);animation:prPulse 1.2s ease-in-out infinite;}
+.pr-checking{animation:prPulse 1.6s ease-in-out infinite;}
+@keyframes prPulse{50%{opacity:.35;}}
+@media (prefers-reduced-motion: reduce){.pr-wait,.pr-checking{animation:none;}}

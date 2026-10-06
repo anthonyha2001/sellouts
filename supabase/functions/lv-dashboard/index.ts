@@ -217,8 +217,8 @@ async function lastCosts(codes: string[], until?: string): Promise<Record<string
   const r2 = (n: number) => Math.round(n * 10000) / 10000;
   const costs: Record<string, unknown> = {};
   const todo = Object.keys(last);
-  for (let i = 0; i < todo.length; i += 6) {
-    await Promise.all(todo.slice(i, i + 6).map(async c => {
+  for (let i = 0; i < todo.length; i += 12) {
+    await Promise.all(todo.slice(i, i + 12).map(async c => {
       const day = last[c];
       try {
         const d = await dash(`/item-cardex?${new URLSearchParams({ branch: BRANCH, item_code: c, year: day.slice(0, 4), from_date: day, to_date: day })}`) as Record<string, unknown>;
@@ -389,48 +389,60 @@ async function returnsRange(from: string, to: string, withPrev = false) {
   lines.sort((a, b) => String(b.day).localeCompare(String(a.day)) || String(a.doc).localeCompare(String(b.doc)));
   return { from, to, lines, truncated: pairs.size > todo.length };
 }
-async function pricingSupplier(day: string, sup: string) {
+// in two parts so the app can show the PU quickly (owner, 2026-10-06):
+//   part 'lines': the items and that day's cardex (the PU lines, the prices, the stock we had)
+//   part 'more':  for the given codes: sales of the 90 days before, the price now, the previous purchase
+//   no part:      both
+async function pricingSupplier(day: string, sup: string, part = '', only: string[] = []) {
   const key = (c: string) => c.replace(/^0+(?=\d)/, '').toUpperCase();
-  const d = await dash('/items_purchases', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
-    branches: [BRANCH], year: day.slice(0, 4), from_date: day, to_date: day, aggregation: 'Daily', group_by: ['item'], supplier: [sup] }) });
-  const items = new Map<string, string>();
-  branchRows(d).forEach(r => { const c = String(r.item ?? '').trim(); if (c) items.set(c, String(r.item_desc ?? '').trim()); });
-  const codes = [...items.keys()].slice(0, 150);
-  // the 90 days before the day: units sold (one report for all the items)
-  const salesDays = 90, sold: Record<string, number> = {};
-  const codeOf = new Map(codes.map(c => [key(c), c]));
-  try {
-    (await report('sales', plusDays(day, -90), plusDays(day, -1), { group_by: ['item'], item: codes }))
-      .forEach(r => { const c = codeOf.get(key(String(r.item ?? ''))); if (c) sold[c] = (sold[c] || 0) + Number(r.total_quantity || 0); });
-  } catch (e) { console.warn('pricing sales', e); }
-  // the previous purchase (before the day), and per item: that day's cardex (the PU lines, the stock we had) and its price now
-  const prevP = lastCosts(codes, plusDays(day, -1));
+  const POOL = 16;
+  const pool = async (list: string[], fn: (c: string) => Promise<void>) => { for (let i = 0; i < list.length; i += POOL) await Promise.all(list.slice(i, i + POOL).map(fn)); };
   const out: Record<string, Record<string, unknown>> = {};
-  for (let i = 0; i < codes.length; i += 8) {
-    await Promise.all(codes.slice(i, i + 8).map(async c => {
-      const it: Record<string, unknown> = { code: c, description: items.get(c), salesDays, soldBefore: Math.round((sold[c] || 0) * 1000) / 1000 };
-      await Promise.all([
-        (async () => { try {
-          const cx = await dash(`/item-cardex?${new URLSearchParams({ branch: BRANCH, item_code: c, year: day.slice(0, 4), from_date: day, to_date: day })}`) as Record<string, unknown>;
-          const today = ((((cx.data as Record<string, unknown>)?.rows || []) as Record<string, unknown>[])).filter(r => isPurchase(r) || isReturn(r));
-          it.docs = purchaseDocs(today);
-          it.barcode = String(today[0]?.barcode ?? '').trim();
-          it.stockBefore = today[0] ? Math.round((Number(today[0].running_balance ?? 0) - (isReturn(today[0]) ? -Math.abs(Number(today[0].qty_out || 0)) : Number(today[0].qty_in || 0))) * 1000) / 1000 : null;
-        } catch (e) { console.warn('pricing cardex', c, e); it.docs = []; } })(),
-        (async () => { try {
-          const pc = await dash(`/item-price-checker?${new URLSearchParams({ search: c, year: year(), branches: BRANCH })}`) as Record<string, unknown>;
-          const hit = (Object.values(((pc.branches as Record<string, Record<string, unknown[]>>) || {})[BRANCH] || {}).flat() as Record<string, unknown>[]).find(r => key(String(r.ItemCode ?? '')) === key(c));
-          if (hit) { it.salePrice = unitSale(hit); it.pack = hit.Pack ?? null; it.stockNow = hit.AvailableQuantity ?? null; it.pcBarcode = String(hit.Barcode ?? '').trim(); }
-        } catch (e) { console.warn('pricing price', c, e); } })(),
-      ]);
-      if (!it.barcode) it.barcode = it.pcBarcode || '';
-      delete it.pcBarcode;
-      out[c] = it;
-    }));
+  let codes: string[], truncated = false;
+  if (part === 'more') {
+    codes = only.map(String).filter(Boolean).slice(0, 150);
+    codes.forEach(c => { out[c] = { code: c }; });
+  } else {
+    const d = await dash('/items_purchases', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+      branches: [BRANCH], year: day.slice(0, 4), from_date: day, to_date: day, aggregation: 'Daily', group_by: ['item'], supplier: [sup] }) });
+    const items = new Map<string, string>();
+    branchRows(d).forEach(r => { const c = String(r.item ?? '').trim(); if (c) items.set(c, String(r.item_desc ?? '').trim()); });
+    codes = [...items.keys()].slice(0, 150); truncated = items.size > codes.length;
+    codes.forEach(c => { out[c] = { code: c, description: items.get(c) }; });
   }
-  const prev = await prevP;
-  codes.forEach(c => { if (out[c] && prev[c]) out[c].prev = prev[c]; });
-  return { day, supplier: sup, items: codes.map(c => out[c]).filter(Boolean), truncated: items.size > codes.length };
+  const lines = () => pool(codes, async c => {
+    const it = out[c];
+    try {
+      const cx = await dash(`/item-cardex?${new URLSearchParams({ branch: BRANCH, item_code: c, year: day.slice(0, 4), from_date: day, to_date: day })}`) as Record<string, unknown>;
+      const today = ((((cx.data as Record<string, unknown>)?.rows || []) as Record<string, unknown>[])).filter(r => isPurchase(r) || isReturn(r));
+      it.docs = purchaseDocs(today);
+      it.barcode = String(today[0]?.barcode ?? '').trim();
+      it.stockBefore = today[0] ? Math.round((Number(today[0].running_balance ?? 0) - (isReturn(today[0]) ? -Math.abs(Number(today[0].qty_out || 0)) : Number(today[0].qty_in || 0))) * 1000) / 1000 : null;
+    } catch (e) { console.warn('pricing cardex', c, e); it.docs = []; }
+  });
+  const more = async () => {
+    const salesDays = 90, sold: Record<string, number> = {}, codeOf = new Map(codes.map(c => [key(c), c]));
+    const prevP = lastCosts(codes, plusDays(day, -1));
+    const salesP = report('sales', plusDays(day, -90), plusDays(day, -1), { group_by: ['item'], item: codes })
+      .then(rows => rows.forEach(r => { const c = codeOf.get(key(String(r.item ?? ''))); if (c) sold[c] = (sold[c] || 0) + Number(r.total_quantity || 0); }))
+      .catch(e => console.warn('pricing sales', e));
+    await pool(codes, async c => {
+      const it = out[c];
+      try {
+        const pc = await dash(`/item-price-checker?${new URLSearchParams({ search: c, year: year(), branches: BRANCH })}`) as Record<string, unknown>;
+        const hit = (Object.values(((pc.branches as Record<string, Record<string, unknown[]>>) || {})[BRANCH] || {}).flat() as Record<string, unknown>[]).find(r => key(String(r.ItemCode ?? '')) === key(c));
+        if (hit) { it.salePrice = unitSale(hit); it.pack = hit.Pack ?? null; it.stockNow = hit.AvailableQuantity ?? null; it.pcBarcode = String(hit.Barcode ?? '').trim(); }
+      } catch (e) { console.warn('pricing price', c, e); }
+    });
+    await salesP;
+    const prev = await prevP;
+    codes.forEach(c => { const it = out[c]; it.salesDays = salesDays; it.soldBefore = Math.round((sold[c] || 0) * 1000) / 1000; if (prev[c]) it.prev = prev[c]; });
+  };
+  if (part === 'lines') await lines();
+  else if (part === 'more') await more();
+  else await Promise.all([lines(), more()]);
+  codes.forEach(c => { const it = out[c]; if (part !== 'more' && !it.barcode && it.pcBarcode) it.barcode = it.pcBarcode; if (part !== 'more') delete it.pcBarcode; });
+  return { day, supplier: sup, part: part || 'all', items: codes.map(c => out[c]), truncated };
 }
 
 Deno.serve(async req => {
@@ -578,7 +590,7 @@ Deno.serve(async req => {
       if (!isDay(day) || day > beirutToday()) return json({ error: 'Choose a day.' }, 400);
       if (body.action === 'pricing_day') return json(await pricingDay(day));
       if (!body.supplier) return json({ error: 'Choose a supplier.' }, 400);
-      return json(await pricingSupplier(day, String(body.supplier)));
+      return json(await pricingSupplier(day, String(body.supplier), String(body.part || ''), Array.isArray(body.codes) ? body.codes.map(String) : []));
     }
     if (body.action === 'sales_compare') {
       const codes = [...new Set((Array.isArray(body.codes) ? body.codes : []).map(c => String(c).trim()).filter(Boolean))].slice(0, 300);
