@@ -55,6 +55,14 @@ async function dash(path: string, init: RequestInit = {}, retry = true): Promise
   if (!r.ok) throw new Error(`Dashboard answered ${r.status}${r.status === 422 ? ": " + (await r.text()).slice(0, 300) : ""}`);
   return r.json();
 }
+// The normal UNIT price (owner, 2026-10-06): SalePrice is the price of the whole pack (7721 Tahina: pack 12, 82.20);
+// SalePrice2 is the unit price (6.85). Else SalePrice / Pack.
+function unitSale(h: Record<string, unknown>): number | null {
+  if (h.SalePrice2 !== null && h.SalePrice2 !== undefined && h.SalePrice2 !== '') return Number(h.SalePrice2);
+  if (h.SalePrice === null || h.SalePrice === undefined) return null;
+  const pack = Number(h.Pack || 1);
+  return pack > 1 ? Math.round(Number(h.SalePrice) / pack * 10000) / 10000 : Number(h.SalePrice);
+}
 const year = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Beirut' }).slice(0, 4);
 type Item = { code: string; barcode?: string; barcodes?: string[]; description?: string; description4?: string; available_quantity?: number | null; available_quantity_branch?: string };
 const slim = (i: Item) => ({ code: String(i.code ?? ''), barcodes: i.barcodes || (i.barcode ? [i.barcode] : []), description: i.description || '', size: i.description4 || '', stock: i.available_quantity ?? null, branch: i.available_quantity_branch || BRANCH });
@@ -113,7 +121,7 @@ async function priceWatch(limit: number) {
         const now = new Date().toISOString(), k = known.get(c);
         const row: Record<string, unknown> = { code: c, sources: watch.get(c), checked_at: now };
         if (hit) {
-          const price = hit.Price === null || hit.Price === undefined ? null : Number(hit.Price), sale = hit.SalePrice === null || hit.SalePrice === undefined ? null : Number(hit.SalePrice);
+          const price = hit.Price === null || hit.Price === undefined ? null : Number(hit.Price), sale = unitSale(hit);
           Object.assign(row, { description: String(hit.Description ?? '').trim(), price, sale_price: sale, promoted: !!Number(hit.isPromoted || 0) });
           const diff = (a: unknown, b: unknown) => a !== null && a !== undefined && b !== null && b !== undefined && Math.abs(Number(a) - Number(b)) >= 0.005;
           if (k && (diff(k.price, price) || diff(k.sale_price, sale))) { Object.assign(row, { changed_at: now, prev_price: k.price, prev_sale_price: k.sale_price }); changed++; }
@@ -198,7 +206,7 @@ Deno.serve(async req => {
             const t = (v: unknown) => String(v ?? '').trim();
             out[c] = { code: t(hit.ItemCode), description: t(hit.Description), size: t(hit.Description4), barcodes: hit.Barcode ? [t(hit.Barcode)] : [],
               pack: hit.Pack ?? null, supplier: t(hit.Supplier), section: t(hit.Section), group: t(hit.Group), brand: t(hit.Brand),
-              price: hit.Price ?? null, salePrice: hit.SalePrice ?? null, promoted: !!Number(hit.isPromoted || 0), stock: hit.AvailableQuantity ?? null,
+              price: hit.Price ?? null, salePrice: unitSale(hit), promoted: !!Number(hit.isPromoted || 0), stock: hit.AvailableQuantity ?? null,
               outYtd: null, lastPurchase: null };
           } catch (e) { console.warn('price check', c, e); }
         }));
@@ -311,7 +319,7 @@ Deno.serve(async req => {
             const hit = rows.find(r => key(String(r.Barcode ?? '')) === key(tk)) || rows.find(r => key(String(r.ItemCode ?? '')) === key(tk)) || (rows.length === 1 ? rows[0] : null);
             const t = (v: unknown) => String(v ?? '').trim();
             out[tk] = hit ? { code: t(hit.ItemCode), description: t(hit.Description), barcode: t(hit.Barcode), supplier: t(hit.Supplier), group: t(hit.Group), brand: t(hit.Brand),
-              pack: hit.Pack ?? null, price: hit.Price ?? null, salePrice: hit.SalePrice ?? null, promoted: !!Number(hit.isPromoted || 0), stock: hit.AvailableQuantity ?? null } : null;
+              pack: hit.Pack ?? null, price: hit.Price ?? null, salePrice: unitSale(hit), promoted: !!Number(hit.isPromoted || 0), stock: hit.AvailableQuantity ?? null } : null;
           } catch (e) { console.warn('lookup', tk, e); out[tk] = null; }
         }));
       }
