@@ -277,12 +277,10 @@
         <div class="pr-total"><span>${pu.kind === 'return' ? 'Total returned' : 'Total'} ${esc(pu.doc)}</span><b>${price(pu.info && !pu.info.failed ? (pu.kind === 'return' ? -pu.info.withVat : pu.info.withVat) : pu.total, cur)} ${esc(cur || '$')}</b>
           ${pu.info && !pu.info.failed ? `<div class="pr-vatline">without VAT ${price(pu.info.withoutVat, cur)} · VAT ${price(pu.info.vat, cur)}${pu.info.discountPct ? ` · discount ${pu.info.discountPct}%` : ''}</div>` : ''}</div>
         <div class="pr-flags">
-          ${pu.flags.price.length ? `${['up', 'down'].map(dir => { const L = pu.flags.price.filter(r => priceDir(r) === dir); return L.length ? `<div class="pr-flagline">${dir === 'up' ? `<span class="pr-tag pr-tag-up">${ICON_UP}Price increase</span>` : `<span class="pr-tag pr-tag-down">${ICON_DOWN}Price decrease</span>`}<b>${L.length}</b> ${L.map(r => `<button type="button" class="pr-chip" data-jump="${pu.rows.indexOf(r)}">${esc(r.it.description || r.it.code)}: ${price(r.prev.net, cur)} → ${price(r.net, cur)}</button>`).join('')}</div>` : ''; }).join('')}` : ''}
-          ${pu.flags.over.length ? `<div class="pr-flagline"><span class="pr-tag pr-tag-stock">${ICON_STOCK}Check stock</span><b>${pu.flags.over.length}</b> <span class="muted-note">arrived with over 2 months of stock:</span> ${pu.flags.over.map(r => `<button type="button" class="pr-chip" data-jump="${pu.rows.indexOf(r)}">${esc(r.it.description || r.it.code)}: had ${qty(r.had)}${r.daysHad !== null ? ` = ${Math.round(r.daysHad)} days` : ', no sales'}</button>`).join('')}</div>` : ''}
           ${pu.mismatch.length ? `<div class="login-err">The PU in the system differs from these lines on ${pu.mismatch.length} item${pu.mismatch.length === 1 ? '' : 's'} (${esc(pu.mismatch.slice(0, 6).join(', '))}): check the PU in the system.</div>` : ''}
           ${pu.info?.discountPct ? `<div class="pr-flagline"><span class="pr-tag pr-tag-stock">Discount ${pu.info.discountPct}%</span> <span class="muted-note">on the whole PU: the line prices are before it.</span></div>` : ''}
           ${pu.unread && !pu.pending ? `<div class="login-err">${pu.unread} previous price${pu.unread === 1 ? '' : 's'} could not be read from the system (not compared). <button type="button" class="btn small secondary" id="prRetry">Read again</button></div>` : ''}
-          ${pu.pending ? '<span class="muted-note pr-checking">Checking the previous prices and the stock we had…</span>' : pu.failed ? '<span class="login-err">The previous prices could not be read. Open the supplier again to retry.</span>' : !pu.flags.price.length && !pu.flags.over.length ? '<span class="pr-ok">Nothing flagged on this PU.</span>' : ''}
+          ${pu.pending ? '<span class="muted-note pr-checking">Checking the previous prices and the stock we had…</span>' : pu.failed ? '<span class="login-err">The previous prices could not be read. Open the supplier again to retry.</span>' : ''}
         </div>
       </div>
       <p class="muted-note" style="margin:8px 0 0;">Up / down: move along the rows · left / right: previous / next PU · Enter or double-click: the item's details. New sale price: type it, Enter goes to the next line; the download button gives the floor manager every new price of the day. Stock we had = the stock just before the PU; days = that stock / what sold per day in the 90 days before.</p>
@@ -290,7 +288,6 @@
     el('prBody').querySelectorAll('[data-go]').forEach(b => b.onclick = () => go(Number(b.dataset.go)));
     el('prRetry')?.addEventListener('click', () => { const code = sups()[S.supIdx]?.code, d = S.cache.get(code); if (!d) return; d.items.forEach(it => { if (it.prev?.failed) delete it.prev; }); d.moreReady = false; refresh(code); fetchMore(code, d, S.day); });
     el('prBody').querySelectorAll('tr[data-r]').forEach(tr => { tr.onclick = () => select(Number(tr.dataset.r)); tr.ondblclick = () => openItem(); });
-    el('prBody').querySelectorAll('[data-jump]').forEach(b => b.onclick = () => select(Number(b.dataset.jump), true));
     el('prBody').querySelector('[data-np-dl]')?.addEventListener('click', npExcel);
     const boxes = [...el('prBody').querySelectorAll('[data-np]')];
     boxes.forEach((inp, k) => {
