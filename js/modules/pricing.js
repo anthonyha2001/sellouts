@@ -428,7 +428,8 @@
     const units = vi ? n(vi.qty) : 0, vatUnit = vi && units > 0 ? n(vi.vat) / units : null;
     const costVat = vi && units > 0 ? (n(vi.withVat) + n(vi.vat)) / units : base === null || base === undefined ? null : (it.vat ? null : n(base));
 
-    const sp = it.salePrice, same = !!sp && costVat !== null && sameCur(it.saleCurrency || '$', cur) && pu.kind !== 'return';
+    const freeOnly = !(n(r.doc.paidQty) > 0) && n(r.doc.freeQty) > 0;   // the whole line is free goods: no cost, no margin
+    const sp = it.salePrice, same = !freeOnly && !!sp && costVat !== null && sameCur(it.saleCurrency || '$', cur) && pu.kind !== 'return';
     const profit = same ? n(sp) - costVat : null, cmp = same ? profit / n(sp) : null;
     const np = S.np.get(it.code);
     const cell = (label, value, sub = '') => `<div class="pr-sel-cell"><span>${label}</span><b>${value}</b>${sub ? `<small>${sub}</small>` : ''}</div>`;
@@ -442,8 +443,6 @@
 
     ].filter(Boolean).join('');
     bar.innerHTML = `
-      <div class="pr-sel-item"><b>${esc(it.description || it.code)}</b><span class="mono">${esc(it.code)}${it.barcode ? ' · ' + esc(it.barcode) : ''}${n(it.pack) > 1 ? ' · pack ' + n(it.pack) : ''}</span>
-        <div class="pr-sel-tags">${tags || '<span class="muted-note">no flag</span>'}</div></div>
       <div class="pr-sel-cells">
         ${cell('Qty', qty(r.doc.paidQty) + (n(r.doc.freeQty) ? ` <span class="po-free">+ ${qty(r.doc.freeQty)} free</span>` : ''))}
         ${cell('Invoice price', `<span class="pr-sel-inv">${r.paid ? price(r.paid.unit, cur) : '—'}</span>`, r.paid?.discountPct ? '-' + r.paid.discountPct + '% discount' : '')}
@@ -452,7 +451,7 @@
         ${cell('Difference', r.pending ? '…' : r.generic ? 'catch-all' : r.otherCurrency ? 'other currency' : (diffHtml(r.diffNet, r.prev?.net, cur) || '—'))}
         ${cell('VAT', it.vat === undefined ? (r.pending ? '…' : '—') : it.vat ? 'Yes' : 'No', vi ? `${price(Math.abs(vi.vat), cur)} on ${price(Math.abs(vi.withVat), cur)}` : '')}
         ${cell('Stock we had', r.had === null ? '—' : qty(r.had), r.pending ? '' : r.daysHad !== null ? Math.round(r.daysHad) + ' days' : r.had > 0.001 && !(r.perDay > 0) ? 'no sales in 90 days' : '')}
-        ${cell('Cost incl. VAT', costVat === null ? (r.pending ? '…' : '—') : price(costVat, cur), vatUnit !== null ? (vatUnit > 0 ? `${price(base, cur)} + VAT ${price(vatUnit, cur)}` : 'no VAT on the PU') : it.vat ? 'VAT not read' : '')}
+        ${freeOnly ? cell('Cost incl. VAT', 'free goods', 'nothing paid on this line') : cell('Cost incl. VAT', costVat === null ? (r.pending ? '…' : '—') : price(costVat, cur), vatUnit !== null ? (vatUnit > 0 ? `${price(base, cur)} + VAT ${price(vatUnit, cur)}` : 'no VAT on the PU') : it.vat ? 'VAT not read' : '')}
 
         ${profit !== null ? cell('Profit / unit', `<span class="${profit < 0 ? 'prc-up' : ''}">${price(profit, cur)}</span>`) : ''}
         ${cmp !== null ? cell('Margin', `<span class="${cmp < 0 ? 'prc-up' : ''}">${Math.round(cmp * 1000) / 10}%</span>`, 'sale price vs cost incl. VAT') : ''}
