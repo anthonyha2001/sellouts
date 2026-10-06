@@ -3431,6 +3431,15 @@ function wirePromoWorkspaceEvents(promo) {
     const row = currentRows.find(r => r.id === tr.dataset.rowId);
     if (row && String(row.code || '').trim()) { e.preventDefault(); window.getSelection()?.removeAllRanges(); ItemDetail.open(row.code); }
   });
+  // The same in the Audit (all items and by supplier): the row is found from its cells (data-lp / data-ps carry its id).
+  // Not on the note box or the type buttons.
+  const auditView = document.getElementById('promoAuditView');
+  if (auditView && window.ItemDetail) auditView.addEventListener('dblclick', e => {
+    if (e.target.closest('input, textarea, button, select')) return;
+    const cell = e.target.closest('tr')?.querySelector('[data-lp], [data-ps]'); if (!cell) return;
+    const row = currentRows.find(r => r.id === (cell.dataset.lp || cell.dataset.ps));
+    if (row && String(row.code || '').trim()) { e.preventDefault(); window.getSelection()?.removeAllRanges(); ItemDetail.open(row.code); }
+  });
   document.getElementById('liveRefreshBtn')?.addEventListener('click', () => queueLiveItems(currentRows.map(r => r.code), true));
   // Add rows in bulk from the system (owner, 2026-10-06): by supplier, brand, group, sub-group or section.
   document.getElementById('liveAddBtn')?.addEventListener('click', () => importFromSystem(null));
