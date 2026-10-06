@@ -948,9 +948,6 @@ function renderSellouts() {
           <button class="icon-btn" data-role="edit" title="Edit sell-out" aria-label="Edit sell-out">
             <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
           </button>
-          <button class="icon-btn" data-role="replace-file" title="Replace the file (prices kept by item code)" aria-label="Replace the file">
-            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"/><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8"/><path d="M21 3v5h-5M3 21v-5h5"/></svg>
-          </button>
           <button class="icon-btn" data-role="export" title="Download the sell-out (Excel with the prices)" aria-label="Download the sell-out">
             <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 19h14"/></svg>
           </button>
