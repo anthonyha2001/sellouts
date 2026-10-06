@@ -1372,6 +1372,8 @@
               ${active ? `<button class="sm-btn" data-c="endnow" data-id="${shown.id}">End today</button>` : ''}
               <button class="sm-btn" data-c="email" data-id="${shown.id}">${ic('mail')} Email</button>
             </div>` : ''}</div>`;
+          // the host's live figures for this renter (Rentals: its sales from the system), owner 2026-10-06
+          if (active && this.opts.onPanel && !this.opts.hideMoney) body += `<div class="sm-p-sec" data-sm-live hidden></div>`;
         } else {
           const last = list[0];
           body += `<div class="sm-p-sec"><h4>Contract</h4>
@@ -1396,6 +1398,8 @@
       P.querySelector('[data-p="close"]').onclick = () => { this.sel = null; this.contractForm = null; this.renderSvg(); this.renderPanel(); };
       P.onclick = (e) => { const b = e.target.closest('[data-c]'); if (b) this.contractAction(b.dataset.c, b.dataset.id, o); };
       if (this.contractForm) this.bindContractForm(o);
+      const live = P.querySelector('[data-sm-live]');
+      if (live) { try { this.opts.onPanel(live, active); } catch (e) { /* never block the UI */ } }
     }
 
     sectionsHtml(o) {

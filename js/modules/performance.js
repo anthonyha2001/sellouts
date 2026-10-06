@@ -448,5 +448,7 @@
     const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Performance');
     XLSX.writeFile(wb, `${name.replace(/[\\/:*?"<>|]+/g, ' ').trim()}.xlsx`);
   }
-  window.Performance = { show, openRentals, rentRows, liveHtml, showTip, placeTip, hideTip };
+  // the trend as a block (the Rentals map's panel shows it in place, no hover needed)
+  const trendFor = r => loadTrend().then(T => trendHtml(r, T));
+  window.Performance = { show, openRentals, rentRows, liveHtml, trendFor, showTip, placeTip, hideTip };
 })();

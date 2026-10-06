@@ -100,6 +100,7 @@ const Rentals = (function () {
         renderList();
       },
       onLoad: () => { S.contracts = rents(S.map.contracts); renderList(); },
+      onPanel: paintPanelLive,
       suppliers: () => S.vendorNames,
     });
     await S.map.ready;
@@ -347,6 +348,24 @@ const Rentals = (function () {
     </div>`;
   }
   const money2s = n => Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
+
+  // The map's panel: the same live figures for the selected spot's renter, with its trend this year in place.
+  function paintPanelLive(box, contract) {
+    if (!window.Performance || !can('vendors.manage') || !contract) return;
+    const key = keyOf(contract.supplier);
+    box.hidden = false;
+    box.innerHTML = '<h4>Sales, live from the system</h4><p class="muted-note" style="margin:0;">reading the sales…</p>';
+    Performance.rentRows().then(rows => {
+      if (!box.isConnected) return;
+      const r = rows.find(x => x.key === key);
+      if (!r) { box.hidden = true; return; }
+      box.innerHTML = '<h4>Sales, live from the system</h4><div class="rent-live sm-live">' + Performance.liveHtml(r) + '</div>'
+        + (r.state === 'ok' ? '<div class="sm-live-trend"><p class="muted-note" style="margin:6px 0 0;">reading the months…</p></div>' : '')
+        + '<button type="button" class="sm-btn" data-role="open-perf" style="margin-top:8px;">All rental spots in Performance</button>';
+      box.querySelector('[data-role="open-perf"]').onclick = () => Performance.openRentals(r.name);
+      if (r.state === 'ok') Performance.trendFor(r).then(html => { const t = box.querySelector('.sm-live-trend'); if (t) t.innerHTML = html; });
+    }).catch(e => { if (box.isConnected) box.innerHTML = '<h4>Sales, live from the system</h4><p class="muted-note" style="margin:0;">The sales could not be read (' + esc(e.message || 'no answer') + ').</p>'; });
+  }
 
   // Live from the system (owner, 2026-10-06): on each card, the supplier's sales against last year next to the store,
   // and whether the extra sales cover the rent (Performance › Rental spots, computed once); hover it for the trend this year.
