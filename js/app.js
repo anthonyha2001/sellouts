@@ -853,9 +853,11 @@ async function loadPromoSold(promo, codes) {
   const k = promoSoldKey(promo, P), list = [...new Set(codes.map(c => String(c || '').trim()).filter(Boolean))];
   let h = promoSoldCache.get(k);
   const missing = h ? list.filter(c => !h.map.has(normalizeCatalogCode(c))) : list;
-  if (h && (h.busy || (Date.now() - h.at < 15 * 60e3 && !missing.length && !h.failed))) return;
+  if (h && h.busy) { await h.wait; return loadPromoSold(promo, codes); }
+  if (h && Date.now() - h.at < 15 * 60e3 && !missing.length && !h.failed) return;
   if (!h || Date.now() - h.at >= 15 * 60e3 || h.failed) { h = { at: 0, busy: true, failed: false, map: new Map() }; promoSoldCache.set(k, h); } else h.busy = true;
   const want = h.map.size ? missing : list;
+  let release; h.wait = new Promise(r => { release = r; });
   try {
     for (let i = 0; i < want.length; i += 300) {
       const part = want.slice(i, i + 300);
@@ -864,8 +866,37 @@ async function loadPromoSold(promo, codes) {
       part.forEach(c => { const d = data.items[c]?.during || { qty: 0, sales: 0 }; h.map.set(normalizeCatalogCode(c), { qty: Number(d.qty) || 0, sales: Number(d.sales) || 0 }); });
     }
   } catch (e) { console.warn('promo sold', e); h.failed = true; }
-  h.busy = false; h.at = Date.now();
+  h.busy = false; h.at = Date.now(); release();
   paintPromoSold();
+}
+// Copy the codes and the units sold during the promotion (owner, 2026-10-06; the same as the sell-outs): code TAB units,
+// one line per item in the table's order, also as an Excel table with the codes as text (0114 stays 0114).
+async function copyPromoSales(codes, btn) {
+  const promo = promotions.find(p => p.id === currentPromoId), P = promoPeriod(promo);
+  if (!P) { showToast('This promotion has not started yet: nothing sold.', true); return; }
+  codes = [...new Set(codes.map(c => String(c || '').trim()).filter(Boolean))];
+  if (!codes.length) { showToast('No item codes to copy.', true); return; }
+  if (btn) { btn.disabled = true; btn.classList.add('ls-spin'); }
+  try {
+    await loadPromoSold(promo, codes);
+    const h = promoSoldCache.get(promoSoldKey(promo, P));
+    if (!h || h.failed) { showToast('The system did not answer. Try again in a moment.', true); return; }
+    const q = c => Math.round((h.map.get(normalizeCatalogCode(c))?.qty || 0) * 1000) / 1000;
+    const text = codes.map(c => `${c}\t${q(c)}`).join('\r\n');
+    const html = '<table>' + codes.map(c => `<tr><td style="mso-number-format:'\\@'">${escapeHtml(c)}</td><td>${q(c)}</td></tr>`).join('') + '</table>';
+    let ok = false;
+    try {
+      if (navigator.clipboard && window.ClipboardItem) {
+        await navigator.clipboard.write([new ClipboardItem({ 'text/html': new Blob([html], { type: 'text/html' }), 'text/plain': new Blob([text], { type: 'text/plain' }) })]);
+        ok = true;
+      }
+    } catch (e) { ok = false; }
+    if (!ok) ok = await copyTextToClipboard(text);
+    const total = codes.reduce((t, c) => t + q(c), 0);
+    if (ok) showToast(`Copied ${codes.length} code${codes.length === 1 ? '' : 's'} with their units sold (${(Math.round(total * 1000) / 1000).toLocaleString('en-US')} in all, ${fmtDate(P.from)} to ${fmtDate(P.to)}). Paste into Excel.`);
+    else showToast('Could not copy: your browser blocked clipboard access.', true);
+    logActivity('promotions', 'copy_sales', { type: 'promotion', id: currentPromoId }, `Copied the codes and units sold of "${promo.name}" (${codes.length} items)`);
+  } finally { if (btn) { btn.disabled = false; btn.classList.remove('ls-spin'); } }
 }
 function promoSoldHtml(row) {
   const promo = promotions.find(p => p.id === currentPromoId), P = promoPeriod(promo);
@@ -881,7 +912,7 @@ function promoSoldHead() {
   return `<th style="text-align:right;" title="${P ? `Units sold from ${d(P.from)} to ${d(P.to)}${P.running ? ' (today: the promotion is still running)' : ''}` : 'The promotion has not started'}">Units sold in the promotion${P ? `<div class="lp-sub" style="font-weight:400;">${d(P.from)} – ${d(P.to)}</div>` : ''}</th>`;
 }
 function paintPromoSold() {
-  document.querySelectorAll('#promoAuditView [data-ps]').forEach(td => {
+  document.querySelectorAll('#promoAuditView [data-ps], #promoRowsBody [data-ps]').forEach(td => {
     const row = currentRows.find(r => r.id === td.dataset.ps); if (row) td.innerHTML = promoSoldHtml(row);
   });
 }
@@ -2229,7 +2260,7 @@ function buildPromoRowHtml(row) {
   const supplierOpen = expandedSupplierRowIds.has(row.id);
   const supplierRow = supplierOpen ? `
   <tr class="supplier-detail-row" data-supplier-row-id="${row.id}">
-    <td colspan="11" style="background:var(--paper);font-size:12.5px;color:var(--ink-soft);padding:6px 10px 8px 40px;">
+    <td colspan="12" style="background:var(--paper);font-size:12.5px;color:var(--ink-soft);padding:6px 10px 8px 40px;">
       Supplier: <strong style="color:var(--ink);">${escapeHtml(row.supplier || 'Not in the system')}</strong>
       &nbsp;&middot;&nbsp; Country: <strong style="color:var(--ink);">${escapeHtml(row.country || 'Not in the system')}</strong>
       ${catalogExtrasHtml(row)}
@@ -2283,6 +2314,7 @@ function buildPromoRowHtml(row) {
         <span class="stock-badge-slot">${rowStockBadgeHtml(row)}</span>
       </div>
     </td>
+    <td class="ps-cell" data-ps="${row.id}">${promoSoldHtml(row)}</td>
     <td class="row-actions">
       <div class="icon-actions">
         <button class="icon-btn ${supplierOpen ? 'flag-on' : ''}" data-role="toggle-supplier" tabindex="-1" title="${supplierOpen ? 'Hide supplier' : 'Show supplier'}" aria-label="Show supplier">
@@ -2302,7 +2334,7 @@ async function renderPromoWorkspace() {
   queueLiveItems(currentRows.map(r => r.code));
   if (promoViewMode === 'audit') queueLastCost(currentRows.map(r => r.code));
   const promo = promotions.find(p => p.id === currentPromoId);
-  if (promoViewMode === 'audit' && promo) loadPromoSold(promo, currentRows.map(r => r.code));
+  if ((promoViewMode === 'audit' || promoViewMode === 'table') && promo) loadPromoSold(promo, currentRows.map(r => r.code));
   if (!promo) { workspace.innerHTML = ''; return; }
 
   // Everything below builds one large template and then wires up its
@@ -2383,6 +2415,7 @@ async function renderPromoWorkspace() {
           ${window.ItemPicker && can('promotions.edit') ? `<button type="button" class="btn small ibtn" id="liveAddBtn" title="Pick items by supplier, brand, group, sub-group or section, with a discount"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="15" height="15" style="stroke:currentColor"><path d="M12 5v14M5 12h14"/></svg>Import from the system</button>` : ''}
           <button type="button" class="icon-btn" id="liveRefreshBtn" title="Update stock, prices and sales from the system now" aria-label="Update from the system now"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/></svg></button>
           <button class="btn secondary small ibtn" id="copyCodesBtn">${ICONS.copy}Copy all codes</button>
+          <button type="button" class="icon-btn" id="copyPromoSalesBtn" title="Copy the codes and the units sold during the promotion (paste into Excel: code, units)" aria-label="Copy the codes and the units sold"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" style="stroke:currentColor"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/><path d="M12 18v-3M15 18v-5M18 18v-2"/></svg></button>
           <button class="btn secondary small ibtn" id="exportPromoBtn">${ICONS.excel}Export to Excel</button>
           <button class="btn ghost small ibtn" id="toggleArchivePromoBtn">${promo.archived ? ICONS.unarchive + 'Unarchive' : ICONS.archive + 'Archive'}</button>
           <button class="btn ghost small ibtn danger" id="deletePromoBtn">${ICONS.trash}Delete promotion</button>
@@ -2452,7 +2485,7 @@ async function renderPromoWorkspace() {
             <thead><tr>
               <th class="rowact-col"></th>
               <th class="chk-col rownum-col" id="selectAllRows" title="Select all shown / none">#</th>
-              <th class="code-cell">Code</th><th class="desc-cell">Description</th><th class="balance-cell">Promo Price</th><th class="balance-cell">Before Price</th><th class="balance-cell">Discount</th><th class="balance-cell">Sale Price</th><th class="balance-cell" title="Auto-calculated — the price gap Sale Price and Promo Price already imply. Purely informational; doesn't affect Discount or Audit type.">Gap</th><th class="stock-cell">Stock</th><th></th>
+              <th class="code-cell">Code</th><th class="desc-cell">Description</th><th class="balance-cell">Promo Price</th><th class="balance-cell">Before Price</th><th class="balance-cell">Discount</th><th class="balance-cell">Sale Price</th><th class="balance-cell" title="Auto-calculated — the price gap Sale Price and Promo Price already imply. Purely informational; doesn't affect Discount or Audit type.">Gap</th><th class="stock-cell">Stock</th><th class="ps-head" title="Units sold from the promotion's start to its end (today while it runs)">Units sold</th><th></th>
             </tr></thead>
             <tbody id="promoRowsBody">${rowsHtml}</tbody>
           </table>
@@ -2462,6 +2495,7 @@ async function renderPromoWorkspace() {
           <div class="promo-sel-actions" id="promoSelActions" style="display:${selectedRowIds.size ? 'flex' : 'none'};">
             <span class="promo-sel-count" id="promoSelCount">${selectedRowIds.size} selected</span>
             <button class="btn secondary small ibtn" id="copySelectedBtn">${ICONS.copy}Copy codes</button>
+            <button type="button" class="btn secondary small ibtn" id="copySelectedSalesBtn" title="Copy the selected codes with their units sold during the promotion (paste into Excel)"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" style="stroke:currentColor"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/><path d="M12 18v-3M15 18v-5M18 18v-2"/></svg>Copy codes and sales</button>
             <button class="btn secondary small ibtn" id="orderSelectedBtn" title="Mark the selected rows To order">${ICONS.cart}To order</button>
             <button class="btn secondary small ibtn" id="applyDiscountSelectedBtn">${ICONS.percent}Discount</button>
             <button class="btn ghost small ibtn danger" id="deleteSelectedBtn">${ICONS.trash}Delete rows</button>
@@ -3478,6 +3512,8 @@ function wirePromoWorkspaceEvents(promo) {
   if (clearSelBtn) clearSelBtn.addEventListener('click', async () => { selectedRowIds.clear(); await renderPromoWorkspace(); });
 
   // Only the ticked rows' codes, in table order (owner, 2026-09-30).
+  document.getElementById('copyPromoSalesBtn')?.addEventListener('click', e => copyPromoSales(currentRows.map(r => r.code), e.currentTarget));
+  document.getElementById('copySelectedSalesBtn')?.addEventListener('click', e => copyPromoSales(currentRows.filter(r => selectedRowIds.has(r.id)).map(r => r.code), e.currentTarget));
   const copySelBtn = document.getElementById('copySelectedBtn');
   if (copySelBtn) copySelBtn.addEventListener('click', async () => {
     const codes = [...new Set(currentRows.filter(r => selectedRowIds.has(r.id)).map(r => (r.code || '').trim()).filter(Boolean))];
