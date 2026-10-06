@@ -2254,3 +2254,22 @@ td.num .pr-tag{display:inline-flex;margin:0 6px 0 0;vertical-align:middle;}
 .pr-contract{margin-top:3px;font-size:12px;}
 .pr-contract .vc-chip{margin-left:0;}
 .vc-ended{color:var(--ink-soft);background:color-mix(in srgb, var(--ink) 8%, transparent);}
+/* contract tags: one per back margin (owner, 2026-10-06) */
+.vc-tags{display:flex;flex-wrap:wrap;align-items:center;gap:4px;margin-top:4px;}
+.vc-tags .vc-chip{margin-left:0;}
+.vc-chip.vc-edit{cursor:pointer;}
+.vc-chip.vc-edit:hover,.vc-chip.vc-edit:focus{outline:1px solid var(--pine);}
+.vc-chip.vc-info{color:var(--ink-soft);background:color-mix(in srgb, var(--ink) 7%, transparent);}
+.vc-add{width:24px;height:24px;min-width:24px;padding:0;display:inline-grid;place-items:center;}
+.vc-add svg{width:14px;height:14px;stroke:currentColor;}
+.vendor-link + .vc-chip{margin-left:8px;}
+.vc-chip + .vc-chip{margin-left:4px;}
+.vc-edit-box{max-width:520px;width:calc(100vw - 32px);}
+.vc-edit-box h3{margin:0 0 12px;}
+.vc-edit-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;}
+.vc-edit-grid label{display:flex;flex-direction:column;gap:4px;font-size:12.5px;margin:0;}
+.vc-edit-wide{grid-column:1 / -1;}
+.vc-edit-val{display:flex;gap:6px;}
+.vc-edit-val input{flex:1;text-align:right;font-family:var(--font-mono);}
+.vc-edit-val select{width:64px;}
+@media (max-width:520px){.vc-edit-grid{grid-template-columns:1fr;}}

@@ -26,7 +26,7 @@
         <select data-k="unit" aria-label="Percent or amount" class="vc-unit"><option value="%" ${m.unit === '%' ? 'selected' : ''}>%</option><option value="$" ${m.unit === '$' ? 'selected' : ''}>$</option></select>
         <select data-k="basis" aria-label="On invoice or on statement"><option value="invoice" ${m.basis === 'invoice' ? 'selected' : ''}>On invoice</option><option value="statement" ${m.basis === 'statement' ? 'selected' : ''}>On statement</option></select>
         <select data-k="freq" aria-label="How often" ${m.basis === 'invoice' ? 'hidden' : ''}>${FREQ.map(([k, l]) => `<option value="${k}" ${m.freq === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
-        <input type="text" data-k="note" value="${esc(m.note || '')}" placeholder="Note (optional)" aria-label="Note" class="vc-note">
+        <input type="text" data-k="note" value="${esc(m.note || '')}" placeholder="Applies to (e.g. beans)" aria-label="Applies to" class="vc-note">
         <button type="button" class="icon-btn" data-del="${i}" title="Remove this margin" aria-label="Remove this margin"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
       </div>`).join('') : '<p class="muted-note" style="margin:0;">No back margin yet.</p>';
     box.querySelectorAll('.vc-row').forEach(row => {
@@ -79,20 +79,69 @@
     return list.find(v => (v.systemSuppliers || []).some(s => String(s.code || '').replace(/^0+(?=\d)/, '') === k)) || null;
   }
   const fmt = v => (Math.round(n(v) * 100) / 100).toLocaleString('en-US');
-  function chip(c) {
-    const s = summary(c); const parts = [];
-    if (s.invoicePct) parts.push(`<b>${fmt(s.invoicePct)}%</b> on invoice`);
-    if (s.statementPct) parts.push(`<b>${fmt(s.statementPct)}%</b> on statement`);
-    if (s.fixed.length) parts.push(`${s.fixed.length} fixed amount${s.fixed.length === 1 ? '' : 's'} ($${fmt(s.fixed.reduce((t, m) => t + n(m.value), 0))})`);
-    // the hover: every term of the contract (a tag to know it, never used in the prices)
-    // the contract as written and the pricing strategy first, then the back margins and the other terms
+  // a back margin as a tag: its own rate and what it applies to (never added to the others)
+  const marginLabel = m => `${fmt(m.value)}${m.unit === '$' ? ' $' : '%'} ${m.basis === 'invoice' ? 'invoice' : 'statement'}${m.basis !== 'invoice' && m.freq ? ' ' + m.freq : ''}${m.note ? ' · ' + m.note : ''}`;
+  // the tags: one per back margin, plus one "Contract" tag (the contract as written, the pricing strategy and the
+  // other terms on hover). opts.editable: the margin tags open the editor (data-vc-i).
+  function chip(c, opts = {}) {
+    const s = summary(c);
     const head = [].concat(s.text ? ['Contract' + (s.signed ? ' (' + s.signed + ')' : '') + ': ' + s.text] : [], s.strategy ? ['Pricing strategy: ' + s.strategy] : [], s.status ? ['Status: ' + s.status] : []);
-    const terms = s.margins.map(m => `${m.type}: ${fmt(m.value)}${m.unit === '$' ? ' $' : '%'} ${m.basis === 'invoice' ? 'on invoice' : 'on statement' + (m.freq ? ', ' + m.freq : '')}${m.note ? ' (' + m.note + ')' : ''}`);
     const other = [].concat(s.paymentDays ? [`Payment: ${s.paymentDays} days`] : [], s.expiredReturns ? [`Expired goods: ${s.expiredReturns === 'yes' ? 'taken back' : 'not taken back'}`] : [],
       s.minOrder ? [`Minimum order: $${fmt(s.minOrder)}`] : [], s.from || s.to ? [`Contract: ${s.from || '…'} to ${s.to || '…'}${s.expired ? ' (ended)' : ''}`] : [], s.notes ? [s.notes] : []);
-    const lines = head.concat(terms, other);
-    if (!lines.length) return '';
-    return `<span class="vc-chip${s.expired ? ' vc-ended' : ''}" title="${esc(lines.join('\n'))}">${parts.length ? 'Back margin ' + parts.join(' · ') : 'Contract' + (s.signed ? ' ' + esc(s.signed) : '')}${s.expired ? ' · ended' : ''}</span>`;
+    const ended = s.expired ? ' vc-ended' : '';
+    const tags = s.margins.map((m, i) => `<span class="vc-chip${ended}${opts.editable ? ' vc-edit' : ''}"${opts.editable ? ` data-vc-i="${i}" role="button" tabindex="0"` : ''} title="${esc(m.type + ': ' + marginLabel(m) + (opts.editable ? '\nClick to change or remove it' : ''))}">${esc(marginLabel(m))}</span>`);
+    const info = head.concat(other);
+    if (info.length) tags.push(`<span class="vc-chip vc-info${ended}" title="${esc(info.join('\n'))}">Contract${s.signed ? ' ' + esc(s.signed) : ''}${s.expired ? ' · ended' : ''}</span>`);
+    return tags.join('');
   }
-  window.VendorContract = { wireForm, readForm, summary, forSupplier, chip };
+
+  // add / change / remove one back margin of a vendor, from anywhere (Pricing): saved in its contract at once
+  function editMargin(vendor, index, onSaved) {
+    if (!vendor) return showToast('This supplier is not linked to a vendor yet: Vendors › edit › Supplier in the system.', true);
+    if (!can('vendors.manage')) return showToast('Only managers of vendors can change contracts.', true);
+    const c = vendor.contract || {}, list = Array.isArray(c.margins) ? c.margins.slice() : [];
+    const m = index === null || index === undefined ? blankMargin() : { ...blankMargin(), ...list[index] };
+    document.getElementById('vcEdit')?.remove();
+    document.body.insertAdjacentHTML('beforeend', `<div class="modal-overlay open" id="vcEdit"><div class="modal-box vc-edit-box" role="dialog" aria-modal="true" aria-labelledby="vcEditTitle">
+      <h3 id="vcEditTitle">${index === null || index === undefined ? 'Add a back margin' : 'Back margin'} · ${esc(vendor.name)}</h3>
+      <div class="vc-edit-grid">
+        <label>Value<div class="vc-edit-val"><input type="text" inputmode="decimal" id="vceValue" value="${esc(String(m.value ?? ''))}" placeholder="10">
+          <select id="vceUnit"><option value="%" ${m.unit !== '$' ? 'selected' : ''}>%</option><option value="$" ${m.unit === '$' ? 'selected' : ''}>$</option></select></div></label>
+        <label>Basis<select id="vceBasis"><option value="invoice" ${m.basis === 'invoice' ? 'selected' : ''}>On invoice</option><option value="statement" ${m.basis !== 'invoice' ? 'selected' : ''}>On statement</option></select></label>
+        <label id="vceFreqBox">How often<select id="vceFreq"><option value="">—</option>${FREQ.map(([k, l]) => `<option value="${k}" ${m.freq === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+        <label>Type<select id="vceType">${TYPES.map(t => `<option ${t === m.type ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></label>
+        <label class="vc-edit-wide">Applies to<input type="text" id="vceNote" value="${esc(m.note || '')}" placeholder="e.g. beans, vacuum, all items"></label>
+      </div>
+      <div class="actions-row">
+        ${index === null || index === undefined ? '' : '<button type="button" class="btn ghost small danger" id="vceDel">Remove</button>'}
+        <span style="flex:1"></span>
+        <button type="button" class="btn ghost small" id="vceCancel">Cancel</button>
+        <button type="button" class="btn small" id="vceSave">Save</button>
+      </div></div></div>`);
+    const box = document.getElementById('vcEdit'), g = id => document.getElementById(id);
+    const sync = () => { g('vceFreqBox').hidden = g('vceBasis').value === 'invoice'; };
+    sync(); g('vceBasis').onchange = sync;
+    const close = () => box.remove();
+    g('vceCancel').onclick = close; box.addEventListener('click', e => { if (e.target === box) close(); });
+    box.addEventListener('keydown', e => { if (e.key === 'Escape') close(); if (e.key === 'Enter' && e.target.tagName !== 'SELECT') g('vceSave').click(); });
+    const save = async margins => {
+      const contract = { ...c, margins };
+      const { error } = await sb.from('vendors').update({ contract }).eq('id', vendor.id);
+      if (error) { showToast('Could not save: ' + error.message, true); return; }
+      vendor.contract = contract; close();
+      if (typeof logActivity === 'function') logActivity('vendors', 'contract_margin', { type: 'vendor', id: vendor.id }, `Back margins of ${vendor.name}: ${margins.map(marginLabel).join(', ') || 'none'}`);
+      onSaved && onSaved();
+    };
+    g('vceSave').onclick = () => {
+      const v = n(g('vceValue').value);
+      if (!(v > 0)) { showToast('Type the value of the back margin.', true); g('vceValue').focus(); return; }
+      const nm = { type: g('vceType').value, value: v, unit: g('vceUnit').value === '$' ? '$' : '%', basis: g('vceBasis').value === 'invoice' ? 'invoice' : 'statement',
+        freq: g('vceBasis').value === 'invoice' ? '' : g('vceFreq').value, note: g('vceNote').value.trim() };
+      const next = list.slice(); if (index === null || index === undefined) next.push(nm); else next[index] = nm;
+      save(next);
+    };
+    g('vceDel')?.addEventListener('click', async () => { if (!(await showConfirm('Remove this back margin from ' + vendor.name + '\'s contract?', 'Remove'))) return; save(list.filter((_, i) => i !== index)); });
+    g('vceValue').focus(); g('vceValue').select();
+  }
+  window.VendorContract = { wireForm, readForm, summary, forSupplier, chip, editMargin, marginLabel };
 })();

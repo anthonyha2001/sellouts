@@ -307,7 +307,8 @@
     el('prBody').innerHTML = `<div class="card pr-pu">
       <div class="pr-head">
         <button type="button" class="icon-btn" data-go="-1" title="Previous PU (left arrow)" aria-label="Previous PU"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
-        <div class="pr-title"><h3>${pu.kind === 'return' ? '<span class="pr-ret-tag">Return to supplier</span> ' : ''}${esc(pu.doc)} <span class="muted-note">· ${esc(s.name)}</span>${cs ? VendorContract.chip(cs.vendor.contract) : ''}</h3>
+        <div class="pr-title"><h3>${pu.kind === 'return' ? '<span class="pr-ret-tag">Return to supplier</span> ' : ''}${esc(pu.doc)} <span class="muted-note">· ${esc(s.name)}</span></h3>
+          <div class="vc-tags">${cs ? VendorContract.chip(cs.vendor.contract, { editable: can('vendors.manage') }) : ''}${window.VendorContract && can('vendors.manage') ? `<button type="button" class="icon-btn vc-add" data-vc-add title="${cs ? 'Add a back margin to ' + esc(cs.vendor.name) + "'s contract" : 'Add a back margin (link this supplier to a vendor first)'}" aria-label="Add a back margin"><svg viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>` : ''}</div>
           <span class="muted-note">${esc(dmy(S.day))} · PU ${S.puIdx + 1} of ${nPu} · supplier ${S.supIdx + 1} of ${sups().length} · ${pu.rows.length} line${pu.rows.length === 1 ? '' : 's'} · prices in ${esc(cur || '$')}</span>
           </div>
         ${npButton()}
@@ -342,6 +343,9 @@
       <p class="muted-note" style="margin:8px 0 0;">Up / down: move along the rows · left / right: previous / next PU · Enter or double-click: the item's details. New sale price: type it, Enter goes to the next line; the download button gives the floor manager every new price of the day. Stock we had = the stock just before the PU; days = that stock / what sold per day in the 90 days before.</p>
     </div>`;
     el('prBody').querySelectorAll('[data-go]').forEach(b => b.onclick = () => go(Number(b.dataset.go)));
+    // the contract's back margins: click a tag to change it, + to add one (saved in the vendor's contract)
+    el('prBody').querySelector('[data-vc-add]')?.addEventListener('click', () => VendorContract.editMargin(cs?.vendor, null, paintPu));
+    el('prBody').querySelectorAll('.vc-tags [data-vc-i]').forEach(t => { const open = () => VendorContract.editMargin(cs.vendor, Number(t.dataset.vcI), paintPu); t.onclick = open; t.onkeydown = e => { if (e.key === 'Enter') open(); }; });
     el('prRetry')?.addEventListener('click', () => { const code = sups()[S.supIdx]?.code, d = S.cache.get(code); if (!d) return; d.items.forEach(it => { if (it.prev?.failed) delete it.prev; }); d.moreReady = false; refresh(code); fetchMore(code, d, S.day); });
     el('prBody').querySelectorAll('tr[data-r]').forEach(tr => { tr.onclick = () => select(Number(tr.dataset.r)); tr.ondblclick = () => openItem(); });
     el('prBody').querySelector('[data-np-dl]')?.addEventListener('click', npExcel);
