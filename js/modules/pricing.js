@@ -154,7 +154,14 @@
         if (!back && paid) prev = { date: S.day, ...docPrice(d), docs: d.doc, sameDay: true };
       });
     });
-    return [...pus.values()].sort((a, b) => a.doc.localeCompare(b.doc)).map(p => ({ ...p, pending, failed: !!data.moreFailed, unread: p.rows.filter(r => r.prevFailed).length,
+    const kk = c => String(c).replace(/^0+(?=\d)/, '').toUpperCase();
+    return [...pus.values()].sort((a, b) => a.doc.localeCompare(b.doc)).map(p => ({ ...p, pending, failed: !!data.moreFailed,
+      info: data.docInfo?.[p.doc] || null,
+      // the lines shown against the PU in the system: quantities per item (a line missing or different is said)
+      mismatch: (() => { const v = data.docInfo?.[p.doc]; if (!v || v.failed || !v.items) return [];
+        const shown = {}; p.rows.forEach(r => { const k = kk(r.it.code); shown[k] = (shown[k] || 0) + Math.abs(n(r.doc.paidQty) + n(r.doc.freeQty)); });
+        const keys = new Set([...Object.keys(v.items), ...Object.keys(shown)]);
+        return [...keys].filter(k => Math.abs(n(v.items[k]?.qty) - n(shown[k])) > 0.001); })(), unread: p.rows.filter(r => r.prevFailed).length,
       total: p.rows.reduce((t, r) => t + n(r.doc.paid), 0),
       flags: { price: p.rows.filter(r => r.priceFlag), over: p.rows.filter(r => r.overArr) } }));
   }
@@ -174,7 +181,12 @@
   }
   async function fetchMore(code, data, day) {
     try {
-      const m = await call({ action: 'pricing_supplier', day, supplier: code, part: 'more', codes: data.items.map(i => i.code) });
+      const docs = [...new Map(data.items.flatMap(i => (i.docs || []).map(d => [d.doc, { doc: d.doc, ret: d.kind === 'return' }]))).values()];
+      const m = await call({ action: 'pricing_supplier', day, supplier: code, part: 'more', codes: data.items.map(i => i.code), docs });
+      data.docInfo = m.docs || {};
+      // VAT per item, from the PU documents (empty = no VAT)
+      const kk = c => String(c).replace(/^0+(?=\d)/, '').toUpperCase();
+      data.items.forEach(it => { const hits = (it.docs || []).map(d => data.docInfo[d.doc]?.items?.[kk(it.code)]).filter(Boolean); if (hits.length) it.vat = hits.some(h => Math.abs(n(h.vat)) > 0.0001); });
       const by = new Map(m.items.map(x => [x.code, x]));
       data.items.forEach(it => { const x = by.get(it.code); if (!x) return; const { code: _c, pcBarcode, ...rest } = x; Object.assign(it, rest); if (!it.barcode && pcBarcode) it.barcode = pcBarcode; });
     } catch (e) { data.moreFailed = true; }
@@ -251,7 +263,7 @@
         <th>Code</th><th>Description</th><th>Barcode</th><th class="num">Qty</th><th class="num">Unit price</th><th class="num">Net</th>
         <th class="num">Previous</th><th class="num">Difference</th><th class="num" title="The stock we had when it arrived, and how many days of sales that was">Stock we had</th><th class="num">Sale price now</th><th class="num" title="Type the new sale price: downloaded for the floor manager">New sale price</th></tr></thead>
         <tbody>${pu.rows.map((r, i) => `<tr data-r="${i}" class="${i === S.sel ? 'pr-sel' : ''}${r.priceFlag ? ' pr-row-price' : ''}${r.overArr ? ' pr-row-over' : ''}">
-          <td class="mono">${esc(r.it.code)}</td><td>${esc(r.it.description || '')}${n(r.it.pack) > 1 ? ` <span class="muted-note">· pack ${n(r.it.pack)}</span>` : ''}${(r.it.otherSuppliers || []).length ? `<div class="pr-sub" title="${esc(r.it.otherSuppliers.join(', '))}">also delivered today by ${r.it.otherSuppliers.length === 1 ? esc(r.it.otherSuppliers[0]) : `${r.it.otherSuppliers.length} other suppliers`}</div>` : ''}</td>
+          <td class="mono">${esc(r.it.code)}</td><td>${r.it.vat ? '<span class="pr-vat" title="This item has VAT on the PU">VAT</span> ' : ''}${esc(r.it.description || '')}${n(r.it.pack) > 1 ? ` <span class="muted-note">· pack ${n(r.it.pack)}</span>` : ''}${(r.it.otherSuppliers || []).length ? `<div class="pr-sub" title="${esc(r.it.otherSuppliers.join(', '))}">also delivered today by ${r.it.otherSuppliers.length === 1 ? esc(r.it.otherSuppliers[0]) : `${r.it.otherSuppliers.length} other suppliers`}</div>` : ''}</td>
           <td class="mono pr-sub-txt">${esc(r.it.barcode || '')}</td>
           <td class="num">${qty(r.doc.paidQty)}${n(r.doc.freeQty) ? ` <span class="po-free">+ ${qty(r.doc.freeQty)} free</span>` : ''}</td>
           <td class="num">${r.paid ? price(r.paid.unit, cur) : '—'}${r.paid?.discountPct ? `<div class="pr-sub">-${r.paid.discountPct}%</div>` : ''}</td>
@@ -262,10 +274,13 @@
           <td class="num">${r.pending ? '<span class="pr-wait" title="Checking…">…</span>' : r.it.priceFailed ? '<span class="login-err">could not be read</span>' : r.it.salePrice ? price(r.it.salePrice, r.it.saleCurrency || '$') : '—'}</td>
           <td class="num"><input type="text" inputmode="decimal" class="pr-np${S.np.has(r.it.code) ? ' set' : ''}" data-np="${i}" value="${S.np.has(r.it.code) ? esc(String(S.np.get(r.it.code).newPrice)) : ''}" placeholder="${r.it.salePrice ? esc(price(r.it.salePrice, r.it.saleCurrency || '$')) : ''}" aria-label="New sale price of ${esc(r.it.description || r.it.code)}"></td></tr>`).join('')}</tbody></table></div>
       <div class="pr-foot">
-        <div class="pr-total"><span>${pu.kind === 'return' ? 'Total returned' : 'Total'} ${esc(pu.doc)}</span><b>${price(pu.total, cur)} ${esc(cur || '$')}</b></div>
+        <div class="pr-total"><span>${pu.kind === 'return' ? 'Total returned' : 'Total'} ${esc(pu.doc)}</span><b>${price(pu.info && !pu.info.failed ? (pu.kind === 'return' ? -pu.info.withVat : pu.info.withVat) : pu.total, cur)} ${esc(cur || '$')}</b>
+          ${pu.info && !pu.info.failed ? `<div class="pr-vatline">without VAT ${price(pu.info.withoutVat, cur)} · VAT ${price(pu.info.vat, cur)}${pu.info.discountPct ? ` · discount ${pu.info.discountPct}%` : ''}</div>` : ''}</div>
         <div class="pr-flags">
           ${pu.flags.price.length ? `${['up', 'down'].map(dir => { const L = pu.flags.price.filter(r => priceDir(r) === dir); return L.length ? `<div class="pr-flagline">${dir === 'up' ? `<span class="pr-tag pr-tag-up">${ICON_UP}Price increase</span>` : `<span class="pr-tag pr-tag-down">${ICON_DOWN}Price decrease</span>`}<b>${L.length}</b> ${L.map(r => `<button type="button" class="pr-chip" data-jump="${pu.rows.indexOf(r)}">${esc(r.it.description || r.it.code)}: ${price(r.prev.net, cur)} → ${price(r.net, cur)}</button>`).join('')}</div>` : ''; }).join('')}` : ''}
           ${pu.flags.over.length ? `<div class="pr-flagline"><span class="pr-tag pr-tag-stock">${ICON_STOCK}Check stock</span><b>${pu.flags.over.length}</b> <span class="muted-note">arrived with over 2 months of stock:</span> ${pu.flags.over.map(r => `<button type="button" class="pr-chip" data-jump="${pu.rows.indexOf(r)}">${esc(r.it.description || r.it.code)}: had ${qty(r.had)}${r.daysHad !== null ? ` = ${Math.round(r.daysHad)} days` : ', no sales'}</button>`).join('')}</div>` : ''}
+          ${pu.mismatch.length ? `<div class="login-err">The PU in the system differs from these lines on ${pu.mismatch.length} item${pu.mismatch.length === 1 ? '' : 's'} (${esc(pu.mismatch.slice(0, 6).join(', '))}): check the PU in the system.</div>` : ''}
+          ${pu.info?.discountPct ? `<div class="pr-flagline"><span class="pr-tag pr-tag-stock">Discount ${pu.info.discountPct}%</span> <span class="muted-note">on the whole PU: the line prices are before it.</span></div>` : ''}
           ${pu.unread && !pu.pending ? `<div class="login-err">${pu.unread} previous price${pu.unread === 1 ? '' : 's'} could not be read from the system (not compared). <button type="button" class="btn small secondary" id="prRetry">Read again</button></div>` : ''}
           ${pu.pending ? '<span class="muted-note pr-checking">Checking the previous prices and the stock we had…</span>' : pu.failed ? '<span class="login-err">The previous prices could not be read. Open the supplier again to retry.</span>' : !pu.flags.price.length && !pu.flags.over.length ? '<span class="pr-ok">Nothing flagged on this PU.</span>' : ''}
         </div>
@@ -296,7 +311,7 @@
     const v = Number(txt);
     if (!Number.isFinite(v) || v <= 0) { showToast('Type a price (a number).', true); inp.value = S.np.get(r.it.code)?.newPrice ?? ''; return; }
     S.np.set(r.it.code, { code: r.it.code, description: r.it.description || '', barcode: r.it.barcode || '', supplier: sup.name, doc: pu.doc, day: S.day,
-      oldPrice: r.it.salePrice ?? null, currency: r.it.saleCurrency || '$', newPrice: v,
+      vat: r.it.vat ? 'VAT' : '', oldPrice: r.it.salePrice ?? null, currency: r.it.saleCurrency || '$', newPrice: v,
       cost: r.net ?? null, costCurrency: pu.currency || '$', prevCost: r.prev?.net ?? null, costChange: r.priceFlag ? (priceDir(r) === 'up' ? 'Price increase' : 'Price decrease') : '', at: new Date().toISOString() });
     npSave(); inp.classList.add('set'); npCount();
   }
@@ -307,13 +322,13 @@
     if (!L.length) return showToast('Type a new sale price on at least one line first.', true);
     const r3 = v => v === null || v === undefined || v === '' ? '' : Math.round(Number(v) * 1000) / 1000;
     const aoa = [['New sale prices'], ['Purchases of', dmy(S.day)], ['Made', new Date().toLocaleString('en-GB')], [],
-      ['Code', 'Description', 'Barcode', 'Old sale price', 'New sale price', 'Change', 'Change %', 'Currency', 'Supplier', 'PU', 'Purchase price', 'Previous purchase price', 'Cost']];
+      ['Code', 'Description', 'Barcode', 'VAT', 'Old sale price', 'New sale price', 'Change', 'Change %', 'Currency', 'Supplier', 'PU', 'Purchase price', 'Previous purchase price', 'Cost']];
     const first = aoa.length;
     L.forEach(e => { const ch = e.oldPrice ? e.newPrice - e.oldPrice : null;
-      aoa.push([e.code, e.description, e.barcode, r3(e.oldPrice), r3(e.newPrice), ch === null ? '' : r3(ch), ch === null ? '' : Math.round(ch / e.oldPrice * 1000) / 10, e.currency, e.supplier, e.doc, r3(e.cost), r3(e.prevCost), e.costChange]); });
+      aoa.push([e.code, e.description, e.barcode, e.vat || '', r3(e.oldPrice), r3(e.newPrice), ch === null ? '' : r3(ch), ch === null ? '' : Math.round(ch / e.oldPrice * 1000) / 10, e.currency, e.supplier, e.doc, r3(e.cost), r3(e.prevCost), e.costChange]); });
     const ws = XLSX.utils.aoa_to_sheet(aoa);
     for (let i = first; i < aoa.length; i++) ['A', 'C'].forEach(c => { const x = ws[c + (i + 1)]; if (x) { x.t = 's'; x.v = String(x.v); } });
-    ws['!cols'] = [10, 40, 15, 13, 14, 10, 9, 9, 28, 12, 14, 20, 15].map(w => ({ wch: w }));
+    ws['!cols'] = [10, 40, 15, 6, 13, 14, 10, 9, 9, 28, 12, 14, 20, 15].map(w => ({ wch: w }));
     const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'New prices');
     XLSX.writeFile(wb, `New sale prices ${dmy(S.day)}.xlsx`);
     if (typeof logActivity === 'function') logActivity('pricing', 'new_prices_export', null, `New sale prices of ${dmy(S.day)}: ${L.length} items`);

@@ -428,11 +428,27 @@ async function returnsRange(from: string, to: string, withPrev = false) {
 //   part 'lines': the items and that day's cardex (the PU lines, the prices, the stock we had)
 //   part 'more':  for the given codes: sales of the 90 days before, the price now, the previous purchase
 //   no part:      both
-async function pricingSupplier(day: string, sup: string, part = '', only: string[] = [], name = '') {
+// one document as the dashboard shows it: PU0010852 -> type PU, number 0010852; a return (PT) is operation 20
+async function viewDoc(code: string, ret: boolean, yr = year()) {
+  const m = /^([A-Z]+)(\d+)$/.exec(code); if (!m) return null;
+  const d = await dash('/operations/viewer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+    year: yr, branch: BRANCH, document_type: m[1], document_number: m[2], operation_code: ret ? '20' : '15' }) }) as Record<string, unknown>;
+  const v = d?.data as Record<string, unknown> | undefined;
+  if (!v || !Array.isArray(v.lines)) return null;
+  const key = (c: string) => c.replace(/^0+(?=\d)/, '').toUpperCase(), r4 = (n: number) => Math.round(n * 10000) / 10000;
+  const items: Record<string, { qty: number; vat: number; withVat: number }> = {};
+  (v.lines as Record<string, unknown>[]).forEach(l => { const k = key(String(l.item_code ?? '').trim()); const x = items[k] || { qty: 0, vat: 0, withVat: 0 };
+    x.qty = r4(x.qty + Number(l.quantity || 0)); x.vat = r4(x.vat + Number(l.vat_amount || 0)); x.withVat = r4(x.withVat + Number(l.total_with_vat || 0)); items[k] = x; });
+  return { doc: String(v.document_code || code), date: String(v.document_date || ''), partner: String(v.partner_name || ''), currency: String(v.currency || ''),
+    withVat: Number(v.total_with_vat || 0), withoutVat: Number(v.total_without_vat || 0), vat: Number(v.vat_amount || 0), discountPct: Number(v.total_percent_discount || 0),
+    lines: (v.lines as unknown[]).length, items };
+}
+async function pricingSupplier(day: string, sup: string, part = '', only: string[] = [], name = '', docsIn: { doc: string; ret: boolean }[] = []) {
   const key = (c: string) => c.replace(/^0+(?=\d)/, '').toUpperCase();
   const POOL = 16;
   const pool = async (list: string[], fn: (c: string) => Promise<void>) => { for (let i = 0; i < list.length; i += POOL) await Promise.all(list.slice(i, i + POOL).map(fn)); };
   const out: Record<string, Record<string, unknown>> = {};
+  const docInfo: Record<string, unknown> = {};
   let codes: string[], truncated = false;
   if (part === 'more') {
     codes = only.map(String).filter(Boolean).slice(0, 150);
@@ -474,6 +490,11 @@ async function pricingSupplier(day: string, sup: string, part = '', only: string
         else it.priceFailed = true;
       } catch (e) { console.warn('pricing price', c, e); it.priceFailed = true; }
     });
+    // the PU documents themselves (a few requests): VAT per item, the totals with / without VAT, the discount
+    await Promise.all(docsIn.slice(0, 40).map(async x => {
+      try { const v = await viewDoc(String(x.doc), !!x.ret, day.slice(0, 4)); if (v) docInfo[String(x.doc)] = v; else docInfo[String(x.doc)] = { failed: true }; }
+      catch (e) { console.warn('pricing viewer', x.doc, e); docInfo[String(x.doc)] = { failed: true }; }
+    }));
     await salesP;
     const prev = await prevP;
     codes.forEach(c => { const it = out[c]; it.salesDays = salesDays; it.soldBefore = Math.round((sold[c] || 0) * 1000) / 1000; if (prev[c]) it.prev = prev[c]; });
@@ -482,7 +503,7 @@ async function pricingSupplier(day: string, sup: string, part = '', only: string
   else if (part === 'more') await more();
   else await Promise.all([lines(), more()]);
   codes.forEach(c => { const it = out[c]; if (part !== 'more' && !it.barcode && it.pcBarcode) it.barcode = it.pcBarcode; if (part !== 'more') delete it.pcBarcode; });
-  return { day, supplier: sup, part: part || 'all', items: codes.map(c => out[c]), truncated };
+  return { day, supplier: sup, part: part || 'all', items: codes.map(c => out[c]), docs: docInfo, truncated };
 }
 
 Deno.serve(async req => {
@@ -543,7 +564,7 @@ Deno.serve(async req => {
     if (body.action === 'probe') {
       if (!isServer) return json({ error: 'Not allowed.' }, 403);
       const path = String(body.path || '');
-      const READ = /^\/(item-price-checker|item-cardex|items\/search|items\/filter-options\/[a-z]+|items_sales(\/grid|\/summary)?|items_purchases(\/grid)?)$/;
+      const READ = /^\/(item-price-checker|item-cardex|items\/search|items\/filter-options\/[a-z]+|items_sales(\/grid|\/summary)?|items_purchases(\/grid)?|operations\/viewer|wms\/documents(\/\d+)?|wms\/purchase-orders)$/;
       if (!READ.test(path)) return json({ error: 'Not a read-only report.' }, 400);
       if (body.post) return json(await dash(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body.post) }));
       return json(await dash(`${path}?${new URLSearchParams((body.query || {}) as Record<string, string>)}`));
@@ -630,7 +651,8 @@ Deno.serve(async req => {
       if (!isDay(day) || day > beirutToday()) return json({ error: 'Choose a day.' }, 400);
       if (body.action === 'pricing_day') return json(await pricingDay(day));
       if (!body.supplier) return json({ error: 'Choose a supplier.' }, 400);
-      return json(await pricingSupplier(day, String(body.supplier), String(body.part || ''), Array.isArray(body.codes) ? body.codes.map(String) : [], String(body.name || '')));
+      return json(await pricingSupplier(day, String(body.supplier), String(body.part || ''), Array.isArray(body.codes) ? body.codes.map(String) : [], String(body.name || ''),
+        Array.isArray(body.docs) ? (body.docs as Record<string, unknown>[]).map(d => ({ doc: String(d.doc || ''), ret: !!d.ret })).filter(d => /^[A-Z]+\d+$/.test(d.doc)) : []));
     }
     if (body.action === 'sales_compare') {
       const codes = [...new Set((Array.isArray(body.codes) ? body.codes : []).map(c => String(c).trim()).filter(Boolean))].slice(0, 300);
