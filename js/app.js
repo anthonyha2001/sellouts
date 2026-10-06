@@ -840,6 +840,51 @@ function lastCostHtml(row) {
   }).join('');
 }
 const lastCostText = row => { const h = lastCostCache.get(normalizeCatalogCode(row.code)); if (!h || !h.v) return ''; return h.v.docs.map(d => `${d.currency || '$'}${lcMoney(d.realCost)}${d.tradeDeal ? ' (trade deal ' + d.lines.map(l => l.free ? lcQty(l.qty) + ' free' : lcQty(l.qty) + ' @ ' + lcMoney(l.unit)).join(' + ') + ')' : ''} ${d.doc} ${h.v.date}`).join('; '); };
+/* Audit: what each item sold over the promotion (owner, 2026-10-06): from its From date to its To date (today while it
+   runs), units and sales, live from the system (lv-dashboard sales_compare, the promotion's period only). */
+const promoSoldCache = new Map();   // promoId|from|to -> { at, busy, failed, map: normCode -> { qty, sales } }
+function promoPeriod(promo) {
+  const t = todayStr(); if (!promo?.from || promo.from > t) return null;
+  return { from: promo.from, to: promo.to && promo.to < t ? promo.to : t, running: !promo.to || promo.to >= t };
+}
+const promoSoldKey = (promo, P) => `${promo.id}|${P.from}|${P.to}`;
+async function loadPromoSold(promo, codes) {
+  const P = promoPeriod(promo); if (!P) return;
+  const k = promoSoldKey(promo, P), list = [...new Set(codes.map(c => String(c || '').trim()).filter(Boolean))];
+  let h = promoSoldCache.get(k);
+  const missing = h ? list.filter(c => !h.map.has(normalizeCatalogCode(c))) : list;
+  if (h && (h.busy || (Date.now() - h.at < 15 * 60e3 && !missing.length && !h.failed))) return;
+  if (!h || Date.now() - h.at >= 15 * 60e3 || h.failed) { h = { at: 0, busy: true, failed: false, map: new Map() }; promoSoldCache.set(k, h); } else h.busy = true;
+  const want = h.map.size ? missing : list;
+  try {
+    for (let i = 0; i < want.length; i += 300) {
+      const part = want.slice(i, i + 300);
+      const { data, error } = await sb.functions.invoke('lv-dashboard', { body: { action: 'sales_compare', codes: part, from: P.from, to: P.to, onlyDuring: true } });
+      if (error || !data?.items) throw error || new Error('no answer');
+      part.forEach(c => { const d = data.items[c]?.during || { qty: 0, sales: 0 }; h.map.set(normalizeCatalogCode(c), { qty: Number(d.qty) || 0, sales: Number(d.sales) || 0 }); });
+    }
+  } catch (e) { console.warn('promo sold', e); h.failed = true; }
+  h.busy = false; h.at = Date.now();
+  paintPromoSold();
+}
+function promoSoldHtml(row) {
+  const promo = promotions.find(p => p.id === currentPromoId), P = promoPeriod(promo);
+  if (!row.code) return '';
+  if (!P) return '<span class="muted-note">not started</span>';
+  const h = promoSoldCache.get(promoSoldKey(promo, P)), x = h?.map.get(normalizeCatalogCode(row.code));
+  if (!x) return h && h.failed ? '<span class="muted-note" title="The system did not answer">—</span>' : '<span class="muted-note">…</span>';
+  return `<b class="ps-qty">${lcQty(x.qty)}</b><div class="lp-sub">$${lcMoney(x.sales)}</div>`;
+}
+function promoSoldHead() {
+  const promo = promotions.find(p => p.id === currentPromoId), P = promoPeriod(promo);
+  const d = s => new Date(s + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  return `<th style="text-align:right;" title="${P ? `Units sold from ${d(P.from)} to ${d(P.to)}${P.running ? ' (today: the promotion is still running)' : ''}, and the sales` : 'The promotion has not started'}">Sold in the promotion${P ? `<div class="lp-sub" style="font-weight:400;">${d(P.from)} – ${d(P.to)}</div>` : ''}</th>`;
+}
+function paintPromoSold() {
+  document.querySelectorAll('#promoAuditView [data-ps]').forEach(td => {
+    const row = currentRows.find(r => r.id === td.dataset.ps); if (row) td.innerHTML = promoSoldHtml(row);
+  });
+}
 function paintLastCost() {
   document.querySelectorAll('#promoAuditView [data-lp]').forEach(td => {
     const row = currentRows.find(r => r.id === td.dataset.lp); if (row) td.innerHTML = lastCostHtml(row);
@@ -2257,6 +2302,7 @@ async function renderPromoWorkspace() {
   queueLiveItems(currentRows.map(r => r.code));
   if (promoViewMode === 'audit') queueLastCost(currentRows.map(r => r.code));
   const promo = promotions.find(p => p.id === currentPromoId);
+  if (promoViewMode === 'audit' && promo) loadPromoSold(promo, currentRows.map(r => r.code));
   if (!promo) { workspace.innerHTML = ''; return; }
 
   // Everything below builds one large template and then wires up its
@@ -2727,13 +2773,14 @@ function buildSupplierGroupedHtml(rows, mode) {
     return `
       <div class="items-scroll" style="margin-bottom:14px;">
         <table class="items">
-          <thead><tr><th>Code</th><th>Description</th><th style="text-align:right;">Cost</th><th>Last purchase</th><th>Type</th><th>Note</th></tr></thead>
+          <thead><tr><th>Code</th><th>Description</th><th style="text-align:right;">Cost</th><th>Last purchase</th>${promoSoldHead()}<th>Type</th><th>Note</th></tr></thead>
           <tbody>${list.map(r => `
           <tr class="${auditRowClass(r.priceType)}">
             <td>${escapeHtml(r.code)}</td>
             <td>${escapeHtml(r.description)}</td>
             <td style="text-align:right;">${escapeHtml(r.cost || '')}</td>
             <td class="lp-cell" data-lp="${r.id}">${lastCostHtml(r)}</td>
+            <td class="ps-cell" data-ps="${r.id}">${promoSoldHtml(r)}</td>
             <td>${auditTypeButtonsHtml(r)}</td>
             <td><input type="text" class="audit-note-input" data-role="audit-note-input" data-row-id="${r.id}" value="${escapeHtml(r.note || '')}" placeholder="Note"></td>
           </tr>`).join('')}</tbody>
@@ -2836,13 +2883,14 @@ function buildAuditHtml(auditRows) {
   return `
     <div class="items-scroll">
       <table class="items">
-        <thead><tr><th>Code</th><th>Description</th><th style="text-align:right;">Cost</th><th>Last purchase</th><th>Type</th><th>Note</th></tr></thead>
+        <thead><tr><th>Code</th><th>Description</th><th style="text-align:right;">Cost</th><th>Last purchase</th>${promoSoldHead()}<th>Type</th><th>Note</th></tr></thead>
         <tbody>${auditRows.map(r => `
         <tr class="${auditRowClass(r.priceType)}">
           <td>${escapeHtml(r.code)}</td>
           <td>${escapeHtml(r.description)}</td>
           <td style="text-align:right;">${escapeHtml(r.cost || '')}</td>
           <td class="lp-cell" data-lp="${r.id}">${lastCostHtml(r)}</td>
+            <td class="ps-cell" data-ps="${r.id}">${promoSoldHtml(r)}</td>
           <td>${auditTypeButtonsHtml(r)}</td>
           <td><input type="text" class="audit-note-input" data-role="audit-note-input" data-row-id="${r.id}" value="${escapeHtml(r.note || '')}" placeholder="Note"></td>
         </tr>`).join('')}</tbody>
