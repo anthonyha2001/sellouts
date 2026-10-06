@@ -2316,18 +2316,6 @@ async function renderPromoWorkspace() {
       </div>
 
       <div class="promo-drops">
-        <div class="drop-zone live-zone" id="liveItemsZone">
-          <span class="dz-icon">${ICONS.catalog}</span>
-          <div class="dz-text">
-            <b>Items from the system</b>
-            <span class="dz-info" id="catZoneInfo">${escapeHtml(liveStatusText())}</span>
-            <span class="dz-hint">Description, supplier, price, stock and sales: live, no file needed</span>
-          </div>
-          ${window.ItemPicker && can('promotions.edit') ? `<button type="button" class="btn small live-import" id="liveAddBtn" title="Pick items by supplier, brand, group, sub-group or section, with a discount"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="15" height="15" style="vertical-align:-3px;stroke:currentColor"><path d="M12 5v14M5 12h14"/></svg> Import from the system</button>` : ''}
-          <button type="button" class="icon-btn live-refresh" id="liveRefreshBtn" title="Update from the system now" aria-label="Update from the system now"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/></svg></button>
-          <label class="dz-threshold" title="Flag an item when its Balance is below this">Low stock under
-            <input type="text" inputmode="numeric" id="lowStockZoneInput" value="${escapeHtml(String(lowStockThreshold))}"></label>
-        </div>
         <div class="drop-zone" id="priceDropZone" role="button" tabindex="0" data-drop-label="Drop to import the price sheet">
           <span class="dz-icon">${ICONS.upload}</span>
           <div class="dz-text">
@@ -2346,6 +2334,8 @@ async function renderPromoWorkspace() {
           ${window.PromoResults ? `<button class="${promoViewMode === 'results' ? 'active' : ''}" data-view="results">${svgIcon('<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>')}Results</button>` : ''}
         </div>
         <div class="promo-top-btns">
+          ${window.ItemPicker && can('promotions.edit') ? `<button type="button" class="btn small ibtn" id="liveAddBtn" title="Pick items by supplier, brand, group, sub-group or section, with a discount"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="15" height="15" style="stroke:currentColor"><path d="M12 5v14M5 12h14"/></svg>Import from the system</button>` : ''}
+          <button type="button" class="icon-btn" id="liveRefreshBtn" title="Update stock, prices and sales from the system now" aria-label="Update from the system now"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/></svg></button>
           <button class="btn secondary small ibtn" id="copyCodesBtn">${ICONS.copy}Copy all codes</button>
           <button class="btn secondary small ibtn" id="exportPromoBtn">${ICONS.excel}Export to Excel</button>
           <button class="btn ghost small ibtn" id="toggleArchivePromoBtn">${promo.archived ? ICONS.unarchive + 'Unarchive' : ICONS.archive + 'Archive'}</button>
@@ -3397,7 +3387,7 @@ function wirePromoWorkspaceEvents(promo) {
   // Add rows in bulk from the system (owner, 2026-10-06): by supplier, brand, group, sub-group or section.
   document.getElementById('liveAddBtn')?.addEventListener('click', () => importFromSystem(null));
   // The threshold box in the catalog zone hands its value to the original setting input.
-  document.getElementById('lowStockZoneInput').addEventListener('change', e => {
+  document.getElementById('lowStockZoneInput')?.addEventListener('change', e => {
     const orig = document.getElementById('lowStockInput');
     orig.value = e.target.value;
     orig.dispatchEvent(new Event('change'));

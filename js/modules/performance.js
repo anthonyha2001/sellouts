@@ -3,7 +3,9 @@
    over the dates you choose, live from the system (lv-dashboard
    perf_suppliers / perf_supplier, amounts in USD as the system reports them).
    First every supplier (purchases, sales, sales / purchases, units), then
-   one supplier: the months side by side and its items.
+   one supplier: the months side by side and its items, with the profit:
+   sales - units sold x unit cost (the period's purchase cost, else the
+   last purchase day in the 12 months before; none: not counted).
    Permission: vendors.manage.
    Public API: window.Performance = { show }.
    ============================================================ */
@@ -107,6 +109,8 @@
       `Performance suppliers ${S.list.from} ${S.list.to}`);
   }
   const round2 = v => Math.round(n(v) * 100) / 100;
+  const money2 = v => (n(v) < 0 ? '-$' : '$') + Math.abs(Math.round(n(v) * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const cost3 = v => '$' + (Math.round(n(v) * 1000) / 1000).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 3 });
   const flagRatio = r => r === null ? '<span class="muted-note">no purchase</span>' : `<span class="${r < 0.8 ? 'pf-under' : r > 1.2 ? 'pf-over' : ''}">${pct(r)}</span>`;
 
   /* ---------------- one supplier ---------------- */
@@ -135,10 +139,12 @@
   function paintDetail() {
     const d = S.detail, box = el('pfBody'); if (!d) return;
     const s = S.list?.suppliers.find(x => x.code === S.sup) || { name: S.sup, code: S.sup };
-    const items = d.items.map(i => ({ ...i, ru: ratio(i.soldQty, i.boughtQty) }));
+    const items = d.items.map(i => ({ ...i, ru: ratio(i.soldQty, i.boughtQty), margin: typeof i.profit === 'number' && i.sold > 0 ? i.profit / i.sold : null }));
     const k = S.isort; items.sort((a, b) => S.idir * (k === 'description' ? a.description.localeCompare(b.description) : (n(a[k] ?? -1) - n(b[k] ?? -1))));
     const tb = items.reduce((t, i) => t + i.bought, 0), ts = items.reduce((t, i) => t + i.sold, 0), qb = items.reduce((t, i) => t + i.boughtQty, 0), qs = items.reduce((t, i) => t + i.soldQty, 0);
     const notSold = items.filter(i => i.boughtQty > 0 && i.soldQty <= 0).length, notBought = items.filter(i => i.soldQty > 0 && i.boughtQty <= 0).length;
+    const costed = items.filter(i => typeof i.profit === 'number'), pSales = costed.reduce((t, i) => t + i.sold, 0), profit = costed.reduce((t, i) => t + i.profit, 0);
+    const noCost = items.filter(i => i.soldQty > 0 && typeof i.profit !== 'number'), noCostSales = noCost.reduce((t, i) => t + i.sold, 0);
     const th = (key, label, num = true) => `<th class="${num ? 'num' : ''} pf-isort" data-k="${key}">${label}${sortIcon(key, S.isort, S.idir)}</th>`;
     box.innerHTML = `
       <div class="pf-head pf-head-top"><button type="button" class="icon-btn" id="pfBack" title="Back to every supplier" aria-label="Back to every supplier"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
@@ -147,6 +153,7 @@
         <div class="pf-tile"><span>Purchases</span><b>${money(tb)}</b><small>${qty(qb)} units</small></div>
         <div class="pf-tile"><span>Sales</span><b>${money(ts)}</b><small>${qty(qs)} units</small></div>
         <div class="pf-tile"><span>Sales ÷ purchases</span><b>${flagRatio(ratio(ts, tb))}</b><small>units: ${pct(ratio(qs, qb))}</small></div>
+        <div class="pf-tile"><span>Profit</span><b class="${profit < 0 ? 'pf-neg' : ''}">${money(profit)}</b><small>margin ${pSales ? (Math.round(profit / pSales * 1000) / 10) + '%' : '—'}${noCost.length ? ` · ${noCost.length} item${noCost.length === 1 ? '' : 's'} (${money(noCostSales)} of sales) with no purchase in 12 months not counted` : ''}</small></div>
         <div class="pf-tile"><span>Items</span><b>${items.length}</b><small>${notSold} bought, not sold · ${notBought} sold, not bought</small></div>
       </div>
       <div class="card">${chart(d.months)}</div>
@@ -154,17 +161,23 @@
         <div class="pf-head"><h3>Items</h3><span style="flex:1"></span>
           <button type="button" class="icon-btn" id="pfXls" title="Download (Excel)" aria-label="Download (Excel)"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg></button></div>
         <div class="items-scroll pf-scroll"><table class="items pf-table"><thead><tr>
-          <th>Code</th>${th('description', 'Description', false)}${th('boughtQty', 'Units bought')}${th('bought', 'Purchases')}${th('soldQty', 'Units sold')}${th('sold', 'Sales')}${th('ru', 'Sold ÷ bought')}</tr></thead>
+          <th>Code</th>${th('description', 'Description', false)}${th('boughtQty', 'Units bought')}${th('bought', 'Purchases')}${th('soldQty', 'Units sold')}${th('sold', 'Sales')}${th('ru', 'Sold ÷ bought')}${th('unitCost', 'Unit cost')}${th('profit', 'Profit')}${th('margin', 'Margin')}</tr></thead>
           <tbody>${items.map(i => `<tr data-code="${esc(i.code)}"><td class="mono">${esc(i.code)}</td><td>${esc(i.description)}</td>
             <td class="num">${qty(i.boughtQty)}</td><td class="num">${money(i.bought)}</td><td class="num">${qty(i.soldQty)}</td><td class="num">${money(i.sold)}</td>
-            <td class="num">${i.boughtQty > 0 ? flagRatio(i.ru) : '<span class="muted-note">not bought</span>'}</td></tr>`).join('') || '<tr><td colspan="7" class="empty-note">Nothing bought or sold in the period.</td></tr>'}</tbody></table></div>
-        <p class="muted-note" style="margin:8px 0 0;">Double-click an item for its details (stock in the branches, cardex).</p>
+            <td class="num">${i.boughtQty > 0 ? flagRatio(i.ru) : '<span class="muted-note">not bought</span>'}</td>
+            <td class="num">${typeof i.unitCost === 'number' ? cost3(i.unitCost) + (i.costFrom === 'last' ? `<div class="pf-sub" title="Not bought in the period: the last purchase before it">last PU ${esc(dmy(i.costDate))}</div>` : '') : i.soldQty > 0 ? `<span class="muted-note">${i.costFrom === 'failed' ? 'could not be read' : 'no purchase in 12 months'}</span>` : ''}</td>
+            <td class="num ${n(i.profit) < 0 ? 'pf-neg' : ''}">${typeof i.profit === 'number' ? money2(i.profit) : ''}</td>
+            <td class="num">${i.margin === null ? '' : `<span class="${i.margin < 0 ? 'pf-neg' : ''}">${Math.round(i.margin * 1000) / 10}%</span>${i.margin < -0.2 ? ' <span class="pf-check" title="Sold far below its cost: check the cost or the unit (pack / piece) in the system">check</span>' : ''}`}</td></tr>`).join('') || '<tr><td colspan="10" class="empty-note">Nothing bought or sold in the period.</td></tr>'}</tbody></table></div>
+        <p class="muted-note" style="margin:8px 0 0;">Profit = sales - units sold x unit cost. Unit cost = the purchases of the period / their units (free units included, so trade deals lower it); an item not bought in the period takes its last purchase day in the 12 months before. Amounts in $ with VAT, as the system reports both sales and purchases. Double-click an item for its details.</p>
       </div>`;
     el('pfBack').onclick = () => { S.sup = null; S.detail = null; paintList(); };
     box.querySelectorAll('.pf-isort').forEach(h => h.onclick = () => { const key = h.dataset.k; if (S.isort === key) S.idir = -S.idir; else { S.isort = key; S.idir = key === 'description' ? 1 : -1; } paintDetail(); });
     box.querySelectorAll('tr[data-code]').forEach(tr => tr.ondblclick = () => window.ItemDetail && ItemDetail.open(tr.dataset.code));
-    el('pfXls').onclick = () => xls([['Code', 'Description', 'Units bought', 'Purchases ($)', 'Units sold', 'Sales ($)', 'Units sold / bought'],
-      ...items.map(i => [i.code, i.description, round2(i.boughtQty), round2(i.bought), round2(i.soldQty), round2(i.sold), i.ru === null ? '' : Math.round(i.ru * 1000) / 1000])],
+    el('pfXls').onclick = () => xls([['Code', 'Description', 'Units bought', 'Purchases ($)', 'Units sold', 'Sales ($)', 'Units sold / bought', 'Unit cost ($)', 'Cost from', 'Profit ($)', 'Margin %'],
+      ...items.map(i => [i.code, i.description, round2(i.boughtQty), round2(i.bought), round2(i.soldQty), round2(i.sold), i.ru === null ? '' : Math.round(i.ru * 1000) / 1000,
+        typeof i.unitCost === 'number' ? Math.round(i.unitCost * 1000) / 1000 : '', i.costFrom === 'period' ? 'purchases of the period' : i.costFrom === 'last' ? 'last purchase ' + dmy(i.costDate) : i.soldQty > 0 ? 'no purchase in 12 months' : '',
+        typeof i.profit === 'number' ? round2(i.profit) : '', i.margin === null ? '' : Math.round(i.margin * 1000) / 10]),
+      [], ['Total', '', '', '', '', round2(pSales), '', '', 'sales with a cost', round2(profit), pSales ? Math.round(profit / pSales * 1000) / 10 : '']],
       `Performance ${s.name} ${d.from} ${d.to}`, true);
   }
   function xls(aoa, name, codeText) {

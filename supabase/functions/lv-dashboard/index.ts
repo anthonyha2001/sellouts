@@ -356,7 +356,27 @@ async function perfSupplier(sup: string, from: string, to: string) {
   const mon = (r: Record<string, unknown>) => { const k = String(r.period || '').slice(0, 7); return months[k] = months[k] || { bought: 0, sold: 0 }; };
   p.forEach(r => { const x = get(r), v = Number(r.total_purchases || 0); x.bought += v; x.boughtQty += Number(r.total_quantity || 0); mon(r).bought += v; });
   sl.forEach(r => { const x = get(r), v = Number(r.total_sales || 0); x.sold += v; x.soldQty += Number(r.total_quantity || 0); mon(r).sold += v; });
-  return { from, to, supplier: sup, items: [...items.values()], months };
+  // profit (owner, 2026-10-06): sales - units sold x unit cost, item by item. The unit cost:
+  //   bought in the period: the period's purchases / units (free units included, so trade deals lower it);
+  //   else: its last purchase day in the 12 months before (that day's purchases / units), from one daily report;
+  //   no purchase in those 12 months: no cost (an old one would mislead), counted apart.
+  // All in $ as the system's reports give them (VAT included on both sides, like the sales).
+  const list = [...items.values()] as (Record<string, unknown> & { code: string; bought: number; boughtQty: number; sold: number; soldQty: number })[];
+  list.forEach(x => { if (x.boughtQty > 0 && x.bought > 0) { x.unitCost = x.bought / x.boughtQty; x.costFrom = 'period'; } });
+  const need = list.filter(x => x.soldQty > 0 && x.unitCost === undefined);
+  if (need.length) {
+    const key = (c: string) => c.replace(/^0+(?=d)/, '').toUpperCase();
+    const byKey = new Map(need.map(x => [key(x.code), x]));
+    const lastDay: Record<string, { day: string; qty: number; value: number }> = {};
+    try {
+      const rows = await report('purchases', plusDays(from, -365), plusDays(from, -1), { aggregation: 'Daily', group_by: ['item'], supplier: [sup] });
+      rows.forEach(r => { const k = key(String(r.item ?? '')); if (!byKey.has(k)) return; const p = String(r.period || '').slice(0, 10), q = Number(r.total_quantity || 0), v = Number(r.total_purchases || 0);
+        if (q > 0 && v > 0 && (!lastDay[k] || p > lastDay[k].day)) lastDay[k] = { day: p, qty: q, value: v }; });
+      need.forEach(x => { const l = lastDay[key(x.code)]; if (l) { x.unitCost = l.value / l.qty; x.costFrom = 'last'; x.costDate = l.day; } else x.costFrom = 'none'; });
+    } catch (e) { console.warn('perf last cost', e); need.forEach(x => { x.costFrom = 'failed'; }); }
+  }
+  list.forEach(x => { if (typeof x.unitCost === 'number' && x.soldQty > 0) { x.cogs = x.soldQty * (x.unitCost as number); x.profit = x.sold - (x.cogs as number); } });
+  return { from, to, supplier: sup, items: list, months };
 }
 // the purchase lines of a cardex, per document; a paid line + a 100% discount line = a trade deal
 function purchaseDocs(rows: Record<string, unknown>[]) {
