@@ -2061,5 +2061,3 @@ span.cc-slipbtn{cursor:default;display:inline-block;}
 .po-row-over td{background:color-mix(in srgb, var(--gold) 12%, transparent);}
 .po-over-txt{color:var(--gold);font-weight:600;}
 .po-qty.po-qty-over{border-color:var(--gold) !important;box-shadow:0 0 0 2px color-mix(in srgb, var(--gold) 35%, transparent);}
-.po-table thead th:last-child,.po-table tr[data-po-code] td:last-child{position:sticky;right:0;background:var(--paper-raised);box-shadow:-1px 0 0 var(--line);z-index:1;}
-.po-table thead th:last-child{z-index:2;}

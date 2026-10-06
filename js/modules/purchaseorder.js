@@ -25,7 +25,7 @@
   const fq = v => (Math.round(n(v) * 100) / 100).toLocaleString('en-US');
   const f3 = v => v === null || v === undefined ? '—' : (Math.round(n(v) * 1000) / 1000).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 3 });
   const money = v => '$' + (Math.round(n(v) * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const day = s => s ? new Date(String(s).slice(0, 10) + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: '2-digit' }) : '—';
+  const day = s => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(s || '')); return m ? `${m[3]}-${m[2]}-${m[1]}` : '—'; };   // dd-mm-yyyy (the owner's format)
   const addDays = (s, k) => { const d = new Date(s + 'T00:00:00'); d.setDate(d.getDate() + k); return d.toLocaleDateString('en-CA'); };
 
   function open({ vendor = null, suppliers = null, name = '' } = {}) {
@@ -101,20 +101,21 @@
       $('poBody').innerHTML = `
         <p class="po-sum">${S.data.items.length} item${S.data.items.length === 1 ? '' : 's'} of the supplier · <b class="${low ? 'po-low' : ''}">${low} low on stock</b> (less than ${S.lowDays} days left) · <b class="${over ? 'po-over-txt' : ''}">${over} overstocked</b> (over a month) · sales over ${S.data.days} days, ${esc(day(S.data.from))} → ${esc(day(S.data.to))}</p>
         <div class="items-scroll po-scroll"><table class="items po-table"><thead><tr>
-          <th>Code</th><th>Description</th><th>Barcode</th><th class="num">Stock</th><th class="num">Sold</th><th class="num">Avg / day</th><th class="num">Avg / month</th>
-          <th>Last PU</th><th class="num">PU qty</th><th class="num">PU price</th><th class="num" title="Units sold since the last purchase, and the daily rate used for the days left">Sold since PU</th><th class="num">Suggested</th><th class="num">Order</th></tr></thead>
+          <th>Code</th><th>Description</th><th class="num">Qty to order</th><th class="num">Qty available</th><th class="num">Sales (period)</th><th class="num">Sales / month</th>
+          <th>Last PU date</th><th class="num">Last PU qty</th><th>Barcode</th><th class="num">Avg / day</th><th class="num">PU price</th><th class="num" title="Units sold since the last purchase, and the daily rate used for the days left">Sold since PU</th><th class="num">Suggested</th></tr></thead>
           <tbody>${shown.map(r => { const g = r.grp !== lastG ? (lastG = r.grp, gCount.get(r.grp)) : null; return (g ? `<tr class="po-group"><td colspan="13">${esc(r.grp)} <span>· ${g.n} item${g.n === 1 ? '' : 's'}${g.low ? ` · ${g.low} low` : ''}${g.over ? ` · ${g.over} overstock` : ''}</span></td></tr>` : '') + `<tr class="${r.low ? 'po-row-low' : r.over ? 'po-row-over' : ''}" data-po-code="${esc(r.code)}">
-            <td class="mono">${esc(r.code)}</td><td>${esc(r.description)}${r.pack > 1 ? ` <span class="muted-note">· pack ${r.pack}</span>` : ''}</td><td class="mono po-bc">${esc(r.barcode || '')}</td>
+            <td class="mono">${esc(r.code)}</td><td>${esc(r.description)}${r.pack > 1 ? ` <span class="muted-note">· pack ${r.pack}</span>` : ''}</td>
+            <td class="num"><input type="text" inputmode="numeric" class="po-qty" data-q="${esc(r.code)}" value="${orderOf(r) || ''}" placeholder="0" aria-label="Quantity to order"><div class="po-sub po-over-txt po-over-tag" hidden>over a month</div></td>
             <td class="num">${r.stock === null || r.stock === undefined ? '—' : n(r.stock) <= 0 ? `<span class="rc-zero">${fq(r.stock)}</span>` : fq(r.stock)}${n(r.stock) <= 0 && r.perDay > 0 ? '<div class="po-sub po-low">out</div>' : r.daysLeft !== null ? `<div class="po-sub${r.over ? ' po-over-txt' : ''}">${r1(r.daysLeft)} days${r.over ? ' · overstock' : ''}</div>` : r.over ? '<div class="po-sub po-over-txt">not selling</div>' : ''}</td>
-            <td class="num">${fq(r.sold)}</td><td class="num">${fq(r.periodDay)}</td><td class="num">${fq(r.perMonth)}</td>
+            <td class="num">${fq(r.sold)}</td><td class="num">${fq(r.perMonth)}</td>
             <td class="mono">${esc(day(r.lastDate))}${r.docs ? `<div class="po-sub">${esc(r.docs)}</div>` : ''}</td>
             <td class="num">${r.lastDate ? fq(r.paidQty) + (r.freeQty ? ` <span class="po-free">+ ${fq(r.freeQty)} free</span>` : '') : '—'}</td>
+            <td class="mono po-bc">${esc(r.barcode || '')}</td><td class="num">${fq(r.periodDay)}</td>
             <td class="num">${r.lastDate ? f3(r.unitNet) : '—'}${r.deal ? `<div class="po-sub"><span class="lp-deal">trade deal</span> real ${f3(r.real)}</div>` : ''}</td>
             <td class="num">${r.soldSinceLast === null || r.soldSinceLast === undefined ? '—' : fq(r.soldSinceLast)}<div class="po-sub">${r.bySince ? `in ${r.sinceDays} d · ${fq(r.perDay)}/day` : r.sinceFrom ? 'PU too recent' : ''}</div></td>
-            <td class="num">${r.sug ? fq(r.sug) : ''}</td>
-            <td class="num"><input type="text" inputmode="numeric" class="po-qty" data-q="${esc(r.code)}" value="${orderOf(r) || ''}" placeholder="0" aria-label="Quantity to order"><div class="po-sub po-over-txt po-over-tag" hidden>over a month</div></td></tr>`; }).join('')
+            <td class="num">${r.sug ? fq(r.sug) : ''}</td></tr>`; }).join('')
             || `<tr><td colspan="13" class="empty-note">${S.only === 'low' ? 'Nothing is low on stock. Press "All items" to order anyway.' : S.only === 'over' ? 'Nothing is overstocked.' : 'No item.'}</td></tr>`}</tbody></table></div>
-        <p class="muted-note" style="margin:6px 0 0;">Days left = stock / what sold per day since the last purchase (the period's average when that purchase is under 7 days old). Suggested = ${S.orderDays} days of sales minus the stock, in full packs. Type your quantity in Order: it is flagged when stock + order is over a month of sales. Double-click an item for its details.</p>`;
+        <p class="muted-note" style="margin:6px 0 0;">Days left = stock / what sold per day since the last purchase (the period's average when that purchase is under 7 days old). Suggested = ${S.orderDays} days of sales minus the stock, in full packs. Type your quantity in Qty to order: it is flagged when stock + order is over a month of sales. Double-click an item for its details.</p>`;
       $('poBody').querySelectorAll('[data-q]').forEach(i => {
         i.onfocus = () => i.select();
         const row = rowsOf().find(r => r.code === i.dataset.q); if (row) flagBox(i, row);
@@ -146,14 +147,14 @@
     $('poExcel').onclick = () => {
       if (!S.data) return;
       const L = lines();
-      const aoa = [['Purchase order'], ['Supplier', title], ['Branch', 'Ajaltoun'], ['Date', todayStr()], ['Sales period', `${S.data.from} to ${S.data.to} (${S.data.days} days)`], [],
-        ['Group', 'Code', 'Description', 'Barcode', 'Pack', 'Stock', 'Days left', 'Sold (period)', 'Avg / day', 'Avg / month', 'Last PU date', 'Last PU qty', 'Free units', 'PU price', 'Trade deal', 'Real cost', 'Sold since PU', 'Suggested', 'Order', 'Flag']];
+      const aoa = [['Purchase order'], ['Supplier', title], ['Branch', 'Ajaltoun'], ['Date', day(todayStr())], ['Sales period', `${day(S.data.from)} to ${day(S.data.to)} (${S.data.days} days)`], [],
+        ['Group', 'Code', 'Description', 'Qty to order', 'Qty available', 'Sales (period)', 'Sales / month', 'Last PU date', 'Last PU qty', 'Barcode', 'Free units', 'Pack', 'Days left', 'Avg / day', 'PU price', 'Trade deal', 'Real cost', 'Sold since PU', 'Suggested', 'Flag']];
       const first = aoa.length;
-      (L.length ? L : rowsOf()).forEach(r => aoa.push([r.grp, r.code, r.description, r.barcode || '', r.pack, r.stock ?? '', r.daysLeft === null ? '' : r1(r.daysLeft), r.sold, r1(r.periodDay), r1(r.perMonth), r.lastDate || '', r.paidQty || '', r.freeQty || '',
-        r.unitNet ?? '', r.dealText, r.real !== null ? Math.round(r.real * 1000) / 1000 : '', r.soldSinceLast ?? '', r.sug, orderOf(r), [r.low ? 'Low stock' : r.over ? 'Overstock' : '', overOrder(r) ? 'Order over a month' : ''].filter(Boolean).join(', ')]));
+      (L.length ? L : rowsOf()).forEach(r => aoa.push([r.grp, r.code, r.description, orderOf(r), r.stock ?? '', r.sold, r1(r.perMonth), r.lastDate ? day(r.lastDate) : '', r.paidQty || '', r.barcode || '', r.freeQty || '', r.pack,
+        r.daysLeft === null ? '' : r1(r.daysLeft), r1(r.periodDay), r.unitNet ?? '', r.dealText, r.real !== null ? Math.round(r.real * 1000) / 1000 : '', r.soldSinceLast ?? '', r.sug, [r.low ? 'Low stock' : r.over ? 'Overstock' : '', overOrder(r) ? 'Order over a month' : ''].filter(Boolean).join(', ')]));
       const ws = XLSX.utils.aoa_to_sheet(aoa);
-      for (let i = first; i < aoa.length; i++) ['B', 'D'].forEach(c => { const ref = c + (i + 1); if (ws[ref]) { ws[ref].t = 's'; ws[ref].v = String(ws[ref].v); } });
-      ws['!cols'] = [{ wch: 18 }, { wch: 10 }, { wch: 40 }, { wch: 15 }, { wch: 6 }, { wch: 8 }, { wch: 9 }, { wch: 9 }, { wch: 9 }, { wch: 10 }, { wch: 11 }, { wch: 9 }, { wch: 8 }, { wch: 9 }, { wch: 18 }, { wch: 9 }, { wch: 11 }, { wch: 10 }, { wch: 8 }, { wch: 20 }];
+      for (let i = first; i < aoa.length; i++) ['B', 'H', 'J'].forEach(c => { const ref = c + (i + 1); if (ws[ref]) { ws[ref].t = 's'; ws[ref].v = String(ws[ref].v); } });
+      ws['!cols'] = [{ wch: 18 }, { wch: 10 }, { wch: 40 }, { wch: 11 }, { wch: 12 }, { wch: 13 }, { wch: 12 }, { wch: 12 }, { wch: 11 }, { wch: 15 }, { wch: 9 }, { wch: 6 }, { wch: 9 }, { wch: 9 }, { wch: 9 }, { wch: 18 }, { wch: 9 }, { wch: 12 }, { wch: 10 }, { wch: 20 }];
       const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'PO');
       XLSX.writeFile(wb, `PO ${String(title).replace(/[\\/:*?"<>|]+/g, ' ').trim()} ${todayStr()}.xlsx`);
       logActivity('vendors', 'po_export', vendor?.id ? { type: 'vendor', id: vendor.id } : null, `Purchase order for ${title}: ${L.length} items`);
@@ -163,9 +164,9 @@
       const w = window.open('', '_blank'); if (!w) return showToast('Allow pop-ups to print.', true);
       w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>PO ${esc(title)}</title><style>body{font:13px Arial,sans-serif;margin:24px;color:#111}h2{margin:0 0 4px}p{margin:0 0 14px;color:#555}
         table{width:100%;border-collapse:collapse}th,td{border-bottom:1px solid #ccc;padding:6px 8px;text-align:left}th{border-bottom:2px solid #333}.n{text-align:right}</style></head><body>
-        <h2>Purchase order — ${esc(title)}</h2><p>La Valeur Ajaltoun · ${esc(todayStr())} · ${L.length} items</p>
-        <table><thead><tr><th>Code</th><th>Description</th><th>Barcode</th><th class="n">Quantity</th><th class="n">Last price</th></tr></thead><tbody>
-        ${L.map((r, i) => (i === 0 || L[i - 1].grp !== r.grp ? `<tr><td colspan="5" style="padding-top:12px;font-weight:700;border-bottom:1px solid #333">${esc(r.grp)}</td></tr>` : '') + `<tr><td>${esc(r.code)}</td><td>${esc(r.description)}</td><td>${esc(r.barcode || '')}</td><td class="n"><b>${orderOf(r)}</b></td><td class="n">${f3(r.unitNet)}${r.deal ? ' (' + esc(r.dealText) + ')' : ''}</td></tr>`).join('')}
+        <h2>Purchase order — ${esc(title)}</h2><p>La Valeur Ajaltoun · ${esc(day(todayStr()))} · ${L.length} items</p>
+        <table><thead><tr><th>Code</th><th>Description</th><th class="n">Qty to order</th><th class="n">Qty available</th><th class="n">Sales (period)</th><th class="n">Sales / month</th><th>Last PU date</th><th class="n">Last PU qty</th><th>Barcode</th><th class="n">Last price</th></tr></thead><tbody>
+        ${L.map((r, i) => (i === 0 || L[i - 1].grp !== r.grp ? `<tr><td colspan="10" style="padding-top:12px;font-weight:700;border-bottom:1px solid #333">${esc(r.grp)}</td></tr>` : '') + `<tr><td>${esc(r.code)}</td><td>${esc(r.description)}</td><td class="n"><b>${orderOf(r)}</b></td><td class="n">${r.stock ?? ''}</td><td class="n">${fq(r.sold)}</td><td class="n">${fq(r.perMonth)}</td><td>${r.lastDate ? day(r.lastDate) : ''}</td><td class="n">${r.paidQty ? fq(r.paidQty) + (r.freeQty ? ' + ' + fq(r.freeQty) : '') : ''}</td><td>${esc(r.barcode || '')}</td><td class="n">${f3(r.unitNet)}${r.deal ? ' (' + esc(r.dealText) + ')' : ''}</td></tr>`).join('')}
         </tbody></table></body></html>`);
       w.document.close(); w.focus(); w.print();
     };
