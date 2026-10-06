@@ -2294,3 +2294,6 @@ td.num .pr-tag{display:inline-flex;margin:0 6px 0 0;vertical-align:middle;}
 .so-price-summary .icon-btn svg{width:18px;height:18px;stroke:currentColor;}
 #promoRowsBody .ps-cell{padding-right:10px;}
 .ps-head{text-align:right;white-space:nowrap;}
+/* Audit by supplier: the items by type, each with its copy (owner, 2026-10-06) */
+.audit-type-head{display:flex;align-items:center;gap:8px;margin:8px 0 6px;}
+.audit-type-head .icon-btn svg,.sellout-head [data-role="copy-supplier-sales"] svg{width:17px;height:17px;stroke:currentColor;}

@@ -2848,7 +2848,13 @@ function buildSupplierGroupedHtml(rows, mode) {
     const flaggedForOrder = mode === 'stock' && supplierNeedsOrder.get(name);
     let bodyHtml;
     if (mode === 'audit') {
-      bodyHtml = auditSubTable(items);
+      // owner, 2026-10-06: by type inside the supplier, each type with its copy of codes and units sold (like the sell-outs)
+      bodyHtml = [['sellout', 'Sell Out'], ['cn', 'C/N'], ['rightprice', 'Right Price'], ['', 'No type']].map(([t, label]) => {
+        const list = items.filter(r => (r.priceType || '') === t);
+        if (!list.length) return '';
+        return `<div class="audit-type-head"><span class="badge ${t ? 'active' : ''}">${label}</span><span class="muted-note">${list.length} item${list.length === 1 ? '' : 's'}</span>
+          <button type="button" class="icon-btn" data-role="copy-type-sales" data-supplier="${escapeHtml(name)}" data-type="${t}" title="Copy the ${label} codes of ${escapeHtml(name)} with their units sold during the promotion (paste into Excel)" aria-label="Copy the codes and units sold"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/><path d="M12 18v-3M15 18v-5M18 18v-2"/></svg></button></div>` + auditSubTable(list);
+      }).join('');
     } else {
       const sellouts = items.filter(r => r.priceType === 'sellout');
       const cns = items.filter(r => r.priceType === 'cn');
@@ -2870,6 +2876,7 @@ function buildSupplierGroupedHtml(rows, mode) {
         </div>
         ${orderTagHtml}
         <button class="btn ghost small" data-role="copy-supplier-codes" data-supplier="${escapeHtml(name)}">Copy codes</button>
+        ${mode === 'audit' ? `<button type="button" class="icon-btn" data-role="copy-supplier-sales" data-supplier="${escapeHtml(name)}" title="Copy the codes of ${escapeHtml(name)} with their units sold during the promotion (paste into Excel)" aria-label="Copy the codes and units sold"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/><path d="M12 18v-3M15 18v-5M18 18v-2"/></svg></button>` : ''}
       </div>
       <div class="sellout-body">
         ${bodyHtml}
@@ -3006,6 +3013,14 @@ function wireSupplierGroupEvents(containerId, mode) {
       else expandedSupplierGroups.delete(name);
     });
   });
+  // codes and units sold: a supplier's items (as filtered), or one type of them
+  const supplierRowsOf = name => (mode === 'audit' ? auditFilteredRows : currentRows).filter(r => ((r.supplier || '').trim() || 'No supplier listed') === name);
+  document.querySelectorAll(`#${containerId} [data-role="copy-supplier-sales"]`).forEach(btn => btn.addEventListener('click', e => {
+    e.stopPropagation(); copyPromoSales(supplierRowsOf(btn.dataset.supplier).map(r => r.code), btn);
+  }));
+  document.querySelectorAll(`#${containerId} [data-role="copy-type-sales"]`).forEach(btn => btn.addEventListener('click', e => {
+    e.stopPropagation(); copyPromoSales(supplierRowsOf(btn.dataset.supplier).filter(r => (r.priceType || '') === btn.dataset.type).map(r => r.code), btn);
+  }));
   document.querySelectorAll(`#${containerId} [data-role="copy-supplier-codes"]`).forEach(btn => {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
