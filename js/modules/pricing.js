@@ -23,6 +23,9 @@
    PT…): it opens on its day, supplier and PU (a return: under Returns).
    The selected line (owner, 2026-10-06): its prices, VAT and tags in a bar
    under the table, following the selection.
+   Send to the floor (owner, 2026-10-06; migration 067): the new prices typed
+   are submitted as "ghost prices" for the floor manager (Floor check › New
+   prices) until the system really has them (lv-dashboard marks them synced).
    Keys: up / down move along the rows, left / right go to the previous /
    next PU, Enter opens the item's details.
    Permission: vendors.manage.  Public API: window.Pricing = { show }.
@@ -46,7 +49,10 @@
   const npLoad = () => { S.np = new Map(); try { (JSON.parse(localStorage.getItem(npKey()) || '[]')).forEach(e => S.np.set(e.code, e)); } catch (e) { /* no storage */ } };
   const npSave = () => { try { localStorage.setItem(npKey(), JSON.stringify([...S.np.values()])); } catch (e) { /* no storage */ } };
   const ICON_DL = '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>';
-  const npButton = () => `<button type="button" class="icon-btn pr-np-dl" data-np-dl title="Download the new sale prices (Excel) for the floor manager" aria-label="Download the new sale prices">${ICON_DL}${S.np.size ? `<span class="pr-np-count">${S.np.size}</span>` : ''}</button>`;
+  const unsent = () => [...S.np.values()].filter(e => !e.sent).length;
+  const npSendBtn = () => can('vendors.manage') ? `<button type="button" class="btn small pr-np-send" data-np-send ${unsent() ? '' : 'hidden'} title="Send the new prices to the floor manager: ghost prices until the system has them">${ICON_SEND}Send ${unsent()} to the floor</button>` : '';
+  const ICON_SEND = '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4Z"/></svg>';
+  const npButton = () => npSendBtn() + `<button type="button" class="icon-btn pr-np-dl" data-np-dl title="Download the new sale prices (Excel) for the floor manager" aria-label="Download the new sale prices">${ICON_DL}${S.np.size ? `<span class="pr-np-count">${S.np.size}</span>` : ''}</button>`;
   // the suppliers the wizard goes through: the ones that delivered (a supplier that only returned goods is under Returns)
   const sups = () => (S.list?.suppliers || []).filter(x => x.value > 0);
 
@@ -129,6 +135,7 @@
     el('prSeeRet')?.addEventListener('click', () => tab('returns', { from: S.list.day, to: S.list.day }));
     el('prStart')?.addEventListener('click', () => openSupplier(0));
     el('prBody').querySelector('[data-np-dl]')?.addEventListener('click', npExcel);
+    el('prBody').querySelector('[data-np-send]')?.addEventListener('click', e => npSend(e.currentTarget));
     if (L.length) prefetch(0);   // the first supplier is ready when you start
     el('prBody').querySelectorAll('tr[data-i]').forEach(tr => { tr.onclick = () => openSupplier(Number(tr.dataset.i)); tr.onkeydown = e => { if (e.key === 'Enter') openSupplier(Number(tr.dataset.i)); }; });
   }
@@ -306,7 +313,7 @@
           <td class="num">${r.priceFlag ? priceTag(r) : ''}${r.pending ? '<span class="pr-wait" title="Checking…">…</span>' : r.generic ? '<span class="muted-note">catch-all item</span>' : r.otherCurrency ? '<span class="muted-note">other currency</span>' : diffHtml(r.diffNet, r.prev?.net, cur)}${r.diffReal !== null && Math.abs(r.diffReal) > 0.0005 ? `<div class="pr-sub">real ${diffHtml(r.diffReal, r.prev?.real, cur)}</div>` : ''}</td>
           <td class="num">${r.overArr ? stockTag(r) : ''}${r.had === null ? '—' : qty(r.had)}<div class="pr-sub${r.overArr ? ' pr-flag-over' : ''}">${r.pending ? '…' : r.generic ? '' : r.daysHad !== null ? `${Math.round(r.daysHad)} days` : r.had > 0.001 && !(r.perDay > 0) ? 'no sales in 90 days' : ''}</div></td>
           <td class="num">${r.pending ? '<span class="pr-wait" title="Checking…">…</span>' : r.it.priceFailed ? '<span class="login-err">could not be read</span>' : r.it.salePrice ? price(r.it.salePrice, r.it.saleCurrency || '$') : '—'}</td>
-          <td class="num"><input type="text" inputmode="decimal" class="pr-np${S.np.has(r.it.code) ? ' set' : ''}" data-np="${i}" value="${S.np.has(r.it.code) ? esc(String(S.np.get(r.it.code).newPrice)) : ''}" placeholder="${r.it.salePrice ? esc(price(r.it.salePrice, r.it.saleCurrency || '$')) : ''}" aria-label="New sale price of ${esc(r.it.description || r.it.code)}"></td></tr>`).join('')}</tbody></table></div>
+          <td class="num"><input type="text" inputmode="decimal" class="pr-np${S.np.has(r.it.code) ? ' set' : ''}${S.np.get(r.it.code)?.sent ? ' sent' : ''}" data-np="${i}" value="${S.np.has(r.it.code) ? esc(String(S.np.get(r.it.code).newPrice)) : ''}" placeholder="${r.it.salePrice ? esc(price(r.it.salePrice, r.it.saleCurrency || '$')) : ''}" aria-label="New sale price of ${esc(r.it.description || r.it.code)}"></td></tr>`).join('')}</tbody></table></div>
       <div class="pr-selbar" id="prSelBar" aria-live="polite"></div>
       <div class="pr-foot">
         <div class="pr-total"><span>${pu.kind === 'return' ? 'Total returned' : 'Total'} ${esc(pu.doc)}</span><b>${price(pu.info && !pu.info.failed ? (pu.kind === 'return' ? -pu.info.withVat : pu.info.withVat) : pu.total, cur)} ${esc(cur || '$')}</b>
@@ -324,6 +331,7 @@
     el('prRetry')?.addEventListener('click', () => { const code = sups()[S.supIdx]?.code, d = S.cache.get(code); if (!d) return; d.items.forEach(it => { if (it.prev?.failed) delete it.prev; }); d.moreReady = false; refresh(code); fetchMore(code, d, S.day); });
     el('prBody').querySelectorAll('tr[data-r]').forEach(tr => { tr.onclick = () => select(Number(tr.dataset.r)); tr.ondblclick = () => openItem(); });
     el('prBody').querySelector('[data-np-dl]')?.addEventListener('click', npExcel);
+    el('prBody').querySelector('[data-np-send]')?.addEventListener('click', e => npSend(e.currentTarget));
     paintSel();
     const boxes = [...el('prBody').querySelectorAll('[data-np]')];
     boxes.forEach((inp, k) => {
@@ -343,12 +351,36 @@
     if (!txt) { if (S.np.delete(r.it.code)) { npSave(); inp.classList.remove('set'); npCount(); } return; }
     const v = Number(txt);
     if (!Number.isFinite(v) || v <= 0) { showToast('Type a price (a number).', true); inp.value = S.np.get(r.it.code)?.newPrice ?? ''; return; }
-    S.np.set(r.it.code, { code: r.it.code, description: r.it.description || '', barcode: r.it.barcode || '', supplier: sup.name, doc: pu.doc, day: S.day,
+    S.np.set(r.it.code, { sent: false, code: r.it.code, description: r.it.description || '', barcode: r.it.barcode || '', supplier: sup.name, doc: pu.doc, day: S.day,
       vat: r.it.vat ? 'VAT' : '', oldPrice: r.it.salePrice ?? null, currency: r.it.saleCurrency || '$', newPrice: v,
       cost: r.net ?? null, costCurrency: pu.currency || '$', prevCost: r.prev?.net ?? null, costChange: r.priceFlag ? (priceDir(r) === 'up' ? 'Price increase' : 'Price decrease') : '', at: new Date().toISOString() });
-    npSave(); inp.classList.add('set'); npCount(); paintSel();
+    npSave(); inp.classList.add('set'); inp.classList.remove('sent'); npCount(); paintSel();
   }
-  const npCount = () => el('prBody').querySelectorAll('[data-np-dl]').forEach(b => { b.querySelector('.pr-np-count')?.remove(); if (S.np.size) b.insertAdjacentHTML('beforeend', `<span class="pr-np-count">${S.np.size}</span>`); });
+  const npCount = () => {
+    el('prBody').querySelectorAll('[data-np-dl]').forEach(b => { b.querySelector('.pr-np-count')?.remove(); if (S.np.size) b.insertAdjacentHTML('beforeend', `<span class="pr-np-count">${S.np.size}</span>`); });
+    el('prBody').querySelectorAll('[data-np-send]').forEach(b => { const k = unsent(); b.hidden = !k; b.innerHTML = `${ICON_SEND}Send ${k} to the floor`; });
+  };
+  // the new prices not sent yet -> price_changes (one pending per item: an older pending one is cancelled)
+  async function npSend(btn) {
+    const L = [...S.np.values()].filter(e => !e.sent);
+    if (!L.length) return showToast('Nothing new to send.');
+    if (btn) btn.disabled = true;
+    try {
+      const codes = L.map(e => e.code);
+      const { error: e1 } = await sb.from('price_changes').update({ status: 'cancelled' }).in('code', codes).eq('status', 'pending');
+      if (e1) throw e1;
+      const { error: e2 } = await sb.from('price_changes').insert(L.map(e => ({ code: e.code, description: e.description, barcode: e.barcode, supplier: e.supplier, doc: e.doc, day: e.day,
+        vat: e.vat === 'VAT' ? true : e.vat === '' ? false : null, currency: e.currency, old_price: e.oldPrice, new_price: e.newPrice, cost: e.cost, cost_currency: e.costCurrency,
+        prev_cost: e.prevCost, cost_change: e.costChange || '' })));
+      if (e2) throw e2;
+      const at = new Date().toISOString(); L.forEach(e => { e.sent = true; e.sentAt = at; }); npSave();
+      el('prBody').querySelectorAll('[data-np]').forEach(i => { const r = S.pus[S.puIdx]?.rows[Number(i.dataset.np)]; if (r && S.np.get(r.it.code)?.sent) i.classList.add('sent'); });
+      npCount(); paintSel();
+      if (typeof logActivity === 'function') logActivity('pricing', 'new_prices_sent', null, `${L.length} new sale price${L.length === 1 ? '' : 's'} sent to the floor (purchases of ${dmy(S.day)})`, { codes });
+      showToast(`${L.length} new price${L.length === 1 ? '' : 's'} sent to the floor manager. They stay ghost prices until the system has them.`);
+    } catch (err) { showToast('Could not send: ' + (err.message || err), true); }
+    finally { if (btn) btn.disabled = false; }
+  }
   // the Excel for the floor manager: every new sale price of the day
   function npExcel() {
     const L = [...S.np.values()].sort((a, b) => a.supplier.localeCompare(b.supplier) || a.doc.localeCompare(b.doc) || a.description.localeCompare(b.description));
@@ -394,7 +426,7 @@
         ${cell('VAT', it.vat === undefined ? (r.pending ? '…' : '—') : it.vat ? 'Yes' : 'No', vi ? `${price(Math.abs(vi.vat), cur)} on ${price(Math.abs(vi.withVat), cur)}` : '')}
         ${cell('Stock we had', r.had === null ? '—' : qty(r.had), r.pending ? '' : r.daysHad !== null ? Math.round(r.daysHad) + ' days' : r.had > 0.001 && !(r.perDay > 0) ? 'no sales in 90 days' : '')}
         ${cell('Sale price now', r.pending ? '…' : it.salePrice ? price(it.salePrice, it.saleCurrency || '$') : '—', it.saleCurrency || '')}
-        ${cell('New sale price', np ? price(np.newPrice, np.currency) : '—', np && np.oldPrice ? (np.newPrice > np.oldPrice ? '+' : '') + (Math.round((np.newPrice - np.oldPrice) / np.oldPrice * 1000) / 10) + '%' : '')}
+        ${cell('New sale price', np ? price(np.newPrice, np.currency) : '—', np ? [np.oldPrice ? (np.newPrice > np.oldPrice ? '+' : '') + (Math.round((np.newPrice - np.oldPrice) / np.oldPrice * 1000) / 10) + '%' : '', np.sent ? 'sent to the floor' : 'not sent yet'].filter(Boolean).join(' · ') : '')}
       </div>`;
   }
   function select(i, scroll = true) {

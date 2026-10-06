@@ -526,6 +526,30 @@ async function pricingSupplier(day: string, sup: string, part = '', only: string
   return { day, supplier: sup, part: part || 'all', items: codes.map(c => out[c]), docs: docInfo, truncated };
 }
 
+/* ---------------- new sale prices waiting for the system (migration 067) ----------------
+   The pending ones: the system's sale price now (price checker, the unit price); equal to the new price -> synced. */
+async function priceChangesSync(limit = 80) {
+  const key = (c: string) => c.replace(/^0+(?=d)/, '').toUpperCase();
+  const { data: rows, error } = await db.from('price_changes').select('id, code, new_price').eq('status', 'pending').order('checked_at', { ascending: true, nullsFirst: true }).limit(limit);
+  if (error) throw error;
+  const now = new Date().toISOString(); let synced = 0, checked = 0;
+  const list = rows || [];
+  for (let i = 0; i < list.length; i += 8) {
+    await Promise.all(list.slice(i, i + 8).map(async r => {
+      try {
+        const pc = await dash(`/item-price-checker?${new URLSearchParams({ search: r.code, year: year(), branches: BRANCH })}`) as Record<string, unknown>;
+        const hit = (Object.values(((pc.branches as Record<string, Record<string, unknown[]>>) || {})[BRANCH] || {}).flat() as Record<string, unknown>[]).find(x => key(String(x.ItemCode ?? '')) === key(r.code));
+        if (!hit) return;
+        const sp = unitSale(hit), np = Number(r.new_price);
+        const same = sp !== null && Math.abs(Number(sp) - np) <= Math.max(0.005, Math.abs(np) * 0.0001);
+        await db.from('price_changes').update(same ? { system_price: sp, checked_at: now, status: 'synced', synced_at: now } : { system_price: sp, checked_at: now }).eq('id', r.id).eq('status', 'pending');
+        checked++; if (same) synced++;
+      } catch (e) { console.warn('price change', r.code, e); }
+    }));
+  }
+  return { pending: list.length, checked, synced };
+}
+
 Deno.serve(async req => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
@@ -548,7 +572,7 @@ Deno.serve(async req => {
     let ok = serverKeys().includes(req.headers.get('apikey') || '');
     if (!ok && cron) { const { data } = await db.rpc('push_keys'); ok = !!data && cron === (data as Record<string, string>).push_cron_secret; }
     if (!ok) return json({ error: 'Not allowed.' }, 403);
-    try { return json(await stockWatch(body.vendor ? String(body.vendor) : undefined)); }
+    try { const sw = await stockWatch(body.vendor ? String(body.vendor) : undefined); let pc = null; try { pc = await priceChangesSync(60); } catch (e) { console.warn('price changes', e); } return json({ ...sw, priceChanges: pc }); }
     catch (e) { console.error(e); return json({ error: e instanceof Error ? e.message : 'failed' }, 502); }
   }
 
@@ -650,6 +674,14 @@ Deno.serve(async req => {
     // A promotion's results (owner, 2026-10-06): units and sales per item over its dates, and over the same number
     // of days just before (the baseline). Up to 300 codes; periods within one year each.
     // Performance (supplier sales vs purchases) and Pricing (a day's purchases checked), owner 2026-10-06: vendors.manage
+    if (body.action === 'price_changes_sync') {
+      if (!isServer && role !== 'admin') {
+        const asUser = createClient(SUPABASE_URL, Deno.env.get('SUPABASE_ANON_KEY') || '', { global: { headers: { Authorization: `Bearer ${bearer}` } }, auth: { persistSession: false, autoRefreshToken: false } });
+        const { data: okPerm } = await asUser.rpc('has_perm', { p_perms: ['vendors.manage', 'floorcheck.do', 'floorcheck.manage'] });
+        if (!okPerm) return json({ error: 'Not allowed.' }, 403);
+      }
+      return json(await priceChangesSync(120));
+    }
     if (['perf_suppliers', 'perf_supplier', 'pricing_day', 'pricing_supplier', 'returns_range', 'pu_find'].includes(String(body.action))) {
       if (!isServer && role !== 'admin') {
         const anon = Deno.env.get('SUPABASE_ANON_KEY') || '';

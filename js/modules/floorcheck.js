@@ -653,6 +653,7 @@
     // floorcheck.do: today's check + own checks; floorcheck.manage: everyone's results + repeat problems.
     const tabs = [can('floorcheck.do') && ['today', "Today's check"], can('floorcheck.do', 'floorcheck.manage') && ['results', can('floorcheck.manage') ? 'Results' : 'My checks']]
       .concat(can('floorcheck.manage') ? [['repeats', 'Repeat problems']] : [])
+      .concat(window.NewPrices && can('floorcheck.do', 'floorcheck.manage', 'vendors.manage') ? [['prices', 'New prices']] : [])   // js/modules/newprices.js
       .concat(can('rentals.spotcheck', 'rentals.contracts') && window.SpotCheck ? [['spots', 'Rented spots']] : []).filter(Boolean);
     if (!tabs.some(([k]) => k === S.tab)) S.tab = tabs[0][0];
     panel.innerHTML = `<div class="filter-row" id="fcTabs">${tabs.map(([k, l]) => `<button data-tab="${k}">${l}</button>`).join('')}</div><div id="fcBody"></div>`;
@@ -664,12 +665,14 @@
     if (S.tab === 'results') renderResults();
     if (S.tab === 'repeats') renderRepeats();
     if (S.tab === 'spots') SpotCheck.render(el('fcBody'));        // js/modules/spotcheck.js
+    if (S.tab === 'prices') NewPrices.render(el('fcBody'));
   }
   async function show() {
     if (!S.started) { S.started = true; shell(); }
     if (S.tab === 'today') { Scanner.warmUp(); await loadToday(); }
     if (S.tab === 'results') await loadResults();
     if (S.tab === 'spots') await SpotCheck.load();
+    if (S.tab === 'prices') await NewPrices.load();
     render();
     if (S.tab === 'today' && S.check && !S.check.completed_at) { await syncOpenCheck(); if (S.tab === 'today') renderToday(); }
   }
