@@ -225,20 +225,7 @@ async function lastCosts(codes: string[], until?: string): Promise<Record<string
         const rows = (((d.data as Record<string, unknown>)?.rows || []) as Record<string, unknown>[])
           .filter(r => String(r.operation_code) === '15' || /purchase/i.test(String(r.operation_label || '')))
           .filter(r => Number(r.qty_in || 0) > 0);
-        const docs = new Map<string, Record<string, unknown>[]>();
-        rows.forEach(r => { const k = String(r.document_no || r.document_number || '?'); if (!docs.has(k)) docs.set(k, []); docs.get(k)!.push(r); });
-        costs[c] = { date: day, docs: [...docs.entries()].map(([doc, ls]) => {
-          const lines = ls.map(r => {
-            const up = Number(r.unit_price || 0), net = Math.abs(Number(r.net_unit_price || 0)) < 0.005 ? 0 : Number(r.net_unit_price || 0);
-            return { qty: r2(Number(r.qty_in || 0)), unit: r2(up), net: r2(net), total: r2(Number(r.line_total || 0)),
-              discountPct: up > 0 ? Math.round((1 - net / up) * 100) : 0, free: net === 0 };
-          });
-          const paidQty = lines.filter(l => !l.free).reduce((t, l) => t + l.qty, 0), freeQty = lines.filter(l => l.free).reduce((t, l) => t + l.qty, 0);
-          const paid = lines.reduce((t, l) => t + l.total, 0);
-          return { doc, supplier: String(ls[0].details || ''), currency: String(ls[0].currency || '$'), lines,
-            paidQty: r2(paidQty), freeQty: r2(freeQty), paid: r2(paid), tradeDeal: paidQty > 0 && freeQty > 0,
-            realCost: paidQty + freeQty > 0 ? r2(paid / (paidQty + freeQty)) : null };
-        }) };
+        costs[c] = { date: day, docs: purchaseDocs(rows) };
       } catch (e) { console.warn('cardex', c, e); }
     }));
   }
@@ -302,6 +289,112 @@ async function poData(sups: string[], from: string, to: string) {
   const days = Math.round((new Date(to + 'T00:00:00Z').getTime() - new Date(from + 'T00:00:00Z').getTime()) / 864e5) + 1;
   return { from, to, days, items: list.map(it => ({ ...it, ...(info[it.code] || {}), description: (info[it.code]?.description as string) || it.description, last: costs[it.code] ?? null,
     soldSinceLast: lastOf(it.code) ? Math.round((since[it.code] || 0) * 1000) / 1000 : null, sinceFrom: lastOf(it.code) ? (lastOf(it.code) < yearAgo ? yearAgo : lastOf(it.code)) : null })), today };
+}
+
+/* ---------------- Performance & Pricing (owner, 2026-10-06) ---------------- */
+const isDay = (d: unknown) => /^\d{4}-\d{2}-\d{2}$/.test(String(d || ''));
+const beirutToday = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Beirut' });
+const plusDays = (d: string, k: number) => { const x = new Date(d + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() + k); return x.toISOString().slice(0, 10); };
+const byYear = (from: string, to: string) => { const out: string[][] = []; for (let y = Number(from.slice(0, 4)); y <= Number(to.slice(0, 4)); y++) out.push([String(y) === from.slice(0, 4) ? from : `${y}-01-01`, String(y) === to.slice(0, 4) ? to : `${y}-12-31`]); return out; };
+const branchRows = (d: unknown) => (((d as Record<string, unknown>)?.data as Record<string, unknown>)?.branches as Record<string, Record<string, unknown>[]>)?.[BRANCH] || [];
+async function report(kind: 'sales' | 'purchases', from: string, to: string, extra: Record<string, unknown>) {
+  const rows: Record<string, unknown>[] = [];
+  for (const [f, t] of byYear(from, to)) {
+    const d = await dash(kind === 'sales' ? '/items_sales' : '/items_purchases', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+      branches: [BRANCH], year: f.slice(0, 4), from_date: f, to_date: t, aggregation: 'Monthly', ...extra }) });
+    rows.push(...branchRows(d));
+  }
+  return rows;
+}
+// every supplier: purchases vs sales in the period
+async function perfSuppliers(from: string, to: string) {
+  const [p, sl] = await Promise.all([report('purchases', from, to, { group_by: ['supplier'] }), report('sales', from, to, { group_by: ['supplier'] })]);
+  const m = new Map<string, { code: string; name: string; bought: number; boughtQty: number; sold: number; soldQty: number }>();
+  const get = (r: Record<string, unknown>) => { const c = String(r.supplier ?? '').trim() || '?'; let x = m.get(c); if (!x) { x = { code: c, name: String(r.supplier_desc ?? '').trim() || 'No supplier', bought: 0, boughtQty: 0, sold: 0, soldQty: 0 }; m.set(c, x); } return x; };
+  p.forEach(r => { const x = get(r); x.bought += Number(r.total_purchases || 0); x.boughtQty += Number(r.total_quantity || 0); });
+  sl.forEach(r => { const x = get(r); x.sold += Number(r.total_sales || 0); x.soldQty += Number(r.total_quantity || 0); });
+  return { from, to, suppliers: [...m.values()] };
+}
+// one supplier: per item and per month
+async function perfSupplier(sup: string, from: string, to: string) {
+  const [p, sl] = await Promise.all([report('purchases', from, to, { group_by: ['item'], supplier: [sup] }), report('sales', from, to, { group_by: ['item'], supplier: [sup] })]);
+  const items = new Map<string, { code: string; description: string; bought: number; boughtQty: number; sold: number; soldQty: number }>();
+  const months: Record<string, { bought: number; sold: number }> = {};
+  const get = (r: Record<string, unknown>) => { const c = String(r.item ?? '').trim(); let x = items.get(c); if (!x) { x = { code: c, description: String(r.item_desc ?? '').trim(), bought: 0, boughtQty: 0, sold: 0, soldQty: 0 }; items.set(c, x); } return x; };
+  const mon = (r: Record<string, unknown>) => { const k = String(r.period || '').slice(0, 7); return months[k] = months[k] || { bought: 0, sold: 0 }; };
+  p.forEach(r => { const x = get(r), v = Number(r.total_purchases || 0); x.bought += v; x.boughtQty += Number(r.total_quantity || 0); mon(r).bought += v; });
+  sl.forEach(r => { const x = get(r), v = Number(r.total_sales || 0); x.sold += v; x.soldQty += Number(r.total_quantity || 0); mon(r).sold += v; });
+  return { from, to, supplier: sup, items: [...items.values()], months };
+}
+// the purchase lines of a cardex, per document; a paid line + a 100% discount line = a trade deal
+function purchaseDocs(rows: Record<string, unknown>[]) {
+  const r4 = (n: number) => Math.round(n * 10000) / 10000;
+  const docs = new Map<string, Record<string, unknown>[]>();
+  rows.forEach(r => { const k = String(r.document_no || r.document_number || '?'); if (!docs.has(k)) docs.set(k, []); docs.get(k)!.push(r); });
+  return [...docs.entries()].map(([doc, ls]) => {
+    const lines = ls.map(r => {
+      const up = Number(r.unit_price || 0), net = Math.abs(Number(r.net_unit_price || 0)) < 0.005 ? 0 : Number(r.net_unit_price || 0);
+      return { qty: r4(Number(r.qty_in || 0)), unit: r4(up), net: r4(net), total: r4(Number(r.line_total || 0)), discountPct: up > 0 ? Math.round((1 - net / up) * 100) : 0, free: net === 0 };
+    });
+    const paidQty = lines.filter(l => !l.free).reduce((t, l) => t + l.qty, 0), freeQty = lines.filter(l => l.free).reduce((t, l) => t + l.qty, 0);
+    const paid = lines.reduce((t, l) => t + l.total, 0);
+    return { doc, supplier: String(ls[0].details || ''), currency: String(ls[0].currency || '$'), lines, paidQty: r4(paidQty), freeQty: r4(freeQty), paid: r4(paid),
+      tradeDeal: paidQty > 0 && freeQty > 0, realCost: paidQty + freeQty > 0 ? r4(paid / (paidQty + freeQty)) : null };
+  });
+}
+const isPurchase = (r: Record<string, unknown>) => (String(r.operation_code) === '15' || /purchase/i.test(String(r.operation_label || ''))) && Number(r.qty_in || 0) > 0;
+// the suppliers that delivered on a day
+async function pricingDay(day: string) {
+  const d = await dash('/items_purchases', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+    branches: [BRANCH], year: day.slice(0, 4), from_date: day, to_date: day, aggregation: 'Daily', group_by: ['item', 'supplier'] }) });
+  const m = new Map<string, { code: string; name: string; items: number; qty: number; value: number }>();
+  branchRows(d).forEach(r => { const c = String(r.supplier ?? '').trim() || '?'; const x = m.get(c) || { code: c, name: String(r.supplier_desc ?? '').trim() || 'No supplier', items: 0, qty: 0, value: 0 };
+    x.items++; x.qty += Number(r.total_quantity || 0); x.value += Number(r.total_purchases || 0); m.set(c, x); });
+  return { day, suppliers: [...m.values()].sort((a, b) => b.value - a.value) };
+}
+// one supplier's deliveries of a day, line by line: the PU, the prices, the previous purchase, the stock we had
+async function pricingSupplier(day: string, sup: string) {
+  const key = (c: string) => c.replace(/^0+(?=\d)/, '').toUpperCase();
+  const d = await dash('/items_purchases', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+    branches: [BRANCH], year: day.slice(0, 4), from_date: day, to_date: day, aggregation: 'Daily', group_by: ['item'], supplier: [sup] }) });
+  const items = new Map<string, string>();
+  branchRows(d).forEach(r => { const c = String(r.item ?? '').trim(); if (c) items.set(c, String(r.item_desc ?? '').trim()); });
+  const codes = [...items.keys()].slice(0, 150);
+  // the 90 days before the day: units sold (one report for all the items)
+  const salesDays = 90, sold: Record<string, number> = {};
+  const codeOf = new Map(codes.map(c => [key(c), c]));
+  try {
+    (await report('sales', plusDays(day, -90), plusDays(day, -1), { group_by: ['item'], item: codes }))
+      .forEach(r => { const c = codeOf.get(key(String(r.item ?? ''))); if (c) sold[c] = (sold[c] || 0) + Number(r.total_quantity || 0); });
+  } catch (e) { console.warn('pricing sales', e); }
+  // the previous purchase (before the day), and per item: that day's cardex (the PU lines, the stock we had) and its price now
+  const prevP = lastCosts(codes, plusDays(day, -1));
+  const out: Record<string, Record<string, unknown>> = {};
+  for (let i = 0; i < codes.length; i += 8) {
+    await Promise.all(codes.slice(i, i + 8).map(async c => {
+      const it: Record<string, unknown> = { code: c, description: items.get(c), salesDays, soldBefore: Math.round((sold[c] || 0) * 1000) / 1000 };
+      await Promise.all([
+        (async () => { try {
+          const cx = await dash(`/item-cardex?${new URLSearchParams({ branch: BRANCH, item_code: c, year: day.slice(0, 4), from_date: day, to_date: day })}`) as Record<string, unknown>;
+          const today = ((((cx.data as Record<string, unknown>)?.rows || []) as Record<string, unknown>[])).filter(isPurchase);
+          it.docs = purchaseDocs(today);
+          it.barcode = String(today[0]?.barcode ?? '').trim();
+          it.stockBefore = today[0] ? Math.round((Number(today[0].running_balance ?? 0) - Number(today[0].qty_in || 0)) * 1000) / 1000 : null;
+        } catch (e) { console.warn('pricing cardex', c, e); it.docs = []; } })(),
+        (async () => { try {
+          const pc = await dash(`/item-price-checker?${new URLSearchParams({ search: c, year: year(), branches: BRANCH })}`) as Record<string, unknown>;
+          const hit = (Object.values(((pc.branches as Record<string, Record<string, unknown[]>>) || {})[BRANCH] || {}).flat() as Record<string, unknown>[]).find(r => key(String(r.ItemCode ?? '')) === key(c));
+          if (hit) { it.salePrice = unitSale(hit); it.pack = hit.Pack ?? null; it.stockNow = hit.AvailableQuantity ?? null; it.pcBarcode = String(hit.Barcode ?? '').trim(); }
+        } catch (e) { console.warn('pricing price', c, e); } })(),
+      ]);
+      if (!it.barcode) it.barcode = it.pcBarcode || '';
+      delete it.pcBarcode;
+      out[c] = it;
+    }));
+  }
+  const prev = await prevP;
+  codes.forEach(c => { if (out[c] && prev[c]) out[c].prev = prev[c]; });
+  return { day, supplier: sup, items: codes.map(c => out[c]).filter(Boolean), truncated: items.size > codes.length };
 }
 
 Deno.serve(async req => {
@@ -427,6 +520,26 @@ Deno.serve(async req => {
     }
     // A promotion's results (owner, 2026-10-06): units and sales per item over its dates, and over the same number
     // of days just before (the baseline). Up to 300 codes; periods within one year each.
+    // Performance (supplier sales vs purchases) and Pricing (a day's purchases checked), owner 2026-10-06: vendors.manage
+    if (['perf_suppliers', 'perf_supplier', 'pricing_day', 'pricing_supplier'].includes(String(body.action))) {
+      if (!isServer && role !== 'admin') {
+        const anon = Deno.env.get('SUPABASE_ANON_KEY') || '';
+        const asUser = createClient(SUPABASE_URL, anon, { global: { headers: { Authorization: `Bearer ${bearer}` } }, auth: { persistSession: false, autoRefreshToken: false } });
+        const { data: okPerm } = await asUser.rpc('has_perm', { p_perms: ['vendors.manage'] });
+        if (!okPerm) return json({ error: 'Not allowed.' }, 403);
+      }
+      const from = String(body.from || ''), to = String(body.to || ''), day = String(body.day || '');
+      if (body.action === 'perf_suppliers' || body.action === 'perf_supplier') {
+        if (!isDay(from) || !isDay(to) || from > to || Number(to.slice(0, 4)) - Number(from.slice(0, 4)) > 1) return json({ error: 'Choose dates within two years.' }, 400);
+        if (body.action === 'perf_suppliers') return json(await perfSuppliers(from, to));
+        if (!body.supplier) return json({ error: 'Choose a supplier.' }, 400);
+        return json(await perfSupplier(String(body.supplier), from, to));
+      }
+      if (!isDay(day) || day > beirutToday()) return json({ error: 'Choose a day.' }, 400);
+      if (body.action === 'pricing_day') return json(await pricingDay(day));
+      if (!body.supplier) return json({ error: 'Choose a supplier.' }, 400);
+      return json(await pricingSupplier(day, String(body.supplier)));
+    }
     if (body.action === 'sales_compare') {
       const codes = [...new Set((Array.isArray(body.codes) ? body.codes : []).map(c => String(c).trim()).filter(Boolean))].slice(0, 300);
       const okDate = (d: unknown) => /^\d{4}-\d{2}-\d{2}$/.test(String(d || ''));

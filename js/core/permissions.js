@@ -58,7 +58,7 @@ const PERMISSION_KEYS = PERMISSIONS.map(p => p[0]);
 // Which permissions open which section of the app (any one of them is enough).
 const SECTION_PERMS = {
   sellouts: ['sellouts.view'], onlinepromo: ['sellouts.online', 'sellouts.view'], creditnotes: ['creditnotes.view'], promotions: ['promotions.view'],
-  vendors: ['vendors.manage', 'vendors.receive'], rentals: ['rentals.view', 'rentals.map'],
+  vendors: ['vendors.manage', 'vendors.receive'], performance: ['vendors.manage'], pricing: ['vendors.manage'], rentals: ['rentals.view', 'rentals.map'],
   delivery: ['delivery.orders', 'delivery.settle', 'delivery.customers', 'delivery.reports', 'delivery.manage'],
   cash: ['cash.view'], cashcount: ['cashcount.count', 'cashcount.reconcile', 'cashcount.view'], floorcheck: ['floorcheck.do', 'floorcheck.manage', 'rentals.spotcheck'],
   labels: ['labels.scan', 'labels.print'], activity: ['activity.view'], tools: ['tools.convert'], promoladies: ['promoladies.manage'], schedule: ['schedule.manage', 'schedule.edit'], staff: ['staff.manage'],

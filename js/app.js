@@ -1257,6 +1257,8 @@ const PAGES = {
   creditnotes: { eyebrow: 'Tracker', title: 'Credit notes', sub: 'Every credit note logged against your suppliers, issued or signed.' },
   promotions:  { eyebrow: 'Builder', title: 'Promotions', sub: 'Look up items by code, build a flyer, and export it when it’s ready.' },
   vendors:     { eyebrow: 'Suppliers', title: 'Vendors', sub: 'Salesmen, order days, deliveries and receiving.' },
+  performance: { eyebrow: 'Suppliers', title: 'Performance', sub: 'A supplier\u2019s sales against its purchases, for the dates you choose, from the system.' },
+  pricing:     { eyebrow: 'Suppliers', title: 'Pricing', sub: 'A day\u2019s purchases, PU by PU: price changes since the last purchase, and items that arrived with over 2 months of stock.' },
   rentals:     { eyebrow: 'Store map', title: 'Rentals', sub: 'Every rented spot on the store map: its contract, billing, renewal and the supplier’s sales.' },
   delivery:    { eyebrow: 'Deliveries', title: 'Delivery', sub: 'Home-delivery orders, driver payments and customers.' },
   cashcount:   { eyebrow: 'Cashiers', title: 'Cash count', sub: 'Count a drawer, have the cashier sign, reconcile it with the system.' },
@@ -1289,6 +1291,8 @@ function switchTab(name, sub) {
   if (name === 'cashcount' && window.CashCount) CashCount.show();
   if (name === 'dashboard' && window.Dashboard) Dashboard.show();
   if (name === 'floorcheck' && window.FloorCheck) FloorCheck.show();
+  if (name === 'performance' && window.Performance) Performance.show();
+  if (name === 'pricing' && window.Pricing) Pricing.show();
   if (name === 'labels' && window.Labels) Labels.show();
   if (name === 'onlinepromo' && window.OnlinePromo) OnlinePromo.show();
   if (name === 'tools' && window.Tools) Tools.show();
