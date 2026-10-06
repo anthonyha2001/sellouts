@@ -29,6 +29,9 @@
    The supplier's contract (owner, 2026-10-06; Vendors › Contract terms, migration 068): its back margins on
    the PU; a line without the on-invoice % is flagged; net-net = net (real cost on a trade deal) minus the
    on-statement %, and the margin on the sale price.
+   Sale price vs cost (owner, 2026-10-06): the PU's prices are without VAT; the VAT comes on top (11% of qty x price
+   on the PU in the system). Cost incl. VAT = (the item's amount on the PU + its VAT) / all its units (free ones
+   too); against the sale price: profit per unit and margin (net-net incl. VAT too with a contract).
    Keys: up / down move along the rows, left / right go to the previous /
    next PU, Enter opens the item's details.
    Permission: vendors.manage.  Public API: window.Pricing = { show }.
@@ -299,7 +302,6 @@
   // the on-invoice % of the contract, not found on a PU line (its discount, plus the PU's own discount)
   const invoiceMissing = (r, pu, cs) => !!(cs && cs.invoicePct > 0 && pu.kind !== 'return' && r.paid && !r.generic
     && n(r.paid.discountPct) + n(pu.info && !pu.info.failed ? pu.info.discountPct : 0) + 0.5 < cs.invoicePct);
-  const netNet = (r, cs) => { const base = r.doc.tradeDeal && r.real !== null ? r.real : r.net; return base === null || base === undefined ? null : n(base) * (1 - n(cs?.statementPct) / 100); };
   const sameCur = (a, b) => isLbp(a) === isLbp(b);
   function paintPu() {
     steps(2);
@@ -331,7 +333,7 @@
       <div class="pr-selbar" id="prSelBar" aria-live="polite"></div>
       <div class="pr-foot">
         <div class="pr-total"><span>${pu.kind === 'return' ? 'Total returned' : 'Total'} ${esc(pu.doc)}</span><b>${price(pu.info && !pu.info.failed ? (pu.kind === 'return' ? -pu.info.withVat : pu.info.withVat) : pu.total, cur)} ${esc(cur || '$')}</b>
-          ${pu.info && !pu.info.failed ? `<div class="pr-vatline">without VAT ${price(pu.info.withoutVat, cur)} · VAT ${price(pu.info.vat, cur)}${pu.info.discountPct ? ` · discount ${pu.info.discountPct}%` : ''}</div>` : ''}</div>
+          ${pu.info && !pu.info.failed ? `<div class="pr-vatline">+ VAT ${price(pu.info.vat, cur)} = ${price(n(pu.info.withVat) + n(pu.info.vat), cur)} with VAT${pu.info.discountPct ? ` · discount ${pu.info.discountPct}%` : ''}</div>` : ''}</div>
         <div class="pr-flags">
           ${(() => { const lost = (S.cache.get(sups()[S.supIdx]?.code)?.items || []).filter(i => i.cardexFailed && !(i.docs || []).length); return lost.length ? `<div class="login-err">${lost.length} item${lost.length === 1 ? '' : 's'} of this supplier could not be read from the system (${esc(lost.slice(0, 6).map(i => i.description || i.code).join(', '))}): open the supplier again.</div>` : ''; })()}
           ${pu.mismatch.length ? `<div class="login-err">The PU in the system differs from these lines on ${pu.mismatch.length} item${pu.mismatch.length === 1 ? '' : 's'} (${esc(pu.mismatch.slice(0, 6).join(', '))}): check the PU in the system.</div>` : ''}
@@ -418,9 +420,15 @@
     const bar = el('prSelBar'); if (!bar) return;
     const pu = S.pus[S.puIdx], r = pu?.rows[S.sel]; if (!r) { bar.innerHTML = ''; return; }
     const cur = pu.currency, it = r.it, cs = contractOf(sups()[S.supIdx]?.code);
-    const nn = cs ? netNet(r, cs) : null, sp = it.salePrice, cmp = sp && nn !== null && sameCur(it.saleCurrency || '$', cur) ? (n(sp) - nn) / n(sp) : null;
     const kk = c => String(c).replace(/^0+(?=\d)/, '').toUpperCase();
     const vi = S.cache.get(sups()[S.supIdx]?.code)?.docInfo?.[pu.doc]?.items?.[kk(it.code)];
+    // the cost with its VAT, from the PU in the system (the item's lines: amount + VAT, over all its units)
+    const base = r.doc.tradeDeal && r.real !== null ? r.real : r.net;
+    const units = vi ? n(vi.qty) : 0, vatUnit = vi && units > 0 ? n(vi.vat) / units : null;
+    const costVat = vi && units > 0 ? (n(vi.withVat) + n(vi.vat)) / units : base === null || base === undefined ? null : (it.vat ? null : n(base));
+    const nnVat = costVat !== null && cs && cs.statementPct ? costVat * (1 - n(cs.statementPct) / 100) : null;
+    const sp = it.salePrice, same = !!sp && costVat !== null && sameCur(it.saleCurrency || '$', cur) && pu.kind !== 'return';
+    const profit = same ? n(sp) - costVat : null, cmp = same ? profit / n(sp) : null, cmpNN = same && nnVat !== null ? (n(sp) - nnVat) / n(sp) : null;
     const np = S.np.get(it.code);
     const cell = (label, value, sub = '') => `<div class="pr-sel-cell"><span>${label}</span><b>${value}</b>${sub ? `<small>${sub}</small>` : ''}</div>`;
     const tags = [
@@ -442,8 +450,10 @@
         ${cell('Difference', r.pending ? '…' : r.generic ? 'catch-all' : r.otherCurrency ? 'other currency' : (diffHtml(r.diffNet, r.prev?.net, cur) || '—'))}
         ${cell('VAT', it.vat === undefined ? (r.pending ? '…' : '—') : it.vat ? 'Yes' : 'No', vi ? `${price(Math.abs(vi.vat), cur)} on ${price(Math.abs(vi.withVat), cur)}` : '')}
         ${cell('Stock we had', r.had === null ? '—' : qty(r.had), r.pending ? '' : r.daysHad !== null ? Math.round(r.daysHad) + ' days' : r.had > 0.001 && !(r.perDay > 0) ? 'no sales in 90 days' : '')}
-        ${cs && cs.statementPct ? cell('Net-net cost', nn === null ? '—' : price(nn, cur), `net - ${cs.statementPct}% on statement`) : ''}
-        ${cmp !== null ? cell('Margin', `<span class="${cmp < 0 ? 'prc-up' : ''}">${Math.round(cmp * 1000) / 10}%</span>`, cs && cs.statementPct ? 'on the net-net cost' : 'on the net') : ''}
+        ${cell('Cost incl. VAT', costVat === null ? (r.pending ? '…' : '—') : price(costVat, cur), vatUnit !== null ? (vatUnit > 0 ? `${price(base, cur)} + VAT ${price(vatUnit, cur)}` : 'no VAT on the PU') : it.vat ? 'VAT not read' : '')}
+        ${nnVat !== null ? cell('Net-net incl. VAT', price(nnVat, cur), `minus ${cs.statementPct}% on statement`) : ''}
+        ${profit !== null ? cell('Profit / unit', `<span class="${profit < 0 ? 'prc-up' : ''}">${price(profit, cur)}</span>`, cmpNN !== null ? `${price(n(sp) - nnVat, cur)} on the net-net` : '') : ''}
+        ${cmp !== null ? cell('Margin', `<span class="${cmp < 0 ? 'prc-up' : ''}">${Math.round(cmp * 1000) / 10}%</span>`, cmpNN !== null ? `${Math.round(cmpNN * 1000) / 10}% on the net-net` : 'sale price vs cost incl. VAT') : ''}
         ${cell('Sale price now', r.pending ? '…' : it.salePrice ? price(it.salePrice, it.saleCurrency || '$') : '—', it.saleCurrency || '')}
         ${cell('New sale price', np ? price(np.newPrice, np.currency) : '—', np ? [np.oldPrice ? (np.newPrice > np.oldPrice ? '+' : '') + (Math.round((np.newPrice - np.oldPrice) / np.oldPrice * 1000) / 10) + '%' : '', np.sent ? 'sent to the floor' : 'not sent yet'].filter(Boolean).join(' · ') : '')}
       </div>`;
