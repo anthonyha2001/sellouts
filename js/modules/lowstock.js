@@ -30,12 +30,16 @@
     const watched = vendorsList.filter(v => v.watchStock);
     const byV = new Map(); S.alerts.forEach(a => { if (!byV.has(a.vendor_id)) byV.set(a.vendor_id, []); byV.get(a.vendor_id).push(a); });
     box.innerHTML = `
+      ${window.PurchaseOrder ? `<div class="card ls-po-start"><b>Purchase order</b> for any vendor:
+        <select id="lsPoVendor"><option value="">Choose a vendor…</option>${vendorsList.slice().sort((a, b) => a.name.localeCompare(b.name)).map(v => `<option value="${esc(v.id)}">${esc(v.name)}${(v.systemSuppliers || []).length ? '' : ' (not linked)'}</option>`).join('')}</select>
+        <button type="button" class="btn small" id="lsPoGo">Open</button></div>` : ''}
       <div class="card ls-intro"><p style="margin:0;">Items of the suppliers you watch that are <b>running low</b>, from the system. Only items that sold in the last 30 days are followed. ${watched.length
         ? `<b>${watched.length}</b> supplier${watched.length === 1 ? '' : 's'} watched.` : 'No supplier is watched yet: edit a vendor in the Directory and tick <b>Watch stock</b>.'}</p></div>
       ${watched.map(v => {
         const list = byV.get(v.id) || [];
         return `<section class="card ls-vendor">
           <div class="ls-head"><div><h3>${esc(v.name)}</h3><span class="muted-note">${esc((v.systemSuppliers || []).map(s => s.name).join(', ') || 'no supplier linked')} · keep ${v.coverDays || ((v.leadTimeDays || 3) + 4)} days of stock · ${esc(ago(v.stockCheckedAt))}</span></div>
+            ${window.PurchaseOrder ? `<button type="button" class="btn small" data-ls-po="${esc(v.id)}">Purchase order</button>` : ''}
             ${isAdmin() ? `<button type="button" class="icon-btn" data-ls-check="${esc(v.id)}" title="Check now" aria-label="Check now"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/></svg></button>` : ''}</div>
           ${list.length ? `<div class="items-scroll" style="margin:0;"><table class="items ls-table"><thead><tr><th>Code</th><th>Item</th><th class="num">Stock</th><th class="num">Sells / day</th><th class="num">Days left</th><th>Since</th></tr></thead>
             <tbody>${list.map(a => `<tr data-ls-code="${esc(a.code)}"><td class="mono">${esc(a.code)}</td><td>${esc(a.description || '')}</td>
@@ -56,6 +60,13 @@
       await loadVendorsData(); await load(); render();
       if (window.VendorCal) VendorCal.renderStats();
     });
+    box.querySelectorAll('[data-ls-po]').forEach(b => b.onclick = () => PurchaseOrder.open({ vendor: vendorsList.find(v => v.id === b.dataset.lsPo) }));
+    el('lsPoGo')?.addEventListener('click', () => {
+      const v = vendorsList.find(x => x.id === el('lsPoVendor').value);
+      if (!v) return showToast('Choose a vendor.', true);
+      if (!(v.systemSuppliers || []).length) return showToast(`Link ${v.name} to its supplier in the system first: Directory › edit › Watch stock › Supplier in the system.`, true);
+      PurchaseOrder.open({ vendor: v });
+    });
     box.querySelectorAll('tr[data-ls-code]').forEach(tr => tr.ondblclick = () => window.ItemDetail && ItemDetail.open(tr.dataset.lsCode));
   }
 
@@ -71,7 +82,7 @@
       el('vendorSysChosen').innerHTML = picked.map((s, i) => `<span class="ip-chip">${esc(s.name)}<button type="button" data-unpick="${i}" aria-label="Remove">×</button></span>`).join('') || '<span class="muted-note">No supplier linked.</span>';
       el('vendorSysChosen').querySelectorAll('[data-unpick]').forEach(b => b.onclick = () => { picked.splice(Number(b.dataset.unpick), 1); paintPicked(); });
     };
-    const sync = () => { box.querySelector('.vw-more').hidden = !el('vendorWatch').checked; };
+    const sync = () => { box.querySelector('.vw-more').hidden = false; el('vendorCover').disabled = !el('vendorWatch').checked; };   // the supplier link serves purchase orders too
     el('vendorWatch').onchange = () => {
       sync();
       if (el('vendorWatch').checked && !picked.length && !el('vendorSysQ').value) { el('vendorSysQ').value = el('vendorName').value.trim().split(/\s+/)[0] || ''; search(); }
@@ -94,7 +105,7 @@
   }
   function readForm() {
     const cover = Number(el('vendorCover')?.value || 0);
-    return { watchStock: !!el('vendorWatch')?.checked && picked.length > 0, systemSuppliers: picked.slice(), coverDays: cover > 0 ? Math.round(cover) : null };
+    return { watchStock: !!el('vendorWatch')?.checked && picked.length > 0, systemSuppliers: picked.slice(), coverDays: cover > 0 ? Math.round(cover) : null };   // the link is kept even when not watched (purchase orders use it)
   }
 
   window.LowStock = { render, wireForm, readForm, openCount, reload: async () => { await load(); } };

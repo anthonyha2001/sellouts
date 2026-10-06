@@ -195,6 +195,93 @@ async function stockWatch(onlyVendor?: string) {
   return { checked: done };
 }
 
+/* ---------------- last purchase (shared: Audit, credit note, purchase order) ----------------
+   The last purchase day (on or before `until`, this year else last year) and that day's purchase lines from
+   the item cardex, per document; a paid line + a 100% discount line = a trade deal, real cost = paid / all units. */
+async function lastCosts(codes: string[], until?: string): Promise<Record<string, unknown>> {
+  const key = (c: string) => c.replace(/^0+(?=\d)/, '').toUpperCase();
+  // until (optional): the last purchase on or before that day (a sell-out's credit note uses its last day)
+  const now = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Beirut' });
+  const today = /^\d{4}-\d{2}-\d{2}$/.test(String(until || '')) && String(until) < now ? String(until) : now, y = Number(today.slice(0, 4));
+  const last: Record<string, string> = {};
+  const byItem = (d: unknown) => (((d as Record<string, unknown>)?.data as Record<string, unknown>)?.branches as Record<string, Record<string, unknown>[]>)?.[BRANCH] || [];
+  for (const yr of [y, y - 1]) {
+    const want = codes.filter(c => !last[c]); if (!want.length) break;
+    try {
+      const d = await dash('/items_purchases', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+        branches: [BRANCH], year: String(yr), from_date: `${yr}-01-01`, to_date: yr === y ? today : `${yr}-12-31`, aggregation: 'Daily', group_by: ['item'], item: want }) });
+      const codeOf = new Map(want.map(c => [key(c), c]));
+      byItem(d).forEach(r => { const c = codeOf.get(key(String(r.item ?? ''))); if (c && Number(r.total_quantity || 0) > 0 && String(r.period) > String(last[c] || '')) last[c] = String(r.period); });
+    } catch (e) { console.warn('last purchase', yr, e); }
+  }
+  const r2 = (n: number) => Math.round(n * 10000) / 10000;
+  const costs: Record<string, unknown> = {};
+  const todo = Object.keys(last);
+  for (let i = 0; i < todo.length; i += 6) {
+    await Promise.all(todo.slice(i, i + 6).map(async c => {
+      const day = last[c];
+      try {
+        const d = await dash(`/item-cardex?${new URLSearchParams({ branch: BRANCH, item_code: c, year: day.slice(0, 4), from_date: day, to_date: day })}`) as Record<string, unknown>;
+        const rows = (((d.data as Record<string, unknown>)?.rows || []) as Record<string, unknown>[])
+          .filter(r => String(r.operation_code) === '15' || /purchase/i.test(String(r.operation_label || '')))
+          .filter(r => Number(r.qty_in || 0) > 0);
+        const docs = new Map<string, Record<string, unknown>[]>();
+        rows.forEach(r => { const k = String(r.document_no || r.document_number || '?'); if (!docs.has(k)) docs.set(k, []); docs.get(k)!.push(r); });
+        costs[c] = { date: day, docs: [...docs.entries()].map(([doc, ls]) => {
+          const lines = ls.map(r => {
+            const up = Number(r.unit_price || 0), net = Math.abs(Number(r.net_unit_price || 0)) < 0.005 ? 0 : Number(r.net_unit_price || 0);
+            return { qty: r2(Number(r.qty_in || 0)), unit: r2(up), net: r2(net), total: r2(Number(r.line_total || 0)),
+              discountPct: up > 0 ? Math.round((1 - net / up) * 100) : 0, free: net === 0 };
+          });
+          const paidQty = lines.filter(l => !l.free).reduce((t, l) => t + l.qty, 0), freeQty = lines.filter(l => l.free).reduce((t, l) => t + l.qty, 0);
+          const paid = lines.reduce((t, l) => t + l.total, 0);
+          return { doc, supplier: String(ls[0].details || ''), currency: String(ls[0].currency || '$'), lines,
+            paidQty: r2(paidQty), freeQty: r2(freeQty), paid: r2(paid), tradeDeal: paidQty > 0 && freeQty > 0,
+            realCost: paidQty + freeQty > 0 ? r2(paid / (paidQty + freeQty)) : null };
+        }) };
+      } catch (e) { console.warn('cardex', c, e); }
+    }));
+  }
+  codes.forEach(c => { if (!(c in costs)) costs[c] = null; });
+  return costs;
+}
+
+/* ---------------- purchase order data (owner, 2026-10-06) ---------------- */
+async function poData(sups: string[], from: string, to: string) {
+  const key = (c: string) => c.replace(/^0+(?=\d)/, '').toUpperCase();
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Beirut' }), y = today.slice(0, 4);
+  const items = new Map<string, { code: string; description: string; sold: number; soldValue: number; bought: number }>();
+  const rowsOf = (d: unknown) => (((d as Record<string, unknown>)?.data as Record<string, unknown>)?.branches as Record<string, Record<string, unknown>[]>)?.[BRANCH] || [];
+  const pieces = from.slice(0, 4) === to.slice(0, 4) ? [[from, to]] : [[from, `${from.slice(0, 4)}-12-31`], [`${to.slice(0, 4)}-01-01`, to]];
+  for (const [f, t] of pieces) {
+    const d = await dash('/items_sales', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+      branches: [BRANCH], year: f.slice(0, 4), from_date: f, to_date: t, aggregation: 'Monthly', group_by: ['item'], supplier: sups }) });
+    rowsOf(d).forEach(r => { const c = String(r.item ?? '').trim(); if (!c) return; const it = items.get(c) || { code: c, description: String(r.item_desc ?? '').trim(), sold: 0, soldValue: 0, bought: 0 };
+      it.sold += Number(r.total_quantity || 0); it.soldValue += Number(r.total_sales || 0); items.set(c, it); });
+  }
+  try {   // items bought this year that did not sell in the period still belong to the supplier's list
+    const d = await dash('/items_purchases', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+      branches: [BRANCH], year: y, from_date: `${y}-01-01`, to_date: today, aggregation: 'Monthly', group_by: ['item'], supplier: sups }) });
+    rowsOf(d).forEach(r => { const c = String(r.item ?? '').trim(); if (!c) return; const it = items.get(c) || { code: c, description: String(r.item_desc ?? '').trim(), sold: 0, soldValue: 0, bought: 0 };
+      it.bought += Number(r.total_quantity || 0); items.set(c, it); });
+  } catch (e) { console.warn('po bought', e); }
+  const list = [...items.values()].sort((a, b) => b.sold - a.sold || b.bought - a.bought).slice(0, 120);
+  const info: Record<string, Record<string, unknown>> = {};
+  for (let i = 0; i < list.length; i += 6) {
+    await Promise.all(list.slice(i, i + 6).map(async it => {
+      try {
+        const d = await dash(`/item-price-checker?${new URLSearchParams({ search: it.code, year: year(), branches: BRANCH })}`) as Record<string, unknown>;
+        const hit = (Object.values(((d.branches as Record<string, Record<string, unknown[]>>) || {})[BRANCH] || {}).flat() as Record<string, unknown>[]).find(r => key(String(r.ItemCode ?? '')) === key(it.code));
+        if (hit) info[it.code] = { barcode: String(hit.Barcode ?? '').trim(), pack: hit.Pack ?? null, stock: hit.AvailableQuantity ?? null, price: hit.Price ?? null, salePrice: unitSale(hit),
+          description: String(hit.Description ?? '').trim() };
+      } catch (e) { console.warn('po info', it.code, e); }
+    }));
+  }
+  const costs = await lastCosts(list.map(i => i.code));
+  const days = Math.round((new Date(to + 'T00:00:00Z').getTime() - new Date(from + 'T00:00:00Z').getTime()) / 864e5) + 1;
+  return { from, to, days, items: list.map(it => ({ ...it, ...(info[it.code] || {}), description: (info[it.code]?.description as string) || it.description, last: costs[it.code] ?? null })) };
+}
+
 Deno.serve(async req => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
@@ -305,51 +392,16 @@ Deno.serve(async req => {
     // both lines are given, and the real cost = what was paid / all the units received.
     if (body.action === 'last_cost') {
       const codes = [...new Set((Array.isArray(body.codes) ? body.codes : []).map(c => String(c).trim()).filter(Boolean))].slice(0, 60);
-      const key = (c: string) => c.replace(/^0+(?=\d)/, '').toUpperCase();
-      // until (optional): the last purchase on or before that day (a sell-out's credit note uses its last day)
-      const now = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Beirut' });
-      const today = /^\d{4}-\d{2}-\d{2}$/.test(String(body.until || '')) && String(body.until) < now ? String(body.until) : now, y = Number(today.slice(0, 4));
-      const last: Record<string, string> = {};
-      const byItem = (d: unknown) => (((d as Record<string, unknown>)?.data as Record<string, unknown>)?.branches as Record<string, Record<string, unknown>[]>)?.[BRANCH] || [];
-      for (const yr of [y, y - 1]) {
-        const want = codes.filter(c => !last[c]); if (!want.length) break;
-        try {
-          const d = await dash('/items_purchases', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
-            branches: [BRANCH], year: String(yr), from_date: `${yr}-01-01`, to_date: yr === y ? today : `${yr}-12-31`, aggregation: 'Daily', group_by: ['item'], item: want }) });
-          const codeOf = new Map(want.map(c => [key(c), c]));
-          byItem(d).forEach(r => { const c = codeOf.get(key(String(r.item ?? ''))); if (c && Number(r.total_quantity || 0) > 0 && String(r.period) > String(last[c] || '')) last[c] = String(r.period); });
-        } catch (e) { console.warn('last purchase', yr, e); }
-      }
-      const r2 = (n: number) => Math.round(n * 10000) / 10000;
-      const costs: Record<string, unknown> = {};
-      const todo = Object.keys(last);
-      for (let i = 0; i < todo.length; i += 6) {
-        await Promise.all(todo.slice(i, i + 6).map(async c => {
-          const day = last[c];
-          try {
-            const d = await dash(`/item-cardex?${new URLSearchParams({ branch: BRANCH, item_code: c, year: day.slice(0, 4), from_date: day, to_date: day })}`) as Record<string, unknown>;
-            const rows = (((d.data as Record<string, unknown>)?.rows || []) as Record<string, unknown>[])
-              .filter(r => String(r.operation_code) === '15' || /purchase/i.test(String(r.operation_label || '')))
-              .filter(r => Number(r.qty_in || 0) > 0);
-            const docs = new Map<string, Record<string, unknown>[]>();
-            rows.forEach(r => { const k = String(r.document_no || r.document_number || '?'); if (!docs.has(k)) docs.set(k, []); docs.get(k)!.push(r); });
-            costs[c] = { date: day, docs: [...docs.entries()].map(([doc, ls]) => {
-              const lines = ls.map(r => {
-                const up = Number(r.unit_price || 0), net = Math.abs(Number(r.net_unit_price || 0)) < 0.005 ? 0 : Number(r.net_unit_price || 0);
-                return { qty: r2(Number(r.qty_in || 0)), unit: r2(up), net: r2(net), total: r2(Number(r.line_total || 0)),
-                  discountPct: up > 0 ? Math.round((1 - net / up) * 100) : 0, free: net === 0 };
-              });
-              const paidQty = lines.filter(l => !l.free).reduce((t, l) => t + l.qty, 0), freeQty = lines.filter(l => l.free).reduce((t, l) => t + l.qty, 0);
-              const paid = lines.reduce((t, l) => t + l.total, 0);
-              return { doc, supplier: String(ls[0].details || ''), currency: String(ls[0].currency || '$'), lines,
-                paidQty: r2(paidQty), freeQty: r2(freeQty), paid: r2(paid), tradeDeal: paidQty > 0 && freeQty > 0,
-                realCost: paidQty + freeQty > 0 ? r2(paid / (paidQty + freeQty)) : null };
-            }) };
-          } catch (e) { console.warn('cardex', c, e); }
-        }));
-      }
-      codes.forEach(c => { if (!(c in costs)) costs[c] = null; });
-      return json({ costs });
+      return json({ costs: await lastCosts(codes, body.until ? String(body.until) : undefined) });
+    }
+    // A purchase order for a supplier (owner, 2026-10-06): its items (sold in the period, or bought this year),
+    // code, description, barcode, pack, stock now, units sold in the period, the last purchase (date, quantity with
+    // its free units, price, trade deal). Up to 120 items.
+    if (body.action === 'po_data') {
+      const sups = (Array.isArray(body.suppliers) ? body.suppliers : []).map(String).filter(Boolean).slice(0, 10);
+      const ok = (d: unknown) => /^\d{4}-\d{2}-\d{2}$/.test(String(d || ''));
+      if (!sups.length || !ok(body.from) || !ok(body.to) || String(body.from) > String(body.to)) return json({ error: 'Choose the supplier and the period.' }, 400);
+      return json(await poData(sups, String(body.from), String(body.to)));
     }
     // A promotion's results (owner, 2026-10-06): units and sales per item over its dates, and over the same number
     // of days just before (the baseline). Up to 300 codes; periods within one year each.

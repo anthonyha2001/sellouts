@@ -297,7 +297,7 @@
         <button data-vsub="orders">Orders</button>
         <button data-vsub="calendar">Calendar</button>
         <button data-vsub="receiving">Receiving</button>
-        <button data-vsub="lowstock">Low stock</button>
+        <button data-vsub="lowstock">Low stock &amp; orders</button>
       </div>
       <div id="vendorLowStockView" style="display:none;"></div>
 
@@ -365,7 +365,7 @@
             <div class="full vw-box" id="vendorWatchBox">
               <label class="vw-check"><input type="checkbox" id="vendorWatch"> <span><b>Watch stock</b> — tell me when one of this supplier's selling items runs low</span></label>
               <div class="vw-more" hidden>
-                <label for="vendorSysQ">Supplier in the system</label>
+                <label for="vendorSysQ">Supplier in the system <span style="opacity:.6;">(for low stock and purchase orders)</span></label>
                 <div class="ip-chosen" id="vendorSysChosen"></div>
                 <input type="search" id="vendorSysQ" placeholder="Search the supplier in the system…" autocomplete="off">
                 <div class="vw-options" id="vendorSysOptions"></div>
@@ -1015,6 +1015,7 @@
 <script src="js/modules/pasteitems.js"></script>
 <script src="js/modules/itemdetail.js"></script>
 <script src="js/modules/lowstock.js"></script>
+<script src="js/modules/purchaseorder.js"></script>
 <script src="js/modules/tools.js"></script>
 <script src="js/modules/promoladies.js"></script>
 <script src="js/modules/schedule.js"></script>
