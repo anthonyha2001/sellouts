@@ -456,9 +456,10 @@ async function viewDoc(code: string, ret: boolean, yr = year()) {
   const v = d?.data as Record<string, unknown> | undefined;
   if (!v || !Array.isArray(v.lines)) return null;
   const key = (c: string) => c.replace(/^0+(?=\d)/, '').toUpperCase(), r4 = (n: number) => Math.round(n * 10000) / 10000;
-  const items: Record<string, { qty: number; vat: number; withVat: number; line: number }> = {};
+  const items: Record<string, { qty: number; vat: number; withVat: number; line: number; ls: { qty: number; unit: number; net: number; total: number; disc: number }[] }> = {};
   (v.lines as Record<string, unknown>[]).forEach((l, i) => { const k = key(String(l.item_code ?? '').trim()); const ln = Number(l.line_number) || i + 1;
-    const x = items[k] || { qty: 0, vat: 0, withVat: 0, line: ln }; if (ln < x.line) x.line = ln;
+    const x = items[k] || { qty: 0, vat: 0, withVat: 0, line: ln, ls: [] }; if (ln < x.line) x.line = ln;
+    x.ls.push({ qty: Number(l.quantity || 0), unit: Number(l.unit_price || 0), net: Number(l.net_unit_price || 0), total: Number(l.total_with_vat || 0), disc: Number(l.unit_discount_percent || 0) });
     x.qty = r4(x.qty + Number(l.quantity || 0)); x.vat = r4(x.vat + Number(l.vat_amount || 0)); x.withVat = r4(x.withVat + Number(l.total_with_vat || 0)); items[k] = x; });
   return { doc: String(v.document_code || code), date: String(v.document_date || ''), partner: String(v.partner_name || ''), currency: String(v.currency || ''),
     withVat: Number(v.total_with_vat || 0), withoutVat: Number(v.total_without_vat || 0), vat: Number(v.vat_amount || 0), discountPct: Number(v.total_percent_discount || 0),
@@ -494,7 +495,7 @@ async function pricingSupplier(day: string, sup: string, part = '', only: string
       it.docs = purchaseDocs(today);
       it.barcode = String(today[0]?.barcode ?? '').trim();
       it.stockBefore = today[0] ? Math.round((Number(today[0].running_balance ?? 0) - (isReturn(today[0]) ? -Math.abs(Number(today[0].qty_out || 0)) : Number(today[0].qty_in || 0))) * 1000) / 1000 : null;
-    } catch (e) { console.warn('pricing cardex', c, e); it.docs = []; }
+    } catch (e) { console.warn('pricing cardex', c, e); it.docs = []; it.cardexFailed = true; }
   });
   const more = async () => {
     const salesDays = 90, sold: Record<string, number> = {}, codeOf = new Map(codes.map(c => [key(c), c]));
@@ -524,9 +525,42 @@ async function pricingSupplier(day: string, sup: string, part = '', only: string
     }));
   }
   const docsOfLines = () => [...new Map(codes.flatMap(c => ((out[c].docs as Record<string, unknown>[]) || []).map(d => [String(d.doc), { doc: String(d.doc), ret: d.kind === 'return' }]))).values()];
-  if (part === 'lines') { await lines(); await readDocs(docsOfLines()); }
+  // a line is never lost: an item whose cardex failed is read again; still failing, its line comes from the PU itself
+  // (the document in the system: exact prices and quantities; only the stock we had is then unknown)
+  const recover = async () => {
+    const failed = codes.filter(c => out[c].cardexFailed);
+    for (let i = 0; i < failed.length; i += 4) await Promise.all(failed.slice(i, i + 4).map(async c => {
+      const it = out[c];
+      try {
+        const cx = await dash(`/item-cardex?${new URLSearchParams({ branch: BRANCH, item_code: c, year: day.slice(0, 4), from_date: day, to_date: day })}`) as Record<string, unknown>;
+        const all = ((((cx.data as Record<string, unknown>)?.rows || []) as Record<string, unknown>[])).filter(r => isPurchase(r) || isReturn(r));
+        const mine = name ? all.filter(r => supKey(r.details) === supKey(name)) : all, today = mine.length ? mine : all;
+        it.otherSuppliers = mine.length ? [...new Set(all.filter(r => !mine.includes(r)).map(r => supName(r.details)))] : [];
+        it.docs = purchaseDocs(today); it.barcode = String(today[0]?.barcode ?? '').trim();
+        it.stockBefore = today[0] ? Math.round((Number(today[0].running_balance ?? 0) - (isReturn(today[0]) ? -Math.abs(Number(today[0].qty_out || 0)) : Number(today[0].qty_in || 0))) * 1000) / 1000 : null;
+        delete it.cardexFailed;
+      } catch (e) { console.warn('pricing cardex again', c, e); }
+    }));
+  };
+  const fromDocs = () => {
+    const key = (c: string) => c.replace(/^0+(?=\d)/, '').toUpperCase(), r4 = (x: number) => Math.round(x * 10000) / 10000;
+    codes.filter(c => out[c].cardexFailed).forEach(c => {
+      const it = out[c], docs: Record<string, unknown>[] = [];
+      Object.values(docInfo).forEach(v0 => { const v = v0 as Record<string, unknown>; const x = (v.items as Record<string, { ls: { qty: number; unit: number; net: number; total: number; disc: number }[] }> | undefined)?.[key(c)];
+        if (!x || v.failed) return;
+        const ret = /^PT/.test(String(v.doc)), sign = ret ? -1 : 1;
+        const lines = x.ls.map(l => { const net = Math.abs(l.net) < 0.005 ? 0 : l.net; return { qty: r4(sign * l.qty), unit: r4(l.unit), net: r4(net), total: r4(sign * l.total),
+          discountPct: Math.round(l.disc) || (l.unit > 0 ? Math.round((1 - net / l.unit) * 100) : 0), free: net === 0 }; });
+        const paidQty = lines.filter(l => !l.free).reduce((t, l) => t + l.qty, 0), freeQty = lines.filter(l => l.free).reduce((t, l) => t + l.qty, 0), paid = lines.reduce((t, l) => t + l.total, 0);
+        docs.push({ doc: String(v.doc), kind: ret ? 'return' : 'purchase', supplier: String(v.partner || ''), currency: String(v.currency || ''), lines, paidQty: r4(paidQty), freeQty: r4(freeQty), paid: r4(paid),
+          tradeDeal: paidQty > 0 && freeQty > 0, realCost: paidQty + freeQty !== 0 ? r4(paid / (paidQty + freeQty)) : null, fromDocument: true });
+      });
+      if (docs.length) { it.docs = docs; it.stockBefore = null; it.fromDocument = true; }
+    });
+  };
+  if (part === 'lines') { await lines(); await recover(); await readDocs(docsOfLines()); fromDocs(); }
   else if (part === 'more') await more();
-  else { await Promise.all([lines(), more()]); await readDocs(docsOfLines()); }
+  else { await Promise.all([lines(), more()]); await recover(); await readDocs(docsOfLines()); fromDocs(); }
   codes.forEach(c => { const it = out[c]; if (part !== 'more' && !it.barcode && it.pcBarcode) it.barcode = it.pcBarcode; if (part !== 'more') delete it.pcBarcode; });
   return { day, supplier: sup, part: part || 'all', items: codes.map(c => out[c]), docs: docInfo, truncated };
 }

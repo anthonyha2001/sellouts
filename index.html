@@ -381,6 +381,22 @@
                 <input type="text" inputmode="numeric" id="vendorCover" style="max-width:140px;">
               </div>
             </div>
+            <!-- Contract terms: back margins (owner, 2026-10-06; js/modules/vendorcontract.js) -->
+            <div class="full vc-box" id="vendorContractBox">
+              <div class="vc-head"><b>Contract terms</b><span id="vcTotal"></span></div>
+              <label>Back margins <span style="opacity:.6;">(on invoice: deducted on every PU · on statement: credited on the account statement)</span></label>
+              <div id="vcMargins" class="vc-margins"></div>
+              <button type="button" class="btn ghost small" id="vcAdd">+ Add a back margin</button>
+              <div class="vc-grid">
+                <div><label for="vcPayDays">Payment (days)</label><input type="text" inputmode="numeric" id="vcPayDays" placeholder="e.g. 60"></div>
+                <div><label for="vcExpired">Expired goods taken back</label><select id="vcExpired"><option value="">—</option><option value="yes">Yes</option><option value="no">No</option></select></div>
+                <div><label for="vcMinOrder">Minimum order ($)</label><input type="text" inputmode="decimal" id="vcMinOrder" placeholder="e.g. 300"></div>
+                <div><label for="vcFrom">Contract from</label><input type="date" id="vcFrom"></div>
+                <div><label for="vcTo">to</label><input type="date" id="vcTo"></div>
+              </div>
+              <label for="vcNotes">Notes</label>
+              <textarea id="vcNotes" rows="2" placeholder="Anything else agreed (free goods, targets, conditions)"></textarea>
+            </div>
             <div>
               <label for="vendorAnchor">Anchor date <span style="opacity:.6;">(any date this vendor was scheduled)</span></label>
               <input type="date" id="vendorAnchor">
@@ -1030,6 +1046,7 @@
 <script src="js/modules/pasteitems.js"></script>
 <script src="js/modules/itemdetail.js"></script>
 <script src="js/modules/lowstock.js"></script>
+<script src="js/modules/vendorcontract.js"></script>
 <script src="js/modules/purchaseorder.js"></script>
 <script src="js/modules/performance.js"></script>
 <script src="js/modules/pricing.js"></script>

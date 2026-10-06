@@ -3976,7 +3976,8 @@ async function loadVendorsData() {
     leadTimeDays: r.lead_time_days === undefined ? null : r.lead_time_days,
     anchorDate: r.anchor_date || '',
     // low stock (migration 066)
-    watchStock: !!r.watch_stock, systemSuppliers: Array.isArray(r.system_suppliers) ? r.system_suppliers : [], coverDays: r.cover_days || null, stockCheckedAt: r.stock_checked_at || null
+    watchStock: !!r.watch_stock, systemSuppliers: Array.isArray(r.system_suppliers) ? r.system_suppliers : [], coverDays: r.cover_days || null, stockCheckedAt: r.stock_checked_at || null,
+    contract: r.contract && typeof r.contract === 'object' ? r.contract : {}   // migration 068
   }));
 }
 async function saveVendorRemote(v) {
@@ -3987,6 +3988,7 @@ async function saveVendorRemote(v) {
     anchor_date: v.anchorDate || null
   };
   if (v.watchStock !== undefined) Object.assign(row, { watch_stock: !!v.watchStock, system_suppliers: v.systemSuppliers || [], cover_days: v.coverDays || null });
+  if (v.contract !== undefined) row.contract = v.contract || {};
   const { error } = await sb.from('vendors').upsert(row);
   if (error) { console.error(error); showToast('Could not save that vendor — ' + sbErrText(error), true); return false; }
   return true;
@@ -4009,7 +4011,7 @@ function renderVendorsPage() {
   const body = document.getElementById('vendorTableBody');
   body.innerHTML = filtered.map(v => `
     <tr data-vendor-id="${v.id}">
-      <td><button type="button" class="vendor-link" data-role="open-vendor-detail">${escapeHtml(v.name)}</button></td>
+      <td><button type="button" class="vendor-link" data-role="open-vendor-detail">${escapeHtml(v.name)}</button>${window.VendorContract ? VendorContract.chip(v.contract) : ''}</td>
       <td>${escapeHtml(v.salesmanName || '—')}</td>
       <td class="mono">${escapeHtml(v.phone || '—')}</td>
       <td>${v.dayOfWeek === null ? '—' : VENDOR_DAY_NAMES[v.dayOfWeek]}</td>
@@ -4055,6 +4057,7 @@ function openVendorForm(id) {
   document.getElementById('vendorLeadTime').value = v && v.leadTimeDays !== null ? v.leadTimeDays : '';
   document.getElementById('vendorAnchor').value = v ? v.anchorDate : '';
   if (window.LowStock) LowStock.wireForm(v);
+  if (window.VendorContract) VendorContract.wireForm(v);
   document.getElementById('vendorFormCard').style.display = 'block';
   document.getElementById('vendorFormCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
   document.getElementById('vendorName').focus();
@@ -4080,7 +4083,8 @@ document.getElementById('saveVendorBtn').addEventListener('click', async () => {
     frequencyWeeks: Number(document.getElementById('vendorFrequency').value),
     leadTimeDays: leadRaw === '' ? null : Number(leadRaw),
     anchorDate: document.getElementById('vendorAnchor').value || '',
-    ...(window.LowStock ? LowStock.readForm() : {})
+    ...(window.LowStock ? LowStock.readForm() : {}),
+    ...(window.VendorContract ? VendorContract.readForm() : {})
   };
   const ok = await saveVendorRemote(vendor);
   if (!ok) return;

@@ -26,6 +26,9 @@
    Send to the floor (owner, 2026-10-06; migration 067): the new prices typed
    are submitted as "ghost prices" for the floor manager (Floor check › New
    prices) until the system really has them (lv-dashboard marks them synced).
+   The supplier's contract (owner, 2026-10-06; Vendors › Contract terms, migration 068): its back margins on
+   the PU; a line without the on-invoice % is flagged; net-net = net (real cost on a trade deal) minus the
+   on-statement %, and the margin on the sale price.
    Keys: up / down move along the rows, left / right go to the previous /
    next PU, Enter opens the item's details.
    Permission: vendors.manage.  Public API: window.Pricing = { show }.
@@ -292,15 +295,22 @@
     const p = n(base) ? ` (${x > 0 ? '+' : ''}${(Math.round(x / n(base) * 1000) / 10).toLocaleString('en-US')}%)` : '';
     return `<span class="${x > 0 ? 'prc-up' : 'prc-down'}">${x > 0 ? '+' : '-'}${price(Math.abs(x), cur)}${p}</span>`;
   }
+  const contractOf = code => { const v = window.VendorContract ? VendorContract.forSupplier(code) : null; return v ? { vendor: v, ...VendorContract.summary(v.contract) } : null; };
+  // the on-invoice % of the contract, not found on a PU line (its discount, plus the PU's own discount)
+  const invoiceMissing = (r, pu, cs) => !!(cs && cs.invoicePct > 0 && pu.kind !== 'return' && r.paid && !r.generic
+    && n(r.paid.discountPct) + n(pu.info && !pu.info.failed ? pu.info.discountPct : 0) + 0.5 < cs.invoicePct);
+  const netNet = (r, cs) => { const base = r.doc.tradeDeal && r.real !== null ? r.real : r.net; return base === null || base === undefined ? null : n(base) * (1 - n(cs?.statementPct) / 100); };
+  const sameCur = (a, b) => isLbp(a) === isLbp(b);
   function paintPu() {
     steps(2);
-    const s = sups()[S.supIdx], pu = S.pus[S.puIdx], cur = pu.currency;
+    const s = sups()[S.supIdx], pu = S.pus[S.puIdx], cur = pu.currency, cs = contractOf(s.code);
     const nPu = S.pus.length;
     el('prBody').innerHTML = `<div class="card pr-pu">
       <div class="pr-head">
         <button type="button" class="icon-btn" data-go="-1" title="Previous PU (left arrow)" aria-label="Previous PU"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
         <div class="pr-title"><h3>${pu.kind === 'return' ? '<span class="pr-ret-tag">Return to supplier</span> ' : ''}${esc(pu.doc)} <span class="muted-note">· ${esc(s.name)}</span></h3>
-          <span class="muted-note">${esc(dmy(S.day))} · PU ${S.puIdx + 1} of ${nPu} · supplier ${S.supIdx + 1} of ${sups().length} · ${pu.rows.length} line${pu.rows.length === 1 ? '' : 's'} · prices in ${esc(cur || '$')}</span></div>
+          <span class="muted-note">${esc(dmy(S.day))} · PU ${S.puIdx + 1} of ${nPu} · supplier ${S.supIdx + 1} of ${sups().length} · ${pu.rows.length} line${pu.rows.length === 1 ? '' : 's'} · prices in ${esc(cur || '$')}</span>
+          ${cs ? `<div class="pr-contract">${VendorContract.chip(cs.vendor.contract) || '<span class="muted-note">no back margin in the contract</span>'}${cs.paymentDays ? ` <span class="muted-note">· payment ${cs.paymentDays} days</span>` : ''}${cs.expiredReturns ? ` <span class="muted-note">· expired goods ${cs.expiredReturns === 'yes' ? 'taken back' : 'not taken back'}</span>` : ''}${cs.expired ? ' <span class="login-err">contract ended ' + esc(dmy(cs.to)) + '</span>' : ''}</div>` : `<div class="pr-contract muted-note">No contract terms: link this supplier to a vendor (Vendors › edit › Supplier in the system) and fill its Contract terms.</div>`}</div>
         ${npButton()}
         <button type="button" class="icon-btn" data-go="1" title="Next PU (right arrow)" aria-label="Next PU"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></button>
       </div>
@@ -308,14 +318,14 @@
         <th>Code</th><th>Description</th><th>Barcode</th><th class="num">Qty</th><th class="num">Unit price</th><th class="num">Net</th>
         <th class="num">Previous</th><th class="num">Difference</th><th class="num" title="The stock we had when it arrived, and how many days of sales that was">Stock we had</th><th class="num">Sale price now</th><th class="num" title="Type the new sale price: downloaded for the floor manager">New sale price</th></tr></thead>
         <tbody>${pu.rows.map((r, i) => `<tr data-r="${i}" class="${i === S.sel ? 'pr-sel' : ''}${r.priceFlag ? ' pr-row-price' : ''}${r.overArr ? ' pr-row-over' : ''}">
-          <td class="mono">${esc(r.it.code)}</td><td>${r.it.vat ? '<span class="pr-vat" title="This item has VAT on the PU">VAT</span> ' : ''}${esc(r.it.description || '')}${n(r.it.pack) > 1 ? ` <span class="muted-note">· pack ${n(r.it.pack)}</span>` : ''}${(r.it.otherSuppliers || []).length ? `<div class="pr-sub" title="${esc(r.it.otherSuppliers.join(', '))}">also delivered today by ${r.it.otherSuppliers.length === 1 ? esc(r.it.otherSuppliers[0]) : `${r.it.otherSuppliers.length} other suppliers`}</div>` : ''}</td>
+          <td class="mono">${esc(r.it.code)}</td><td>${invoiceMissing(r, pu, cs) ? `<span class="pr-tag pr-tag-up" title="The contract gives ${cs.invoicePct}% on invoice; this line has ${n(r.paid.discountPct) + n(pu.info?.discountPct)}%">On-invoice ${cs.invoicePct}% missing</span> ` : ''}${r.it.vat ? '<span class="pr-vat" title="This item has VAT on the PU">VAT</span> ' : ''}${esc(r.it.description || '')}${n(r.it.pack) > 1 ? ` <span class="muted-note">· pack ${n(r.it.pack)}</span>` : ''}${(r.it.otherSuppliers || []).length ? `<div class="pr-sub" title="${esc(r.it.otherSuppliers.join(', '))}">also delivered today by ${r.it.otherSuppliers.length === 1 ? esc(r.it.otherSuppliers[0]) : `${r.it.otherSuppliers.length} other suppliers`}</div>` : ''}</td>
           <td class="mono pr-sub-txt">${esc(r.it.barcode || '')}</td>
           <td class="num">${qty(r.doc.paidQty)}${n(r.doc.freeQty) ? ` <span class="po-free">+ ${qty(r.doc.freeQty)} free</span>` : ''}</td>
           <td class="num">${r.paid ? price(r.paid.unit, cur) : '—'}${r.paid?.discountPct ? `<div class="pr-sub">-${r.paid.discountPct}%</div>` : ''}</td>
           <td class="num"><b>${price(r.net, cur)}</b>${r.doc.tradeDeal ? `<div class="pr-sub"><span class="lp-deal">trade deal</span> real ${price(r.real, cur)}</div>` : ''}</td>
           <td class="num">${r.pending ? '<span class="pr-wait" title="Checking…">…</span>' : r.prevFailed ? '<span class="login-err">could not be read</span>' : r.prev ? `${price(r.prev.net, r.prev.currency)}${r.prev.deal ? ` <span class="pr-sub">real ${price(r.prev.real, r.prev.currency)}</span>` : ''}<div class="pr-sub">${esc(dmy(r.prev.date))} · ${esc(r.prev.docs || '')}${r.prev.sameDay ? ' (same day)' : ''}${r.otherCurrency ? ` · in ${esc(r.prev.currency)}` : ''}</div>` : r.it.prev ? `<span class="muted-note">no price found</span><div class="pr-sub">${esc(dmy(r.it.prev.date))}</div>` : '<span class="muted-note">no earlier purchase</span>'}</td>
           <td class="num">${r.priceFlag ? priceTag(r) : ''}${r.pending ? '<span class="pr-wait" title="Checking…">…</span>' : r.generic ? '<span class="muted-note">catch-all item</span>' : r.otherCurrency ? '<span class="muted-note">other currency</span>' : diffHtml(r.diffNet, r.prev?.net, cur)}${r.diffReal !== null && Math.abs(r.diffReal) > 0.0005 ? `<div class="pr-sub">real ${diffHtml(r.diffReal, r.prev?.real, cur)}</div>` : ''}</td>
-          <td class="num">${r.overArr ? stockTag(r) : ''}${r.had === null ? '—' : qty(r.had)}<div class="pr-sub${r.overArr ? ' pr-flag-over' : ''}">${r.pending ? '…' : r.generic ? '' : r.daysHad !== null ? `${Math.round(r.daysHad)} days` : r.had > 0.001 && !(r.perDay > 0) ? 'no sales in 90 days' : ''}</div></td>
+          <td class="num">${r.overArr ? stockTag(r) : ''}${r.had === null ? (r.it.fromDocument ? '<span class="muted-note" title="Read from the PU: the stock before it could not be read">unknown</span>' : '—') : qty(r.had)}<div class="pr-sub${r.overArr ? ' pr-flag-over' : ''}">${r.pending ? '…' : r.generic ? '' : r.daysHad !== null ? `${Math.round(r.daysHad)} days` : r.had > 0.001 && !(r.perDay > 0) ? 'no sales in 90 days' : ''}</div></td>
           <td class="num">${r.pending ? '<span class="pr-wait" title="Checking…">…</span>' : r.it.priceFailed ? '<span class="login-err">could not be read</span>' : r.it.salePrice ? price(r.it.salePrice, r.it.saleCurrency || '$') : '—'}</td>
           <td class="num"><input type="text" inputmode="decimal" class="pr-np${S.np.has(r.it.code) ? ' set' : ''}${S.np.get(r.it.code)?.sent ? ' sent' : ''}" data-np="${i}" value="${S.np.has(r.it.code) ? esc(String(S.np.get(r.it.code).newPrice)) : ''}" placeholder="${r.it.salePrice ? esc(price(r.it.salePrice, r.it.saleCurrency || '$')) : ''}" aria-label="New sale price of ${esc(r.it.description || r.it.code)}"></td></tr>`).join('')}</tbody></table></div>
       <div class="pr-selbar" id="prSelBar" aria-live="polite"></div>
@@ -323,6 +333,7 @@
         <div class="pr-total"><span>${pu.kind === 'return' ? 'Total returned' : 'Total'} ${esc(pu.doc)}</span><b>${price(pu.info && !pu.info.failed ? (pu.kind === 'return' ? -pu.info.withVat : pu.info.withVat) : pu.total, cur)} ${esc(cur || '$')}</b>
           ${pu.info && !pu.info.failed ? `<div class="pr-vatline">without VAT ${price(pu.info.withoutVat, cur)} · VAT ${price(pu.info.vat, cur)}${pu.info.discountPct ? ` · discount ${pu.info.discountPct}%` : ''}</div>` : ''}</div>
         <div class="pr-flags">
+          ${(() => { const lost = (S.cache.get(sups()[S.supIdx]?.code)?.items || []).filter(i => i.cardexFailed && !(i.docs || []).length); return lost.length ? `<div class="login-err">${lost.length} item${lost.length === 1 ? '' : 's'} of this supplier could not be read from the system (${esc(lost.slice(0, 6).map(i => i.description || i.code).join(', '))}): open the supplier again.</div>` : ''; })()}
           ${pu.mismatch.length ? `<div class="login-err">The PU in the system differs from these lines on ${pu.mismatch.length} item${pu.mismatch.length === 1 ? '' : 's'} (${esc(pu.mismatch.slice(0, 6).join(', '))}): check the PU in the system.</div>` : ''}
           ${pu.info?.discountPct ? `<div class="pr-flagline"><span class="pr-tag pr-tag-stock">Discount ${pu.info.discountPct}%</span> <span class="muted-note">on the whole PU: the line prices are before it.</span></div>` : ''}
           ${pu.unread && !pu.pending ? `<div class="login-err">${pu.unread} previous price${pu.unread === 1 ? '' : 's'} could not be read from the system (not compared). <button type="button" class="btn small secondary" id="prRetry">Read again</button></div>` : ''}
@@ -406,7 +417,8 @@
   function paintSel() {
     const bar = el('prSelBar'); if (!bar) return;
     const pu = S.pus[S.puIdx], r = pu?.rows[S.sel]; if (!r) { bar.innerHTML = ''; return; }
-    const cur = pu.currency, it = r.it;
+    const cur = pu.currency, it = r.it, cs = contractOf(sups()[S.supIdx]?.code);
+    const nn = cs ? netNet(r, cs) : null, sp = it.salePrice, cmp = sp && nn !== null && sameCur(it.saleCurrency || '$', cur) ? (n(sp) - nn) / n(sp) : null;
     const kk = c => String(c).replace(/^0+(?=\d)/, '').toUpperCase();
     const vi = S.cache.get(sups()[S.supIdx]?.code)?.docInfo?.[pu.doc]?.items?.[kk(it.code)];
     const np = S.np.get(it.code);
@@ -417,6 +429,7 @@
       it.vat ? '<span class="pr-tag pr-tag-vat">VAT</span>' : '',
       r.doc.tradeDeal ? '<span class="pr-tag pr-tag-deal">Trade deal</span>' : '',
       r.prevFailed ? '<span class="login-err">previous price could not be read</span>' : '',
+      invoiceMissing(r, pu, cs) ? `<span class="pr-tag pr-tag-up">On-invoice ${cs.invoicePct}% missing</span>` : '',
     ].filter(Boolean).join('');
     bar.innerHTML = `
       <div class="pr-sel-item"><b>${esc(it.description || it.code)}</b><span class="mono">${esc(it.code)}${it.barcode ? ' · ' + esc(it.barcode) : ''}${n(it.pack) > 1 ? ' · pack ' + n(it.pack) : ''}</span>
@@ -429,6 +442,8 @@
         ${cell('Difference', r.pending ? '…' : r.generic ? 'catch-all' : r.otherCurrency ? 'other currency' : (diffHtml(r.diffNet, r.prev?.net, cur) || '—'))}
         ${cell('VAT', it.vat === undefined ? (r.pending ? '…' : '—') : it.vat ? 'Yes' : 'No', vi ? `${price(Math.abs(vi.vat), cur)} on ${price(Math.abs(vi.withVat), cur)}` : '')}
         ${cell('Stock we had', r.had === null ? '—' : qty(r.had), r.pending ? '' : r.daysHad !== null ? Math.round(r.daysHad) + ' days' : r.had > 0.001 && !(r.perDay > 0) ? 'no sales in 90 days' : '')}
+        ${cs && cs.statementPct ? cell('Net-net cost', nn === null ? '—' : price(nn, cur), `net - ${cs.statementPct}% on statement`) : ''}
+        ${cmp !== null ? cell('Margin', `<span class="${cmp < 0 ? 'prc-up' : ''}">${Math.round(cmp * 1000) / 10}%</span>`, cs && cs.statementPct ? 'on the net-net cost' : 'on the net') : ''}
         ${cell('Sale price now', r.pending ? '…' : it.salePrice ? price(it.salePrice, it.saleCurrency || '$') : '—', it.saleCurrency || '')}
         ${cell('New sale price', np ? price(np.newPrice, np.currency) : '—', np ? [np.oldPrice ? (np.newPrice > np.oldPrice ? '+' : '') + (Math.round((np.newPrice - np.oldPrice) / np.oldPrice * 1000) / 10) + '%' : '', np.sent ? 'sent to the floor' : 'not sent yet'].filter(Boolean).join(' · ') : '')}
       </div>`;
