@@ -334,14 +334,17 @@ function purchaseDocs(rows: Record<string, unknown>[]) {
   return [...docs.entries()].map(([doc, ls]) => {
     const lines = ls.map(r => {
       const up = Number(r.unit_price || 0), net = Math.abs(Number(r.net_unit_price || 0)) < 0.005 ? 0 : Number(r.net_unit_price || 0);
-      return { qty: r4(Number(r.qty_in || 0)), unit: r4(up), net: r4(net), total: r4(Number(r.line_total || 0)), discountPct: up > 0 ? Math.round((1 - net / up) * 100) : 0, free: net === 0 };
+      const back = isReturn(r), q = back ? -Math.abs(Number(r.qty_out || 0)) : Number(r.qty_in || 0);
+      return { qty: r4(q), unit: r4(up), net: r4(net), total: r4(back ? -Math.abs(Number(r.line_total || 0)) : Number(r.line_total || 0)), discountPct: up > 0 ? Math.round((1 - net / up) * 100) : 0, free: net === 0 };
     });
     const paidQty = lines.filter(l => !l.free).reduce((t, l) => t + l.qty, 0), freeQty = lines.filter(l => l.free).reduce((t, l) => t + l.qty, 0);
     const paid = lines.reduce((t, l) => t + l.total, 0);
-    return { doc, supplier: String(ls[0].details || ''), currency: String(ls[0].currency || '$'), lines, paidQty: r4(paidQty), freeQty: r4(freeQty), paid: r4(paid),
+    return { doc, kind: isReturn(ls[0]) ? 'return' : 'purchase', supplier: String(ls[0].details || ''), currency: String(ls[0].currency || '$'), lines, paidQty: r4(paidQty), freeQty: r4(freeQty), paid: r4(paid),
       tradeDeal: paidQty > 0 && freeQty > 0, realCost: paidQty + freeQty > 0 ? r4(paid / (paidQty + freeQty)) : null };
   });
 }
+// a return to the supplier (PT): operation 20, the quantity goes out
+const isReturn = (r: Record<string, unknown>) => (String(r.operation_code) === '20' || /return to supplier/i.test(String(r.operation_label || ''))) && Number(r.qty_out || 0) !== 0;
 const isPurchase = (r: Record<string, unknown>) => (String(r.operation_code) === '15' || /purchase/i.test(String(r.operation_label || ''))) && Number(r.qty_in || 0) > 0;
 // the suppliers that delivered on a day
 async function pricingDay(day: string) {
@@ -376,10 +379,10 @@ async function pricingSupplier(day: string, sup: string) {
       await Promise.all([
         (async () => { try {
           const cx = await dash(`/item-cardex?${new URLSearchParams({ branch: BRANCH, item_code: c, year: day.slice(0, 4), from_date: day, to_date: day })}`) as Record<string, unknown>;
-          const today = ((((cx.data as Record<string, unknown>)?.rows || []) as Record<string, unknown>[])).filter(isPurchase);
+          const today = ((((cx.data as Record<string, unknown>)?.rows || []) as Record<string, unknown>[])).filter(r => isPurchase(r) || isReturn(r));
           it.docs = purchaseDocs(today);
           it.barcode = String(today[0]?.barcode ?? '').trim();
-          it.stockBefore = today[0] ? Math.round((Number(today[0].running_balance ?? 0) - Number(today[0].qty_in || 0)) * 1000) / 1000 : null;
+          it.stockBefore = today[0] ? Math.round((Number(today[0].running_balance ?? 0) - (isReturn(today[0]) ? -Math.abs(Number(today[0].qty_out || 0)) : Number(today[0].qty_in || 0))) * 1000) / 1000 : null;
         } catch (e) { console.warn('pricing cardex', c, e); it.docs = []; } })(),
         (async () => { try {
           const pc = await dash(`/item-price-checker?${new URLSearchParams({ search: c, year: year(), branches: BRANCH })}`) as Record<string, unknown>;
