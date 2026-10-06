@@ -202,6 +202,13 @@ async function stockWatch(onlyVendor?: string) {
       }));
     }
     budget -= items.length;
+    // the last PU of each item running low, and its units sold from that day to today (owner, 2026-10-06; migration 071)
+    if (low.length) {
+      try {
+        const info = await lastPuSince(low.map(x => String(x.code)), today);
+        low.forEach(x => Object.assign(x, info[String(x.code)] || { last_pu_state: 'none', last_pu_date: null, last_pu_qty: null, sold_since: null }));
+      } catch (e) { console.warn('last pu', v.name, e); low.forEach(x => Object.assign(x, { last_pu_state: 'failed', last_pu_date: null, last_pu_qty: null, sold_since: null })); }
+    }
     // keep the open ones, add the new ones, resolve the ones back above
     const { data: open } = await db.from('stock_alerts').select('code').eq('vendor_id', v.id).is('resolved_at', null);
     const now = new Date().toISOString(), lowCodes = new Set(low.map(x => String(x.code))), openCodes = new Set((open || []).map(x => x.code));
@@ -215,6 +222,85 @@ async function stockWatch(onlyVendor?: string) {
     done.push({ vendor: v.name, items: items.length, low: low.length, newlyLow: low.filter(x => !openCodes.has(String(x.code))).length, backAbove: back.length });
   }
   return { checked: done };
+}
+
+// the last purchase day (12 months back) of these items, its quantity, and the units sold from that day to today included
+async function lastPuSince(codes: string[], today: string) {
+  const want = new Set(codes.map(trimCode)), last: Record<string, { day: string; qty: number }> = {};
+  for (let i = 0; i < codes.length; i += 150) {
+    const part = codes.slice(i, i + 150);
+    (await report('purchases', plusDays(today, -365), today, { aggregation: 'Daily', group_by: ['item'], item: part })).forEach(r => {
+      const c = trimCode(r.item), d = String(r.period || '').slice(0, 10), q = Number(r.total_quantity || 0);
+      if (!want.has(c) || q <= 0 || !d) return;
+      if (!last[c] || d > last[c].day) last[c] = { day: d, qty: q }; else if (d === last[c].day) last[c].qty += q;
+    });
+  }
+  const out: Record<string, Record<string, unknown>> = {};
+  const withPu = Object.keys(last);
+  if (!withPu.length) return out;
+  const from = withPu.reduce((m, c) => last[c].day < m ? last[c].day : m, today), sold: Record<string, number> = {};
+  for (let i = 0; i < withPu.length; i += 150) {
+    (await report('sales', from, today, { aggregation: 'Daily', group_by: ['item'], item: withPu.slice(i, i + 150) })).forEach(r => {
+      const c = trimCode(r.item), d = String(r.period || '').slice(0, 10);
+      if (last[c] && d >= last[c].day) sold[c] = (sold[c] || 0) + Number(r.total_quantity || 0);
+    });
+  }
+  withPu.forEach(c => { out[c] = { last_pu_state: 'ok', last_pu_date: last[c].day, last_pu_qty: Math.round(last[c].qty * 1000) / 1000, sold_since: Math.round((sold[c] || 0) * 1000) / 1000 }; });
+  return out;
+}
+
+/* ---------------- big purchases (owner, 2026-10-06; migration 071) ----------------
+   Today's and yesterday's purchases, item by item, against the item's usual order: its purchase days in the 12 months
+   before (at least 2 of them), the median quantity. Big = at least 3 times the usual quantity, worth $100 or more, and more
+   than 6 weeks of sales (the last 90 days' rate; or no sale at all). For each: the PU number(s) and the supplier (cardex).
+   The cardex's user_id is a line id, not the person who entered the PU: not kept. Saved in big_purchases; push-alerts notifies once per PU. */
+async function bigBuys() {
+  const today = beirutToday(), yday = plusDays(today, -1);
+  const buys = new Map<string, { code: string; day: string; qty: number; value: number; description: string; supplier: string }>();
+  (await report('purchases', yday, today, { aggregation: 'Daily', group_by: ['item'] })).forEach(r => {
+    const c = trimCode(r.item), d = String(r.period || '').slice(0, 10), q = Number(r.total_quantity || 0), v = Number(r.total_purchases || 0);
+    if (!c || c.includes(':') || !d || q <= 0) return;
+    const k = c + '|' + d, x = buys.get(k) || { code: c, day: d, qty: 0, value: 0, description: String(r.item_desc ?? '').trim(), supplier: '' };
+    x.qty += q; x.value += v; buys.set(k, x);
+  });
+  const cand = [...buys.values()].filter(b => b.value >= 100);
+  if (!cand.length) return { bought: buys.size, checked: 0, big: 0 };
+  const codes = [...new Set(cand.map(b => b.code))], hist: Record<string, Record<string, number>> = {}, sold90: Record<string, number> = {};
+  for (let i = 0; i < codes.length; i += 150) {
+    const part = codes.slice(i, i + 150);
+    (await report('purchases', plusDays(today, -366), plusDays(yday, -1), { aggregation: 'Daily', group_by: ['item'], item: part })).forEach(r => {
+      const c = trimCode(r.item), d = String(r.period || '').slice(0, 10), q = Number(r.total_quantity || 0);
+      if (q > 0 && d) { hist[c] = hist[c] || {}; hist[c][d] = (hist[c][d] || 0) + q; }
+    });
+    (await report('sales', plusDays(today, -90), yday, { group_by: ['item'], item: part })).forEach(r => { const c = trimCode(r.item); sold90[c] = (sold90[c] || 0) + Number(r.total_quantity || 0); });
+  }
+  const median = (a: number[]) => { const x = [...a].sort((p, q) => p - q), m = Math.floor(x.length / 2); return x.length % 2 ? x[m] : (x[m - 1] + x[m]) / 2; };
+  const big = cand.map(b => {
+    const days = Object.entries(hist[b.code] || {}).filter(([d]) => d < b.day).map(([, q]) => q);
+    if (days.length < 2) return null;
+    const usual = median(days);
+    if (!(usual > 0) || b.qty < 3 * usual) return null;
+    const weekly = (sold90[b.code] || 0) / (90 / 7), weeks = weekly > 0 ? b.qty / weekly : null;
+    if (weeks !== null && weeks < 6) return null;   // sells within 6 weeks: not a worry, not flagged
+    return { ...b, usual, times: days.length, weekly, weeks };
+  }).filter(Boolean) as (typeof cand[number] & { usual: number; times: number; weekly: number; weeks: number | null })[];
+  const now = new Date().toISOString();
+  for (const b of big) {
+    let documents = '', supplier = '';
+    try {
+      if (b.day.slice(0, 4) === year()) {
+        const cx = await dash(`/item-cardex?${new URLSearchParams({ branch: BRANCH, item_code: b.code, year: b.day.slice(0, 4), from_date: b.day, to_date: b.day })}`) as Record<string, unknown>;
+        const rows = ((((cx.data as Record<string, unknown>)?.rows || []) as Record<string, unknown>[])).filter(isPurchase);
+        documents = [...new Set(rows.map(r => String(r.document_no || '').trim()).filter(Boolean))].join(', ');
+        supplier = [...new Set(rows.map(r => supName(r.details)).filter(Boolean))].join(', ');
+      }
+    } catch (e) { console.warn('big buy cardex', b.code, e); }
+    const r2 = (v: number | null) => v === null ? null : Math.round(v * 100) / 100;
+    const { error } = await db.from('big_purchases').upsert({ day: b.day, code: b.code, description: b.description, supplier: supplier || null, qty: r2(b.qty), value: r2(b.value),
+      usual_qty: r2(b.usual), times: b.times, weekly_sales: r2(b.weekly), weeks_cover: r2(b.weeks), documents: documents || null, buyers: null, updated_at: now });
+    if (error) console.warn('big buy save', b.code, error.message);
+  }
+  return { bought: buys.size, checked: cand.length, big: big.length };
 }
 
 /* ---------------- codes across years (owner, 2026-10-06; migration 069) ----------------
@@ -471,7 +557,7 @@ async function perfSuppliers(from: string, to: string, months = false) {
   const m = new Map<string, { code: string; name: string; bought: number; boughtQty: number; sold: number; soldQty: number }>();
   const get = (r: Record<string, unknown>) => { const c = String(r.supplier ?? '').trim() || '?'; let x = m.get(c); if (!x) { x = { code: c, name: String(r.supplier_desc ?? '').trim() || 'No supplier', bought: 0, boughtQty: 0, sold: 0, soldQty: 0 }; m.set(c, x); } return x; };
   p.forEach(r => { const x = get(r); x.bought += Number(r.total_purchases || 0); x.boughtQty += Number(r.total_quantity || 0); });
-  sl.forEach(r => { const x = get(r) as typeof x & { months?: Record<string, number> }; const v = Number(r.total_sales || 0); x.sold += v; x.soldQty += Number(r.total_quantity || 0);
+  sl.forEach(r => { const x = get(r) as { sold: number; soldQty: number; months?: Record<string, number> }; const v = Number(r.total_sales || 0); x.sold += v; x.soldQty += Number(r.total_quantity || 0);
     if (months) { const k = String(r.period || '').slice(0, 7); if (k) { x.months = x.months || {}; x.months[k] = (x.months[k] || 0) + v; } } });
   return { from, to, suppliers: [...m.values()] };
 }
@@ -749,6 +835,16 @@ Deno.serve(async req => {
     if (!ok && cron) { const { data } = await db.rpc('push_keys'); ok = !!data && cron === (data as Record<string, string>).push_cron_secret; }
     if (!ok) return json({ error: 'Not allowed.' }, 403);
     try { const sw = await stockWatch(body.vendor ? String(body.vendor) : undefined); let pc = null; try { pc = await priceChangesSync(60); } catch (e) { console.warn('price changes', e); } return json({ ...sw, priceChanges: pc }); }
+    catch (e) { console.error(e); return json({ error: e instanceof Error ? e.message : 'failed' }, 502); }
+  }
+
+  // Big purchases (migration 071), from pg_cron or the server key.
+  if (body.action === 'big_buys') {
+    const cron = req.headers.get('x-cron-secret') || '';
+    let ok = serverKeys().includes(req.headers.get('apikey') || '');
+    if (!ok && cron) { const { data } = await db.rpc('push_keys'); ok = !!data && cron === (data as Record<string, string>).push_cron_secret; }
+    if (!ok) return json({ error: 'Not allowed.' }, 403);
+    try { return json(await bigBuys()); }
     catch (e) { console.error(e); return json({ error: e instanceof Error ? e.message : 'failed' }, 502); }
   }
 

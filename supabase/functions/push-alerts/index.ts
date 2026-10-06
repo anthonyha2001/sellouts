@@ -198,6 +198,21 @@ async function buildAlerts(today: string): Promise<Alert[]> {
       body: `Newly running low today: ${newLow.slice(0, 6).map(x => `${x.name} (${x.n})`).join(', ')}${newLow.length > 6 ? ` and ${newLow.length - 6} more` : ''}. See Vendors › Low stock & orders.` });
   }
 
+  // Big purchases (migration 071; owner, 2026-10-06): once per PU, the items bought far above their usual order
+  // (at least 3 times, worth $100+, more than 6 weeks of sales). Today's and yesterday's.
+  const { data: bigs } = await db.from('big_purchases').select('day, code, description, supplier, qty, usual_qty, weeks_cover, documents')
+    .gte('day', new Date(new Date(today + 'T00:00:00Z').getTime() - 864e5).toISOString().slice(0, 10));
+  const byDoc = new Map<string, Record<string, unknown>[]>();
+  (bigs ?? []).filter(b => b.weeks_cover === null || Number(b.weeks_cover) >= 6).forEach(b => {
+    const k = String(b.documents || b.day + ' ' + b.code); const l = byDoc.get(k) || []; l.push(b); byDoc.set(k, l); });
+  for (const [doc, list] of byDoc) {
+    const n = (v: unknown) => Math.round(Number(v) * 10) / 10;
+    const sup = String(list[0].supplier || '').split(',')[0].trim();
+    const lines = list.slice(0, 4).map(b => `${b.description} ${n(b.qty)} (usually ${n(b.usual_qty)}, ${b.weeks_cover === null ? 'no sales in 90 days' : Math.round(Number(b.weeks_cover)) + ' weeks of sales'})`);
+    add({ key: `bigbuy:${doc}`, perms: ['vendors.manage'], title: `Big purchase${list[0].documents ? ' — ' + list[0].documents : ''}`, url: '#vendors',
+      body: `${sup ? sup + ': ' : ''}${lines.join('; ')}${list.length > 4 ? ` and ${list.length - 4} more` : ''}. See Vendors › Low stock & orders.` });
+  }
+
   // Cash: yesterday still empty after the reminder hour.
   const { data: cs } = await db.from('cash_settings').select('reminder_hour').eq('id', 'app').maybeSingle();
   if (beirutHour() >= (cs?.reminder_hour ?? 12)) {
