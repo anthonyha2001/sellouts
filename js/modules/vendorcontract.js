@@ -80,7 +80,12 @@
     if (s.invoicePct) parts.push(`<b>${fmt(s.invoicePct)}%</b> on invoice`);
     if (s.statementPct) parts.push(`<b>${fmt(s.statementPct)}%</b> on statement`);
     if (s.fixed.length) parts.push(`${s.fixed.length} fixed amount${s.fixed.length === 1 ? '' : 's'} ($${fmt(s.fixed.reduce((t, m) => t + n(m.value), 0))})`);
-    return parts.length ? `<span class="vc-chip" title="${esc(s.margins.map(m => `${m.type}: ${fmt(m.value)}${m.unit === '$' ? ' $' : '%'} ${m.basis === 'invoice' ? 'on invoice' : 'on statement, ' + m.freq}${m.note ? ' (' + m.note + ')' : ''}`).join('\n'))}">Back margin ${parts.join(' · ')}</span>` : '';
+    // the hover: every term of the contract (a tag to know it, never used in the prices)
+    const lines = s.margins.map(m => `${m.type}: ${fmt(m.value)}${m.unit === '$' ? ' $' : '%'} ${m.basis === 'invoice' ? 'on invoice' : 'on statement, ' + m.freq}${m.note ? ' (' + m.note + ')' : ''}`)
+      .concat(s.paymentDays ? [`Payment: ${s.paymentDays} days`] : [], s.expiredReturns ? [`Expired goods: ${s.expiredReturns === 'yes' ? 'taken back' : 'not taken back'}`] : [],
+        s.minOrder ? [`Minimum order: $${fmt(s.minOrder)}`] : [], s.from || s.to ? [`Contract: ${s.from || '…'} to ${s.to || '…'}${s.expired ? ' (ended)' : ''}`] : [], s.notes ? [s.notes] : []);
+    if (!lines.length) return '';
+    return `<span class="vc-chip${s.expired ? ' vc-ended' : ''}" title="${esc(lines.join('\n'))}">${parts.length ? 'Back margin ' + parts.join(' · ') : 'Contract'}${s.expired ? ' · ended' : ''}</span>`;
   }
   window.VendorContract = { wireForm, readForm, summary, forSupplier, chip };
 })();

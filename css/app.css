@@ -2253,3 +2253,4 @@ td.num .pr-tag{display:inline-flex;margin:0 6px 0 0;vertical-align:middle;}
 .vc-chip b{font-family:var(--font-mono);}
 .pr-contract{margin-top:3px;font-size:12px;}
 .pr-contract .vc-chip{margin-left:0;}
+.vc-ended{color:var(--ink-soft);background:color-mix(in srgb, var(--ink) 8%, transparent);}
