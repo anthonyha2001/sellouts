@@ -278,6 +278,7 @@ const Rentals = (function () {
     </div>`;
 
     el('rentalList').innerHTML = list.map(cardHtml).join('');
+    paintLive();
     el('rentalEmpty').style.display = list.length ? 'none' : 'block';
     el('rentalEmptyTitle').textContent = all.length ? 'No supplier matches' : 'Nothing assigned yet';
   }
@@ -308,7 +309,8 @@ const Rentals = (function () {
           ${g.ending ? `<span class="badge warn">${g.ending} ending soon</span>` : ''}
           ${g.unbilled ? `<span class="badge danger">${g.unbilled} not billed</span>` : ''}
           ${g.unplaced ? `<span class="badge inactive">${g.unplaced} not placed</span>` : ''}
-          ${sig ? `<span class="badge ${sig.cls}" title="Sales ${cur - 1}: ${money2s(salesTotal(g.sales, cur - 1))} · ${cur}: ${money2s(salesTotal(g.sales, cur))}">${sig.label}</span>` : ''}
+          <span class="rent-live" data-live="${esc(g.key)}"></span>
+          ${sig ? `<span class="badge ${sig.cls}" data-role="manual-sig" title="Sales ${cur - 1}: ${money2s(salesTotal(g.sales, cur - 1))} · ${cur}: ${money2s(salesTotal(g.sales, cur))}">${sig.label}</span>` : ''}
           ${window.Performance && can('vendors.manage') ? `<button type="button" class="icon-btn" data-role="rent-perf" data-name="${esc(g.name)}" title="Is the rent worth it? Its sales against the rent (Performance)" aria-label="Is the rent worth it?"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/></svg></button>` : ''}
         </div>
       </div>
@@ -345,6 +347,32 @@ const Rentals = (function () {
     </div>`;
   }
   const money2s = n => Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
+
+  // Live from the system (owner, 2026-10-06): on each card, the supplier's sales against last year next to the store,
+  // and whether the extra sales cover the rent (Performance › Rental spots, computed once); hover it for the trend this year.
+  // No amounts in it. Replaces the hand-typed monthly sales signal when the live figures are there.
+  function paintLive() {
+    const spots = [...document.querySelectorAll('#rentalList [data-live]')];
+    if (!spots.length || !window.Performance || !can('vendors.manage')) return;
+    spots.forEach(s => { if (!s.innerHTML) s.innerHTML = '<span class="muted-note">reading the sales…</span>'; });
+    Performance.rentRows().then(rows => {
+      const by = new Map(rows.map(r => [r.key, r]));
+      document.querySelectorAll('#rentalList [data-live]').forEach(s => {
+        const r = by.get(s.dataset.live);
+        if (!r) { s.innerHTML = ''; return; }
+        s.innerHTML = Performance.liveHtml(r);
+        if (r.state === 'ok') s.closest('.sellout')?.querySelector('[data-role="manual-sig"]')?.setAttribute('hidden', '');
+        if (r.state === 'ok' && r.codes.length) {
+          s.classList.add('has-trend');
+          s.onmouseenter = e => Performance.showTip(r, e.clientX, e.clientY);
+          s.onmousemove = e => Performance.placeTip(e.clientX, e.clientY);
+          s.onmouseleave = () => Performance.hideTip();
+        }
+      });
+    }).catch(e => {
+      document.querySelectorAll('#rentalList [data-live]').forEach(s => { s.innerHTML = '<span class="muted-note" title="' + esc(e.message || '') + '">sales could not be read</span>'; });
+    });
+  }
 
   el('rentalList').addEventListener('click', async e => {
     const card = e.target.closest('[data-supplier]'); if (!card) return;

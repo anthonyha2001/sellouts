@@ -222,12 +222,23 @@
     }).catch(e => { delete R.cache[k]; throw e; });
     return R.cache[k];
   }
+  // once for the session, shared by this tab and the Rentals page's cards (Performance.rentRows)
+  let rentsPromise = null;
+  function rentRows(force) {
+    if (force) { rentsPromise = null; R.cache = {}; R.trend = null; }
+    if (!rentsPromise) rentsPromise = computeRents().then(rows => (R.rows = rows), e => { rentsPromise = null; R.rows = null; throw e; });
+    return rentsPromise;
+  }
   async function loadRents(force) {
-    const box = el('pfRentBody'); if (!box || R.busy) return;
+    const box = el('pfRentBody'); if (!box) return;
     if (R.rows && !force) return paintRents();
-    R.busy = true;
     box.innerHTML = '<div class="card"><p class="muted-note" style="margin:0;">Reading the rental contracts, then the sales of their suppliers (this year, the days before, last year)…</p></div>';
-    try {
+    try { await rentRows(force); }
+    catch (e) { box.innerHTML = '<div class="card"><p class="login-err" style="margin:0;">' + esc(e.message === 'no answer' ? 'The system did not answer. Check the "Link to the system" card on the Dashboard.' : e.message) + '</p></div>'; return; }
+    if (view === 'rents') paintRents();
+  }
+  async function computeRents() {
+    {
       const [{ data: cs, error: e1 }, { data: vs, error: e2 }] = await Promise.all([
         sb.from('rental_contracts').select('supplier, term, start_date, end_date, amount, spot_id').neq('term', 'temporary'),
         sb.from('vendors').select('name, system_suppliers')]);
@@ -275,10 +286,14 @@
         r.rentPct = r.sold > 0 ? r.rent / r.sold : null;
         r.state = 'ok';
       });
-      R.rows = rows;
-    } catch (e) { R.rows = null; box.innerHTML = '<div class="card"><p class="login-err" style="margin:0;">' + esc(e.message === 'no answer' ? 'The system did not answer. Check the "Link to the system" card on the Dashboard.' : e.message) + '</p></div>'; return; }
-    finally { R.busy = false; }
-    paintRents();
+      return rows;
+    }
+  }
+  // the Rentals page's cards: the growth and the verdict, no amounts
+  function liveHtml(r) {
+    const base = r.baseName === 'last year' ? r.ly : r.baseName ? r.bf : null;
+    const g = base && typeof base.sup === 'number' ? '<span class="rent-live-pct ' + (base.st !== null && (1 + base.sup) / (1 + base.st) < 1 ? 'pf-neg' : 'pf-up') + '">' + pct1(base.sup) + '</span> <span class="muted-note">vs ' + esc(r.baseName) + (base.st !== null ? ', store ' + pct1(base.st) : '') + '</span>' : '';
+    return g + ' ' + verdict(r);
   }
   const pct1 = v => v === null || v === undefined ? '' : (v > 0 ? '+' : '') + (Math.round(v * 1000) / 10).toLocaleString('en-US') + '%';
   function vsCell(x, r) {
@@ -294,7 +309,7 @@
     if (r.state === 'failed') return '<span class="muted-note">could not be read</span>';
     if (r.extra === undefined) return '<span class="badge inactive">no sales to compare</span>';
     if (!(r.rent > 0)) return '<span class="badge inactive" title="No rent on these spots">no rent</span>';
-    if (r.extra <= 0) return '<span class="badge danger">sales did not rise</span>';
+    if (r.extra <= 0) return '<span class="badge danger" title="Its sales did not grow more than the whole store over the same dates">no extra sales</span>';
     if (r.ratio < 1) return '<span class="badge warn">extra sales below the rent</span>';
     return '<span class="badge active">covers the rent</span>';
   }
@@ -332,7 +347,7 @@
       + 'Each supplier is compared with the same dates last year (the season) and with the same number of days just before the contract, next to the whole store over the same dates (green: grew more than the store). '
       + 'Extra sales = sales - the baseline\'s sales x the store\'s change (last year when the supplier sold then). They are sales at the shelf price: the supplier keeps only its margin on them. Hover a supplier for its trend this year (no amounts: fit to show the supplier); click it for its items over these dates.</p></div>';
     el('pfRentQ').oninput = () => { R.focus = el('pfRentQ').value; const pos = el('pfRentQ').selectionStart; paintRents(); el('pfRentQ').focus(); el('pfRentQ').setSelectionRange(pos, pos); };
-    el('pfRentReload').onclick = () => { R.cache = {}; R.rows = null; R.trend = null; loadRents(true); };
+    el('pfRentReload').onclick = () => loadRents(true);
     box.querySelectorAll('.pf-rsort').forEach(h => h.onclick = () => { const key = h.dataset.k; if (R.sort === key) R.dir = -R.dir; else { R.sort = key; R.dir = key === 'name' ? 1 : -1; } paintRents(); });
     box.querySelectorAll('tr[data-rent]').forEach(tr => { const r = R.rows.find(x => x.key === tr.dataset.rent); if (!r || !r.codes.length) return;
       const go = () => { setView('suppliers'); el('pfFrom').value = r.a; el('pfTo').value = r.b; S.sup = r.codes[0]; load(); };
@@ -433,5 +448,5 @@
     const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Performance');
     XLSX.writeFile(wb, `${name.replace(/[\\/:*?"<>|]+/g, ' ').trim()}.xlsx`);
   }
-  window.Performance = { show, openRentals };
+  window.Performance = { show, openRentals, rentRows, liveHtml, showTip, placeTip, hideTip };
 })();

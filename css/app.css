@@ -2331,3 +2331,7 @@ td.num .pr-tag{display:inline-flex;margin:0 6px 0 0;vertical-align:middle;}
 .pf-tt-pct.neg{fill:var(--brick);}
 .pf-tt-rows{display:grid;gap:3px;margin-top:4px;}
 .pf-tt-row{display:flex;justify-content:space-between;gap:8px;}
+/* Rentals cards: the live sales and verdict (owner, 2026-10-06) */
+.rent-live{display:inline-flex;align-items:center;gap:6px;font-size:12px;}
+.rent-live.has-trend{cursor:help;border-bottom:1px dotted var(--line-strong);}
+.rent-live-pct{font-weight:700;font-family:var(--font-mono);}
