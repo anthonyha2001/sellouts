@@ -315,14 +315,14 @@
         <button type="button" class="icon-btn" data-go="1" title="Next PU (right arrow)" aria-label="Next PU"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></button>
       </div>
       <div class="items-scroll pr-scroll"><table class="items pr-table"><thead><tr>
-        <th>Code</th><th>Description</th><th>Barcode</th><th class="num">Qty</th><th class="num">Unit price</th><th class="num">Net</th>
+        <th>Code</th><th>Description</th><th>Barcode</th><th class="num">Qty</th><th class="num">Invoice price</th><th class="num">Net</th>
         <th class="num">Previous</th><th class="num">Difference</th><th class="num" title="The stock we had when it arrived, and how many days of sales that was">Stock we had</th><th class="num">Sale price now</th><th class="num" title="Type the new sale price: downloaded for the floor manager">New sale price</th></tr></thead>
         <tbody>${pu.rows.map((r, i) => `<tr data-r="${i}" class="${i === S.sel ? 'pr-sel' : ''}${r.priceFlag ? ' pr-row-price' : ''}${r.overArr ? ' pr-row-over' : ''}">
-          <td class="mono">${esc(r.it.code)}</td><td>${r.it.vat ? '<span class="pr-vat" title="This item has VAT on the PU">VAT</span> ' : ''}${esc(r.it.description || '')}${n(r.it.pack) > 1 ? ` <span class="muted-note">· pack ${n(r.it.pack)}</span>` : ''}${(r.it.otherSuppliers || []).length ? `<div class="pr-sub" title="${esc(r.it.otherSuppliers.join(', '))}">also delivered today by ${r.it.otherSuppliers.length === 1 ? esc(r.it.otherSuppliers[0]) : `${r.it.otherSuppliers.length} other suppliers`}</div>` : ''}</td>
+          <td class="mono">${esc(r.it.code)}</td><td>${r.it.promoted ? '<span class="pr-tag pr-tag-promo" title="On promotion now in the system: the sale price is a promotion price">Promo</span> ' : ''}${r.it.vat ? '<span class="pr-vat" title="This item has VAT on the PU">VAT</span> ' : ''}${esc(r.it.description || '')}${n(r.it.pack) > 1 ? ` <span class="muted-note">· pack ${n(r.it.pack)}</span>` : ''}${(r.it.otherSuppliers || []).length ? `<div class="pr-sub" title="${esc(r.it.otherSuppliers.join(', '))}">also delivered today by ${r.it.otherSuppliers.length === 1 ? esc(r.it.otherSuppliers[0]) : `${r.it.otherSuppliers.length} other suppliers`}</div>` : ''}</td>
           <td class="mono pr-sub-txt">${esc(r.it.barcode || '')}</td>
           <td class="num">${qty(r.doc.paidQty)}${n(r.doc.freeQty) ? ` <span class="po-free">+ ${qty(r.doc.freeQty)} free</span>` : ''}</td>
-          <td class="num">${r.paid ? price(r.paid.unit, cur) : '—'}${r.paid?.discountPct ? `<div class="pr-sub">-${r.paid.discountPct}%</div>` : ''}</td>
-          <td class="num"><b>${price(r.net, cur)}</b>${r.doc.tradeDeal ? `<div class="pr-sub"><span class="lp-deal">trade deal</span> real ${price(r.real, cur)}</div>` : ''}</td>
+          <td class="num"><b class="pr-inv">${r.paid ? price(r.paid.unit, cur) : '—'}</b>${r.paid?.discountPct ? `<div class="pr-sub">-${r.paid.discountPct}%</div>` : ''}</td>
+          <td class="num pr-netcol">${price(r.net, cur)}${r.doc.tradeDeal ? `<div class="pr-sub"><span class="lp-deal">trade deal</span> real ${price(r.real, cur)}</div>` : ''}</td>
           <td class="num">${r.pending ? '<span class="pr-wait" title="Checking…">…</span>' : r.prevFailed ? '<span class="login-err">could not be read</span>' : r.prev ? `${price(r.prev.net, r.prev.currency)}${r.prev.deal ? ` <span class="pr-sub">real ${price(r.prev.real, r.prev.currency)}</span>` : ''}<div class="pr-sub">${esc(dmy(r.prev.date))} · ${esc(r.prev.docs || '')}${r.prev.sameDay ? ' (same day)' : ''}${r.otherCurrency ? ` · in ${esc(r.prev.currency)}` : ''}</div>` : r.it.prev ? `<span class="muted-note">no price found</span><div class="pr-sub">${esc(dmy(r.it.prev.date))}</div>` : '<span class="muted-note">no earlier purchase</span>'}</td>
           <td class="num">${r.priceFlag ? priceTag(r) : ''}${r.pending ? '<span class="pr-wait" title="Checking…">…</span>' : r.generic ? '<span class="muted-note">catch-all item</span>' : r.otherCurrency ? '<span class="muted-note">other currency</span>' : diffHtml(r.diffNet, r.prev?.net, cur)}${r.diffReal !== null && Math.abs(r.diffReal) > 0.0005 ? `<div class="pr-sub">real ${diffHtml(r.diffReal, r.prev?.real, cur)}</div>` : ''}</td>
           <td class="num">${r.overArr ? stockTag(r) : ''}${r.had === null ? (r.it.fromDocument ? '<span class="muted-note" title="Read from the PU: the stock before it could not be read">unknown</span>' : '—') : qty(r.had)}<div class="pr-sub${r.overArr ? ' pr-flag-over' : ''}">${r.pending ? '…' : r.generic ? '' : r.daysHad !== null ? `${Math.round(r.daysHad)} days` : r.had > 0.001 && !(r.perDay > 0) ? 'no sales in 90 days' : ''}</div></td>
@@ -435,6 +435,7 @@
     const tags = [
       r.priceFlag ? priceTag(r) : '',
       r.overArr ? stockTag(r) : '',
+      it.promoted ? '<span class="pr-tag pr-tag-promo" title="On promotion now in the system: the sale price is a promotion price">Promo</span>' : '',
       it.vat ? '<span class="pr-tag pr-tag-vat">VAT</span>' : '',
       r.doc.tradeDeal ? '<span class="pr-tag pr-tag-deal">Trade deal</span>' : '',
       r.prevFailed ? '<span class="login-err">previous price could not be read</span>' : '',
@@ -445,8 +446,8 @@
         <div class="pr-sel-tags">${tags || '<span class="muted-note">no flag</span>'}</div></div>
       <div class="pr-sel-cells">
         ${cell('Qty', qty(r.doc.paidQty) + (n(r.doc.freeQty) ? ` <span class="po-free">+ ${qty(r.doc.freeQty)} free</span>` : ''))}
-        ${cell('Unit price', r.paid ? price(r.paid.unit, cur) : '—', r.paid?.discountPct ? '-' + r.paid.discountPct + '%' : '')}
-        ${cell('Net', price(r.net, cur), r.doc.tradeDeal ? 'real ' + price(r.real, cur) : '')}
+        ${cell('Invoice price', `<span class="pr-sel-inv">${r.paid ? price(r.paid.unit, cur) : '—'}</span>`, r.paid?.discountPct ? '-' + r.paid.discountPct + '% discount' : '')}
+        ${cell('Net', `<span class="pr-sel-net">${price(r.net, cur)}</span>`, r.doc.tradeDeal ? 'real ' + price(r.real, cur) : '')}
         ${cell('Previous', r.pending ? '…' : r.prev ? price(r.prev.net, r.prev.currency) : '—', r.prev ? esc(dmy(r.prev.date)) + ' · ' + esc(r.prev.docs || '') : r.pending ? '' : 'no earlier purchase')}
         ${cell('Difference', r.pending ? '…' : r.generic ? 'catch-all' : r.otherCurrency ? 'other currency' : (diffHtml(r.diffNet, r.prev?.net, cur) || '—'))}
         ${cell('VAT', it.vat === undefined ? (r.pending ? '…' : '—') : it.vat ? 'Yes' : 'No', vi ? `${price(Math.abs(vi.vat), cur)} on ${price(Math.abs(vi.withVat), cur)}` : '')}
@@ -544,7 +545,7 @@
           <div class="pf-tile"><span>Suppliers</span><b>${new Set(L.map(l => l.supplier)).size}</b></div>
         </div>
         <div class="card"><div class="items-scroll pr-scroll"><table class="items pr-table rt-table"><thead><tr>
-          <th>Code</th><th>Description</th><th>Barcode</th><th class="num">Qty returned</th><th class="num">Unit price</th><th class="num">Net</th><th class="num">Total</th><th class="num" title="Our stock after the return">Stock after</th>
+          <th>Code</th><th>Description</th><th>Barcode</th><th class="num">Qty returned</th><th class="num">Invoice price</th><th class="num">Net</th><th class="num">Total</th><th class="num" title="Our stock after the return">Stock after</th>
           ${R.prev ? '<th class="num">Last purchase</th><th class="num">Difference</th>' : ''}</tr></thead>
           <tbody>${D.map(d => `<tr class="rt-doc"><td colspan="${cols}"><span class="pr-ret-tag">${esc(d.doc)}</span> <b>${esc(d.supplier)}</b> <span class="muted-note">· ${esc(dmy(d.day))} · ${d.lines.length} item${d.lines.length === 1 ? '' : 's'} · total ${price(-d.lines.reduce((t, l) => t + n(l.paid), 0), d.currency)} ${esc(d.currency || '$')}</span></td></tr>`
             + d.lines.map(l => { const p = l.lines.find(x => !x.free) || l.lines[0], pv = R.prev ? prevOf(l) : null;

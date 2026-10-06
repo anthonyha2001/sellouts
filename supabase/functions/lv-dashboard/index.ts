@@ -643,7 +643,7 @@ async function pricingSupplier(day: string, sup: string, part = '', only: string
         const cc = curOf[c]; if (!cc) { it.priceFailed = true; return; }
         const pc = await dash(`/item-price-checker?${new URLSearchParams({ search: cc, year: year(), branches: BRANCH })}`) as Record<string, unknown>;
         const hit = (Object.values(((pc.branches as Record<string, Record<string, unknown[]>>) || {})[BRANCH] || {}).flat() as Record<string, unknown>[]).find(r => key(String(r.ItemCode ?? '')) === key(cc));
-        if (hit) { if (cc !== c) it.currentCode = cc; it.salePrice = unitSale(hit); it.saleCurrency = String(hit.CurrencyCode) === '01' ? 'LBP' : '$'; it.pack = hit.Pack ?? null; it.stockNow = hit.AvailableQuantity ?? null; it.pcBarcode = String(hit.Barcode ?? '').trim(); }
+        if (hit) { if (cc !== c) it.currentCode = cc; it.promoted = !!Number(hit.isPromoted || 0); it.salePrice = unitSale(hit); it.saleCurrency = String(hit.CurrencyCode) === '01' ? 'LBP' : '$'; it.pack = hit.Pack ?? null; it.stockNow = hit.AvailableQuantity ?? null; it.pcBarcode = String(hit.Barcode ?? '').trim(); }
         else it.priceFailed = true;
       } catch (e) { console.warn('pricing price', c, e); it.priceFailed = true; }
     });
