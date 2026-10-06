@@ -787,7 +787,7 @@ Deno.serve(async req => {
     if (body.action === 'probe') {
       if (!isServer) return json({ error: 'Not allowed.' }, 403);
       const path = String(body.path || '');
-      const READ = /^\/(item-price-checker|item-cardex|items\/search|items\/filter-options\/[a-z]+|items_sales(\/grid|\/summary)?|items_purchases(\/grid)?|operations\/viewer|wms\/documents(\/\d+)?|wms\/purchase-orders)$/;
+      const READ = /^\/(item-price-checker|item-cardex|items\/search|items\/filter-options\/[a-z]+|items_sales(\/grid|\/summary)?|items_purchases(\/grid)?|operations(\/[a-z_-]+)*|wms\/documents(\/\d+)?|wms\/purchase-orders)$/;
       if (!READ.test(path)) return json({ error: 'Not a read-only report.' }, 400);
       if (body.post) return json(await dash(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body.post) }));
       return json(await dash(`${path}?${new URLSearchParams((body.query || {}) as Record<string, string>)}`));

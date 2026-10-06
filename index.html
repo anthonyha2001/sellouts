@@ -231,9 +231,13 @@
 
       <div class="card" id="cnTableCard" style="display:none;">
         <h3>Tracker</h3>
+        <div class="cn-filters">
+          <div class="filter-row" id="cnStatusFilter" style="margin:0;"></div>
+          <input type="search" id="cnSearch" placeholder="Find a number, a supplier, a detail" aria-label="Find a credit note">
+        </div>
         <div class="items-scroll">
           <table class="cn">
-            <thead><tr><th>Number</th><th>Supplier</th><th>Details</th><th>Status</th><th></th></tr></thead>
+            <thead><tr><th>Number</th><th>Supplier</th><th>Details</th><th>Date</th><th>Status</th><th></th></tr></thead>
             <tbody id="cnTableBody"></tbody>
           </table>
         </div>

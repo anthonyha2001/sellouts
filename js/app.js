@@ -1244,15 +1244,29 @@ document.getElementById('cnForm').addEventListener('submit', async (e) => {
   showToast(`Credit note "${number}" added.`);
 });
 
+// Filter (owner, 2026-10-06): All / Issued / Signed with their counts, and a search on number, supplier and details.
+let cnStatusFilter = '', cnQuery = '';
 function renderCreditNotes() {
   const body = document.getElementById('cnTableBody');
+  const bar = document.getElementById('cnStatusFilter');
+  if (bar) {
+    const count = st => creditNotes.filter(c => !st || c.status === st).length;
+    bar.innerHTML = [['', 'All'], ['issued', 'Issued'], ['signed', 'Signed']].map(([k, l]) => `<button type="button" data-cn-status="${k}" class="${cnStatusFilter === k ? 'active' : ''}">${l} <span class="muted-note">${count(k)}</span></button>`).join('');
+    bar.onclick = e => { const b = e.target.closest('[data-cn-status]'); if (!b) return; cnStatusFilter = b.dataset.cnStatus; renderCreditNotes(); };
+    const q = document.getElementById('cnSearch');
+    if (q && !q._wired) { q._wired = true; q.addEventListener('input', () => { cnQuery = q.value; renderCreditNotes(); }); }
+  }
   const card = document.getElementById('cnTableCard');
   const empty = document.getElementById('cnEmpty');
   body.innerHTML = '';
   if (!creditNotes.length) { card.style.display = 'none'; empty.style.display = 'block'; return; }
   card.style.display = 'block'; empty.style.display = 'none';
 
-  creditNotes.forEach(cn => {
+  const qq = cnQuery.trim().toLowerCase();
+  const shown = creditNotes.filter(c => (!cnStatusFilter || c.status === cnStatusFilter)
+    && (!qq || [c.number, c.supplier, c.details].some(v => String(v || '').toLowerCase().includes(qq))));
+  if (!shown.length) body.innerHTML = '<tr><td colspan="6" class="empty-note">No credit note matches.</td></tr>';
+  shown.forEach(cn => {
     const tr = document.createElement('tr');
     const isEditing = editingCnId === cn.id;
 
@@ -1261,6 +1275,7 @@ function renderCreditNotes() {
         <td><input type="text" class="cn-edit-input" data-field="number" value="${escapeHtml(cn.number)}"></td>
         <td><input type="text" class="cn-edit-input" data-field="supplier" value="${escapeHtml(cn.supplier)}"></td>
         <td><input type="text" class="cn-edit-input" data-field="details" value="${escapeHtml(cn.details || '')}"></td>
+        <td class="muted-note">${cn.createdAt ? fmtDate(String(cn.createdAt).slice(0, 10)) : ''}</td>
         <td>
           <select class="cn-edit-input" data-field="status">
             <option value="issued" ${cn.status === 'issued' ? 'selected' : ''}>Issued</option>
@@ -1293,7 +1308,9 @@ function renderCreditNotes() {
         <td class="num">${escapeHtml(cn.number)}</td>
         <td>${escapeHtml(cn.supplier)}</td>
         <td style="max-width:260px;white-space:normal;">${cn.details ? escapeHtml(cn.details) : '<span style="color:var(--ink-faint);">\u2014</span>'}</td>
-        <td><button class="status-pill ${cn.status}" data-role="toggle-status">${cn.status}</button></td>
+        <td class="muted-note">${cn.createdAt ? fmtDate(String(cn.createdAt).slice(0, 10)) : ''}</td>
+        <td><button type="button" class="cn-switch ${cn.status === 'signed' ? 'on' : ''}" data-role="toggle-status" role="switch" aria-checked="${cn.status === 'signed'}" ${can('creditnotes.edit') ? '' : 'disabled'} title="${cn.status === 'signed' ? 'Signed: click to set it back to issued' : 'Issued: click when it is signed'}">
+          <span class="cn-sw-l">Issued</span><span class="cn-sw-track"><span class="cn-sw-knob"></span></span><span class="cn-sw-r">Signed</span></button></td>
         <td style="white-space:nowrap;">
           <button class="icon-btn" data-role="edit-cn" title="Edit credit note" aria-label="Edit credit note">
             <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
