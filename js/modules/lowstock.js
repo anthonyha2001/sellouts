@@ -22,11 +22,11 @@
     if (error) { console.warn('low stock', error); S.alerts = []; } else S.alerts = data || [];
     S.loaded = true;
   }
-  const openCount = () => S.alerts.length;
+  const openCount = () => S.alerts.filter(a => !a.doubtful).length;   // a wrong count in the system is not low (migration 072)
   const dmy = s => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(s || '')); return m ? `${m[3]}-${m[2]}-${m[1]}` : ''; };
   // the last PU (12 months back) and the units sold from that day to today (owner, 2026-10-06; migration 071)
   function lastPuCells(a) {
-    if (a.last_pu_state === 'ok') return `<td>${esc(dmy(a.last_pu_date))} <span class="muted-note">· ${fq(a.last_pu_qty)} units</span></td><td class="num">${fq(a.sold_since)}</td>`;
+    if (a.last_pu_state === 'ok') return `<td>${esc(dmy(a.last_pu_date))} <span class="muted-note">· ${fq(a.last_pu_qty)} unit${Number(a.last_pu_qty) === 1 ? '' : 's'}</span></td><td class="num">${fq(a.sold_since)}</td>`;
     const why = a.last_pu_state === 'none' ? 'no PU in 12 months' : a.last_pu_state === 'failed' ? 'could not be read' : 'at the next check';
     return `<td colspan="2" class="muted-note">${why}</td>`;
   }
@@ -58,7 +58,7 @@
         ? `<b>${watched.length}</b> supplier${watched.length === 1 ? '' : 's'} watched.` : 'No supplier is watched yet: edit a vendor in the Directory and tick <b>Watch stock</b>.'}</p></div>
       ${bigHtml()}
       ${watched.map(v => {
-        const list = byV.get(v.id) || [];
+        const all = byV.get(v.id) || [], list = all.filter(a => !a.doubtful), wrong = all.filter(a => a.doubtful);
         return `<section class="card ls-vendor">
           <div class="ls-head"><div><h3>${esc(v.name)}</h3><span class="muted-note">${esc((v.systemSuppliers || []).map(s => s.name).join(', ') || 'no supplier linked')} · keep ${v.coverDays || ((v.leadTimeDays || 3) + 4)} days of stock · ${esc(ago(v.stockCheckedAt))}</span></div>
             ${window.PurchaseOrder ? `<button type="button" class="btn small" data-ls-po="${esc(v.id)}">Purchase order</button>` : ''}
@@ -70,6 +70,11 @@
               ${lastPuCells(a)}
               <td class="muted-note">${esc(new Date(a.first_seen).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }))}</td></tr>`).join('')}</tbody></table></div>`
             : '<p class="muted-note" style="margin:0;">Nothing running low.</p>'}
+          ${wrong.length ? `<div class="ls-wrong"><h4>Stock in the system looks wrong: count it</h4>
+            <p class="muted-note" style="margin:0 0 6px;">Not counted as running low: the stock is below 0 in the system (impossible on a shelf), or the last PU minus the sales since leaves more than the system shows (sold before being received, PU in cases and sales in pieces, or a count error). Count them and fix the stock in the system.</p>
+            <div class="items-scroll" style="margin:0;"><table class="items ls-table"><thead><tr><th>Code</th><th>Item</th><th class="num">In the system</th><th>Last PU</th><th class="num">Sold since</th><th class="num">Should be at least</th></tr></thead>
+            <tbody>${wrong.map(a => `<tr data-ls-code="${esc(a.code)}"><td class="mono">${esc(a.code)}</td><td>${esc(a.description || '')}</td>
+              <td class="num"><b class="ls-urgent">${fq(a.stock)}</b></td>${lastPuCells(a)}<td class="num" title="Bought at the last PU minus sold since (if the stock before that PU was not below 0)">${a.est_stock !== null && Number(a.est_stock) > Number(a.stock) ? '<b>' + fq(a.est_stock) + '</b>' : '<span class="muted-note">—</span>'}</td></tr>`).join('')}</tbody></table></div></div>` : ''}
         </section>`; }).join('')}
       <p class="muted-note" style="margin:6px 0 0;">Double-click an item for its details (stock in the branches, cardex).</p>`;
     box.querySelectorAll('[data-ls-check]').forEach(b => b.onclick = async () => {

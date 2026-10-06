@@ -183,7 +183,7 @@ async function buildAlerts(today: string): Promise<Alert[]> {
 
   // Low stock (migration 066; owner, 2026-10-06: every active supplier watched): at most TWO notifications a day
   // (morning, afternoon), each naming the suppliers with an item newly running low today; the Low stock tab has the rest.
-  const { data: lows } = await db.from('stock_alerts').select('vendor_id, code, description, stock, days_left, first_seen').is('resolved_at', null);
+  const { data: lows } = await db.from('stock_alerts').select('vendor_id, code, description, stock, days_left, first_seen').is('resolved_at', null).eq('doubtful', false);   // a wrong count in the system is not low (migration 072)
   const byVendor = new Map<string, Record<string, unknown>[]>();
   (lows ?? []).forEach(a => { const l = byVendor.get(a.vendor_id) || []; l.push(a); byVendor.set(a.vendor_id, l); });
   const newLow: { name: string; n: number }[] = [];

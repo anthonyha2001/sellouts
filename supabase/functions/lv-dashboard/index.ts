@@ -209,6 +209,14 @@ async function stockWatch(onlyVendor?: string) {
         low.forEach(x => Object.assign(x, info[String(x.code)] || { last_pu_state: 'none', last_pu_date: null, last_pu_qty: null, sold_since: null }));
       } catch (e) { console.warn('last pu', v.name, e); low.forEach(x => Object.assign(x, { last_pu_state: 'failed', last_pu_date: null, last_pu_qty: null, sold_since: null })); }
     }
+    // a false flag (owner, 2026-10-06; migration 072): the system's stock contradicts its own last PU and the sales since
+    // (Almaza Light: -26 in the system, 72 bought on 11-09, 21 sold since). Not running low: its count is wrong. Set apart.
+    low.forEach(x => {
+      const est = x.last_pu_state === 'ok' ? Number(x.last_pu_qty) - Number(x.sold_since) : null;
+      x.est_stock = est === null ? null : Math.round(est * 1000) / 1000;
+      // below 0 cannot be on a shelf: the count is wrong whatever the PU says (362 of 1,105 alerts on 2026-10-06)
+      x.doubtful = Number(x.stock) < 0 || (est !== null && est > Number(x.stock) && est >= Number(x.per_day) * cover);
+    });
     // keep the open ones, add the new ones, resolve the ones back above
     const { data: open } = await db.from('stock_alerts').select('code').eq('vendor_id', v.id).is('resolved_at', null);
     const now = new Date().toISOString(), lowCodes = new Set(low.map(x => String(x.code))), openCodes = new Set((open || []).map(x => x.code));

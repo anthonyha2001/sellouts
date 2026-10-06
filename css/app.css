@@ -2339,3 +2339,6 @@ td.num .pr-tag{display:inline-flex;margin:0 6px 0 0;vertical-align:middle;}
 .sm-live{flex-wrap:wrap;font-size:12.5px;}
 .sm-live-trend svg{display:block;width:100%;height:auto;margin:4px 0 2px;}
 .sm-live-trend .pf-tt-row{font-size:12px;}
+/* Low stock: a wrong count in the system, set apart (owner, 2026-10-06) */
+.ls-wrong{margin-top:14px;padding-top:12px;border-top:1px dashed var(--line-strong);}
+.ls-wrong h4{margin:0 0 4px;font-size:13px;color:var(--gold);}
