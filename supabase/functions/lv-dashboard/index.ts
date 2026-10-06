@@ -456,8 +456,9 @@ async function viewDoc(code: string, ret: boolean, yr = year()) {
   const v = d?.data as Record<string, unknown> | undefined;
   if (!v || !Array.isArray(v.lines)) return null;
   const key = (c: string) => c.replace(/^0+(?=\d)/, '').toUpperCase(), r4 = (n: number) => Math.round(n * 10000) / 10000;
-  const items: Record<string, { qty: number; vat: number; withVat: number }> = {};
-  (v.lines as Record<string, unknown>[]).forEach(l => { const k = key(String(l.item_code ?? '').trim()); const x = items[k] || { qty: 0, vat: 0, withVat: 0 };
+  const items: Record<string, { qty: number; vat: number; withVat: number; line: number }> = {};
+  (v.lines as Record<string, unknown>[]).forEach((l, i) => { const k = key(String(l.item_code ?? '').trim()); const ln = Number(l.line_number) || i + 1;
+    const x = items[k] || { qty: 0, vat: 0, withVat: 0, line: ln }; if (ln < x.line) x.line = ln;
     x.qty = r4(x.qty + Number(l.quantity || 0)); x.vat = r4(x.vat + Number(l.vat_amount || 0)); x.withVat = r4(x.withVat + Number(l.total_with_vat || 0)); items[k] = x; });
   return { doc: String(v.document_code || code), date: String(v.document_date || ''), partner: String(v.partner_name || ''), currency: String(v.currency || ''),
     withVat: Number(v.total_with_vat || 0), withoutVat: Number(v.total_without_vat || 0), vat: Number(v.vat_amount || 0), discountPct: Number(v.total_percent_discount || 0),
@@ -510,18 +511,22 @@ async function pricingSupplier(day: string, sup: string, part = '', only: string
         else it.priceFailed = true;
       } catch (e) { console.warn('pricing price', c, e); it.priceFailed = true; }
     });
-    // the PU documents themselves (a few requests): VAT per item, the totals with / without VAT, the discount
-    await Promise.all(docsIn.slice(0, 40).map(async x => {
-      try { const v = await viewDoc(String(x.doc), !!x.ret, day.slice(0, 4)); if (v) docInfo[String(x.doc)] = v; else docInfo[String(x.doc)] = { failed: true }; }
-      catch (e) { console.warn('pricing viewer', x.doc, e); docInfo[String(x.doc)] = { failed: true }; }
-    }));
+    await readDocs(docsIn);
     await salesP;
     const prev = await prevP;
     codes.forEach(c => { const it = out[c]; it.salesDays = salesDays; it.soldBefore = Math.round((sold[c] || 0) * 1000) / 1000; if (prev[c]) it.prev = prev[c]; });
   };
-  if (part === 'lines') await lines();
+  // the PU documents themselves (one request each): the line order, VAT per item, the totals with / without VAT, the discount
+  async function readDocs(list: { doc: string; ret: boolean }[]) {
+    await Promise.all(list.slice(0, 40).map(async x => {
+      try { const v = await viewDoc(String(x.doc), !!x.ret, day.slice(0, 4)); docInfo[String(x.doc)] = v || { failed: true }; }
+      catch (e) { console.warn('pricing viewer', x.doc, e); docInfo[String(x.doc)] = { failed: true }; }
+    }));
+  }
+  const docsOfLines = () => [...new Map(codes.flatMap(c => ((out[c].docs as Record<string, unknown>[]) || []).map(d => [String(d.doc), { doc: String(d.doc), ret: d.kind === 'return' }]))).values()];
+  if (part === 'lines') { await lines(); await readDocs(docsOfLines()); }
   else if (part === 'more') await more();
-  else await Promise.all([lines(), more()]);
+  else { await Promise.all([lines(), more()]); await readDocs(docsOfLines()); }
   codes.forEach(c => { const it = out[c]; if (part !== 'more' && !it.barcode && it.pcBarcode) it.barcode = it.pcBarcode; if (part !== 'more') delete it.pcBarcode; });
   return { day, supplier: sup, part: part || 'all', items: codes.map(c => out[c]), docs: docInfo, truncated };
 }

@@ -172,6 +172,9 @@
       });
     });
     const kk = c => String(c).replace(/^0+(?=\d)/, '').toUpperCase();
+    // each PU's lines in the order of the document in the system (its line numbers); never re-sorted
+    pus.forEach(p => { const v = data.docInfo?.[p.doc]; if (!v || v.failed || !v.items) return;
+      p.rows.sort((a, b) => (v.items[kk(a.it.code)]?.line ?? 1e9) - (v.items[kk(b.it.code)]?.line ?? 1e9)); });
     return [...pus.values()].sort((a, b) => a.doc.localeCompare(b.doc)).map(p => ({ ...p, pending, failed: !!data.moreFailed,
       info: data.docInfo?.[p.doc] || null,
       // the lines shown against the PU in the system: quantities per item (a line missing or different is said)
@@ -188,7 +191,7 @@
     const day = S.day;
     const p = (async () => {
       const data = await call({ action: 'pricing_supplier', day, supplier: code, part: 'lines', name: (S.list?.suppliers || []).find(x => x.code === code)?.name || '' });
-      data.moreReady = false;
+      data.moreReady = false; data.docInfo = data.docs || {};
       if (day === S.day) { S.cache.set(code, data); fetchMore(code, data, day); }
       return data;
     })();
@@ -198,9 +201,10 @@
   }
   async function fetchMore(code, data, day) {
     try {
-      const docs = [...new Map(data.items.flatMap(i => (i.docs || []).map(d => [d.doc, { doc: d.doc, ret: d.kind === 'return' }]))).values()];
+      // the documents read with the lines; one that failed then is read again here
+      const docs = [...new Map(data.items.flatMap(i => (i.docs || []).map(d => [d.doc, { doc: d.doc, ret: d.kind === 'return' }]))).values()].filter(d => !data.docInfo?.[d.doc] || data.docInfo[d.doc].failed);
       const m = await call({ action: 'pricing_supplier', day, supplier: code, part: 'more', codes: data.items.map(i => i.code), docs });
-      data.docInfo = m.docs || {};
+      data.docInfo = { ...(data.docInfo || {}), ...(m.docs || {}) };
       // VAT per item, from the PU documents (empty = no VAT)
       const kk = c => String(c).replace(/^0+(?=\d)/, '').toUpperCase();
       data.items.forEach(it => { const hits = (it.docs || []).map(d => data.docInfo[d.doc]?.items?.[kk(it.code)]).filter(Boolean); if (hits.length) it.vat = hits.some(h => Math.abs(n(h.vat)) > 0.0001); });
