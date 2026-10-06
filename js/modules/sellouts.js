@@ -873,6 +873,9 @@ function renderSellouts() {
           <button class="icon-btn" data-role="export" title="Download the sell-out (Excel with the prices)" aria-label="Download the sell-out">
             <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 19h14"/></svg>
           </button>
+          <button class="icon-btn" data-role="copy-sales" title="Copy the codes and the units sold during the sell-out (paste into Excel: code, units)" aria-label="Copy the codes and the units sold">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/><path d="M12 18v-3M15 18v-5M18 18v-2"/></svg>
+          </button>
           ${window.CreditNote ? `<button class="icon-btn" data-role="credit-note" title="Turnover and credit note (from the system)" aria-label="Turnover and credit note">
             <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"/><path d="M9 7h6M9 11h6M9 15h3"/></svg>
           </button>` : ''}
@@ -891,7 +894,7 @@ function renderSellouts() {
     list.appendChild(el);
 
     el.querySelector('[data-toggle]').addEventListener('click', (ev) => {
-      if (ev.target.closest('.switch') || ev.target.closest('.icon-actions') || ev.target.closest('[data-role="copy-codes"]')) return;
+      if (ev.target.closest('.switch') || ev.target.closest('.icon-actions') || ev.target.closest('[data-role="copy-codes"]') || ev.target.closest('[data-role="copy-sales"]')) return;
       el.classList.toggle('open');
       if (el.classList.contains('open')) openIds.add(so.id); else openIds.delete(so.id);
     });
@@ -923,6 +926,44 @@ function renderSellouts() {
       const ok = await copyTextToClipboard(codes.join(','));
       if (ok) showToast(`Copied ${codes.length} code${codes.length === 1 ? '' : 's'} for ${so.name}.`);
       else showToast('Could not copy — your browser blocked clipboard access.', true);
+    });
+    // Codes and units sold during the sell-out (owner, 2026-10-06): one line per item, in the sell-out's order, code TAB units,
+    // for an Excel linked to the system. Copied as an Excel table too, the codes as text (0114 stays 0114).
+    el.querySelector('[data-role="copy-sales"]')?.addEventListener('click', async (ev) => {
+      ev.stopPropagation();
+      const btn = ev.currentTarget;
+      const t = todayStr(), from = String(so.from || '').slice(0, 10), endDay = String(so.to || '').slice(0, 10);
+      if (!from || from > t) { showToast('This sell-out has not started yet: nothing sold.', true); return; }
+      const to = endDay && endDay < t ? endDay : t;
+      const codes = [], seen = new Set();
+      pricedRowsOf(so).forEach(p => { const c = String(p.code || '').trim(); if (c && !seen.has(c.toUpperCase())) { seen.add(c.toUpperCase()); codes.push(c); } });
+      if (!codes.length) { showToast('No item codes in this sell-out.', true); return; }
+      btn.disabled = true; btn.classList.add('ls-spin');
+      try {
+        const sold = {};
+        for (let i = 0; i < codes.length; i += 300) {
+          const part = codes.slice(i, i + 300);
+          const { data, error } = await sb.functions.invoke('lv-dashboard', { body: { action: 'sales_compare', onlyDuring: true, codes: part, from, to } });
+          if (error || !data?.items) throw error || new Error('no answer');
+          part.forEach(c => { sold[c] = Number(data.items[c]?.during?.qty) || 0; });
+        }
+        const q = v => Math.round(v * 1000) / 1000;
+        const text = codes.map(c => `${c}\t${q(sold[c])}`).join('\r\n');
+        const html = '<table>' + codes.map(c => `<tr><td style="mso-number-format:'\\@'">${escapeHtml(c)}</td><td>${q(sold[c])}</td></tr>`).join('') + '</table>';
+        let ok = false;
+        try {
+          if (navigator.clipboard && window.ClipboardItem) {
+            await navigator.clipboard.write([new ClipboardItem({ 'text/html': new Blob([html], { type: 'text/html' }), 'text/plain': new Blob([text], { type: 'text/plain' }) })]);
+            ok = true;
+          }
+        } catch (e) { ok = false; }
+        if (!ok) ok = await copyTextToClipboard(text);
+        const total = codes.reduce((a, c) => a + sold[c], 0);
+        if (ok) showToast(`Copied ${codes.length} codes with their units sold (${q(total).toLocaleString('en-US')} in all, ${fmtDate(from)} to ${fmtDate(to)}). Paste into Excel.`);
+        else showToast('Could not copy: your browser blocked clipboard access.', true);
+        logActivity('sellouts', 'copy_sales', { type: 'sellout', id: so.id }, `Copied the codes and units sold of "${so.name}" (${codes.length} items)`);
+      } catch (e) { showToast('The system did not answer. Try again in a moment.', true); }
+      finally { btn.disabled = false; btn.classList.remove('ls-spin'); }
     });
     el.querySelector('[data-role="active-toggle"]').addEventListener('change', async (ev) => {
       ev.stopPropagation();
