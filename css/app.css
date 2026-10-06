@@ -2054,3 +2054,12 @@ span.cc-slipbtn{cursor:default;display:inline-block;}
 .po-ib svg{width:18px;height:18px;stroke:currentColor;}
 .ls-po-start{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 16px;}
 .ls-po-start select{width:auto;min-width:220px;}
+
+/* purchase order: groups, overstock (owner, 2026-10-06) */
+.po-group td{background:var(--paper);font-weight:700;font-size:12px !important;letter-spacing:.04em;text-transform:uppercase;color:var(--ink);padding-top:10px !important;}
+.po-group td span{font-weight:500;text-transform:none;letter-spacing:0;color:var(--ink-soft);}
+.po-row-over td{background:color-mix(in srgb, var(--gold) 12%, transparent);}
+.po-over-txt{color:var(--gold);font-weight:600;}
+.po-qty.po-qty-over{border-color:var(--gold) !important;box-shadow:0 0 0 2px color-mix(in srgb, var(--gold) 35%, transparent);}
+.po-table thead th:last-child,.po-table tr[data-po-code] td:last-child{position:sticky;right:0;background:var(--paper-raised);box-shadow:-1px 0 0 var(--line);z-index:1;}
+.po-table thead th:last-child{z-index:2;}

@@ -273,13 +273,35 @@ async function poData(sups: string[], from: string, to: string) {
         const d = await dash(`/item-price-checker?${new URLSearchParams({ search: it.code, year: year(), branches: BRANCH })}`) as Record<string, unknown>;
         const hit = (Object.values(((d.branches as Record<string, Record<string, unknown[]>>) || {})[BRANCH] || {}).flat() as Record<string, unknown>[]).find(r => key(String(r.ItemCode ?? '')) === key(it.code));
         if (hit) info[it.code] = { barcode: String(hit.Barcode ?? '').trim(), pack: hit.Pack ?? null, stock: hit.AvailableQuantity ?? null, price: hit.Price ?? null, salePrice: unitSale(hit),
-          description: String(hit.Description ?? '').trim() };
+          description: String(hit.Description ?? '').trim(), group: String(hit.Group ?? '').trim(), subgroup: String(hit['Sub-Group'] ?? '').trim() };
       } catch (e) { console.warn('po info', it.code, e); }
     }));
   }
   const costs = await lastCosts(list.map(i => i.code));
+  // units sold since each item's last purchase (owner, 2026-10-06): the daily sales of the supplier from the
+  // oldest last purchase (a year back at most), each item counted from its own last purchase day
+  const lastOf = (c: string) => String(((costs[c] as Record<string, unknown>) || {}).date || '');
+  const yearAgo = new Date(Date.now() - 365 * 864e5).toLocaleDateString('en-CA', { timeZone: 'Asia/Beirut' });
+  const starts = list.map(i => lastOf(i.code)).filter(Boolean).map(d => d < yearAgo ? yearAgo : d).sort();
+  const since: Record<string, number> = {};
+  if (starts.length) {
+    const s0 = starts[0], parts = s0.slice(0, 4) === y ? [[s0, today]] : [[s0, `${s0.slice(0, 4)}-12-31`], [`${y}-01-01`, today]];
+    const codeOf = new Map(list.map(i => [key(i.code), i.code]));
+    try {
+      for (const [f, t] of parts) {
+        const d = await dash('/items_sales', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+          branches: [BRANCH], year: f.slice(0, 4), from_date: f, to_date: t, aggregation: 'Daily', group_by: ['item'], supplier: sups }) });
+        rowsOf(d).forEach(r => {
+          const c = codeOf.get(key(String(r.item ?? ''))); if (!c) return;
+          const lp = lastOf(c), p = String(r.period || '').slice(0, 10);
+          if (lp && p >= (lp < yearAgo ? yearAgo : lp)) since[c] = (since[c] || 0) + Number(r.total_quantity || 0);
+        });
+      }
+    } catch (e) { console.warn('po since', e); }
+  }
   const days = Math.round((new Date(to + 'T00:00:00Z').getTime() - new Date(from + 'T00:00:00Z').getTime()) / 864e5) + 1;
-  return { from, to, days, items: list.map(it => ({ ...it, ...(info[it.code] || {}), description: (info[it.code]?.description as string) || it.description, last: costs[it.code] ?? null })) };
+  return { from, to, days, items: list.map(it => ({ ...it, ...(info[it.code] || {}), description: (info[it.code]?.description as string) || it.description, last: costs[it.code] ?? null,
+    soldSinceLast: lastOf(it.code) ? Math.round((since[it.code] || 0) * 1000) / 1000 : null, sinceFrom: lastOf(it.code) ? (lastOf(it.code) < yearAgo ? yearAgo : lastOf(it.code)) : null })), today };
 }
 
 Deno.serve(async req => {
