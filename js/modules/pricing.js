@@ -16,6 +16,9 @@
    Speed: a supplier's PU lines come first (part 'lines'), the previous
    purchase, the stock we had and the sale price fill in after (part
    'more'); the next supplier loads in the background meanwhile.
+   New sale price (owner, 2026-10-06): typed per line, kept for the day on
+   this device, and downloaded as one Excel for the floor manager (what
+   changed: old and new sale price, the purchase price behind it).
    Keys: up / down move along the rows, left / right go to the previous /
    next PU, Enter opens the item's details.
    Permission: vendors.manage.  Public API: window.Pricing = { show }.
@@ -33,7 +36,13 @@
   const isLbp = c => /l\.?l|lbp|ل/i.test(String(c || '')) ;
   const price = (v, cur) => v === null || v === undefined ? '—' : (n(v) >= 1000 || isLbp(cur))
     ? Math.round(n(v)).toLocaleString('en-US') : (Math.round(n(v) * 1000) / 1000).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 3 });
-  const S = { day: null, list: null, supIdx: 0, cache: new Map(), loading: new Map(), pus: [], puIdx: 0, sel: 0, busy: false, wired: false, tab: 'purchases' };
+  const S = { day: null, list: null, supIdx: 0, cache: new Map(), loading: new Map(), pus: [], puIdx: 0, sel: 0, busy: false, wired: false, tab: 'purchases', np: new Map() };
+  // the new sale prices typed for the day (kept on this device until downloaded; one per item)
+  const npKey = () => 'lv.pricing.newprices.' + S.day;
+  const npLoad = () => { S.np = new Map(); try { (JSON.parse(localStorage.getItem(npKey()) || '[]')).forEach(e => S.np.set(e.code, e)); } catch (e) { /* no storage */ } };
+  const npSave = () => { try { localStorage.setItem(npKey(), JSON.stringify([...S.np.values()])); } catch (e) { /* no storage */ } };
+  const ICON_DL = '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>';
+  const npButton = () => `<button type="button" class="icon-btn pr-np-dl" data-np-dl title="Download the new sale prices (Excel) for the floor manager" aria-label="Download the new sale prices">${ICON_DL}${S.np.size ? `<span class="pr-np-count">${S.np.size}</span>` : ''}</button>`;
   // the suppliers the wizard goes through: the ones that delivered (a supplier that only returned goods is under Returns)
   const sups = () => (S.list?.suppliers || []).filter(x => x.value > 0);
 
@@ -84,7 +93,7 @@
   async function loadDay() {
     const d = el('prDay').value; if (!d) return showToast('Choose a day.', true);
     if (S.day !== d || !S.list) { S.cache.clear(); S.loading.clear(); S.list = null; }
-    S.day = d;
+    S.day = d; npLoad();
     if (!S.list) {
       el('prNext').disabled = true; el('prNext').textContent = 'Reading…';
       try { S.list = await call({ action: 'pricing_day', day: d }); }
@@ -100,7 +109,7 @@
     const L = sups(), backOnly = S.list.suppliers.filter(x => x.value <= 0);
     el('prBody').innerHTML = `<div class="card">
       <div class="pr-head"><h3>${L.length} supplier${L.length === 1 ? '' : 's'} delivered on ${esc(dmy(S.list.day))}</h3><span style="flex:1"></span>
-        ${L.length ? '<button type="button" class="btn" id="prStart">Check them one by one</button>' : ''}</div>
+        ${npButton()}${L.length ? '<button type="button" class="btn" id="prStart">Check them one by one</button>' : ''}</div>
       <div class="items-scroll"><table class="items pr-sups"><thead><tr><th>Supplier</th><th class="num">Items</th><th class="num">Value ($)</th><th>Checked</th></tr></thead>
         <tbody>${L.map((s, i) => { const f = flagsOf(s.code); return `<tr data-i="${i}" tabindex="0"><td><b>${esc(s.name)}</b> <span class="muted-note mono">${esc(s.code)}</span></td><td class="num">${s.items}</td>
           <td class="num">${s.value < 0 ? `<span class="pr-ret">${Math.round(s.value).toLocaleString('en-US')}</span><div class="pr-sub">returned</div>` : Math.round(s.value).toLocaleString('en-US')}</td>
@@ -109,6 +118,7 @@
       ${backOnly.length ? `<p class="muted-note pr-backonly">${backOnly.length} supplier${backOnly.length === 1 ? '' : 's'} only returned goods that day (${backOnly.map(x => esc(x.name)).join(', ')}). <button type="button" class="btn small secondary" id="prSeeRet">See the returns</button></p>` : ''}</div>`;
     el('prSeeRet')?.addEventListener('click', () => tab('returns', { from: S.list.day, to: S.list.day }));
     el('prStart')?.addEventListener('click', () => openSupplier(0));
+    el('prBody').querySelector('[data-np-dl]')?.addEventListener('click', npExcel);
     if (L.length) prefetch(0);   // the first supplier is ready when you start
     el('prBody').querySelectorAll('tr[data-i]').forEach(tr => { tr.onclick = () => openSupplier(Number(tr.dataset.i)); tr.onkeydown = e => { if (e.key === 'Enter') openSupplier(Number(tr.dataset.i)); }; });
   }
@@ -234,11 +244,12 @@
         <button type="button" class="icon-btn" data-go="-1" title="Previous PU (left arrow)" aria-label="Previous PU"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
         <div class="pr-title"><h3>${pu.kind === 'return' ? '<span class="pr-ret-tag">Return to supplier</span> ' : ''}${esc(pu.doc)} <span class="muted-note">· ${esc(s.name)}</span></h3>
           <span class="muted-note">${esc(dmy(S.day))} · PU ${S.puIdx + 1} of ${nPu} · supplier ${S.supIdx + 1} of ${sups().length} · ${pu.rows.length} line${pu.rows.length === 1 ? '' : 's'} · prices in ${esc(cur || '$')}</span></div>
+        ${npButton()}
         <button type="button" class="icon-btn" data-go="1" title="Next PU (right arrow)" aria-label="Next PU"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></button>
       </div>
       <div class="items-scroll pr-scroll"><table class="items pr-table"><thead><tr>
         <th>Code</th><th>Description</th><th>Barcode</th><th class="num">Qty</th><th class="num">Unit price</th><th class="num">Net</th>
-        <th class="num">Previous</th><th class="num">Difference</th><th class="num" title="The stock we had when it arrived, and how many days of sales that was">Stock we had</th><th class="num">Sale price now</th></tr></thead>
+        <th class="num">Previous</th><th class="num">Difference</th><th class="num" title="The stock we had when it arrived, and how many days of sales that was">Stock we had</th><th class="num">Sale price now</th><th class="num" title="Type the new sale price: downloaded for the floor manager">New sale price</th></tr></thead>
         <tbody>${pu.rows.map((r, i) => `<tr data-r="${i}" class="${i === S.sel ? 'pr-sel' : ''}${r.priceFlag ? ' pr-row-price' : ''}${r.overArr ? ' pr-row-over' : ''}">
           <td class="mono">${esc(r.it.code)}</td><td>${esc(r.it.description || '')}${n(r.it.pack) > 1 ? ` <span class="muted-note">· pack ${n(r.it.pack)}</span>` : ''}${(r.it.otherSuppliers || []).length ? `<div class="pr-sub" title="${esc(r.it.otherSuppliers.join(', '))}">also delivered today by ${r.it.otherSuppliers.length === 1 ? esc(r.it.otherSuppliers[0]) : `${r.it.otherSuppliers.length} other suppliers`}</div>` : ''}</td>
           <td class="mono pr-sub-txt">${esc(r.it.barcode || '')}</td>
@@ -248,7 +259,8 @@
           <td class="num">${r.pending ? '<span class="pr-wait" title="Checking…">…</span>' : r.prevFailed ? '<span class="login-err">could not be read</span>' : r.prev ? `${price(r.prev.net, r.prev.currency)}${r.prev.deal ? ` <span class="pr-sub">real ${price(r.prev.real, r.prev.currency)}</span>` : ''}<div class="pr-sub">${esc(dmy(r.prev.date))} · ${esc(r.prev.docs || '')}${r.prev.sameDay ? ' (same day)' : ''}${r.otherCurrency ? ` · in ${esc(r.prev.currency)}` : ''}</div>` : r.it.prev ? `<span class="muted-note">no price found</span><div class="pr-sub">${esc(dmy(r.it.prev.date))}</div>` : '<span class="muted-note">no earlier purchase</span>'}</td>
           <td class="num">${r.priceFlag ? priceTag(r) : ''}${r.pending ? '<span class="pr-wait" title="Checking…">…</span>' : r.generic ? '<span class="muted-note">catch-all item</span>' : r.otherCurrency ? '<span class="muted-note">other currency</span>' : diffHtml(r.diffNet, r.prev?.net, cur)}${r.diffReal !== null && Math.abs(r.diffReal) > 0.0005 ? `<div class="pr-sub">real ${diffHtml(r.diffReal, r.prev?.real, cur)}</div>` : ''}</td>
           <td class="num">${r.overArr ? stockTag(r) : ''}${r.had === null ? '—' : qty(r.had)}<div class="pr-sub${r.overArr ? ' pr-flag-over' : ''}">${r.pending ? '…' : r.generic ? '' : r.daysHad !== null ? `${Math.round(r.daysHad)} days` : r.had > 0.001 && !(r.perDay > 0) ? 'no sales in 90 days' : ''}</div></td>
-          <td class="num">${r.pending ? '<span class="pr-wait" title="Checking…">…</span>' : r.it.salePrice ? price(r.it.salePrice, '$') : '—'}</td></tr>`).join('')}</tbody></table></div>
+          <td class="num">${r.pending ? '<span class="pr-wait" title="Checking…">…</span>' : r.it.priceFailed ? '<span class="login-err">could not be read</span>' : r.it.salePrice ? price(r.it.salePrice, r.it.saleCurrency || '$') : '—'}</td>
+          <td class="num"><input type="text" inputmode="decimal" class="pr-np${S.np.has(r.it.code) ? ' set' : ''}" data-np="${i}" value="${S.np.has(r.it.code) ? esc(String(S.np.get(r.it.code).newPrice)) : ''}" placeholder="${r.it.salePrice ? esc(price(r.it.salePrice, r.it.saleCurrency || '$')) : ''}" aria-label="New sale price of ${esc(r.it.description || r.it.code)}"></td></tr>`).join('')}</tbody></table></div>
       <div class="pr-foot">
         <div class="pr-total"><span>${pu.kind === 'return' ? 'Total returned' : 'Total'} ${esc(pu.doc)}</span><b>${price(pu.total, cur)} ${esc(cur || '$')}</b></div>
         <div class="pr-flags">
@@ -258,12 +270,53 @@
           ${pu.pending ? '<span class="muted-note pr-checking">Checking the previous prices and the stock we had…</span>' : pu.failed ? '<span class="login-err">The previous prices could not be read. Open the supplier again to retry.</span>' : !pu.flags.price.length && !pu.flags.over.length ? '<span class="pr-ok">Nothing flagged on this PU.</span>' : ''}
         </div>
       </div>
-      <p class="muted-note" style="margin:8px 0 0;">Up / down: move along the rows · left / right: previous / next PU · Enter or double-click: the item's details. Stock we had = the stock just before the PU; days = that stock / what sold per day in the 90 days before.</p>
+      <p class="muted-note" style="margin:8px 0 0;">Up / down: move along the rows · left / right: previous / next PU · Enter or double-click: the item's details. New sale price: type it, Enter goes to the next line; the download button gives the floor manager every new price of the day. Stock we had = the stock just before the PU; days = that stock / what sold per day in the 90 days before.</p>
     </div>`;
     el('prBody').querySelectorAll('[data-go]').forEach(b => b.onclick = () => go(Number(b.dataset.go)));
     el('prRetry')?.addEventListener('click', () => { const code = sups()[S.supIdx]?.code, d = S.cache.get(code); if (!d) return; d.items.forEach(it => { if (it.prev?.failed) delete it.prev; }); d.moreReady = false; refresh(code); fetchMore(code, d, S.day); });
     el('prBody').querySelectorAll('tr[data-r]').forEach(tr => { tr.onclick = () => select(Number(tr.dataset.r)); tr.ondblclick = () => openItem(); });
     el('prBody').querySelectorAll('[data-jump]').forEach(b => b.onclick = () => select(Number(b.dataset.jump), true));
+    el('prBody').querySelector('[data-np-dl]')?.addEventListener('click', npExcel);
+    const boxes = [...el('prBody').querySelectorAll('[data-np]')];
+    boxes.forEach((inp, k) => {
+      inp.onfocus = () => { select(Number(inp.dataset.np), false); inp.select(); };
+      inp.onclick = e => e.stopPropagation();
+      inp.onchange = () => npSet(pu.rows[Number(inp.dataset.np)], inp, s, pu);
+      inp.onkeydown = e => {
+        if (e.key === 'Enter' || e.key === 'ArrowDown') { e.preventDefault(); npSet(pu.rows[Number(inp.dataset.np)], inp, s, pu); boxes[k + 1]?.focus(); }
+        else if (e.key === 'ArrowUp') { e.preventDefault(); npSet(pu.rows[Number(inp.dataset.np)], inp, s, pu); boxes[k - 1]?.focus(); }
+        else if (e.key === 'Escape') { inp.blur(); }
+      };
+    });
+  }
+  // keep (or clear) one new sale price, with what it is based on
+  function npSet(r, inp, sup, pu) {
+    const txt = inp.value.trim().replace(/,/g, '');
+    if (!txt) { if (S.np.delete(r.it.code)) { npSave(); inp.classList.remove('set'); npCount(); } return; }
+    const v = Number(txt);
+    if (!Number.isFinite(v) || v <= 0) { showToast('Type a price (a number).', true); inp.value = S.np.get(r.it.code)?.newPrice ?? ''; return; }
+    S.np.set(r.it.code, { code: r.it.code, description: r.it.description || '', barcode: r.it.barcode || '', supplier: sup.name, doc: pu.doc, day: S.day,
+      oldPrice: r.it.salePrice ?? null, currency: r.it.saleCurrency || '$', newPrice: v,
+      cost: r.net ?? null, costCurrency: pu.currency || '$', prevCost: r.prev?.net ?? null, costChange: r.priceFlag ? (priceDir(r) === 'up' ? 'Price increase' : 'Price decrease') : '', at: new Date().toISOString() });
+    npSave(); inp.classList.add('set'); npCount();
+  }
+  const npCount = () => el('prBody').querySelectorAll('[data-np-dl]').forEach(b => { b.querySelector('.pr-np-count')?.remove(); if (S.np.size) b.insertAdjacentHTML('beforeend', `<span class="pr-np-count">${S.np.size}</span>`); });
+  // the Excel for the floor manager: every new sale price of the day
+  function npExcel() {
+    const L = [...S.np.values()].sort((a, b) => a.supplier.localeCompare(b.supplier) || a.doc.localeCompare(b.doc) || a.description.localeCompare(b.description));
+    if (!L.length) return showToast('Type a new sale price on at least one line first.', true);
+    const r3 = v => v === null || v === undefined || v === '' ? '' : Math.round(Number(v) * 1000) / 1000;
+    const aoa = [['New sale prices'], ['Purchases of', dmy(S.day)], ['Made', new Date().toLocaleString('en-GB')], [],
+      ['Code', 'Description', 'Barcode', 'Old sale price', 'New sale price', 'Change', 'Change %', 'Currency', 'Supplier', 'PU', 'Purchase price', 'Previous purchase price', 'Cost']];
+    const first = aoa.length;
+    L.forEach(e => { const ch = e.oldPrice ? e.newPrice - e.oldPrice : null;
+      aoa.push([e.code, e.description, e.barcode, r3(e.oldPrice), r3(e.newPrice), ch === null ? '' : r3(ch), ch === null ? '' : Math.round(ch / e.oldPrice * 1000) / 10, e.currency, e.supplier, e.doc, r3(e.cost), r3(e.prevCost), e.costChange]); });
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    for (let i = first; i < aoa.length; i++) ['A', 'C'].forEach(c => { const x = ws[c + (i + 1)]; if (x) { x.t = 's'; x.v = String(x.v); } });
+    ws['!cols'] = [10, 40, 15, 13, 14, 10, 9, 9, 28, 12, 14, 20, 15].map(w => ({ wch: w }));
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'New prices');
+    XLSX.writeFile(wb, `New sale prices ${dmy(S.day)}.xlsx`);
+    if (typeof logActivity === 'function') logActivity('pricing', 'new_prices_export', null, `New sale prices of ${dmy(S.day)}: ${L.length} items`);
   }
   function select(i, scroll = true) {
     const rows = el('prBody').querySelectorAll('tr[data-r]'); if (!rows.length) return;

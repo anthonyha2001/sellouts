@@ -66,6 +66,15 @@ async function dash(path: string, init: RequestInit = {}, retry = true, tries = 
   }
   if (r.status === 401 && retry) { token = null; return dash(path, init, false, tries); }
   if ((r.status === 429 || r.status >= 500) && tries > 1) { await new Promise(res => setTimeout(res, 800)); return dash(path, init, retry, tries - 1); }
+  if (r.ok && path.startsWith('/item-price-checker')) {
+    const j = await r.json() as Record<string, unknown>;
+    const br = (j.branches as Record<string, unknown> || {})[BRANCH];
+    if (typeof br === 'string') {
+      if (tries > 1) { await new Promise(res => setTimeout(res, 500)); return dash(path, init, retry, tries - 1); }
+      throw new Error('Dashboard: ' + br.slice(0, 120));
+    }
+    return j;
+  }
   if (!r.ok) throw new Error(`Dashboard answered ${r.status}${r.status === 422 ? ": " + (await r.text()).slice(0, 300) : ""}`);
   return r.json();
 }
@@ -461,8 +470,9 @@ async function pricingSupplier(day: string, sup: string, part = '', only: string
       try {
         const pc = await dash(`/item-price-checker?${new URLSearchParams({ search: c, year: year(), branches: BRANCH })}`) as Record<string, unknown>;
         const hit = (Object.values(((pc.branches as Record<string, Record<string, unknown[]>>) || {})[BRANCH] || {}).flat() as Record<string, unknown>[]).find(r => key(String(r.ItemCode ?? '')) === key(c));
-        if (hit) { it.salePrice = unitSale(hit); it.pack = hit.Pack ?? null; it.stockNow = hit.AvailableQuantity ?? null; it.pcBarcode = String(hit.Barcode ?? '').trim(); }
-      } catch (e) { console.warn('pricing price', c, e); }
+        if (hit) { it.salePrice = unitSale(hit); it.saleCurrency = String(hit.CurrencyCode) === '01' ? 'LBP' : '$'; it.pack = hit.Pack ?? null; it.stockNow = hit.AvailableQuantity ?? null; it.pcBarcode = String(hit.Barcode ?? '').trim(); }
+        else it.priceFailed = true;
+      } catch (e) { console.warn('pricing price', c, e); it.priceFailed = true; }
     });
     await salesP;
     const prev = await prevP;
