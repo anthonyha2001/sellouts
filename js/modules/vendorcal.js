@@ -79,7 +79,8 @@
     box.innerHTML = (canManage() ? stat(vendorsList.length, 'vendors', '', 'directory') + stat(toOrder, 'to order today', toOrder ? 'warn' : '', 'orders') : '')
       + stat(expected, 'deliveries expected today', expected ? 'info' : '', 'receiving')
       + stat(late, 'late deliveries', late ? 'bad' : '', 'receiving')
-      + stat(received, 'received in the last 7 days', 'ok', 'calendar-deliveries');
+      + stat(received, 'received in the last 7 days', 'ok', 'calendar-deliveries')
+      + (canManage() && window.LowStock && vendorsList.some(v => v.watchStock) ? stat(LowStock.openCount(), 'items running low', LowStock.openCount() ? 'bad' : 'ok', 'lowstock') : '');
     box.querySelectorAll('[data-vgo]').forEach(b => b.onclick = () => {
       const g = b.dataset.vgo;
       if (g === 'calendar-deliveries') { S.mode = 'deliveries'; return goTab('calendar'); }

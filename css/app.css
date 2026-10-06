@@ -2013,3 +2013,18 @@ span.cc-slipbtn{cursor:default;display:inline-block;}
 .fc-kind{display:inline-block;padding:1px 8px;border-radius:999px;font:700 10.5px var(--font-body);text-transform:uppercase;letter-spacing:.04em;border:1px solid;}
 .fc-kind.sellout{color:var(--brick);border-color:var(--brick);background:var(--brick-tint);}
 .fc-kind.promo{color:var(--pine);border-color:var(--pine);background:var(--pine-tint);}
+
+/* Vendors: low stock (owner, 2026-10-06) */
+.vw-box{padding:10px 12px;border:1px dashed var(--line-strong);border-radius:var(--radius-sm);}
+.vw-check{display:flex;align-items:center;gap:8px;margin:0 !important;font-weight:400;}
+.vw-more{margin-top:10px;}
+.vw-options{display:flex;flex-direction:column;gap:2px;max-height:180px;overflow:auto;margin-top:4px;}
+.ls-head{display:flex;align-items:flex-start;gap:10px;margin-bottom:10px;}
+.ls-head > div{flex:1;}
+.ls-head h3{margin:0;}
+.ls-head .icon-btn svg{width:17px;height:17px;stroke:currentColor;}
+.ls-table td.num,.ls-table th.num{text-align:right;font-family:var(--font-mono);}
+.ls-table tbody tr{cursor:default;}
+.ls-urgent{color:var(--brick);} .ls-soon{color:var(--gold);}
+.ls-spin svg{animation:lsspin 1s linear infinite;}
+@keyframes lsspin{to{transform:rotate(360deg);}}

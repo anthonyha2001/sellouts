@@ -643,7 +643,7 @@ function refreshDiscountUi(tr, row) {
   const gapCell = tr.querySelector('[data-role="gap-display"]');
   if (gapCell) gapCell.textContent = gapPctDisplay(row);
 }
-const MISMATCH_TITLE = 'This code was not found in this promotion’s catalog';
+const MISMATCH_TITLE = 'This code was not found in the system';
 const EMPTY_CODE_TITLE = 'This row has no code — nothing was entered for it in the source file';
 function refreshRowValidationUi(tr, row) {
   const promoPriceInput = tr.querySelector('[data-field="promoPrice"]');
@@ -1577,8 +1577,7 @@ const CatalogLink = (function () {
       if (file.lastModified > last) { feed(file, currentPromoId); showToast(`Catalog reloaded from ${file.name} (the file was saved).`); }
     } catch (e) { /* moved or no access: the Reload button says so */ }
   }
-  document.addEventListener('visibilitychange', autoCheck);
-  window.addEventListener('focus', autoCheck);
+  // No catalog file any more (owner, 2026-10-06): a linked file is never re-read by itself.
   document.addEventListener('click', e => {
     const b = e.target.closest('#catLinkBox [data-cl]'); if (!b) return;
     e.stopPropagation();
@@ -2181,8 +2180,8 @@ function buildPromoRowHtml(row) {
   const supplierRow = supplierOpen ? `
   <tr class="supplier-detail-row" data-supplier-row-id="${row.id}">
     <td colspan="11" style="background:var(--paper);font-size:12.5px;color:var(--ink-soft);padding:6px 10px 8px 40px;">
-      Supplier: <strong style="color:var(--ink);">${escapeHtml(row.supplier || 'Not listed in the catalog')}</strong>
-      &nbsp;&middot;&nbsp; Country: <strong style="color:var(--ink);">${escapeHtml(row.country || 'Not listed in the catalog')}</strong>
+      Supplier: <strong style="color:var(--ink);">${escapeHtml(row.supplier || 'Not in the system')}</strong>
+      &nbsp;&middot;&nbsp; Country: <strong style="color:var(--ink);">${escapeHtml(row.country || 'Not in the system')}</strong>
       ${catalogExtrasHtml(row)}
     </td>
   </tr>` : '';
@@ -2387,7 +2386,7 @@ async function renderPromoWorkspace() {
               <div class="filter-panel-section">
                 <p class="filter-panel-label">Code issues</p>
                 <label class="filter-panel-option"><input type="checkbox" value="missing" data-role="code-issue-option" ${selectedCodeIssues.has('missing') ? 'checked' : ''}> Missing code</label>
-                <label class="filter-panel-option"><input type="checkbox" value="mismatch" data-role="code-issue-option" ${selectedCodeIssues.has('mismatch') ? 'checked' : ''}> Not in catalog</label>
+                <label class="filter-panel-option"><input type="checkbox" value="mismatch" data-role="code-issue-option" ${selectedCodeIssues.has('mismatch') ? 'checked' : ''}> Not in the system</label>
               </div>
               <div class="filter-panel-section" id="countryFilterSection">
                 ${countryFilterSectionHtml(allCountries)}
@@ -2619,7 +2618,7 @@ function countryFilterSectionHtml(allCountries) {
     </div>` : ''}
     ${allCountries.length ? allCountries.map(c => `
       <label class="filter-panel-option" data-country-label="${escapeHtml(c.toLowerCase())}"><input type="checkbox" value="${escapeHtml(c)}" data-role="country-option" ${selectedCountries.has(c) ? 'checked' : ''}> ${escapeHtml(c)}</label>
-    `).join('') : '<p class="muted-note" style="padding:2px 12px 10px;">No country data in the catalog yet.</p>'}
+    `).join('') : '<p class="muted-note" style="padding:2px 12px 10px;">No country data yet.</p>'}
     <p class="muted-note" data-role="country-search-empty" style="display:none;padding:2px 12px 10px;">No matching countries.</p>
   `;
 }
@@ -3039,12 +3038,12 @@ function wirePromoRowElement(tr) {
         const supplierDetail = document.querySelector(`tr[data-supplier-row-id="${row.id}"]`);
         if (supplierDetail) {
           const strongs = supplierDetail.querySelectorAll('strong');
-          if (strongs[0]) strongs[0].textContent = row.supplier || 'Not listed in the catalog';
-          if (strongs[1]) strongs[1].textContent = row.country || 'Not listed in the catalog';
+          if (strongs[0]) strongs[0].textContent = row.supplier || 'Not in the system';
+          if (strongs[1]) strongs[1].textContent = row.country || 'Not in the system';
         }
         refreshCountryFilterOptions();
       } else {
-        showToast(`Code "${code}" not found in this promotion's catalog \u2014 fill it in manually.`, true);
+        if (liveTried(code)) showToast(`Code "${code}" not found in the system \u2014 fill it in manually.`, true);   // else: being looked up
       }
       refreshRowValidationUi(tr, row);
       refreshDiscountUi(tr, row);
@@ -3445,7 +3444,7 @@ function wirePromoWorkspaceEvents(promo) {
   });
 
   document.getElementById('deletePromoBtn').addEventListener('click', async () => {
-    const ok = await showConfirm(`Delete "${promo.name}"? This removes all its rows and its catalog too.`, 'Delete');
+    const ok = await showConfirm(`Delete "${promo.name}"? This removes all its rows.`, 'Delete');
     if (!ok) return;
     await deletePromotionRemote(promo.id);
     promotions = promotions.filter(p => p.id !== promo.id);
@@ -3980,7 +3979,9 @@ async function loadVendorsData() {
     dayOfWeek: r.day_of_week === undefined ? null : r.day_of_week,
     frequencyWeeks: r.frequency_weeks || 1,
     leadTimeDays: r.lead_time_days === undefined ? null : r.lead_time_days,
-    anchorDate: r.anchor_date || ''
+    anchorDate: r.anchor_date || '',
+    // low stock (migration 066)
+    watchStock: !!r.watch_stock, systemSuppliers: Array.isArray(r.system_suppliers) ? r.system_suppliers : [], coverDays: r.cover_days || null, stockCheckedAt: r.stock_checked_at || null
   }));
 }
 async function saveVendorRemote(v) {
@@ -3990,6 +3991,7 @@ async function saveVendorRemote(v) {
     lead_time_days: v.leadTimeDays === null || v.leadTimeDays === '' ? null : Number(v.leadTimeDays),
     anchor_date: v.anchorDate || null
   };
+  if (v.watchStock !== undefined) Object.assign(row, { watch_stock: !!v.watchStock, system_suppliers: v.systemSuppliers || [], cover_days: v.coverDays || null });
   const { error } = await sb.from('vendors').upsert(row);
   if (error) { console.error(error); showToast('Could not save that vendor — ' + sbErrText(error), true); return false; }
   return true;
@@ -4057,6 +4059,7 @@ function openVendorForm(id) {
   document.getElementById('vendorFrequency').value = v ? String(v.frequencyWeeks) : '1';
   document.getElementById('vendorLeadTime').value = v && v.leadTimeDays !== null ? v.leadTimeDays : '';
   document.getElementById('vendorAnchor').value = v ? v.anchorDate : '';
+  if (window.LowStock) LowStock.wireForm(v);
   document.getElementById('vendorFormCard').style.display = 'block';
   document.getElementById('vendorFormCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
   document.getElementById('vendorName').focus();
@@ -4081,7 +4084,8 @@ document.getElementById('saveVendorBtn').addEventListener('click', async () => {
     dayOfWeek: Number(document.getElementById('vendorDay').value),
     frequencyWeeks: Number(document.getElementById('vendorFrequency').value),
     leadTimeDays: leadRaw === '' ? null : Number(leadRaw),
-    anchorDate: document.getElementById('vendorAnchor').value || ''
+    anchorDate: document.getElementById('vendorAnchor').value || '',
+    ...(window.LowStock ? LowStock.readForm() : {})
   };
   const ok = await saveVendorRemote(vendor);
   if (!ok) return;
@@ -4337,6 +4341,8 @@ document.querySelectorAll('#vendorSubTabs button').forEach(btn => {
     document.getElementById('vendorOrdersView').style.display = vendorSubTab === 'orders' ? 'block' : 'none';
     document.getElementById('vendorCalendarView').style.display = vendorSubTab === 'calendar' ? 'block' : 'none';
     document.getElementById('vendorReceivingView').style.display = vendorSubTab === 'receiving' ? 'block' : 'none';
+    document.getElementById('vendorLowStockView').style.display = vendorSubTab === 'lowstock' ? 'block' : 'none';
+    if (vendorSubTab === 'lowstock' && window.LowStock) LowStock.render();
     if (vendorSubTab === 'orders') renderOrdersView();
     if (window.VendorCal) { if (vendorSubTab === 'calendar') VendorCal.renderCalendar(); if (vendorSubTab === 'receiving') VendorCal.renderReceiving(); }
   });
@@ -4895,6 +4901,7 @@ function renderVendorExtras() {
   document.querySelectorAll('#vendorSubTabs [data-vsub="directory"], #vendorSubTabs [data-vsub="orders"]').forEach(b => { b.hidden = !manage; });
   if (!manage && (vendorSubTab === 'directory' || vendorSubTab === 'orders')) { document.querySelector('#vendorSubTabs [data-vsub="receiving"]')?.click(); return; }
   VendorCal.renderStats();
+  if (window.LowStock && manage) LowStock.reload().then(() => { VendorCal.renderStats(); if (vendorSubTab === 'lowstock') LowStock.render(); });   // low stock count (migration 066)
   if (vendorSubTab === 'calendar') VendorCal.renderCalendar();
   if (vendorSubTab === 'receiving') VendorCal.renderReceiving();
 }

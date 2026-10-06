@@ -297,7 +297,9 @@
         <button data-vsub="orders">Orders</button>
         <button data-vsub="calendar">Calendar</button>
         <button data-vsub="receiving">Receiving</button>
+        <button data-vsub="lowstock">Low stock</button>
       </div>
+      <div id="vendorLowStockView" style="display:none;"></div>
 
       <!-- Calendar (order days / deliveries) and Receiving (js/modules/vendorcal.js; migration 062) -->
       <div id="vendorCalendarView" style="display:none;"></div>
@@ -358,6 +360,18 @@
             <div>
               <label for="vendorLeadTime">Lead time (days)</label>
               <input type="text" inputmode="numeric" id="vendorLeadTime" placeholder="e.g. 4">
+            </div>
+            <!-- Watch stock (owner, 2026-10-06; js/modules/lowstock.js) -->
+            <div class="full vw-box" id="vendorWatchBox">
+              <label class="vw-check"><input type="checkbox" id="vendorWatch"> <span><b>Watch stock</b> — tell me when one of this supplier's selling items runs low</span></label>
+              <div class="vw-more" hidden>
+                <label for="vendorSysQ">Supplier in the system</label>
+                <div class="ip-chosen" id="vendorSysChosen"></div>
+                <input type="search" id="vendorSysQ" placeholder="Search the supplier in the system…" autocomplete="off">
+                <div class="vw-options" id="vendorSysOptions"></div>
+                <label for="vendorCover" style="margin-top:8px;">Days of stock to keep</label>
+                <input type="text" inputmode="numeric" id="vendorCover" style="max-width:140px;">
+              </div>
             </div>
             <div>
               <label for="vendorAnchor">Anchor date <span style="opacity:.6;">(any date this vendor was scheduled)</span></label>
@@ -1000,6 +1014,7 @@
 <script src="js/modules/itempicker.js"></script>
 <script src="js/modules/pasteitems.js"></script>
 <script src="js/modules/itemdetail.js"></script>
+<script src="js/modules/lowstock.js"></script>
 <script src="js/modules/tools.js"></script>
 <script src="js/modules/promoladies.js"></script>
 <script src="js/modules/schedule.js"></script>

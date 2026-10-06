@@ -140,6 +140,61 @@ async function priceWatch(limit: number) {
   return { watched: codes.length, read, changed, left: codes.filter(c => !known.has(c) || !known.get(c)!.checked_at || new Date(String(known.get(c)!.checked_at)).getTime() < stale).length - due.length };
 }
 
+/* ---------------- stock watch (owner, 2026-10-06; migration 066) ----------------
+   One round: the watched vendor(s) checked longest ago (or one vendor), within about 110 item lookups. Its items
+   that sold in the last 30 days, their stock now; low = stock <= 0, or days of stock < cover days. */
+async function stockWatch(onlyVendor?: string) {
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Beirut' });
+  const from = new Date(new Date(today + 'T00:00:00Z').getTime() - 29 * 864e5).toISOString().slice(0, 10);
+  let q = db.from('vendors').select('id, name, lead_time_days, system_suppliers, cover_days, stock_checked_at').eq('watch_stock', true);
+  if (onlyVendor) q = q.eq('id', onlyVendor);
+  const { data: vs, error } = await q.order('stock_checked_at', { ascending: true, nullsFirst: true });
+  if (error) throw error;
+  const key = (c: string) => c.replace(/^0+(?=\d)/, '').toUpperCase();
+  let budget = 110; const done: Record<string, unknown>[] = [];
+  for (const v of vs || []) {
+    const sups = (Array.isArray(v.system_suppliers) ? v.system_suppliers : []).map((s: Record<string, unknown>) => String(s.code || '')).filter(Boolean);
+    if (!sups.length) continue;
+    if (budget <= 0 && done.length) break;
+    // what sold in the last 30 days (the only items watched: no sales = not followed)
+    const sold = new Map<string, { code: string; description: string; qty: number }>();
+    for (const [f, t] of from.slice(0, 4) === today.slice(0, 4) ? [[from, today]] : [[from, `${from.slice(0, 4)}-12-31`], [`${today.slice(0, 4)}-01-01`, today]]) {
+      const d = await dash('/items_sales', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+        branches: [BRANCH], year: f.slice(0, 4), from_date: f, to_date: t, aggregation: 'Monthly', group_by: ['item'], supplier: sups }) });
+      const rows = (((d as Record<string, unknown>)?.data as Record<string, unknown>)?.branches as Record<string, Record<string, unknown>[]>)?.[BRANCH] || [];
+      rows.forEach(r => { const c = String(r.item ?? '').trim(); if (!c) return; const it = sold.get(c) || { code: c, description: String(r.item_desc ?? '').trim(), qty: 0 }; it.qty += Number(r.total_quantity || 0); sold.set(c, it); });
+    }
+    const items = [...sold.values()].filter(i => i.qty > 0).sort((a, b) => b.qty - a.qty).slice(0, 150);
+    const cover = Number(v.cover_days) > 0 ? Number(v.cover_days) : (Number(v.lead_time_days) > 0 ? Number(v.lead_time_days) : 3) + 4;
+    const low: Record<string, unknown>[] = [];
+    for (let i = 0; i < items.length; i += 6) {
+      await Promise.all(items.slice(i, i + 6).map(async it => {
+        try {
+          const d = await dash(`/items/search?${new URLSearchParams({ search: it.code, year: year(), preferred_branch: BRANCH })}`);
+          const hit = (Array.isArray(d) ? d : []).find((x: Record<string, unknown>) => key(String(x.code ?? '')) === key(it.code)) as Record<string, unknown> | undefined;
+          if (!hit || hit.available_quantity === null || hit.available_quantity === undefined) return;
+          const stock = Number(hit.available_quantity), perDay = it.qty / 30, daysLeft = perDay > 0 ? stock / perDay : null;
+          if (stock <= 0 || (daysLeft !== null && daysLeft < cover)) low.push({ vendor_id: v.id, code: it.code, description: it.description || String(hit.description || ''),
+            stock, sold30: it.qty, per_day: Math.round(perDay * 100) / 100, days_left: daysLeft === null ? null : Math.round(daysLeft * 10) / 10, cover_days: cover });
+        } catch (e) { console.warn('stock', it.code, e); }
+      }));
+    }
+    budget -= items.length;
+    // keep the open ones, add the new ones, resolve the ones back above
+    const { data: open } = await db.from('stock_alerts').select('code').eq('vendor_id', v.id).is('resolved_at', null);
+    const now = new Date().toISOString(), lowCodes = new Set(low.map(x => String(x.code))), openCodes = new Set((open || []).map(x => x.code));
+    for (const x of low) {
+      if (openCodes.has(String(x.code))) await db.from('stock_alerts').update({ ...x, last_seen: now }).eq('vendor_id', v.id).eq('code', x.code);
+      else await db.from('stock_alerts').upsert({ ...x, first_seen: now, last_seen: now, resolved_at: null });
+    }
+    const back = [...openCodes].filter(c => !lowCodes.has(c) && items.some(i => i.code === c));
+    if (back.length) await db.from('stock_alerts').update({ resolved_at: now }).eq('vendor_id', v.id).in('code', back);
+    await db.from('vendors').update({ stock_checked_at: now }).eq('id', v.id);
+    done.push({ vendor: v.name, items: items.length, low: low.length, newlyLow: low.filter(x => !openCodes.has(String(x.code))).length, backAbove: back.length });
+  }
+  return { checked: done };
+}
+
 Deno.serve(async req => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
@@ -153,6 +208,16 @@ Deno.serve(async req => {
     if (!ok && cron) { const { data } = await db.rpc('push_keys'); ok = !!data && cron === (data as Record<string, string>).push_cron_secret; }
     if (!ok) return json({ error: 'Not allowed.' }, 403);
     try { return json(await priceWatch(Number(body.limit) || 150)); }
+    catch (e) { console.error(e); return json({ error: e instanceof Error ? e.message : 'failed' }, 502); }
+  }
+
+  // The stock watch (migration 066), from pg_cron or the server key.
+  if (body.action === 'stock_watch') {
+    const cron = req.headers.get('x-cron-secret') || '';
+    let ok = serverKeys().includes(req.headers.get('apikey') || '');
+    if (!ok && cron) { const { data } = await db.rpc('push_keys'); ok = !!data && cron === (data as Record<string, string>).push_cron_secret; }
+    if (!ok) return json({ error: 'Not allowed.' }, 403);
+    try { return json(await stockWatch(body.vendor ? String(body.vendor) : undefined)); }
     catch (e) { console.error(e); return json({ error: e instanceof Error ? e.message : 'failed' }, 502); }
   }
 
@@ -170,6 +235,11 @@ Deno.serve(async req => {
   }
 
   try {
+    // Check one watched vendor's stock now (admin, the Vendors page's Check now).
+    if (body.action === 'stock_check_now') {
+      if (!isServer && role !== 'admin') return json({ error: 'Admin only.' }, 403);
+      return json(await stockWatch(String(body.vendor || '')));
+    }
     if (body.action === 'status') {
       if (!isServer && role !== 'admin') return json({ error: 'Admin only.' }, 403);
       // a real, light read (logs in only when needed): proves the login and the data both work
