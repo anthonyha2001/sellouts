@@ -1352,6 +1352,7 @@ const PAGES = {
 // Sections the signed-in role cannot see fall back to the role's home page (roles.js).
 // The address bar mirrors the section (#promotions, #delivery/settle) so reloads and links work.
 function switchTab(name, sub) {
+  if (name === 'onlinepromo') { name = 'delivery'; sub = 'online'; }   // now a tab of Delivery (owner, 2026-10-06)
   if (!canSee(name)) name = roleInfo().home;
   if (!name) return;
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));

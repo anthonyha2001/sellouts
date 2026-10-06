@@ -64,6 +64,7 @@ function canSee(section) {
 const DELIVERY_PAGE_PERMS = {
   orders: ['delivery.orders', 'delivery.manage'], settle: ['delivery.settle'], customers: ['delivery.customers'],
   reports: ['delivery.reports'], drivers: ['delivery.manage'], settings: ['delivery.manage'],
+  online: ['sellouts.online', 'sellouts.view'],
 };
 function canSeeDeliveryPage(page) { return can(...(DELIVERY_PAGE_PERMS[page] || [])); }
 function isAdmin() { return Session.role === 'admin'; }

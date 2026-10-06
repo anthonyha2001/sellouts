@@ -322,8 +322,9 @@ function refreshLists(){
 }
 
 /* ---------- navigation ---------- */
-const renderers = {orders:renderOrders, settle:renderSettle, reports:renderReports, customers:renderCustomers, drivers:renderDrivers, settings:renderSettings};
-const ALL_PAGES = ['orders','settle','reports','customers','drivers','settings'];
+// online: the online promotion (js/modules/onlinepromo.js), a tab of Delivery (owner, 2026-10-06)
+const renderers = {orders:renderOrders, settle:renderSettle, reports:renderReports, customers:renderCustomers, drivers:renderDrivers, settings:renderSettings, online:() => window.OnlinePromo && window.OnlinePromo.show()};
+const ALL_PAGES = ['orders','settle','reports','customers','drivers','settings','online'];
 let PAGES = ALL_PAGES;          // pages this role can open, in order (keys 1..n)
 let currentPage = '';
 const firstPage = () => PAGES[0] || 'orders';
