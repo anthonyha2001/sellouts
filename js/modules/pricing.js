@@ -21,6 +21,8 @@
    changed: old and new sale price, the purchase price behind it).
    Find a PU (owner, 2026-10-06): type its number (PU0010852, 10852, PC…,
    PT…): it opens on its day, supplier and PU (a return: under Returns).
+   The selected line (owner, 2026-10-06): its prices, VAT and tags in a bar
+   under the table, following the selection.
    Keys: up / down move along the rows, left / right go to the previous /
    next PU, Enter opens the item's details.
    Permission: vendors.manage.  Public API: window.Pricing = { show }.
@@ -305,6 +307,7 @@
           <td class="num">${r.overArr ? stockTag(r) : ''}${r.had === null ? '—' : qty(r.had)}<div class="pr-sub${r.overArr ? ' pr-flag-over' : ''}">${r.pending ? '…' : r.generic ? '' : r.daysHad !== null ? `${Math.round(r.daysHad)} days` : r.had > 0.001 && !(r.perDay > 0) ? 'no sales in 90 days' : ''}</div></td>
           <td class="num">${r.pending ? '<span class="pr-wait" title="Checking…">…</span>' : r.it.priceFailed ? '<span class="login-err">could not be read</span>' : r.it.salePrice ? price(r.it.salePrice, r.it.saleCurrency || '$') : '—'}</td>
           <td class="num"><input type="text" inputmode="decimal" class="pr-np${S.np.has(r.it.code) ? ' set' : ''}" data-np="${i}" value="${S.np.has(r.it.code) ? esc(String(S.np.get(r.it.code).newPrice)) : ''}" placeholder="${r.it.salePrice ? esc(price(r.it.salePrice, r.it.saleCurrency || '$')) : ''}" aria-label="New sale price of ${esc(r.it.description || r.it.code)}"></td></tr>`).join('')}</tbody></table></div>
+      <div class="pr-selbar" id="prSelBar" aria-live="polite"></div>
       <div class="pr-foot">
         <div class="pr-total"><span>${pu.kind === 'return' ? 'Total returned' : 'Total'} ${esc(pu.doc)}</span><b>${price(pu.info && !pu.info.failed ? (pu.kind === 'return' ? -pu.info.withVat : pu.info.withVat) : pu.total, cur)} ${esc(cur || '$')}</b>
           ${pu.info && !pu.info.failed ? `<div class="pr-vatline">without VAT ${price(pu.info.withoutVat, cur)} · VAT ${price(pu.info.vat, cur)}${pu.info.discountPct ? ` · discount ${pu.info.discountPct}%` : ''}</div>` : ''}</div>
@@ -321,6 +324,7 @@
     el('prRetry')?.addEventListener('click', () => { const code = sups()[S.supIdx]?.code, d = S.cache.get(code); if (!d) return; d.items.forEach(it => { if (it.prev?.failed) delete it.prev; }); d.moreReady = false; refresh(code); fetchMore(code, d, S.day); });
     el('prBody').querySelectorAll('tr[data-r]').forEach(tr => { tr.onclick = () => select(Number(tr.dataset.r)); tr.ondblclick = () => openItem(); });
     el('prBody').querySelector('[data-np-dl]')?.addEventListener('click', npExcel);
+    paintSel();
     const boxes = [...el('prBody').querySelectorAll('[data-np]')];
     boxes.forEach((inp, k) => {
       inp.onfocus = () => { select(Number(inp.dataset.np), false); inp.select(); };
@@ -342,7 +346,7 @@
     S.np.set(r.it.code, { code: r.it.code, description: r.it.description || '', barcode: r.it.barcode || '', supplier: sup.name, doc: pu.doc, day: S.day,
       vat: r.it.vat ? 'VAT' : '', oldPrice: r.it.salePrice ?? null, currency: r.it.saleCurrency || '$', newPrice: v,
       cost: r.net ?? null, costCurrency: pu.currency || '$', prevCost: r.prev?.net ?? null, costChange: r.priceFlag ? (priceDir(r) === 'up' ? 'Price increase' : 'Price decrease') : '', at: new Date().toISOString() });
-    npSave(); inp.classList.add('set'); npCount();
+    npSave(); inp.classList.add('set'); npCount(); paintSel();
   }
   const npCount = () => el('prBody').querySelectorAll('[data-np-dl]').forEach(b => { b.querySelector('.pr-np-count')?.remove(); if (S.np.size) b.insertAdjacentHTML('beforeend', `<span class="pr-np-count">${S.np.size}</span>`); });
   // the Excel for the floor manager: every new sale price of the day
@@ -362,10 +366,42 @@
     XLSX.writeFile(wb, `New sale prices ${dmy(S.day)}.xlsx`);
     if (typeof logActivity === 'function') logActivity('pricing', 'new_prices_export', null, `New sale prices of ${dmy(S.day)}: ${L.length} items`);
   }
+  // the selected line: its prices, VAT and tags
+  function paintSel() {
+    const bar = el('prSelBar'); if (!bar) return;
+    const pu = S.pus[S.puIdx], r = pu?.rows[S.sel]; if (!r) { bar.innerHTML = ''; return; }
+    const cur = pu.currency, it = r.it;
+    const kk = c => String(c).replace(/^0+(?=\d)/, '').toUpperCase();
+    const vi = S.cache.get(sups()[S.supIdx]?.code)?.docInfo?.[pu.doc]?.items?.[kk(it.code)];
+    const np = S.np.get(it.code);
+    const cell = (label, value, sub = '') => `<div class="pr-sel-cell"><span>${label}</span><b>${value}</b>${sub ? `<small>${sub}</small>` : ''}</div>`;
+    const tags = [
+      r.priceFlag ? priceTag(r) : '',
+      r.overArr ? stockTag(r) : '',
+      it.vat ? '<span class="pr-tag pr-tag-vat">VAT</span>' : '',
+      r.doc.tradeDeal ? '<span class="pr-tag pr-tag-deal">Trade deal</span>' : '',
+      r.prevFailed ? '<span class="login-err">previous price could not be read</span>' : '',
+    ].filter(Boolean).join('');
+    bar.innerHTML = `
+      <div class="pr-sel-item"><b>${esc(it.description || it.code)}</b><span class="mono">${esc(it.code)}${it.barcode ? ' · ' + esc(it.barcode) : ''}${n(it.pack) > 1 ? ' · pack ' + n(it.pack) : ''}</span>
+        <div class="pr-sel-tags">${tags || '<span class="muted-note">no flag</span>'}</div></div>
+      <div class="pr-sel-cells">
+        ${cell('Qty', qty(r.doc.paidQty) + (n(r.doc.freeQty) ? ` <span class="po-free">+ ${qty(r.doc.freeQty)} free</span>` : ''))}
+        ${cell('Unit price', r.paid ? price(r.paid.unit, cur) : '—', r.paid?.discountPct ? '-' + r.paid.discountPct + '%' : '')}
+        ${cell('Net', price(r.net, cur), r.doc.tradeDeal ? 'real ' + price(r.real, cur) : '')}
+        ${cell('Previous', r.pending ? '…' : r.prev ? price(r.prev.net, r.prev.currency) : '—', r.prev ? esc(dmy(r.prev.date)) + ' · ' + esc(r.prev.docs || '') : r.pending ? '' : 'no earlier purchase')}
+        ${cell('Difference', r.pending ? '…' : r.generic ? 'catch-all' : r.otherCurrency ? 'other currency' : (diffHtml(r.diffNet, r.prev?.net, cur) || '—'))}
+        ${cell('VAT', it.vat === undefined ? (r.pending ? '…' : '—') : it.vat ? 'Yes' : 'No', vi ? `${price(Math.abs(vi.vat), cur)} on ${price(Math.abs(vi.withVat), cur)}` : '')}
+        ${cell('Stock we had', r.had === null ? '—' : qty(r.had), r.pending ? '' : r.daysHad !== null ? Math.round(r.daysHad) + ' days' : r.had > 0.001 && !(r.perDay > 0) ? 'no sales in 90 days' : '')}
+        ${cell('Sale price now', r.pending ? '…' : it.salePrice ? price(it.salePrice, it.saleCurrency || '$') : '—', it.saleCurrency || '')}
+        ${cell('New sale price', np ? price(np.newPrice, np.currency) : '—', np && np.oldPrice ? (np.newPrice > np.oldPrice ? '+' : '') + (Math.round((np.newPrice - np.oldPrice) / np.oldPrice * 1000) / 10) + '%' : '')}
+      </div>`;
+  }
   function select(i, scroll = true) {
     const rows = el('prBody').querySelectorAll('tr[data-r]'); if (!rows.length) return;
     S.sel = Math.max(0, Math.min(rows.length - 1, i));
     rows.forEach((r, k) => r.classList.toggle('pr-sel', k === S.sel));
+    paintSel();
     if (scroll) rows[S.sel].scrollIntoView({ block: 'nearest' });
   }
   function openItem() { const r = S.pus[S.puIdx]?.rows[S.sel]; if (r && window.ItemDetail) ItemDetail.open(r.it.code); }
