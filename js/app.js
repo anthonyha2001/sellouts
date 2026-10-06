@@ -873,12 +873,12 @@ function promoSoldHtml(row) {
   if (!P) return '<span class="muted-note">not started</span>';
   const h = promoSoldCache.get(promoSoldKey(promo, P)), x = h?.map.get(normalizeCatalogCode(row.code));
   if (!x) return h && h.failed ? '<span class="muted-note" title="The system did not answer">—</span>' : '<span class="muted-note">…</span>';
-  return `<b class="ps-qty">${lcQty(x.qty)}</b><div class="lp-sub">$${lcMoney(x.sales)}</div>`;
+  return `<b class="ps-qty">${lcQty(x.qty)}</b>`;   // units only (owner: quantities, not values)
 }
 function promoSoldHead() {
   const promo = promotions.find(p => p.id === currentPromoId), P = promoPeriod(promo);
   const d = s => new Date(s + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
-  return `<th style="text-align:right;" title="${P ? `Units sold from ${d(P.from)} to ${d(P.to)}${P.running ? ' (today: the promotion is still running)' : ''}, and the sales` : 'The promotion has not started'}">Sold in the promotion${P ? `<div class="lp-sub" style="font-weight:400;">${d(P.from)} – ${d(P.to)}</div>` : ''}</th>`;
+  return `<th style="text-align:right;" title="${P ? `Units sold from ${d(P.from)} to ${d(P.to)}${P.running ? ' (today: the promotion is still running)' : ''}` : 'The promotion has not started'}">Units sold in the promotion${P ? `<div class="lp-sub" style="font-weight:400;">${d(P.from)} – ${d(P.to)}</div>` : ''}</th>`;
 }
 function paintPromoSold() {
   document.querySelectorAll('#promoAuditView [data-ps]').forEach(td => {

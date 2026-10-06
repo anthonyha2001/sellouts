@@ -548,6 +548,75 @@ document.getElementById('dupSelloutForm').addEventListener('submit', async e => 
   showToast(`"${name}" created.`);
 });
 
+/* ---------------- what each item sold during the sell-out (owner, 2026-10-06) ----------------
+   From its start to its end (today while it runs), live from the system (lv-dashboard sales_compare), kept 15 minutes.
+   Shown in the item list (Sold) and copied for an Excel linked to the system: code TAB units, codes as text. */
+const soSoldCache = new Map();   // id|from|to -> { at, busy, failed, map: CODE -> { qty, sales }, wait }
+function soPeriod(so) {
+  const t = todayStr(), from = String(so.from || '').slice(0, 10), endDay = String(so.to || '').slice(0, 10);
+  if (!from || from > t) return null;
+  return { from, to: endDay && endDay < t ? endDay : t };
+}
+const soCodes = so => { const out = [], seen = new Set(); pricedRowsOf(so).forEach(p => { const c = String(p.code || '').trim(); if (c && !seen.has(c.toUpperCase())) { seen.add(c.toUpperCase()); out.push(c); } }); return out; };
+function loadSoSold(so) {
+  const P = soPeriod(so); if (!P) return Promise.resolve(null);
+  const k = `${so.id}|${P.from}|${P.to}`;
+  let h = soSoldCache.get(k);
+  if (h && (h.busy || (!h.failed && Date.now() - h.at < 15 * 60e3))) return h.wait || Promise.resolve(h);
+  h = { at: 0, busy: true, failed: false, map: new Map() }; soSoldCache.set(k, h);
+  h.wait = (async () => {
+    const codes = soCodes(so);
+    try {
+      for (let i = 0; i < codes.length; i += 300) {
+        const part = codes.slice(i, i + 300);
+        const { data, error } = await sb.functions.invoke('lv-dashboard', { body: { action: 'sales_compare', onlyDuring: true, codes: part, from: P.from, to: P.to } });
+        if (error || !data?.items) throw error || new Error('no answer');
+        part.forEach(c => { const d = data.items[c]?.during || {}; h.map.set(c.toUpperCase(), { qty: Number(d.qty) || 0, sales: Number(d.sales) || 0 }); });
+      }
+    } catch (e) { console.warn('sell-out sold', e); h.failed = true; }
+    h.busy = false; h.at = Date.now();
+    paintSoSold(so);
+    return h;
+  })();
+  return h.wait;
+}
+const soQ = v => Math.round(v * 1000) / 1000;
+function soSoldHtml(so, code) {
+  const P = soPeriod(so); if (!P) return '<span class="muted-note">not started</span>';
+  const h = soSoldCache.get(`${so.id}|${P.from}|${P.to}`), x = h?.map.get(String(code || '').trim().toUpperCase());
+  if (!x) return h && h.failed ? '<span class="muted-note" title="The system did not answer">—</span>' : '<span class="muted-note">…</span>';
+  return `<b>${soQ(x.qty).toLocaleString('en-US')}</b>`;   // units only (owner: quantities, not values)
+}
+function paintSoSold(so) {
+  document.querySelectorAll(`.sellout[data-id="${CSS.escape(String(so.id))}"] [data-sold-code]`).forEach(td => { td.innerHTML = soSoldHtml(so, td.dataset.soldCode); });
+}
+// copy the codes and the units sold (codes: all the sell-out's, or the selected ones)
+async function copySoSales(so, codes, btn) {
+  const P = soPeriod(so);
+  if (!P) { showToast('This sell-out has not started yet: nothing sold.', true); return; }
+  if (!codes.length) { showToast('No item codes in this sell-out.', true); return; }
+  if (btn) { btn.disabled = true; btn.classList.add('ls-spin'); }
+  try {
+    const h = await loadSoSold(so);
+    if (!h || h.failed) { showToast('The system did not answer. Try again in a moment.', true); return; }
+    const sold = c => h.map.get(c.toUpperCase())?.qty || 0;
+    const text = codes.map(c => `${c}\t${soQ(sold(c))}`).join('\r\n');
+    const html = '<table>' + codes.map(c => `<tr><td style="mso-number-format:'\\@'">${escapeHtml(c)}</td><td>${soQ(sold(c))}</td></tr>`).join('') + '</table>';
+    let ok = false;
+    try {
+      if (navigator.clipboard && window.ClipboardItem) {
+        await navigator.clipboard.write([new ClipboardItem({ 'text/html': new Blob([html], { type: 'text/html' }), 'text/plain': new Blob([text], { type: 'text/plain' }) })]);
+        ok = true;
+      }
+    } catch (e) { ok = false; }
+    if (!ok) ok = await copyTextToClipboard(text);
+    const total = codes.reduce((a, c) => a + sold(c), 0);
+    if (ok) showToast(`Copied ${codes.length} code${codes.length === 1 ? '' : 's'} with their units sold (${soQ(total).toLocaleString('en-US')} in all, ${fmtDate(P.from)} to ${fmtDate(P.to)}). Paste into Excel.`);
+    else showToast('Could not copy: your browser blocked clipboard access.', true);
+    logActivity('sellouts', 'copy_sales', { type: 'sellout', id: so.id }, `Copied the codes and units sold of "${so.name}" (${codes.length} items)`);
+  } finally { if (btn) { btn.disabled = false; btn.classList.remove('ls-spin'); } }
+}
+
 /* ---------------- pricing panel ---------------- */
 const pricingState = new Map();   // sellout id -> { view: 'pricing'|'file', selected: Set<row>, mode, value }
 function stateOf(so) {
@@ -583,12 +652,14 @@ function pricingPanelHtml(so) {
       ${so.pricing ? `<span>Last rule: <b>${escapeHtml(PRICE_MODES[so.pricing.mode]?.short || so.pricing.mode)} ${escapeHtml(so.pricing.value)}</b></span>` : ''}
       ${warnCount ? `<span style="color:var(--brick);"><b>${warnCount}</b> row${warnCount === 1 ? '' : 's'} to check</span>` : ''}
       <span class="muted-note">Type in New price to set a row by hand.</span>
+      <span style="flex:1"></span>
+      <button type="button" class="icon-btn" data-role="copy-sales-all" title="Copy the codes and the units sold during the sell-out (paste into Excel: code, units)" aria-label="Copy the codes and the units sold"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/><path d="M12 18v-3M15 18v-5M18 18v-2"/></svg></button>
     </div>
     <div class="items-scroll">
       <table class="items so-price-table">
         <thead><tr>
           <th class="so-rownum" data-role="select-all" title="Select all / none">#</th>
-          <th>Code</th><th>Description</th><th class="num">Old price</th><th class="num">New price</th><th class="num">Discount</th><th>Mode</th><th></th>
+          <th>Code</th><th>Description</th><th class="num">Old price</th><th class="num">New price</th><th class="num">Discount</th><th class="num" title="Units sold from the sell-out's start to its end (today while it runs)">Units sold</th><th>Mode</th><th></th>
         </tr></thead>
         <tbody>${rows.map((p, i) => {
           const w = priceWarnings(p);
@@ -600,6 +671,7 @@ function pricingPanelHtml(so) {
             <td class="num">${p.oldPrice === null ? '<span class="empty-note">—</span>' : p.oldPrice.toFixed(2)}</td>
             <td class="num"><input type="text" inputmode="decimal" class="so-new-price" data-role="new-price" ${can('sellouts.price') ? '' : 'disabled'} value="${p.newPrice === null ? '' : p.newPrice.toFixed(2)}"></td>
             <td class="num">${d === null ? '' : d + '%'}</td>
+            <td class="num so-sold" data-sold-code="${escapeHtml(String(p.code || '').trim())}">${String(p.code || '').trim() ? soSoldHtml(so, p.code) : ''}</td>
             <td>${p.mode ? `<span class="badge ${p.mode === 'manual' ? 'warn' : 'active'}">${escapeHtml(PRICE_MODES[p.mode].short)}${p.mode !== 'manual' && p.value !== null ? ' ' + escapeHtml(p.value) : ''}</span>` : ''}</td>
             <td>${w.length ? `<span class="big-discount-dot" title="${escapeHtml(w.join(' · '))}"></span>` : ''}</td>
           </tr>`;
@@ -609,6 +681,7 @@ function pricingPanelHtml(so) {
     <div class="so-sel-footer" ${st.selected.size ? '' : 'hidden'}>
       <div class="so-sel-bar"><span class="promo-sel-count">${st.selected.size} selected</span>
         <button type="button" class="btn secondary small" data-role="copy-selected">Copy codes</button>
+        <button type="button" class="btn secondary small" data-role="copy-sales-selected" title="Copy the selected codes with their units sold (paste into Excel)">Copy codes and sales</button>
         <button type="button" class="btn secondary small" data-role="apply-selected-foot">Apply the rule</button>
         <button type="button" class="icon-btn" data-role="clear-selected" title="Clear the selection" aria-label="Clear the selection"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
     </div>`;
@@ -621,6 +694,14 @@ function wirePricingPanel(el, so) {
   const rerender = () => { panel.innerHTML = pricingPanelHtml(so); wirePricingPanel(el, so); updateSelloutsPill(); };
 
   panel.querySelector('[data-role="price-mode"]').addEventListener('change', e => { st.mode = e.target.value; rerender(); });
+  // what each item sold during the sell-out, and the copy (all / selected)
+  loadSoSold(so);
+  panel.querySelector('[data-role="copy-sales-all"]')?.addEventListener('click', e => copySoSales(so, soCodes(so), e.currentTarget));
+  panel.querySelector('[data-role="copy-sales-selected"]')?.addEventListener('click', e => {
+    const sel = [], seen = new Set();
+    pricedRowsOf(so).filter(p => st.selected.has(p.row)).forEach(p => { const c = String(p.code || '').trim(); if (c && !seen.has(c.toUpperCase())) { seen.add(c.toUpperCase()); sel.push(c); } });
+    copySoSales(so, sel, e.currentTarget);
+  });
   // Double-click an item = its details from the system (owner, 2026-10-06); not on the new price box.
   if (window.ItemDetail && !panel._detailWired) panel._detailWired = true, panel.addEventListener('dblclick', e => {
     if (e.target.closest('input, button, select')) return;
@@ -927,44 +1008,8 @@ function renderSellouts() {
       if (ok) showToast(`Copied ${codes.length} code${codes.length === 1 ? '' : 's'} for ${so.name}.`);
       else showToast('Could not copy — your browser blocked clipboard access.', true);
     });
-    // Codes and units sold during the sell-out (owner, 2026-10-06): one line per item, in the sell-out's order, code TAB units,
-    // for an Excel linked to the system. Copied as an Excel table too, the codes as text (0114 stays 0114).
-    el.querySelector('[data-role="copy-sales"]')?.addEventListener('click', async (ev) => {
-      ev.stopPropagation();
-      const btn = ev.currentTarget;
-      const t = todayStr(), from = String(so.from || '').slice(0, 10), endDay = String(so.to || '').slice(0, 10);
-      if (!from || from > t) { showToast('This sell-out has not started yet: nothing sold.', true); return; }
-      const to = endDay && endDay < t ? endDay : t;
-      const codes = [], seen = new Set();
-      pricedRowsOf(so).forEach(p => { const c = String(p.code || '').trim(); if (c && !seen.has(c.toUpperCase())) { seen.add(c.toUpperCase()); codes.push(c); } });
-      if (!codes.length) { showToast('No item codes in this sell-out.', true); return; }
-      btn.disabled = true; btn.classList.add('ls-spin');
-      try {
-        const sold = {};
-        for (let i = 0; i < codes.length; i += 300) {
-          const part = codes.slice(i, i + 300);
-          const { data, error } = await sb.functions.invoke('lv-dashboard', { body: { action: 'sales_compare', onlyDuring: true, codes: part, from, to } });
-          if (error || !data?.items) throw error || new Error('no answer');
-          part.forEach(c => { sold[c] = Number(data.items[c]?.during?.qty) || 0; });
-        }
-        const q = v => Math.round(v * 1000) / 1000;
-        const text = codes.map(c => `${c}\t${q(sold[c])}`).join('\r\n');
-        const html = '<table>' + codes.map(c => `<tr><td style="mso-number-format:'\\@'">${escapeHtml(c)}</td><td>${q(sold[c])}</td></tr>`).join('') + '</table>';
-        let ok = false;
-        try {
-          if (navigator.clipboard && window.ClipboardItem) {
-            await navigator.clipboard.write([new ClipboardItem({ 'text/html': new Blob([html], { type: 'text/html' }), 'text/plain': new Blob([text], { type: 'text/plain' }) })]);
-            ok = true;
-          }
-        } catch (e) { ok = false; }
-        if (!ok) ok = await copyTextToClipboard(text);
-        const total = codes.reduce((a, c) => a + sold[c], 0);
-        if (ok) showToast(`Copied ${codes.length} codes with their units sold (${q(total).toLocaleString('en-US')} in all, ${fmtDate(from)} to ${fmtDate(to)}). Paste into Excel.`);
-        else showToast('Could not copy: your browser blocked clipboard access.', true);
-        logActivity('sellouts', 'copy_sales', { type: 'sellout', id: so.id }, `Copied the codes and units sold of "${so.name}" (${codes.length} items)`);
-      } catch (e) { showToast('The system did not answer. Try again in a moment.', true); }
-      finally { btn.disabled = false; btn.classList.remove('ls-spin'); }
-    });
+    // Codes and units sold during the sell-out (owner, 2026-10-06), for an Excel linked to the system
+    el.querySelector('[data-role="copy-sales"]')?.addEventListener('click', ev => { ev.stopPropagation(); copySoSales(so, soCodes(so), ev.currentTarget); });
     el.querySelector('[data-role="active-toggle"]').addEventListener('change', async (ev) => {
       ev.stopPropagation();
       so.active = ev.target.checked;
