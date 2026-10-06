@@ -5,7 +5,7 @@
      from Supabase and is never cached here).
    - Shows notifications (phones only allow notifications through a service worker) and opens
      the app on the right page when one is tapped. */
-const CACHE = 'lv-app-v5';
+const CACHE = 'lv-app-v6';
 const SHELL = ['./', 'index.html', 'css/app.css', 'css/delivery.css', 'manifest.webmanifest',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/badge-96.png',
   'cashier.html', 'css/cashier.css', 'js/cashier.js', 'manifest-cashier.webmanifest'];
@@ -19,10 +19,13 @@ self.addEventListener('activate', e => {
 });
 
 // Network first for the app's own files (same origin, GET); anything else goes straight to the network.
+// 'no-cache': the browser asks the server every time whether a file changed (GitHub Pages lets browsers keep
+// files 10 minutes), so a new version is used right after it is pushed; an unchanged file costs a tiny check.
 self.addEventListener('fetch', e => {
   const req = e.request, url = new URL(req.url);
   if (req.method !== 'GET' || url.origin !== self.location.origin) return;
-  e.respondWith(fetch(req).then(res => {
+  const fresh = req.mode === 'navigate' ? new Request(req.url, { cache: 'no-cache', credentials: 'same-origin' }) : new Request(req, { cache: 'no-cache' });
+  e.respondWith(fetch(fresh).then(res => {
     if (res.ok) { const copy = res.clone(); caches.open(CACHE).then(c => c.put(req, copy)); }
     return res;
   }).catch(() => caches.match(req, { ignoreSearch: true }).then(r => r || (req.mode === 'navigate' ? caches.match(/cashier\.html$/.test(url.pathname) ? 'cashier.html' : 'index.html') : undefined))));
