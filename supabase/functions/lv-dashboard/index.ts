@@ -650,7 +650,7 @@ Deno.serve(async req => {
     // A promotion's results (owner, 2026-10-06): units and sales per item over its dates, and over the same number
     // of days just before (the baseline). Up to 300 codes; periods within one year each.
     // Performance (supplier sales vs purchases) and Pricing (a day's purchases checked), owner 2026-10-06: vendors.manage
-    if (['perf_suppliers', 'perf_supplier', 'pricing_day', 'pricing_supplier', 'returns_range'].includes(String(body.action))) {
+    if (['perf_suppliers', 'perf_supplier', 'pricing_day', 'pricing_supplier', 'returns_range', 'pu_find'].includes(String(body.action))) {
       if (!isServer && role !== 'admin') {
         const anon = Deno.env.get('SUPABASE_ANON_KEY') || '';
         const asUser = createClient(SUPABASE_URL, anon, { global: { headers: { Authorization: `Bearer ${bearer}` } }, auth: { persistSession: false, autoRefreshToken: false } });
@@ -663,6 +663,22 @@ Deno.serve(async req => {
         if (body.action === 'perf_suppliers') return json(await perfSuppliers(from, to));
         if (!body.supplier) return json({ error: 'Choose a supplier.' }, 400);
         return json(await perfSupplier(String(body.supplier), from, to));
+      }
+      // a PU by its number (PU0010852, pu 10852, 10852, PC0001899, PT0001005…): its day and supplier, this year or last
+      if (body.action === 'pu_find') {
+        const q = String(body.q || '').toUpperCase().replace(/\s+/g, '');
+        const m = /^([A-Z]{2})?0*(\d{1,7})$/.exec(q);
+        if (!m) return json({ error: 'Type a PU number, like PU0010852 or 10852.' }, 400);
+        const type = m[1] || 'PU', num = m[2].padStart(7, '0'), y = Number(beirutToday().slice(0, 4));
+        for (const yr of [y, y - 1]) {
+          for (const ret of type === 'PT' ? [true] : [false]) {
+            try {
+              const v = await viewDoc(type + num, ret, String(yr));
+              if (v && v.date) return json({ found: true, doc: v.doc, day: v.date.slice(0, 10), partner: v.partner, currency: v.currency, withVat: v.withVat, lines: v.lines, ret });
+            } catch (e) { console.warn('pu_find', type + num, yr, e); }
+          }
+        }
+        return json({ found: false, doc: type + num });
       }
       if (body.action === 'returns_range') {
         if (!isDay(from) || !isDay(to) || from > to || (new Date(to).getTime() - new Date(from).getTime()) / 864e5 > 62) return json({ error: 'Choose up to 2 months.' }, 400);

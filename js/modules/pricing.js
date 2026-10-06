@@ -19,6 +19,8 @@
    New sale price (owner, 2026-10-06): typed per line, kept for the day on
    this device, and downloaded as one Excel for the floor manager (what
    changed: old and new sale price, the purchase price behind it).
+   Find a PU (owner, 2026-10-06): type its number (PU0010852, 10852, PC…,
+   PT…): it opens on its day, supplier and PU (a return: under Returns).
    Keys: up / down move along the rows, left / right go to the previous /
    next PU, Enter opens the item's details.
    Permission: vendors.manage.  Public API: window.Pricing = { show }.
@@ -51,9 +53,12 @@
     if (!S.day) S.day = todayStr();
     if (!root.dataset.built) {
       root.dataset.built = '1';
-      root.innerHTML = `<div class="filter-row pr-tabs" id="prTabs"><button type="button" data-t="purchases" class="active">Purchases</button><button type="button" data-t="returns">Returns</button></div>
+      root.innerHTML = `<div class="pr-topbar"><div class="filter-row pr-tabs" id="prTabs"><button type="button" data-t="purchases" class="active">Purchases</button><button type="button" data-t="returns">Returns</button></div>
+        <form class="pr-find" id="prFind" autocomplete="off"><input type="search" id="prFindQ" placeholder="Find a PU (PU0010852 or 10852)" aria-label="Find a PU by its number">
+          <button type="submit" class="icon-btn" title="Find the PU" aria-label="Find the PU"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></button></form></div>
         <div id="prWiz"><div class="pr-steps" id="prSteps"></div><div id="prBody"></div></div><div id="prRet" hidden></div>`;
       el('prTabs').onclick = e => { const b = e.target.closest('[data-t]'); if (b) tab(b.dataset.t); };
+      el('prFind').onsubmit = e => { e.preventDefault(); findPu(el('prFindQ').value); };
     }
     if (S.tab === 'returns') return tab('returns');
     if (!S.wired) { S.wired = true; document.addEventListener('keydown', onKey); }
@@ -71,8 +76,11 @@
     el('prSteps').innerHTML = ['Day', 'Suppliers', 'Purchases'].map((t, i) => `<button type="button" class="pr-step${i === k ? ' on' : ''}${i < k ? ' done' : ''}" data-step="${i}" ${i > k ? 'disabled' : ''}><b>${i + 1}</b> ${t}</button>`).join('<span class="pr-step-sep"></span>');
     el('prSteps').querySelectorAll('[data-step]').forEach(b => b.onclick = () => { const i = Number(b.dataset.step); if (i === 0) paintDay(); if (i === 1 && S.list) paintSuppliers(); });
   }
+  // a request that never ends (the system stuck) is given up after 90 s: the page says so and stays usable
   async function call(body) {
-    const { data, error } = await sb.functions.invoke('lv-dashboard', { body });
+    let timer;
+    const late = new Promise((_, no) => { timer = setTimeout(() => no(new Error('The system is taking too long to answer. Try again in a moment.')), 90000); });
+    const { data, error } = await Promise.race([sb.functions.invoke('lv-dashboard', { body }), late]).finally(() => clearTimeout(timer));
     if (error || !data || data.error) throw new Error(data?.error || 'The system did not answer. Check the "Link to the system" card on the Dashboard.');
     return data;
   }
@@ -205,6 +213,30 @@
     } else if (!S.pus.length && el('prBody').querySelector('.pr-sups')) paintSuppliers();
   }
   const prefetch = i => { const x = sups()[i]; if (x && !S.loading.has(x.code)) fetchSupplier(x.code).catch(() => {}); };
+  // find a PU by its number: its day, its supplier, then that PU (a return goes to Returns)
+  async function findPu(q) {
+    q = String(q || '').trim(); if (!q) return showToast('Type a PU number.', true);
+    const btn = el('prFind').querySelector('button'); btn.disabled = true; btn.classList.add('ls-spin');
+    try {
+      const r = await call({ action: 'pu_find', q });
+      if (!r.found) return showToast(`${r.doc} was not found in the system (this year or last year).`, true);
+      if (r.ret) { tab('returns', { from: r.day, to: r.day, q: r.doc }); showToast(`${r.doc}: a return to ${r.partner}, on ${dmy(r.day)}.`); return; }
+      if (S.tab !== 'purchases') tab('purchases');
+      if (S.day !== r.day || !S.list) { S.day = r.day; npLoad(); S.cache.clear(); S.loading.clear(); S.list = null; S.pus = [];
+        el('prBody').innerHTML = `<div class="card"><p class="muted-note" style="margin:0;">${esc(r.doc)} · ${esc(r.partner)} · ${esc(dmy(r.day))}: reading that day…</p></div>`;
+        S.list = await call({ action: 'pricing_day', day: r.day }); }
+      const key = x => String(x || '').toUpperCase().replace(/\s+\d+\s*$/, '').replace(/[^A-Z0-9\u0600-\u06FF]/g, '');
+      const L = sups(); let i = L.findIndex(x => key(x.name) === key(r.partner));
+      if (i < 0) i = L.findIndex(x => key(x.name).startsWith(key(r.partner).slice(0, 6)) || key(r.partner).startsWith(key(x.name).slice(0, 6)));
+      if (i < 0) { paintSuppliers(); return showToast(`${r.doc} is from ${r.partner} on ${dmy(r.day)}, not found in that day's list: open it from the list.`, true); }
+      await openSupplier(i);
+      const k = S.pus.findIndex(p => p.doc === r.doc);
+      if (k >= 0) { S.puIdx = k; S.sel = 0; paintPu(); }
+      else showToast(`${r.doc} has no line found for ${r.partner} that day.`, true);
+      el('prFindQ').value = '';
+    } catch (e) { showToast(e.message, true); }
+    finally { btn.disabled = false; btn.classList.remove('ls-spin'); }
+  }
   async function openSupplier(i, atEnd) {
     const s = sups()[i]; if (!s) return;
     S.supIdx = i;
@@ -356,6 +388,7 @@
       const box = el('prRet');
       if (!R.from) { R.from = opts?.from || S.day || todayStr(); R.to = opts?.to || R.from; }
       if (opts?.from) { R.from = opts.from; R.to = opts.to || opts.from; R.lines = []; R.total = 0; }
+      if (opts?.q !== undefined) R.q = opts.q;
       if (!R.built) {
         R.built = true;
         box.innerHTML = `<div class="card pr-ret-controls">
@@ -377,7 +410,7 @@
         el('rtPrev').onclick = () => { if (R.prev) return; R.prev = true; el('rtPrev').classList.add('on'); load(); };
         el('rtXls').onclick = xls;
       }
-      el('rtFrom').value = R.from; el('rtTo').value = R.to;
+      el('rtFrom').value = R.from; el('rtTo').value = R.to; el('rtQ').value = R.q;
       if (!R.lines.length && !R.busy) load(); else paint();
     }
     async function load() {

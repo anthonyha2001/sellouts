@@ -2174,3 +2174,9 @@ td.num .pr-tag{display:inline-flex;margin:0 6px 0 0;vertical-align:middle;}
 .pf-neg{color:var(--brick) !important;}
 .pf-sub{font-size:10.5px;color:var(--ink-faint);font-family:var(--font-mono);}
 .pf-check{display:inline-block;font-size:10px;font-weight:700;color:var(--brick);border:1px solid var(--brick);border-radius:4px;padding:0 4px;line-height:14px;}
+/* Pricing: find a PU (owner, 2026-10-06) */
+.pr-topbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:0 0 12px;}
+.pr-topbar .pr-tabs{margin:0;}
+.pr-find{display:flex;align-items:center;gap:6px;margin-left:auto;}
+.pr-find input{width:260px;max-width:60vw;}
+.pr-find .icon-btn svg{width:18px;height:18px;stroke:currentColor;}
