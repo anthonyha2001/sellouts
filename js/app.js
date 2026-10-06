@@ -1368,11 +1368,37 @@ const PAGES = {
 };
 // Sections the signed-in role cannot see fall back to the role's home page (roles.js).
 // The address bar mirrors the section (#promotions, #delivery/settle) so reloads and links work.
+/* Menu groups (owner, 2026-10-06): fewer entries in the menu; inside a group, tabs under the page title.
+   A group shows when one of its pages can be opened; its button opens the page last used in it. */
+const NAV_GROUPS = {
+  cashgroup:  { label: 'Cash',  members: [['cash', 'Cash differences'], ['cashcount', 'Cash count']] },
+  people:     { label: 'Staff', members: [['staff', 'Staff'], ['schedule', 'Staff schedule'], ['users', 'Users']] },
+  toolsgroup: { label: 'Tools', members: [['tools', 'PDF / photo to Excel'], ['labels', 'Shelf labels']] },
+};
+const groupLast = {};
+const groupOfTab = name => Object.keys(NAV_GROUPS).find(g => NAV_GROUPS[g].members.some(m => m[0] === name)) || null;
+function applyNavGroups() {
+  Object.entries(NAV_GROUPS).forEach(([g, def]) => {
+    const visible = def.members.filter(([t]) => canSee(t));
+    def.members.forEach(([t]) => { const b = document.querySelector(`.nav-btn[data-tab="${t}"]`); if (b) b.hidden = true; });
+    const gb = document.querySelector(`.nav-btn[data-group="${g}"]`); if (gb) gb.hidden = !visible.length;
+  });
+}
+function paintGroupTabs(name) {
+  const box = document.getElementById('groupTabs'); if (!box) return;
+  const g = groupOfTab(name), visible = g ? NAV_GROUPS[g].members.filter(([t]) => canSee(t)) : [];
+  document.querySelectorAll('.nav-btn[data-group]').forEach(b => b.classList.toggle('active', b.dataset.group === g));
+  if (visible.length < 2) { box.hidden = true; box.innerHTML = ''; return; }
+  groupLast[g] = name;
+  box.hidden = false;
+  box.innerHTML = visible.map(([t, l]) => `<button type="button" data-group-tab="${t}" class="${t === name ? 'active' : ''}">${l}</button>`).join('');
+}
 function switchTab(name, sub) {
   if (name === 'onlinepromo') { name = 'delivery'; sub = 'online'; }   // now a tab of Delivery (owner, 2026-10-06)
   if (!canSee(name)) name = roleInfo().home;
   if (!name) return;
-  document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+  document.querySelectorAll('.nav-btn[data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+  paintGroupTabs(name);
   document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + name));
   const meta = PAGES[name];
   document.getElementById('pageEyebrow').textContent = meta.eyebrow;
@@ -1404,7 +1430,13 @@ function routeFromHash() {
   switchTab(name || roleInfo().home, sub);
 }
 window.addEventListener('hashchange', () => { if (Session.role) routeFromHash(); });
-document.querySelectorAll('.nav-btn').forEach(b => b.addEventListener('click', () => switchTab(b.dataset.tab)));
+document.querySelectorAll('.nav-btn').forEach(b => b.addEventListener('click', () => {
+  const g = b.dataset.group;
+  if (!g) return switchTab(b.dataset.tab);
+  const visible = NAV_GROUPS[g].members.filter(([t]) => canSee(t)).map(([t]) => t);
+  switchTab(visible.includes(groupLast[g]) ? groupLast[g] : visible[0]);
+}));
+document.getElementById('groupTabs')?.addEventListener('click', e => { const b = e.target.closest('[data-group-tab]'); if (b) switchTab(b.dataset.groupTab); });
 document.getElementById('menuToggle').addEventListener('click', () => document.getElementById('sidenav').classList.toggle('open'));
 
 // Collapse the sidebar down to an icon-only rail, for more room on screen.

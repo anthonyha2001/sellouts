@@ -60,6 +60,7 @@
     started = true;
     document.body.classList.remove('locked', 'booting');
     document.querySelectorAll('.nav-btn[data-tab]').forEach(b => { b.hidden = !canSee(b.dataset.tab); });
+    if (typeof applyNavGroups === 'function') applyNavGroups();   // Cash / Staff / Tools groups (js/app.js)
     renderFoot();
     startMainModules();
     if (canSee('delivery') && window.Delivery) Delivery.start();
