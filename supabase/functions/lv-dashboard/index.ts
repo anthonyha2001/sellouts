@@ -174,11 +174,12 @@ async function stockWatch(onlyVendor?: string) {
   const { data: vs, error } = await q.order('stock_checked_at', { ascending: true, nullsFirst: true });
   if (error) throw error;
   const key = (c: string) => c.replace(/^0+(?=\d)/, '').toUpperCase();
-  let budget = 110; const done: Record<string, unknown>[] = [];
+  // a run stops after 90 s (the function's limit is 150 s): the vendors checked longest ago first, the next run goes on
+  let budget = 450; const done: Record<string, unknown>[] = []; const started = Date.now();
   for (const v of vs || []) {
     const sups = (Array.isArray(v.system_suppliers) ? v.system_suppliers : []).map((s: Record<string, unknown>) => String(s.code || '')).filter(Boolean);
     if (!sups.length) continue;
-    if (budget <= 0 && done.length) break;
+    if ((budget <= 0 || Date.now() - started > 90000) && done.length) break;
     // what sold in the last 30 days (the only items watched: no sales = not followed)
     const sold = new Map<string, { code: string; description: string; qty: number }>();
     for (const [f, t] of from.slice(0, 4) === today.slice(0, 4) ? [[from, today]] : [[from, `${from.slice(0, 4)}-12-31`], [`${today.slice(0, 4)}-01-01`, today]]) {
@@ -188,8 +189,8 @@ async function stockWatch(onlyVendor?: string) {
     const items = [...sold.values()].filter(i => i.qty > 0).sort((a, b) => b.qty - a.qty).slice(0, 150);
     const cover = Number(v.cover_days) > 0 ? Number(v.cover_days) : (Number(v.lead_time_days) > 0 ? Number(v.lead_time_days) : 3) + 4;
     const low: Record<string, unknown>[] = [];
-    for (let i = 0; i < items.length; i += 6) {
-      await Promise.all(items.slice(i, i + 6).map(async it => {
+    for (let i = 0; i < items.length; i += 16) {
+      await Promise.all(items.slice(i, i + 16).map(async it => {
         try {
           const d = await dash(`/items/search?${new URLSearchParams({ search: it.code, year: year(), preferred_branch: BRANCH })}`);
           const hit = (Array.isArray(d) ? d : []).find((x: Record<string, unknown>) => key(String(x.code ?? '')) === key(it.code)) as Record<string, unknown> | undefined;

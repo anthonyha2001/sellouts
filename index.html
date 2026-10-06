@@ -384,6 +384,14 @@
             <!-- Contract terms: back margins (owner, 2026-10-06; js/modules/vendorcontract.js) -->
             <div class="full vc-box" id="vendorContractBox">
               <div class="vc-head"><b>Contract terms</b><span id="vcTotal"></span></div>
+              <div class="vc-grid">
+                <div><label for="vcSigned">Signed (year)</label><input type="text" id="vcSigned" placeholder="e.g. 2025"></div>
+                <div><label for="vcStatus">Status</label><input type="text" id="vcStatus" placeholder="e.g. Approved"></div>
+              </div>
+              <label for="vcText">Contract (as written)</label>
+              <textarea id="vcText" rows="3" placeholder="The contract's terms, as agreed (rates per brand, targets, displays...)"></textarea>
+              <label for="vcStrategy">Pricing strategy</label>
+              <textarea id="vcStrategy" rows="2" placeholder="e.g. 10% front margin; at cost on oil"></textarea>
               <label>Back margins <span style="opacity:.6;">(on invoice: deducted on every PU · on statement: credited on the account statement)</span></label>
               <div id="vcMargins" class="vc-margins"></div>
               <button type="button" class="btn ghost small" id="vcAdd">+ Add a back margin</button>

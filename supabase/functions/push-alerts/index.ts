@@ -181,19 +181,21 @@ async function buildAlerts(today: string): Promise<Alert[]> {
       add({ key: `vo:${o.id}:notsent:${today}`, perms: ['vendors.manage'], title: 'Vendor order', body: `"${name}"'s order has been logged for ${age} days but still hasn't been marked sent to the supplier.`, url: '#vendors' });
   }
 
-  // Low stock (migration 066): ONE notification per vendor per day, only when an item newly ran low today;
-  // the body lists the vendor's open low items (sold in the last 30 days only).
+  // Low stock (migration 066; owner, 2026-10-06: every active supplier watched): at most TWO notifications a day
+  // (morning, afternoon), each naming the suppliers with an item newly running low today; the Low stock tab has the rest.
   const { data: lows } = await db.from('stock_alerts').select('vendor_id, code, description, stock, days_left, first_seen').is('resolved_at', null);
   const byVendor = new Map<string, Record<string, unknown>[]>();
   (lows ?? []).forEach(a => { const l = byVendor.get(a.vendor_id) || []; l.push(a); byVendor.set(a.vendor_id, l); });
+  const newLow: { name: string; n: number }[] = [];
   for (const [vid, list] of byVendor) {
-    const newToday = list.some(a => new Date(String(a.first_seen)).toLocaleDateString('en-CA', { timeZone: 'Asia/Beirut' }) === today);
-    if (!newToday) continue;
-    const name = vname.get(vid) || 'A vendor';
-    list.sort((a, b) => Number(a.days_left ?? -1) - Number(b.days_left ?? -1));
-    const what = list.slice(0, 4).map(a => `${String(a.description || a.code).slice(0, 34)} (${Number(a.stock) <= 0 ? 'out' : Math.round(Number(a.stock)) + ' left'})`).join(', ');
-    add({ key: `stock:${vid}:${today}`, perms: ['vendors.manage'], title: `Low stock — ${name}`, url: '#vendors',
-      body: `${list.length} item${list.length === 1 ? '' : 's'} running low: ${what}${list.length > 4 ? '…' : ''}` });
+    const fresh = list.filter(a => new Date(String(a.first_seen)).toLocaleDateString('en-CA', { timeZone: 'Asia/Beirut' }) === today);
+    if (fresh.length) newLow.push({ name: vname.get(vid) || 'A vendor', n: fresh.length });
+  }
+  if (newLow.length) {
+    newLow.sort((a, b) => b.n - a.n);
+    const slot = beirutHour() < 13 ? 'am' : 'pm';
+    add({ key: `stock:${today}:${slot}`, perms: ['vendors.manage'], title: `Low stock — ${newLow.length} supplier${newLow.length === 1 ? '' : 's'}`, url: '#vendors',
+      body: `Newly running low today: ${newLow.slice(0, 6).map(x => `${x.name} (${x.n})`).join(', ')}${newLow.length > 6 ? ` and ${newLow.length - 6} more` : ''}. See Vendors › Low stock & orders.` });
   }
 
   // Cash: yesterday still empty after the reminder hour.

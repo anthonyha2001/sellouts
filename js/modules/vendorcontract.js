@@ -49,15 +49,18 @@
     el('vcFrom').value = c.from || '';
     el('vcTo').value = c.to || '';
     el('vcNotes').value = c.notes || '';
+    el('vcSigned').value = c.signed || ''; el('vcStatus').value = c.status || '';
+    el('vcText').value = c.text || ''; el('vcStrategy').value = c.strategy || '';
     el('vcAdd').onclick = () => { margins.push(blankMargin()); paintMargins(); el('vcMargins').querySelector('.vc-row:last-child [data-k="value"]')?.focus(); };
     paintMargins();
   }
   function readForm() {
     const clean = margins.filter(m => n(m.value) > 0).map(m => ({ type: m.type, value: n(m.value), unit: m.unit === '$' ? '$' : '%', basis: m.basis === 'invoice' ? 'invoice' : 'statement',
-      freq: m.basis === 'invoice' ? '' : (m.freq || 'quarterly'), note: String(m.note || '').trim() }));
+      freq: m.basis === 'invoice' ? '' : (m.freq || ''), note: String(m.note || '').trim() }));
     const pay = el('vcPayDays').value.trim(), min = el('vcMinOrder').value.trim();
     return { contract: { margins: clean, paymentDays: pay === '' ? null : n(pay), expiredReturns: el('vcExpired').value || '', minOrder: min === '' ? null : n(min),
-      from: el('vcFrom').value || '', to: el('vcTo').value || '', notes: el('vcNotes').value.trim() } };
+      from: el('vcFrom').value || '', to: el('vcTo').value || '', notes: el('vcNotes').value.trim(),
+      signed: el('vcSigned').value.trim(), status: el('vcStatus').value.trim(), text: el('vcText').value.trim(), strategy: el('vcStrategy').value.trim() } };
   }
 
   // the totals: % on invoice, % on statement, fixed amounts
@@ -66,6 +69,7 @@
     const pct = b => M.filter(m => m.basis === b && m.unit !== '$').reduce((t, m) => t + n(m.value), 0);
     return { invoicePct: pct('invoice'), statementPct: pct('statement'), fixed: M.filter(m => m.unit === '$'), margins: M,
       paymentDays: c?.paymentDays ?? null, expiredReturns: c?.expiredReturns || '', minOrder: c?.minOrder ?? null, from: c?.from || '', to: c?.to || '', notes: c?.notes || '',
+      signed: c?.signed || '', status: c?.status || '', text: c?.text || '', strategy: c?.strategy || '',
       expired: !!(c?.to && c.to < todayStr()) };
   }
   // the vendor linked to a supplier of the system (Vendors › Supplier in the system)
@@ -81,11 +85,14 @@
     if (s.statementPct) parts.push(`<b>${fmt(s.statementPct)}%</b> on statement`);
     if (s.fixed.length) parts.push(`${s.fixed.length} fixed amount${s.fixed.length === 1 ? '' : 's'} ($${fmt(s.fixed.reduce((t, m) => t + n(m.value), 0))})`);
     // the hover: every term of the contract (a tag to know it, never used in the prices)
-    const lines = s.margins.map(m => `${m.type}: ${fmt(m.value)}${m.unit === '$' ? ' $' : '%'} ${m.basis === 'invoice' ? 'on invoice' : 'on statement, ' + m.freq}${m.note ? ' (' + m.note + ')' : ''}`)
-      .concat(s.paymentDays ? [`Payment: ${s.paymentDays} days`] : [], s.expiredReturns ? [`Expired goods: ${s.expiredReturns === 'yes' ? 'taken back' : 'not taken back'}`] : [],
-        s.minOrder ? [`Minimum order: $${fmt(s.minOrder)}`] : [], s.from || s.to ? [`Contract: ${s.from || '…'} to ${s.to || '…'}${s.expired ? ' (ended)' : ''}`] : [], s.notes ? [s.notes] : []);
+    // the contract as written and the pricing strategy first, then the back margins and the other terms
+    const head = [].concat(s.text ? ['Contract' + (s.signed ? ' (' + s.signed + ')' : '') + ': ' + s.text] : [], s.strategy ? ['Pricing strategy: ' + s.strategy] : [], s.status ? ['Status: ' + s.status] : []);
+    const terms = s.margins.map(m => `${m.type}: ${fmt(m.value)}${m.unit === '$' ? ' $' : '%'} ${m.basis === 'invoice' ? 'on invoice' : 'on statement' + (m.freq ? ', ' + m.freq : '')}${m.note ? ' (' + m.note + ')' : ''}`);
+    const other = [].concat(s.paymentDays ? [`Payment: ${s.paymentDays} days`] : [], s.expiredReturns ? [`Expired goods: ${s.expiredReturns === 'yes' ? 'taken back' : 'not taken back'}`] : [],
+      s.minOrder ? [`Minimum order: $${fmt(s.minOrder)}`] : [], s.from || s.to ? [`Contract: ${s.from || '…'} to ${s.to || '…'}${s.expired ? ' (ended)' : ''}`] : [], s.notes ? [s.notes] : []);
+    const lines = head.concat(terms, other);
     if (!lines.length) return '';
-    return `<span class="vc-chip${s.expired ? ' vc-ended' : ''}" title="${esc(lines.join('\n'))}">${parts.length ? 'Back margin ' + parts.join(' · ') : 'Contract'}${s.expired ? ' · ended' : ''}</span>`;
+    return `<span class="vc-chip${s.expired ? ' vc-ended' : ''}" title="${esc(lines.join('\n'))}">${parts.length ? 'Back margin ' + parts.join(' · ') : 'Contract' + (s.signed ? ' ' + esc(s.signed) : '')}${s.expired ? ' · ended' : ''}</span>`;
   }
   window.VendorContract = { wireForm, readForm, summary, forSupplier, chip };
 })();
