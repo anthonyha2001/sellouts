@@ -204,15 +204,22 @@ async function stockWatch(onlyVendor?: string) {
         sold.set(c, it);
       });
     }
-    const items = [...sold.values()].filter(i => i.qty > 0).sort((a, b) => b.qty - a.qty).slice(0, 150);
+    // the alerts still open for this vendor: every one is read again this round (owner, 2026-10-11: "I have 6 in stock,
+    // why does it show 0?": an item flagged once, then out of the vendor's 150 best sellers, was never read again, and
+    // its old stock stayed on the list)
+    const { data: open } = await db.from('stock_alerts').select('code').eq('vendor_id', v.id).is('resolved_at', null);
+    const openCodes = new Set<string>(((open || []) as { code: string }[]).map(x => String(x.code)));
+    const ranked = [...sold.values()].filter(i => i.qty > 0).sort((a, b) => b.qty - a.qty);
+    const items = [...ranked.slice(0, 150), ...ranked.slice(150).filter(i => openCodes.has(i.code))];
     const cover = Number(v.cover_days) > 0 ? Number(v.cover_days) : (Number(v.lead_time_days) > 0 ? Number(v.lead_time_days) : 3) + 4;
-    const low: Record<string, unknown>[] = [];
+    const low: Record<string, unknown>[] = [], readOk = new Set<string>();
     for (let i = 0; i < items.length; i += 16) {
       await Promise.all(items.slice(i, i + 16).map(async it => {
         try {
           const d = await dash(`/items/search?${new URLSearchParams({ search: it.code, year: year(), preferred_branch: BRANCH })}`);
           const hit = (Array.isArray(d) ? d : []).find((x: Record<string, unknown>) => key(String(x.code ?? '')) === key(it.code)) as Record<string, unknown> | undefined;
           if (!hit || hit.available_quantity === null || hit.available_quantity === undefined) return;
+          readOk.add(it.code);
           const stock = Number(hit.available_quantity), perDay = it.qty / 30, daysLeft = perDay > 0 ? stock / perDay : null;
           // ghost stock (owner, 2026-10-11: "the low stock doesn't fight the ghost stock"): the system shows stock, but an
           // item that sells regularly (on 6 days or more of the 30) has not sold for so long that it almost never happens
@@ -245,8 +252,7 @@ async function stockWatch(onlyVendor?: string) {
       x.doubtful = Number(x.stock) < 0 || (est !== null && est > Number(x.stock) && est >= Number(x.per_day) * cover);
     });
     // keep the open ones, add the new ones, resolve the ones back above
-    const { data: open } = await db.from('stock_alerts').select('code').eq('vendor_id', v.id).is('resolved_at', null);
-    const now = new Date().toISOString(), lowCodes = new Set(low.map(x => String(x.code))), openCodes = new Set((open || []).map(x => x.code));
+    const now = new Date().toISOString(), lowCodes = new Set(low.map(x => String(x.code)));
     for (const x0 of low) {
       // the ghost columns (migration 083) are left out while that migration is not run, so the watch keeps working
       const x = ghostCols ? x0 : Object.fromEntries(Object.entries(x0).filter(([k]) => !GHOST_KEYS.includes(k)));
@@ -258,7 +264,9 @@ async function stockWatch(onlyVendor?: string) {
         ghostCols = false; GHOST_KEYS.forEach(k => delete (x as Record<string, unknown>)[k]); await write();
       } else if (we) console.warn('stock alert save', x.code, we.message);
     }
-    const back = [...openCodes].filter(c => !lowCodes.has(c) && items.some(i => i.code === c));
+    // resolved: read this round and not low any more, or no sale at all in the last 30 days (not followed any more).
+    // One whose read failed stays as it is (never resolved on a guess)
+    const back = [...openCodes].filter(c => !lowCodes.has(c) && (readOk.has(c) || !sold.has(c) || !(sold.get(c)!.qty > 0)));
     if (back.length) await db.from('stock_alerts').update({ resolved_at: now }).eq('vendor_id', v.id).in('code', back);
     await db.from('vendors').update({ stock_checked_at: now }).eq('id', v.id);
     done.push({ vendor: v.name, items: items.length, low: low.length, newlyLow: low.filter(x => !openCodes.has(String(x.code))).length, backAbove: back.length });

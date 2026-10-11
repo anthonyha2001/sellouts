@@ -191,7 +191,7 @@
         body: U().table(`<th></th><th>Item</th><th class="num">${esc(v.span)}</th><th class="num">${esc(v.usual)}</th><th class="num">×</th><th class="num">Stock</th><th class="num">Days left</th>`,
           l.map(t => { const po = t.attention && onPO(t.code); return `<tr data-ls-code="${esc(t.code)}" class="${toOrder(t) ? 'ls-nopo' : ''}"><td>${po ? poFlag(t.code, false) : t.attention ? '<span class="ls-po none" title="May run out soon and on no PO of the week: order again">⚠ Order</span>' : ''}</td>${U().item(t.code, t.description)}
             <td class="num"><b>${fq(t.sold_week)}</b></td><td class="num">${fq(t.usual_week)}</td><td class="num">${fq(t.ratio)}×</td>
-            <td class="num">${t.stock === null ? '<span class="muted-note">—</span>' : Number(t.stock) <= 0 ? '<span class="rc-zero">0</span>' : fq(t.stock)}</td><td class="num">${days(t.days_left)}</td></tr>`; }).join('')),
+            <td class="num" title="Read at the morning count">${t.stock === null ? '<span class="muted-note">—</span>' : Number(t.stock) <= 0 ? `<span class="rc-zero">${fq(t.stock)}</span>` : fq(t.stock)}</td><td class="num">${days(t.days_left)}</td></tr>`; }).join('')),
       }); }).join('') : U().empty(S.topRisk ? 'None of these may run out soon.' : 'Nothing selling more than usual in this view.'),
     });
     U().wire(box);
@@ -230,11 +230,38 @@
   const weekly = a => Number(a.per_day) * 7;
   const lead = v => Math.max(2, Number(v && v.leadTimeDays) || 3);
   const ghostOnly = a => a.ghost && Number(a.stock) > 0 && !(a.days_left !== null && Number(a.days_left) < Number(a.cover_days || 7));
-  // every item in one bucket (see above), with the count of each
+  // the stock read live when the list is opened (owner, 2026-10-11: "I have 6 in stock, why does it show 0?"): the saved
+  // alerts are only as fresh as the last background check of their supplier (hours, with every supplier watched), so the
+  // items of the list shown are read again from the system; an item no longer low leaves the list
+  S.fresh = new Map(); S.freshBusy = 0;
+  const FRESH_MS = 10 * 60e3;
+  function withFresh(a) {
+    const f = S.fresh.get(keyOf(a.code));
+    if (!f || f.stock === null) return a;
+    const per = Number(a.per_day);
+    return { ...a, stock: f.stock, days_left: per > 0 ? Math.round(Math.max(0, f.stock) / per * 10) / 10 : null, freshAt: f.at };
+  }
+  async function refreshStock(codes) {
+    const todo = [...new Set(codes)].filter(c => { const f = S.fresh.get(keyOf(c)); return !f || Date.now() - f.at > FRESH_MS; }).slice(0, 200);
+    if (!todo.length || S.freshBusy) return false;
+    S.freshBusy = todo.length;
+    try {
+      for (let i = 0; i < todo.length; i += 60) {
+        const { data, error } = await sb.functions.invoke('lv-dashboard', { body: { action: 'items_stock', codes: todo.slice(i, i + 60) } });
+        if (error || !data?.stock) break;
+        const at = Date.now();
+        Object.entries(data.stock).forEach(([c, q]) => S.fresh.set(keyOf(c), { stock: q === null || q === undefined ? null : Number(q), at }));
+      }
+    } catch (e) { console.warn('stock refresh', e); }
+    S.freshBusy = 0;
+    return true;
+  }
+  // every item in one bucket (see above), with the count of each; read live and no longer low = 'fine' (not shown)
   function classify() {
     const watched = vendorsList.filter(v => v.watchStock), vOf = new Map(watched.map(v => [v.id, v]));
-    const items = S.alerts.filter(a => vOf.has(a.vendor_id)).map(a => {
-      const v = vOf.get(a.vendor_id);
+    const items = S.alerts.filter(a => vOf.has(a.vendor_id)).map(a0 => {
+      const v = vOf.get(a0.vendor_id), a = withFresh(a0);
+      if (a.freshAt && !a.doubtful && !a.ghost && Number(a.stock) > 0 && a.days_left !== null && Number(a.days_left) >= Number(a.cover_days || 7)) return { ...a, v, cat: 'fine' };
       // order now only what sold lately (its last sale within 14 days): out of stock for weeks = most likely stopped,
       // seasonal or delisted, not to order today (it stays in Soon)
       const recent = !a.last_sale || daysSince(a.last_sale) <= 14;
@@ -242,7 +269,7 @@
         : weekly(a) >= 1 && recent && (out(a) || Number(a.days_left) <= lead(v)) ? 'now' : 'soon';
       return { ...a, v, cat };
     });
-    const n = { now: 0, shelf: 0, soon: 0, onorder: 0, wrong: 0 };
+    const n = { now: 0, shelf: 0, soon: 0, onorder: 0, wrong: 0, fine: 0 };
     items.forEach(a => { n[a.cat]++; });
     n.all = n.now + n.shelf + n.soon + n.onorder;
     return { watched, vOf, items, n };
@@ -261,7 +288,10 @@
     const { watched, vOf, items, n } = classify();
     const wrong = items.filter(a => a.cat === 'wrong');
     U().setCount('lowstock', n.now + n.shelf);
-    const mode = S.lsMode, shown = items.filter(a => a.cat !== 'wrong' && (mode === 'all' || a.cat === mode));
+    const mode = S.lsMode, shown = items.filter(a => a.cat !== 'wrong' && a.cat !== 'fine' && (mode === 'all' || a.cat === mode));
+    // read the live stock of what is shown (once every 10 minutes), then paint again
+    const stale = shown.filter(a => !a.freshAt).map(a => a.code);
+    if (stale.length && !S.freshBusy) refreshStock(stale).then(changed => { if (changed && el('vendorLowStockView')?.offsetParent !== null) render(); });
     // the most urgent first: out of stock, then the fewest days left, then the fastest sellers
     shown.sort((a, b) => (out(b) - out(a)) || (Number(a.days_left ?? -1) - Number(b.days_left ?? -1)) || weekly(b) - weekly(a));
 
@@ -269,7 +299,7 @@
     const checkBtn = v => isAdmin() ? `<button type="button" class="sc-ico" data-ls-check="${esc(v.id)}" title="Check ${esc(v.name)} now" aria-label="Check now"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/></svg></button>` : '';
     const tag = { now: '<span class="ls-po none">Order now</span>', soon: '<span class="ls-po draft">Soon</span>' };
     const lowRow = a => `<tr data-ls-code="${esc(a.code)}" class="${a.cat === 'now' && out(a) ? 'ls-nopo' : ''}">${U().item(a.code, a.description)}
-      <td class="num">${Number(a.stock) <= 0 ? '<span class="rc-zero">0</span>' : fq(a.stock)}</td><td class="num">${fq(weekly(a))}</td>
+      <td class="num" title="${a.freshAt ? 'Read from the system just now' : 'From the last check of ' + esc(a.v.name) + ', ' + esc(ago(a.last_seen || a.v.stockCheckedAt))}">${Number(a.stock) <= 0 ? `<span class="rc-zero">${fq(a.stock)}</span>` : fq(a.stock)}${a.freshAt ? '' : ' <span class="muted-note">…</span>'}</td><td class="num">${fq(weekly(a))}</td>
       <td class="num"><b class="${out(a) || Number(a.days_left) < 3 ? 'ls-urgent' : 'ls-soon'}">${out(a) ? 'out' : fq(a.days_left)}</b></td>
       <td>${a.cat === 'onorder' ? poFlag(a.code, false) : (mode === 'all' ? tag[a.cat] || '' : '') + (Number(a.stock) <= 0 ? ' ' + poFlag(a.code, true) : '')}${ghostTag(a)}</td><td>${lastPu(a)}</td><td class="num">${soldSince(a)}</td></tr>`;
     const lowHead = '<th>Item</th><th class="num">Stock</th><th class="num">Sells / wk</th><th class="num">Days left</th><th>Order</th><th>Last PU</th><th class="num">Sold since</th>';
