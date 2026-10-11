@@ -7,7 +7,7 @@
    sales - units sold x unit cost (the period's purchase cost, else the
    last purchase day in the 12 months before; none: not counted).
    Rental spots (owner, 2026-10-06, rentals.view too): per supplier renting spots, the rent
-   against its sales vs last year and vs the days before, next to the whole store.
+   against its sales vs the days before, next to the whole store (last year is not used, owner 2026-10-11).
    Permission: vendors.manage.
    Public API: window.Performance = { show, openRentals }.
    ============================================================ */
@@ -232,7 +232,7 @@
   async function loadRents(force) {
     const box = el('pfRentBody'); if (!box) return;
     if (R.rows && !force) return paintRents();
-    box.innerHTML = '<div class="card"><p class="muted-note" style="margin:0;">Reading the rental contracts, then the sales of their suppliers (this year, the days before, last year)…</p></div>';
+    box.innerHTML = '<div class="card"><p class="muted-note" style="margin:0;">Reading the rental contracts, then the sales of their suppliers (this year and the days before the spot)…</p></div>';
     try { await rentRows(force); }
     catch (e) { box.innerHTML = '<div class="card"><p class="login-err" style="margin:0;">' + esc(e.message === 'no answer' ? 'The system did not answer. Check the "Link to the system" card on the Dashboard.' : e.message) + '</p></div>'; return; }
     if (view === 'rents') paintRents();
@@ -269,7 +269,9 @@
       const got = {};
       for (const w of wins) {
         const [a, b] = w.split('|'), d = daysBetween(a, b);
-        const [now, before, ly] = await Promise.all([read(a, b), read(addDays(a, -d), addDays(a, -1)), read(lastYear(a), lastYear(b))]);
+        // no last year (owner, 2026-10-11): the system has no data from last year to trust; the days just before the spot only
+        const [now, before] = await Promise.all([read(a, b), read(addDays(a, -d), addDays(a, -1))]);
+        const ly = { failed: 'not used' };
         got[w] = { now, before, ly };
       }
       rows.forEach(r => {
@@ -281,7 +283,7 @@
         r.sold = sum(g.now); r.storeNow = g.now.store;
         const cmp = x => { if (x.failed) return { failed: true }; const s = sum(x); return { sold: s, store: x.store, sup: s > 0 ? r.sold / s - 1 : null, st: x.store > 0 ? g.now.store / x.store - 1 : null }; };
         r.ly = cmp(g.ly); r.bf = cmp(g.before);
-        const pick = r.ly.sold > 0 ? ['last year', r.ly] : r.bf.sold > 0 ? ['the days before', r.bf] : null;
+        const pick = r.bf.sold > 0 ? ['the days before', r.bf] : null;
         if (pick) { r.baseName = pick[0]; r.expected = pick[1].sold * (1 + pick[1].st); r.extra = r.sold - r.expected; r.ratio = r.rent > 0 ? r.extra / r.rent : null; }
         r.rentPct = r.sold > 0 ? r.rent / r.sold : null;
         r.state = 'ok';
@@ -291,7 +293,7 @@
   }
   // the Rentals page's cards: the growth and the verdict, no amounts
   function liveHtml(r) {
-    const base = r.baseName === 'last year' ? r.ly : r.baseName ? r.bf : null;
+    const base = r.baseName ? r.bf : null;
     const g = base && typeof base.sup === 'number' ? '<span class="rent-live-pct ' + (base.st !== null && (1 + base.sup) / (1 + base.st) < 1 ? 'pf-neg' : 'pf-up') + '">' + pct1(base.sup) + '</span> <span class="muted-note">vs ' + esc(r.baseName) + (base.st !== null ? ', store ' + pct1(base.st) : '') + '</span>' : '';
     return g + ' ' + verdict(r);
   }
@@ -331,21 +333,21 @@
       + '<button type="button" class="icon-btn" id="pfRentReload" title="Read again from the system" aria-label="Read again"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg></button>'
       + '<button type="button" class="icon-btn" id="pfRentXls" title="Download (Excel)" aria-label="Download (Excel)"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg></button></div>'
       + '<div class="items-scroll pf-scroll"><table class="items pf-table"><thead><tr>' + th('name', 'Supplier', false) + '<th>Since</th>' + th('rent', 'Rent of these days') + th('sold', 'Sales') + th('rentPct', 'Rent ÷ sales')
-      + th('ly', 'vs last year') + th('bf', 'vs the days before') + th('extra', 'Extra sales') + th('ratio', 'Extra ÷ rent') + '<th>Worth it?</th></tr></thead><tbody>'
+      + th('bf', 'vs the days before') + th('extra', 'Extra sales') + th('ratio', 'Extra ÷ rent') + '<th>Worth it?</th></tr></thead><tbody>'
       + (rows.map(r => '<tr class="pf-row" data-rent="' + esc(r.key) + '"' + (r.codes.length ? ' tabindex="0" aria-label="' + esc(r.name) + ': hover for the trend this year, click for its items over these dates"' : '') + '>'
         + '<td><b>' + esc(r.name) + '</b><div class="pf-sub">' + r.spots + ' spot' + (r.spots === 1 ? '' : 's') + (r.yearly ? ' · ' + money(r.yearly) + ' / year' : '') + (r.later ? ' · one more from ' + esc(dmy(r.later)) : '') + '</div></td>'
         + '<td>' + esc(dmy(r.a)) + '<div class="pf-sub">' + r.days + ' days to ' + esc(dmy(r.b)) + '</div></td>'
         + '<td class="num">' + money(r.rent) + '</td>'
         + '<td class="num">' + (typeof r.sold === 'number' ? money(r.sold) : '') + '</td>'
         + '<td class="num">' + (r.rentPct === null || r.rentPct === undefined ? '' : (Math.round(r.rentPct * 1000) / 10) + '%') + '</td>'
-        + '<td class="num">' + (r.state === 'ok' ? vsCell(r.ly, r) : '') + '</td><td class="num">' + (r.state === 'ok' ? vsCell(r.bf, r) : '') + '</td>'
+        + '<td class="num">' + (r.state === 'ok' ? vsCell(r.bf, r) : '') + '</td>'
         + '<td class="num ' + (n(r.extra) < 0 ? 'pf-neg' : '') + '">' + (typeof r.extra === 'number' ? signedMoney(r.extra) + '<div class="pf-sub">vs ' + esc(r.baseName) + '</div>' : '') + '</td>'
         + '<td class="num">' + (typeof r.ratio === 'number' ? (Math.trunc(r.ratio * 10) / 10).toLocaleString('en-US') + '×' : '') + '</td>'
-        + '<td>' + verdict(r) + '</td></tr>').join('') || '<tr><td colspan="10" class="empty-note">No rented spot.</td></tr>')
+        + '<td>' + verdict(r) + '</td></tr>').join('') || '<tr><td colspan="9" class="empty-note">No rented spot.</td></tr>')
       + '</tbody></table></div>'
       + '<p class="muted-note" style="margin:8px 0 0;">From the first current contract to yesterday. Rent of these days: each contract amount spread over its own dates (a monthly one per month). '
-      + 'Each supplier is compared with the same dates last year (the season) and with the same number of days just before the contract, next to the whole store over the same dates (green: grew more than the store). '
-      + 'Extra sales = sales - the baseline\'s sales x the store\'s change (last year when the supplier sold then). They are sales at the shelf price: the supplier keeps only its margin on them. Hover a supplier for its trend this year (no amounts: fit to show the supplier); click it for its items over these dates.</p></div>';
+      + 'Each supplier is compared with the same number of days just before the contract, next to the whole store over the same dates (green: grew more than the store). Last year is not used. '
+      + 'Extra sales = sales - the days before\'s sales x the store\'s change. They are sales at the shelf price: the supplier keeps only its margin on them. Hover a supplier for its trend this year (no amounts: fit to show the supplier); click it for its items over these dates.</p></div>';
     el('pfRentQ').oninput = () => { R.focus = el('pfRentQ').value; const pos = el('pfRentQ').selectionStart; paintRents(); el('pfRentQ').focus(); el('pfRentQ').setSelectionRange(pos, pos); };
     el('pfRentReload').onclick = () => loadRents(true);
     box.querySelectorAll('.pf-rsort').forEach(h => h.onclick = () => { const key = h.dataset.k; if (R.sort === key) R.dir = -R.dir; else { R.sort = key; R.dir = key === 'name' ? 1 : -1; } paintRents(); });
@@ -355,16 +357,16 @@
       tr.onmouseenter = e => showTip(r, e.clientX, e.clientY); tr.onmousemove = e => { if (tipFor === r.key) placeTip(e.clientX, e.clientY); };
       tr.onmouseleave = hideTip; tr.onfocus = () => { const b = tr.getBoundingClientRect(); showTip(r, b.left + 120, b.bottom); }; tr.onblur = hideTip; });
     if (R.rows.some(r => r.codes.length)) loadTrend();   // read in the background, ready for the first hover
-    el('pfRentXls').onclick = () => xls([['Supplier', 'Spots', 'Since', 'To', 'Days', 'Rent of these days ($)', 'Sales ($)', 'Rent / sales %', 'Sales last year ($)', 'vs last year %', 'Store vs last year %', 'Sales the days before ($)', 'vs the days before %', 'Store vs the days before %', 'Extra sales ($)', 'Baseline', 'Extra / rent', 'Worth it?'],
+    el('pfRentXls').onclick = () => xls([['Supplier', 'Spots', 'Since', 'To', 'Days', 'Rent of these days ($)', 'Sales ($)', 'Rent / sales %', 'Sales the days before ($)', 'vs the days before %', 'Store vs the days before %', 'Extra sales ($)', 'Baseline', 'Extra / rent', 'Worth it?'],
       ...rows.map(r => { const p = v => v === null || v === undefined ? '' : Math.round(v * 1000) / 10;
         return [r.name, r.spots, dmy(r.a), dmy(r.b), r.days, round2(r.rent), typeof r.sold === 'number' ? round2(r.sold) : '', p(r.rentPct),
-          r.ly && !r.ly.failed ? round2(r.ly.sold) : r.ly ? 'could not be read' : '', r.ly ? p(r.ly.sup) : '', r.ly ? p(r.ly.st) : '',
           r.bf && !r.bf.failed ? round2(r.bf.sold) : r.bf ? 'could not be read' : '', r.bf ? p(r.bf.sup) : '', r.bf ? p(r.bf.st) : '',
           typeof r.extra === 'number' ? round2(r.extra) : '', r.baseName || '', typeof r.ratio === 'number' ? Math.round(r.ratio * 100) / 100 : '',
           verdict(r).replace(/<[^>]+>/g, '')]; })], 'Performance rental spots ' + todayStr());
   }
-/* the trend on hover (owner, 2026-10-06, to show the supplier): this year's sales month by month against last year's,
-     the months of the spot shaded, growth in % only. No amount anywhere (no cash to show).
+/* the trend on hover (owner, 2026-10-06; changed 2026-10-11: no last year, the system has no data from last year to trust):
+     this year's sales month by month, the supplier and the whole store, both as an index (100 = the average of the months
+     before the spot), the months of the spot shaded, growth in % only. No amount anywhere (no cash to show).
      Complete months only (January to the last finished month), so a month just begun never looks like a drop. */
   function loadTrend() {
     if (R.trend) return R.trend;
@@ -376,38 +378,42 @@
       d.suppliers.forEach(s => Object.entries(s.months || {}).forEach(([k, v]) => { const mm = k.slice(5, 7); (by[s.code] = by[s.code] || {})[mm] = (by[s.code][mm] || 0) + n(v); store[mm] = (store[mm] || 0) + n(v); }));
       return { by, store };
     });
-    R.trend = Promise.all([get(y + '-01-01', end), get((y - 1) + '-01-01', (y - 1) + end.slice(4))])
-      .then(([now, ly]) => ({ now, ly, months: Array.from({ length: m - 1 }, (_, i) => String(i + 1).padStart(2, '0')), year: y }))
+    R.trend = get(y + '-01-01', end)
+      .then(now => ({ now, months: Array.from({ length: m - 1 }, (_, i) => String(i + 1).padStart(2, '0')), year: y }))
       .catch(e => { R.trend = null; return { none: 'The months could not be read (' + (e.message || 'no answer') + ').' }; });
     return R.trend;
   }
   function trendHtml(r, T) {
     if (T.none) return '<p class="muted-note" style="margin:0;">' + esc(T.none) + '</p>';
     const mk = (src, mm) => r.codes.reduce((t, c) => t + n(src.by[c] && src.by[c][mm]), 0);
-    const ms = T.months, now = ms.map(mm => mk(T.now, mm)), ly = ms.map(mm => mk(T.ly, mm));
-    if (!now.some(v => v > 0) && !ly.some(v => v > 0)) return '<p class="muted-note" style="margin:0;">No sales found this year or last year.</p>';
+    const ms = T.months, now = ms.map(mm => mk(T.now, mm)), store = ms.map(mm => n(T.now.store[mm]));
+    if (!now.some(v => v > 0)) return '<p class="muted-note" style="margin:0;">No sales found this year.</p>';
     const startM = r.a.slice(0, 4) === String(T.year) ? r.a.slice(5, 7) : '01';
-    const grow = (sel, src1, src0) => { const a = sel.reduce((t, mm) => t + src1(mm), 0), b = sel.reduce((t, mm) => t + src0(mm), 0); return b > 0 ? a / b - 1 : null; };
     const during = ms.filter(mm => mm >= startM), before = ms.filter(mm => mm < startM);
-    const sup = sel => grow(sel, mm => mk(T.now, mm), mm => mk(T.ly, mm)), st = sel => grow(sel, mm => n(T.now.store[mm]), mm => n(T.ly.store[mm]));
-    const span = sel => sel.length ? MON[Number(sel[0]) - 1] + (sel.length > 1 ? '–' + MON[Number(sel[sel.length - 1]) - 1] : '') : '';
+    if (!before.length) return '<p class="muted-note" style="margin:0;">The spot began at the start of the year: there is no earlier month to compare with.</p>';
+    const avg = (arr, sel) => { const v = sel.map(mm => arr[ms.indexOf(mm)]); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : 0; };
+    const supBase = avg(now, before), stBase = avg(store, before);
+    if (!(supBase > 0) || !(stBase > 0)) return '<p class="muted-note" style="margin:0;">No sales in the months before the spot to compare with.</p>';
+    const supIdx = now.map(v => v / supBase * 100), stIdx = store.map(v => v / stBase * 100);
     const g = v => v === null ? '<span class="muted-note">—</span>' : '<b class="' + (v < 0 ? 'pf-neg' : 'pf-up') + '">' + pct1(v) + '</b>';
-    const line = (label, sel) => sel.length ? '<div class="pf-tt-row"><span>' + label + ' <span class="muted-note">' + span(sel) + '</span></span><span>' + g(sup(sel)) + ' <span class="muted-note">store ' + pct1(st(sel)) + '</span></span></div>' : '';
-    // the chart: no value axis (no amounts), two lines and the spot's months shaded
-    const W = 320, H = 130, L = 8, Rr = 8, top = 12, bot = 34, max = Math.max(1, ...now, ...ly);
+    const span = sel => sel.length ? MON[Number(sel[0]) - 1] + (sel.length > 1 ? '–' + MON[Number(sel[sel.length - 1]) - 1] : '') : '';
+    const supDuring = during.length ? avg(now, during) / supBase - 1 : null, stDuring = during.length ? avg(store, during) / stBase - 1 : null;
+    // the chart: no value axis (no amounts), two lines (the supplier, the store) and the spot's months shaded
+    const W = 320, H = 130, L = 8, Rr = 8, top = 12, bot = 34, max = Math.max(110, ...supIdx, ...stIdx);
     const x = i => ms.length === 1 ? W / 2 : L + 6 + i * (W - L - Rr - 12) / (ms.length - 1), yv = v => top + (1 - v / max) * (H - top - bot);
     const path = arr => arr.map((v, i) => (i ? 'L' : 'M') + x(i).toFixed(1) + ',' + yv(v).toFixed(1)).join(' ');
     const si = ms.indexOf(startM), band = si >= 0 ? '<rect class="pf-tt-band" x="' + (x(si) - (si ? (x(1) - x(0)) / 2 : 6)).toFixed(1) + '" y="' + top + '" width="' + (W - Rr - x(si) + (si ? (x(1) - x(0)) / 2 : 6)).toFixed(1) + '" height="' + (H - top - bot) + '" rx="4"/><text class="pf-tt-spot" x="' + (x(si) - (si ? (x(1) - x(0)) / 2 : 6) + 4).toFixed(1) + '" y="' + (top + 10) + '">spot</text>' : '';
-    const perMonth = ms.map((mm, i) => { const v = ly[i] > 0 ? now[i] / ly[i] - 1 : null; return '<text class="pf-tt-pct ' + (v === null ? '' : v < 0 ? 'neg' : 'pos') + '" x="' + x(i).toFixed(1) + '" y="' + (H - 4) + '" text-anchor="middle">' + (v === null ? '—' : (v > 0 ? '+' : '') + Math.round(v * 100) + '%') + '</text>'; }).join('');
-    return '<div class="pf-tt-legend"><span><i class="pf-tt-k now"></i>' + T.year + '</span><span><i class="pf-tt-k ly"></i>' + (T.year - 1) + '</span></div>'
-      + '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Sales per month, ' + T.year + ' against ' + (T.year - 1) + '">' + band
+    const perMonth = ms.map((mm, i) => { const v = supIdx[i] / 100 - 1; return '<text class="pf-tt-pct ' + (v < 0 ? 'neg' : 'pos') + '" x="' + x(i).toFixed(1) + '" y="' + (H - 4) + '" text-anchor="middle">' + (v > 0 ? '+' : '') + Math.round(v * 100) + '%</text>'; }).join('');
+    return '<div class="pf-tt-legend"><span><i class="pf-tt-k now"></i>' + esc(r.name) + '</span><span><i class="pf-tt-k ly"></i>The whole store</span></div>'
+      + '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Sales per month, the supplier and the store, against the months before the spot">' + band
       + '<line class="pf-axis" x1="' + L + '" x2="' + (W - Rr) + '" y1="' + (H - bot) + '" y2="' + (H - bot) + '"/>'
-      + '<path class="pf-tt-ly" d="' + path(ly) + '"/><path class="pf-tt-now" d="' + path(now) + '"/>'
-      + now.map((v, i) => '<circle class="pf-tt-dot" cx="' + x(i).toFixed(1) + '" cy="' + yv(v).toFixed(1) + '" r="2.6"/>').join('')
+      + '<path class="pf-tt-ly" d="' + path(stIdx) + '"/><path class="pf-tt-now" d="' + path(supIdx) + '"/>'
+      + supIdx.map((v, i) => '<circle class="pf-tt-dot" cx="' + x(i).toFixed(1) + '" cy="' + yv(v).toFixed(1) + '" r="2.6"/>').join('')
       + ms.map((mm, i) => '<text class="pf-lab" x="' + x(i).toFixed(1) + '" y="' + (H - bot + 13) + '" text-anchor="middle">' + MON[Number(mm) - 1] + '</text>').join('')
       + perMonth + '</svg>'
-      + '<div class="pf-tt-rows">' + line('Before the spot', before) + line('With the spot', during) + '</div>'
-      + '<p class="muted-note" style="margin:6px 0 0;font-size:11px;">Sales against the same month of ' + (T.year - 1) + ', finished months only.</p>';
+      + '<div class="pf-tt-rows"><div class="pf-tt-row"><span>With the spot <span class="muted-note">' + span(during) + '</span> vs the months before <span class="muted-note">' + span(before) + '</span></span>'
+      + '<span>' + g(supDuring) + ' <span class="muted-note">store ' + pct1(stDuring) + '</span></span></div></div>'
+      + '<p class="muted-note" style="margin:6px 0 0;font-size:11px;">Each month against the average of the months before the spot (' + span(before) + '), finished months only. Last year is not used.</p>';
   }
   let tipFor = null;
   function tipEl() {

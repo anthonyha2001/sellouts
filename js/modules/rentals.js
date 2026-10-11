@@ -367,7 +367,7 @@ const Rentals = (function () {
     }).catch(e => { if (box.isConnected) box.innerHTML = '<h4>Sales, live from the system</h4><p class="muted-note" style="margin:0;">The sales could not be read (' + esc(e.message || 'no answer') + ').</p>'; });
   }
 
-  // Live from the system (owner, 2026-10-06): on each card, the supplier's sales against last year next to the store,
+  // Live from the system (owner, 2026-10-06): on each card, the supplier's sales against the days before its spot next to the store,
   // and whether the extra sales cover the rent (Performance › Rental spots, computed once); hover it for the trend this year.
   // No amounts in it. Replaces the hand-typed monthly sales signal when the live figures are there.
   function paintLive() {
