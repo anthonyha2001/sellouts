@@ -143,6 +143,7 @@
       return;
     }
     if (a === 'ordernow') { if (window.VendorOrder) VendorOrder.open(S.id); return; }
+    if (a === 'noorder') { if (window.VendorOrder) VendorOrder.noOrder(S.id, todayStr()); return; }
     if (a === 'delete') {
       const v = vendor(); if (!v) return;
       showConfirm(`Delete "${v.name}"?`, 'Delete').then(async ok => {
@@ -197,7 +198,7 @@
       <div class="vs-actions">
         ${v.phone ? `<a class="btn ghost small" href="tel:${esc(String(v.phone).replace(/[^\d+]/g, ''))}">Call</a>` : ''}
         ${wa ? `<a class="btn ghost small" href="${esc(wa)}" target="_blank" rel="noopener">WhatsApp</a>` : ''}
-        ${canData() ? '<button type="button" class="btn small" data-vs="ordernow">Order now</button><button type="button" class="btn ghost small" data-vs="edit">Edit</button><button type="button" class="btn ghost small" data-vs="delete" style="color:var(--brick);">Delete</button>' : ''}
+        ${canData() ? '<button type="button" class="btn small" data-vs="ordernow">Order now</button><button type="button" class="btn ghost small" data-vs="noorder">No order</button><button type="button" class="btn ghost small" data-vs="edit">Edit</button><button type="button" class="btn ghost small" data-vs="delete" style="color:var(--brick);">Delete</button>' : ''}
         <button type="button" class="icon-btn" data-vs="close" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
       </div></div>`;
   }

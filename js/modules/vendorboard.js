@@ -49,7 +49,7 @@
     const st = (S.stock && S.stock[v.id]) || { low: 0, fast: 0 };
     let urgency = 9;
     if (late) urgency = 0; else if (dueNow) urgency = 1; else if (ns) urgency = 2; else if (st.low || st.fast) urgency = 3; else if (pend) urgency = 4; else if (days !== null && days <= 3 && !pend) urgency = 5; else if (days !== null) urgency = 6; else urgency = 8;
-    return { v, pend, ns, next, days, dueNow, late, last, st, urgency, week: days !== null && days <= 6 && !pend && !ns };
+    return { v, pend, ns, next, days, dueNow, skipToday, late, last, st, urgency, week: days !== null && days <= 6 && !pend && !ns };
   }
   const FILTERS = [
     ['all', 'All', () => true],
@@ -103,6 +103,7 @@
     else if (i.pend) badges.push(`<span class="badge warn">Awaiting${i.pend.expectedDelivery ? ' · ' + esc(dmy(i.pend.expectedDelivery)) : ''}</span>`);
     if (i.ns) badges.push(`<span class="badge inactive">Not sent · ${esc(dmy(i.ns.orderDate))}</span>`);
     if (i.dueNow) badges.push('<span class="badge warn">Order today</span>');
+    if (i.skipToday) badges.push('<span class="badge inactive">No order today</span>');
     if (i.st.low) badges.push(`<span class="badge danger" title="Items running low">${i.st.low} low</span>`);
     if (i.st.fast) badges.push(`<span class="badge danger" title="Selling fast, may run out">⚠ ${i.st.fast} fast</span>`);
     const sched = v.dayOfWeek !== null && v.dayOfWeek !== undefined ? `${DAYS[Number(v.dayOfWeek)]} · ${VENDOR_FREQ_LABELS[v.frequencyWeeks] ? VENDOR_FREQ_LABELS[v.frequencyWeeks].replace('Every ', 'every ').replace(' (monthly)', '') : ''}` : '';
@@ -116,7 +117,7 @@
       <div class="vb-badges">${badges.join('') || '<span class="muted-note">Nothing waiting</span>'}</div>
       <div class="vb-actions">
         <button type="button" class="btn small" data-act="order">Order now</button>
-        ${i.dueNow ? '<button type="button" class="btn ghost small" data-act="skip">No order</button>' : ''}
+        ${i.skipToday ? '<button type="button" class="btn ghost small" data-act="unskip" title="No order was logged today: click to undo">No order today ✓ · Undo</button>' : '<button type="button" class="btn ghost small" data-act="skip" title="Log that nothing is ordered from this vendor today">No order</button>'}
         ${i.ns ? '<button type="button" class="btn ghost small" data-act="sent">Mark sent</button>' : ''}
         ${i.pend ? '<button type="button" class="btn ghost small" data-act="delivered">Delivered</button>' : ''}
         <span class="vb-spacer"></span>
@@ -133,6 +134,7 @@
     if (a === 'edit') return openVendorForm(id);
     if (a === 'order') return window.VendorOrder && VendorOrder.open(id);
     if (a === 'skip') return window.VendorOrder && VendorOrder.noOrder(id, todayStr());
+    if (a === 'unskip') { await undoSkip(id, todayStr()); renderVendorsPage(); if (window.VendorCal) VendorCal.renderStats(); showToast('The no-order entry was removed.'); return; }
     if (a === 'sent') { const o = notSentOrderForVendor(id); if (o) { await markOrderSent(o.id); render(); } return; }
     if (a === 'delivered') { const o = pendingOrderForVendor(id); if (o) { await markOrderDelivered(o.id); render(); if (window.VendorCal) VendorCal.renderStats(); } }
   }
