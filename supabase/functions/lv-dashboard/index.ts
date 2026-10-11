@@ -640,6 +640,129 @@ async function stockSnapshot() {
   return { day, step: 'done', total: run.total, read: run.read };
 }
 
+/* ---------------- the system's purchase orders (owner, 2026-10-11; migration 082) ----------------
+   The POs of the last 7 days (/wms/purchase-orders, 200 a page, newest first) and their item lines (the document
+   viewer: POST /operations/viewer, document_type PO, no operation code -> operation 05 "Purchase Order"). A PO's status
+   stays "draft" in the system even once received, so a line counts as received when a PU of that item was entered on
+   or after the PO's day (the daily purchases report), or when the PO has nothing remaining (WMS receiving).
+   Saved in system_pos / system_po_lines; the app flags an item out of stock that is on an open PO. */
+const PO_DAYS = 7, PO_BUDGET_MS = 80000;   // the POs of the week (owner, 2026-10-11)
+async function poSync() {
+  const started = Date.now(), today = beirutToday(), cutoff = plusDays(today, -PO_DAYS);
+  // 1. the PO headers of the week (the last 7 days)
+  const heads: Record<string, unknown>[] = [];
+  for (let page = 1; page <= 25; page++) {
+    const d = await dash(`/wms/purchase-orders?${new URLSearchParams({ page: String(page), page_size: '200' })}`) as Record<string, unknown>;
+    const data = (d?.data || {}) as Record<string, unknown>, items = (data.items || []) as Record<string, unknown>[];
+    const recent = items.filter(x => String(x.document_date || '').slice(0, 10) >= cutoff && String(x.branch_name || BRANCH) === BRANCH);
+    heads.push(...recent);
+    if (!(data.pagination as Record<string, unknown>)?.has_next || (items.length && !recent.length)) break;   // newest first: a page all older = done
+  }
+  const now = new Date().toISOString();
+  const code = (h: Record<string, unknown>) => String(h.typecode || 'PO') + String(h.number || '');
+  const { data: known } = await db.from('system_pos').select('po, line_count, lines_read_at').gte('po_date', cutoff);
+  const kn = new Map<string, { line_count: number; lines_read_at: string | null }>((known || []).map((k: Record<string, unknown>) =>
+    [String(k.po), { line_count: Number(k.line_count), lines_read_at: (k.lines_read_at as string) || null }]));
+  const rows = heads.map(h => ({ po: code(h), year: String(h.year || today.slice(0, 4)), po_date: String(h.document_date).slice(0, 10), supplier_code: String(h.supplier_code || '') || null,
+    supplier_name: String(h.supplier_name || '') || null, status: String(h.status || '') || null, line_count: Number(h.line_count || 0), requested_qty: Number(h.requested_qty_total || 0),
+    received_qty: Number(h.received_qty_total || 0), remaining_qty: Number(h.remaining_qty_total ?? 0), seen_at: now }));
+  for (let i = 0; i < rows.length; i += 200) { const { error } = await db.from('system_pos').upsert(rows.slice(i, i + 200)); if (error) throw error; }
+
+  // 2. the lines of the new POs (and of the ones from today / yesterday, or whose line count changed: still being edited)
+  const todo = rows.filter(r => { const k = kn.get(r.po); return !k || !k.lines_read_at || r.po_date >= plusDays(today, -1) || Number(k.line_count) !== r.line_count; });
+  let readPos = 0;
+  for (let i = 0; i < todo.length && Date.now() - started < PO_BUDGET_MS; i += 6) {
+    await Promise.all(todo.slice(i, i + 6).map(async r => {
+      try {
+        const d = await dash('/operations/viewer', postJson({ year: r.year, branch: BRANCH, document_type: 'PO', document_number: r.po.replace(/^[A-Z]+/, '') })) as Record<string, unknown>;
+        const v = d?.data as Record<string, unknown> | undefined;
+        if (!v || !Array.isArray(v.lines)) return;
+        let lines = (v.lines as Record<string, unknown>[]).map((l, n) => ({ po: r.po, line: Number(l.line_number) || n + 1, po_date: r.po_date, supplier_code: r.supplier_code, supplier_name: r.supplier_name,
+          code: trimCode(l.item_code), description: String(l.item_description || '').trim() || null, qty: Number(l.quantity || 0), unit_price: l.unit_price === null || l.unit_price === undefined ? null : Number(l.unit_price), read_at: now }))
+          .filter(l => l.code);
+        // a PO of last year (January): its codes are last year's, today's codes kept (migration 069); not prepared = as is
+        if (r.year !== year()) { try { const m = await fromYear('item', lines.map(l => l.code), r.year); lines = lines.map(l => ({ ...l, code: m[l.code] || l.code })); } catch { /* as is */ } }
+        await db.from('system_po_lines').delete().eq('po', r.po);
+        if (lines.length) { const { error } = await db.from('system_po_lines').insert(lines); if (error) throw error; }
+        await db.from('system_pos').update({ lines_read_at: now }).eq('po', r.po);
+        readPos++;
+      } catch (e) { console.warn('po lines', r.po, e); }
+    }));
+  }
+
+  // 3. received: a PU of the item on or after the PO's day; or the PO has nothing remaining. Looked at over 30 days: a
+  //    line not delivered stays on the "Not available" list until its item comes in (or 30 days)
+  const keep = plusDays(today, -30);
+  const done = rows.filter(r => r.requested_qty > 0 && r.remaining_qty <= 0).map(r => r.po);
+  if (done.length) await db.from('system_po_lines').update({ received_on: today }).in('po', done).is('received_on', null);
+  const open: { po: string; line: number; po_date: string; code: string }[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await db.from('system_po_lines').select('po, line, po_date, code').is('received_on', null).gte('po_date', keep).range(from, from + 999);
+    if (error) throw error;
+    open.push(...(data || []) as typeof open);
+    if ((data || []).length < 1000) break;
+  }
+  let received = 0;
+  if (open.length && Date.now() - started < PO_BUDGET_MS + 30000) {
+    const first = open.reduce((m, l) => l.po_date < m ? l.po_date : m, today), codes = [...new Set(open.map(l => l.code))];
+    const days = new Map<string, string[]>();   // item -> its purchase days since the oldest open PO
+    for (let i = 0; i < codes.length; i += 150) {
+      try {
+        (await report('purchases', first, today, { aggregation: 'Daily', group_by: ['item'], item: codes.slice(i, i + 150) })).forEach(r => {
+          const c = trimCode(r.item), d = String(r.period || '').slice(0, 10);
+          if (c && d && Number(r.total_quantity || 0) > 0) days.set(c, [...(days.get(c) || []), d]);
+        });
+      } catch (e) { console.warn('po received', e); }
+    }
+    const hits = open.map(l => ({ l, on: (days.get(l.code) || []).filter(d => d >= l.po_date).sort()[0] })).filter(x => x.on);
+    for (const x of hits) { await db.from('system_po_lines').update({ received_on: x.on }).eq('po', x.l.po).eq('line', x.l.line); received++; }
+  }
+
+  // 4. a PO is delivered once one of its items came in (the supplier came): its first PU day. Its lines with no PU of
+  //    their item since = NOT DELIVERED (po_delivered_on set, received_on null)
+  const { data: undelivered } = await db.from('system_pos').select('po').is('delivered_on', null).gte('po_date', keep);
+  const waiting = ((undelivered || []) as { po: string }[]).map(p => String(p.po));
+  for (let i = 0; i < waiting.length; i += 100) {
+    const { data: got } = await db.from('system_po_lines').select('po, received_on').in('po', waiting.slice(i, i + 100)).not('received_on', 'is', null);
+    const firstOf = new Map<string, string>();
+    ((got || []) as { po: string; received_on: string }[]).forEach(g => { const d = String(g.received_on); if (!firstOf.has(g.po) || d < firstOf.get(g.po)!) firstOf.set(g.po, d); });
+    for (const [po, d] of firstOf) {
+      await db.from('system_pos').update({ delivered_on: d }).eq('po', po);
+      await db.from('system_po_lines').update({ po_delivered_on: d }).eq('po', po);
+    }
+  }
+
+  // 5. the stock now of the lines not delivered (read again every 2 hours): still out of stock = "Not available"
+  let stockRead = 0;
+  if (Date.now() - started < PO_BUDGET_MS + 40000) {
+    const { data: missing } = await db.from('system_po_lines').select('po, line, code, stock_read_at').is('received_on', null).not('po_delivered_on', 'is', null)
+      .gte('po_date', keep).order('stock_read_at', { ascending: true, nullsFirst: true }).limit(150);
+    type Miss = { po: string; line: number; code: string; stock_read_at: string | null };
+    const stale = ((missing || []) as Miss[]).filter(m => !m.stock_read_at || Date.now() - new Date(String(m.stock_read_at)).getTime() > 2 * 3600e3);
+    const key = (c: string) => c.replace(/^0+(?=\d)/, '').toUpperCase(), stockOf = new Map<string, number | null>();
+    const codes = [...new Set(stale.map(m => String(m.code)))];
+    for (let i = 0; i < codes.length && Date.now() - started < PO_BUDGET_MS + 50000; i += 12) {
+      await Promise.all(codes.slice(i, i + 12).map(async c => {
+        try {
+          const d = await dash(`/items/search?${new URLSearchParams({ search: c, year: year(), preferred_branch: BRANCH })}`);
+          const hit = (Array.isArray(d) ? d : []).find((x: Record<string, unknown>) => key(String(x.code ?? '')) === key(c)) as Record<string, unknown> | undefined;
+          stockOf.set(c, hit && hit.available_quantity !== null && hit.available_quantity !== undefined ? Number(hit.available_quantity) : null);
+        } catch (e) { console.warn('po stock', c, e); }
+      }));
+    }
+    const at = new Date().toISOString();
+    for (const m of stale) {
+      if (!stockOf.has(String(m.code))) continue;
+      await db.from('system_po_lines').update({ stock_now: stockOf.get(String(m.code)), stock_read_at: at }).eq('po', m.po).eq('line', m.line);
+      stockRead++;
+    }
+  }
+
+  // 30 days kept (the week's POs are the ones flagged; the lines not delivered stay listed up to 30 days)
+  await db.from('system_pos').delete().lt('po_date', keep);   // their lines go with them
+  return { pos: rows.length, linesRead: readPos, linesLeft: todo.length - readPos, openLines: open.length, received, stockRead };
+}
+
 /* ---------------- codes across years (owner, 2026-10-06; migration 069) ----------------
    The system numbers its items AND its suppliers per year: a year's sales and purchases only know that year's codes
    (Abboud trading 0768 in 2025 / 1134 in 2026; Taanayel labneh 400g 016580 / 128420), while the app uses today's.
@@ -1205,6 +1328,16 @@ Deno.serve(async req => {
     catch (e) { console.error(e); return json({ error: e instanceof Error ? e.message : 'failed' }, 502); }
   }
 
+  // The system's purchase orders (migration 082), from pg_cron (every 30 minutes in the day) or the server key.
+  if (body.action === 'po_sync') {
+    const cron = req.headers.get('x-cron-secret') || '';
+    let ok = serverKeys().includes(req.headers.get('apikey') || '');
+    if (!ok && cron) { const { data } = await db.rpc('push_keys'); ok = !!data && cron === (data as Record<string, string>).push_cron_secret; }
+    if (!ok) return json({ error: 'Not allowed.' }, 403);
+    try { return json(await poSync()); }
+    catch (e) { console.error(e); return json({ error: e instanceof Error ? e.message : 'failed' }, 502); }
+  }
+
   // Stock review (migration 075): overstock / slow movers, from pg_cron (every day) or the server key.
   if (body.action === 'stock_review') {
     const cron = req.headers.get('x-cron-secret') || '';
@@ -1243,6 +1376,11 @@ Deno.serve(async req => {
     if (body.action === 'top_sales_now') {
       if (!isServer && role !== 'admin') return json({ error: 'Admin only.' }, 403);
       return json(await topSales(String(body.period || "")));
+    }
+    // Read the system's purchase orders now (admin, Stock control › Low stock).
+    if (body.action === 'po_sync_now') {
+      if (!isServer && role !== 'admin') return json({ error: 'Admin only.' }, 403);
+      return json(await poSync());
     }
     // Check one watched vendor's stock now (admin, the Vendors page's Check now).
     if (body.action === 'stock_check_now') {

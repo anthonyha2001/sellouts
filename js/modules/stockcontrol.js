@@ -16,8 +16,8 @@
   const money = v => '$' + Math.round(Number(v) || 0).toLocaleString('en-US');
   const dmy = s => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(s || '')); return m ? `${m[3]}-${m[2]}-${m[1]}` : ''; };
   const REFRESH_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/></svg>';
-  const VIEWS = ['lowstock', 'toppurchases', 'topsales', 'overstock', 'slow', 'history'];
-  const BOX = { lowstock: 'vendorLowStockView', toppurchases: 'vendorTopPurchasesView', topsales: 'vendorTopSalesView', overstock: 'scOverstockView', slow: 'scSlowView', history: 'scHistoryView' };
+  const VIEWS = ['lowstock', 'toppurchases', 'topsales', 'notavail', 'overstock', 'slow', 'history'];
+  const BOX = { lowstock: 'vendorLowStockView', toppurchases: 'vendorTopPurchasesView', topsales: 'vendorTopSalesView', notavail: 'scNotAvailView', overstock: 'scOverstockView', slow: 'scSlowView', history: 'scHistoryView' };
 
   async function load(kind) {
     const { data, error } = await sb.from('stock_review').select('*').eq('kind', kind).order('day', { ascending: false }).order('value', { ascending: false, nullsFirst: false }).limit(600);
@@ -196,6 +196,7 @@
     if (S.tab === 'lowstock' && window.LowStock) LowStock.render();
     if (S.tab === 'toppurchases' && window.LowStock) LowStock.renderTopPurchases();
     if (S.tab === 'topsales' && window.LowStock) LowStock.renderTopSales();
+    if (S.tab === 'notavail' && window.LowStock) LowStock.renderNotAvailable();
     if (S.tab === 'overstock') renderReview('overstock');
     if (S.tab === 'slow') renderReview('slow');
     if (S.tab === 'history') renderHistory();

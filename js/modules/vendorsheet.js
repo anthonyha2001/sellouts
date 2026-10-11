@@ -63,6 +63,7 @@
       sb.from('top_sales').select('*').eq('vendor_id', v.id).order('week_end', { ascending: false }).limit(300),
       sb.from('stock_review').select('*').eq('vendor_id', v.id).order('day', { ascending: false }).limit(300),
       names.length ? sb.from('big_purchases').select('*').gte('day', since).order('day', { ascending: false }) : Promise.resolve({ data: [] }),
+      window.LowStock && LowStock.loadPOs ? LowStock.loadPOs().catch(() => null) : null,   // the system's POs (migration 082)
     ]);
     const latest = (rows, f) => { const d = rows?.[0]?.[f]; return d ? rows.filter(r => r[f] === d) : []; };
     const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -312,11 +313,17 @@
     const sec = (title, note, rows, head, row) => `<div class="vs-card vs-wide"><h4>${title} <span class="vs-n">${rows.length}</span></h4>${note ? `<p class="muted-note" style="margin:0 0 6px;">${note}</p>` : ''}
       ${rows.length ? `<div class="items-scroll vs-scroll"><table class="items vs-table"><thead><tr>${head}</tr></thead><tbody>${rows.map(row).join('')}</tbody></table></div>` : '<p class="muted-note" style="margin:0;">None.</p>'}</div>`;
     const days = r => r.days_left === null || r.days_left === undefined ? '—' : `<b class="${Number(r.days_left) < 3 ? 'vs-warn' : ''}">${qty(r.days_left)}</b>`;
-    // the vendor's open order next to the items out of stock (js/modules/lowstock.js)
-    const LS = window.LowStock && LowStock.poFlag ? LowStock : null, po = LS ? LS.poOf(vendor().id) : null;
+    // the system's POs next to the items out of stock, and this vendor's items not delivered (js/modules/lowstock.js)
+    const LS = window.LowStock && LowStock.poFlag ? LowStock : null;
+    const k = c => String(c || '').trim().replace(/^0+(?=\d)/, '');
+    const sups = new Set((vendor().systemSuppliers || []).map(s => k(s.code)).filter(Boolean));
+    const na = LS && LS.notAvailable ? LS.notAvailable().filter(l => sups.has(k(l.supplier_code))) : [];
     return `<div class="vs-grid vs-one">
+      ${na.length ? sec('Not available', 'Ordered on a PO, the supplier delivered the PO without them, still out of stock: ask the supplier.', na,
+        '<th>Code</th><th>Item</th><th>PO</th><th>Ordered</th><th class="num">Qty</th><th>PO delivered</th>',
+        l => `<tr data-code="${esc(l.code)}" class="vs-hot"><td class="mono">${esc(l.code)}</td><td>${esc(l.description || '')}</td><td class="mono">${esc(l.po)}</td><td>${esc(dmy(l.po_date))}</td><td class="num">${qty(l.qty)}</td><td>${esc(dmy(l.po_delivered_on))}</td></tr>`) : ''}
       ${sec('Running low', 'Items that sold in the last 30 days and will not last the vendor\'s cover days.', st.low, `<th>Code</th><th>Item</th><th class="num">Stock</th><th class="num">Sells / week</th><th class="num">Days left</th>${LS ? '<th>Order</th>' : ''}`,
-        a => `<tr data-code="${esc(a.code)}"><td class="mono">${esc(a.code)}</td><td>${esc(a.description || '')}</td><td class="num">${Number(a.stock) <= 0 ? '<b class="vs-warn">0</b>' : qty(a.stock)}</td><td class="num">${qty(n(a.per_day) * 7)}</td><td class="num">${a.days_left === null || Number(a.stock) <= 0 ? '<b class="vs-warn">out</b>' : days(a)}</td>${LS ? `<td>${LS.poFlag(po, Number(a.stock) <= 0)}</td>` : ''}</tr>`)}
+        a => `<tr data-code="${esc(a.code)}"><td class="mono">${esc(a.code)}</td><td>${esc(a.description || '')}</td><td class="num">${Number(a.stock) <= 0 ? '<b class="vs-warn">0</b>' : qty(a.stock)}</td><td class="num">${qty(n(a.per_day) * 7)}</td><td class="num">${a.days_left === null || Number(a.stock) <= 0 ? '<b class="vs-warn">out</b>' : days(a)}</td>${LS ? `<td>${LS.poFlag(a.code, Number(a.stock) <= 0)}</td>` : ''}</tr>`)}
       ${sec('Selling more than usual', 'The latest daily count; ⚠ = may run out soon.', st.top.sort((a, b) => (b.attention - a.attention) || (n(b.sold_week) - n(b.usual_week)) - (n(a.sold_week) - n(a.usual_week))),
         '<th></th><th>Code</th><th>Item</th><th>View</th><th class="num">Sold</th><th class="num">Usually</th><th class="num">Times</th><th class="num">Stock</th><th class="num">Days left</th>',
         t => `<tr data-code="${esc(t.code)}"${t.attention ? ' class="vs-hot"' : ''}><td>${t.attention ? '<b class="vs-warn">⚠</b>' : ''}</td><td class="mono">${esc(t.code)}</td><td>${esc(t.description || '')}</td><td>${esc({ day: 'Day', week: 'Week', month: 'Month' }[t.period] || t.period)}</td><td class="num"><b>${qty(t.sold_week)}</b></td><td class="num">${qty(t.usual_week)}</td><td class="num">${qty(t.ratio)}×</td><td class="num">${t.stock === null ? '—' : qty(t.stock)}</td><td class="num">${days(t)}</td></tr>`)}
