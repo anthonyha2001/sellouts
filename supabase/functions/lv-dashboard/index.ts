@@ -1221,8 +1221,8 @@ Deno.serve(async req => {
   const isServer = (!!bearer && serverKeys().includes(bearer)) || (!!apikey && serverKeys().includes(apikey));
   let role = '';
   if (!isServer) {
-    const { data: u } = await db.auth.getUser(bearer);
-    if (!u?.user) return json({ error: 'Sign in first.' }, 401);
+    const { data: u, error: uErr } = await db.auth.getUser(bearer);
+    if (!u?.user) return json({ error: 'Sign in first.' + (uErr ? ' (' + uErr.message + (bearer ? '' : ' — no session sent') + ')' : bearer ? '' : ' (no session sent)') }, 401);
     const { data: prof } = await db.from('profiles').select('role, active').eq('id', u.user.id).maybeSingle();
     if (!prof?.active) return json({ error: 'Not allowed.' }, 403);
     role = prof.role || '';
