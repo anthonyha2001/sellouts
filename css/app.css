@@ -2620,3 +2620,9 @@ td .lb-info{margin:0;}
 .vb-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding-top:12px;}
 .vb-actions > *{width:100%;justify-content:center;text-align:center;white-space:nowrap;min-width:0;}
 .vb-actions > :first-child{grid-column:1 / -1;}
+
+/* vendor board v4: one even 3-column grid, every button the same height, no stray margins */
+.vb-actions{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;align-items:stretch;}
+.vb-actions > *{margin:0 !important;height:34px;padding:0 6px;font-size:12.5px;display:inline-flex;align-items:center;justify-content:center;overflow:hidden;text-overflow:ellipsis;}
+.vb-actions > :first-child{grid-column:1 / -1;height:38px;font-size:14px;}
+.vb-actions > [data-act="unskip"]{grid-column:1 / -1;}
