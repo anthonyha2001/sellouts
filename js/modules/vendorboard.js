@@ -3,7 +3,7 @@
    One card per vendor: who, when to order next, what is waiting, the stock that needs attention, and the
    actions you need: Order now (any day), Mark sent, Delivered, Cancel, Call, WhatsApp; No order (×) and Edit (pencil)
    are icons top right; a click on the card opens the vendor sheet.
-   Filters: All · To order now · This week · Awaiting · Late · Not sent · No order (counter + reset) · Stock alerts · Not scheduled.
+   Filters: All · This week (day picker) · Awaiting · Late · Not sent · No order (counter + reset) · Stock alerts · Not scheduled.
    Sorting: Urgency (default) · Next order · Name. A search finds by vendor, salesman or phone.
    The stock badges (running low, selling fast) come from stock_alerts / top_sales, kept 5 minutes.
    Uses the vendor page's data and helpers (js/app.js). Public API: window.VendorBoard = { render, reload }.
@@ -106,7 +106,6 @@
   }
   const FILTERS = [
     ['all', 'All', () => true],
-    ['now', 'To order now', i => i.dueNow],
     ['week', 'This week', i => i.week],
     ['awaiting', 'Awaiting', i => !!i.pend && !i.late],
     ['late', 'Late', i => i.late],
@@ -150,7 +149,7 @@
         return `<span class="vb-fgroup"><button type="button" data-vbf="${k}" class="${k === S.filter ? 'active' : ''}">${l} <span class="vb-n">${n}</span></button><select class="vb-day" data-vbday aria-label="Day of the week">${opts}<option value="all" ${S.day === 'all' ? 'selected' : ''}>Whole week</option></select></span>`;
       }
       const n = searched.filter(fn).length;
-      return `<button type="button" data-vbf="${k}" class="${k === S.filter ? 'active' : ''}">${l}${k !== 'all' ? ` <span class="vb-n ${n && (k === 'late' || k === 'now') ? 'hot' : ''}">${n}</span>` : ''}</button>`;
+      return `<button type="button" data-vbf="${k}" class="${k === S.filter ? 'active' : ''}">${l}${k !== 'all' ? ` <span class="vb-n ${n && k === 'late' ? 'hot' : ''}">${n}</span>` : ''}</button>`;
     }).join('');
     const sel = el('vbSort'); if (sel && sel.value !== S.sort) sel.value = S.sort;
 
