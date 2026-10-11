@@ -2850,3 +2850,10 @@ tr.ls-nopo{background:rgba(200,68,63,.07);}
 .vp-hact{display:flex;gap:6px;align-items:center;flex:none;}
 .vp-body{padding:10px 12px 14px;overflow:auto;}
 @media (max-width:640px){.vp-overlay{padding:0;}.vp-dialog{max-height:100vh;height:100%;border-radius:0;}}
+/* sell-outs: a note next to each item (owner, 2026-10-11) */
+.so-note-cell{min-width:170px;}
+.so-note{width:100%;min-width:150px;height:30px;padding:0 8px;font-size:12.5px;border:1px dashed transparent;background:transparent;border-radius:6px;color:var(--ink);}
+.so-note::placeholder{color:var(--ink-soft);opacity:.55;}
+tr:hover .so-note,.so-note:focus{border-color:var(--line-strong);background:var(--paper-raised);}
+.so-note.has-note{background:#fff6d6;border:1px solid #ecd27a;color:#5c4400;font-weight:600;}
+.so-note-text{display:inline-block;max-width:240px;padding:2px 8px;border-radius:6px;background:#fff6d6;border:1px solid #ecd27a;color:#5c4400;font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:middle;}

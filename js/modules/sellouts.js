@@ -629,6 +629,9 @@ function stateOf(so) {
 async function savePricing(so) {
   return updateSelloutFields(so.id, { priced_items: so.pricedItems, pricing: so.pricing, price_column: so.priceColumn });
 }
+// A note on an item of the sell-out (owner, 2026-10-11): kept on the item in priced_items (p.note, who and when), so
+// it follows the item; whoever can edit or price the sell-out writes it, everyone who sees it reads it.
+function canNoteSellouts() { return can('sellouts.edit') || can('sellouts.price'); }
 
 function pricingPanelHtml(so) {
   const st = stateOf(so);
@@ -660,7 +663,7 @@ function pricingPanelHtml(so) {
       <table class="items so-price-table">
         <thead><tr>
           <th class="so-rownum" data-role="select-all" title="Select all / none">#</th>
-          <th>Code</th><th>Description</th><th class="num">Old price</th><th class="num">New price</th><th class="num">Discount</th><th class="num" title="Units sold from the sell-out's start to its end (today while it runs)">Units sold</th><th>Mode</th><th></th>
+          <th>Code</th><th>Description</th><th class="num">Old price</th><th class="num">New price</th><th class="num">Discount</th><th class="num" title="Units sold from the sell-out's start to its end (today while it runs)">Units sold</th><th>Mode</th><th title="A note on this item (kept with the sell-out)">Note</th><th></th>
         </tr></thead>
         <tbody>${rows.map((p, i) => {
           const w = priceWarnings(p);
@@ -674,6 +677,9 @@ function pricingPanelHtml(so) {
             <td class="num">${d === null ? '' : d + '%'}</td>
             <td class="num so-sold" data-sold-code="${escapeHtml(String(p.code || '').trim())}">${String(p.code || '').trim() ? soSoldHtml(so, p.code) : ''}</td>
             <td>${p.mode ? `<span class="badge ${p.mode === 'manual' ? 'warn' : 'active'}">${escapeHtml(PRICE_MODES[p.mode].short)}${p.mode !== 'manual' && p.value !== null ? ' ' + escapeHtml(p.value) : ''}</span>` : ''}</td>
+            <td class="so-note-cell">${canNoteSellouts()
+              ? `<input type="text" class="so-note ${p.note ? 'has-note' : ''}" data-role="note" maxlength="300" placeholder="Add a note…" value="${escapeHtml(p.note || '')}" title="${escapeHtml(p.note ? p.note + (p.noteBy ? ` — ${p.noteBy}` : '') : 'Add a note on this item')}">`
+              : p.note ? `<span class="so-note-text" title="${escapeHtml(p.note + (p.noteBy ? ` — ${p.noteBy}` : ''))}">${escapeHtml(p.note)}</span>` : ''}</td>
             <td>${w.length ? `<span class="big-discount-dot" title="${escapeHtml(w.join(' · '))}"></span>` : ''}</td>
           </tr>`;
         }).join('')}</tbody>
@@ -780,6 +786,27 @@ function wirePricingPanel(el, so) {
     rerender();
   });
 
+  // the item's note: Enter or leaving the box saves it, Escape gives the old one back
+  panel.querySelectorAll('[data-role="note"]').forEach(inp => {
+    const rowOf = () => pricedRowsOf(so).find(x => x.row === Number(inp.closest('tr').dataset.row));
+    inp.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); inp.blur(); }
+      if (e.key === 'Escape') { inp.value = rowOf()?.note || ''; inp.blur(); }
+    });
+    inp.addEventListener('blur', async () => {
+      const p = rowOf(); if (!p) return;
+      const text = inp.value.trim().slice(0, 300), before = p.note || '';
+      if (text === before) { inp.value = before; return; }
+      if (text) Object.assign(p, { note: text, noteBy: (Session.profile && (Session.profile.display_name || Session.profile.username)) || '', noteAt: new Date().toISOString() });
+      else { delete p.note; delete p.noteBy; delete p.noteAt; }
+      if (!(await savePricing(so))) { inp.value = before; return; }
+      logActivity('sellouts', 'item_note', { type: 'sellout', id: so.id }, `"${so.name}": ${p.code} note ${text ? `"${text}"` : 'removed'}`, { code: p.code, row: p.row, from: before || null, to: text || null });
+      inp.classList.toggle('has-note', !!text);
+      inp.title = text ? text + (p.noteBy ? ` — ${p.noteBy}` : '') : 'Add a note on this item';
+      showToast(text ? 'Note saved.' : 'Note removed.');
+    });
+  });
+
   panel.querySelectorAll('[data-role="new-price"]').forEach(inp => {
     inp.addEventListener('keydown', e => {
       if (e.key === 'Enter') { e.preventDefault(); inp.blur(); }
@@ -815,8 +842,8 @@ function exportSelloutPricing(so) {
     ['To', fmtDate(so.to)],
     ['Note', so.note || ''],
     [],
-    ['Code', 'Description', 'Old price', 'New price', 'Discount %'],
-    ...rows.map(p => [String(p.code), p.description, p.oldPrice, p.newPrice, discountPct(p)]),
+    ['Code', 'Description', 'Old price', 'New price', 'Discount %', 'Note'],
+    ...rows.map(p => [String(p.code), p.description, p.oldPrice, p.newPrice, discountPct(p), p.note || '']),
   ];
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   // Keep codes as text so leading zeros survive.
@@ -824,7 +851,7 @@ function exportSelloutPricing(so) {
     const ref = XLSX.utils.encode_cell({ r, c: 0 });
     if (ws[ref]) { ws[ref].t = 's'; ws[ref].v = String(aoa[r][0]); }
   }
-  ws['!cols'] = [{ wch: 14 }, { wch: 44 }, { wch: 11 }, { wch: 11 }, { wch: 11 }];
+  ws['!cols'] = [{ wch: 14 }, { wch: 44 }, { wch: 11 }, { wch: 11 }, { wch: 11 }, { wch: 40 }];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Sell-out');
   XLSX.writeFile(wb, `${so.name.replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'sellout'} - prices.xlsx`);
