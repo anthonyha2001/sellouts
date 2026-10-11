@@ -170,9 +170,9 @@
       : i.days === 0 ? '<b class="vb-today">Today</b>' : i.days === 1 ? `<b>Tomorrow</b> <span class="muted-note">${esc(nice(i.next))}</span>` : `<b>${esc(nice(i.next))}</b> <span class="muted-note">in ${i.days} days</span>`;
     const badges = [];
     if (i.late) badges.push(`<span class="badge danger">Delivery late · ${esc(dmy(i.pend.expectedDelivery))}</span>`);
-    else if (i.pend) badges.push(`<span class="badge warn">Awaiting${i.pend.expectedDelivery ? ' · ' + esc(dmy(i.pend.expectedDelivery)) : ''}</span>`);
-    if (i.ns) badges.push(`<span class="badge inactive">Not sent · ${esc(dmy(i.ns.orderDate))}</span>`);
-    if (i.dueNow) badges.push('<span class="badge warn">Order today</span>');
+    else if (i.pend) badges.push(`<span class="badge ok">Awaiting${i.pend.expectedDelivery ? ' · ' + esc(dmy(i.pend.expectedDelivery)) : ''}</span>`);
+    if (i.ns) badges.push(`<span class="badge warn">Not sent · ${esc(dmy(i.ns.orderDate))}</span>`);
+    if (i.dueNow) badges.push('<span class="badge due">Order today</span>');
     if (i.skipToday) badges.push('<span class="badge inactive">No order today</span>');
     if (S.filter === 'noorder' && i.nos.length) badges.push(`<span class="badge danger" title="${esc(i.nos.map(s => dmy(s.skipDate)).sort().join(', '))}">No order ×${i.nos.length}</span>`);
     if (i.st.low) badges.push(`<span class="badge danger" title="Items running low">${i.st.low} low</span>`);

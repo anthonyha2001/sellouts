@@ -2900,3 +2900,32 @@ tr:hover .so-note,.so-note:focus{border-color:var(--line-strong);background:var(
 /* vendor board: WhatsApp as a small icon next to No order and Edit (owner, 2026-10-11: no Call / WA buttons) */
 .vb-ico.vb-wa{color:#1fa855;text-decoration:none;}
 .vb-ico.vb-wa:hover{color:#128c4a;background:color-mix(in srgb,#25d366 12%,transparent);}
+
+/* Vendor card colors (owner, 2026-10-11: "make it more professional"): one calm palette. Neutral contract chips, soft
+   status labels in plain text, a clean yellow / green / red for the side bar and the main button, a quiet avatar. */
+.vb-avatar{background:color-mix(in srgb,var(--pine) 9%,var(--paper-raised));color:var(--pine);border:1px solid color-mix(in srgb,var(--pine) 16%,transparent);font:700 16px var(--font-head);}
+.vb-chips{gap:5px;}
+.vb-chips .vc-chip,.vb-chips .vc-chip + .vc-chip{margin:0;padding:2px 8px;border-radius:6px;border:1px solid var(--line);background:var(--paper);color:var(--ink);
+  font:500 12px/1.5 var(--font-body);vertical-align:0;}
+.vb-chips .vc-chip.vc-info{color:var(--ink-soft);background:transparent;}
+.vb-badges{gap:6px;}
+.vb-badges .badge{font:600 12px/1.5 var(--font-body);text-transform:none;letter-spacing:0;padding:2px 9px;border-radius:6px;border:0;}
+.vb-badges .badge.warn{background:color-mix(in srgb,#f59e0b 16%,transparent);color:#92400e;}
+.vb-badges .badge.ok{background:color-mix(in srgb,#16a34a 12%,transparent);color:#166534;}
+.vb-badges .badge.danger{background:color-mix(in srgb,#dc2626 10%,transparent);color:#b91c1c;}
+.vb-badges .badge.due{background:color-mix(in srgb,var(--pine) 11%,transparent);color:var(--pine);}
+.vb-badges .badge.inactive{background:color-mix(in srgb,var(--ink-soft) 11%,transparent);color:var(--ink-soft);}
+:root[data-theme="dark"] .vb-badges .badge.warn{color:#fcd34d;} :root[data-theme="dark"] .vb-badges .badge.ok{color:#86efac;} :root[data-theme="dark"] .vb-badges .badge.danger{color:#fca5a5;}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]) .vb-badges .badge.warn{color:#fcd34d;} :root:not([data-theme="light"]) .vb-badges .badge.ok{color:#86efac;} :root:not([data-theme="light"]) .vb-badges .badge.danger{color:#fca5a5;} }
+.vb-card.st-draft{--st:#f59e0b;}
+.vb-card.st-sent{--st:#16a34a;}
+.vb-card.st-late,.vb-card.st-noorder{--st:#dc2626;}
+.vb-card.st-due::before{background:repeating-linear-gradient(to bottom,var(--pine) 0 6px,transparent 6px 10px);}
+.vb-card.st-received{--st:#9aa29d;}
+.vb-card.st-draft .vb-cta > .btn{background:#fbbf24;border-color:#f5b000;color:#3d2800;}
+.vb-card.st-draft .vb-cta > .btn:hover{background:#f59e0b;border-color:#f59e0b;color:#2b1c00;}
+.vb-card.st-sent .vb-cta > .btn{background:#16a34a;border-color:#16a34a;color:#fff;}
+.vb-card.st-sent .vb-cta > .btn:hover{background:#15803d;border-color:#15803d;}
+.vb-card.st-late .vb-cta > .btn,.vb-cta > .btn[data-act="unskip"]{background:#dc2626;border-color:#dc2626;color:#fff;}
+.vb-card.st-late .vb-cta > .btn:hover,.vb-cta > .btn[data-act="unskip"]:hover{background:#b91c1c;border-color:#b91c1c;color:#fff;}
+.vb-cta > .vb-undo{border-color:var(--line);color:var(--ink-soft);}
