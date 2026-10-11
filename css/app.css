@@ -2955,3 +2955,7 @@ tr:hover .so-note,.so-note:focus{border-color:var(--line-strong);background:var(
   background:color-mix(in srgb,var(--ink-soft) 12%,transparent);color:var(--ink-soft);}
 .st-filter-n{background:color-mix(in srgb,var(--pine) 14%,transparent);color:var(--pine);}
 .sh-dept-tabs button.active .sh-tab-n,button.active .st-filter-n,button.on .st-filter-n{background:rgba(255,255,255,.2);color:#fff;}
+
+/* vendor board: WhatsApp as a small icon next to No order and Edit (owner, 2026-10-11: no Call / WA buttons) */
+.vb-ico.vb-wa{color:#1fa855;text-decoration:none;}
+.vb-ico.vb-wa:hover{color:#128c4a;background:color-mix(in srgb,#25d366 12%,transparent);}
