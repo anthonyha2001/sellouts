@@ -122,7 +122,8 @@
     const t = e.target.closest('[data-vs]'); if (!t) return;
     const a = t.dataset.vs;
     if (a === 'close') return close();
-    if (a === 'tab') { S.tab = t.dataset.tab; paintTabs(); paintBody(); return; }
+    if (a === 'tab') { S.tab = t.dataset.tab; paintTabs(); paintBody(); if (S.tab === 'pos' && (!S.pos || S.pos.id !== S.id)) loadPos(''); return; }
+    if (a === 'po') return loadPos(t.dataset.po || '');
     if (a === 'range') { S.range = Number(t.dataset.days); refresh(false); return; }
     if (a === 'reload') return refresh(true);
     if (a === 'sort') { const k = t.dataset.k; if (S.sort === k) S.dir = -S.dir; else { S.sort = k; S.dir = k === 'description' ? 1 : -1; } return paintBody(); }
@@ -160,7 +161,7 @@
   }
   function open(id) {
     const v = vendorsList.find(x => x.id === id); if (!v) return;
-    S.id = id; S.tab = 'overview'; S.q = ''; S.sort = 'sold'; S.dir = -1; S.perf = null; S.stock = null;
+    S.id = id; S.tab = 'overview'; S.q = ''; S.sort = 'sold'; S.dir = -1; S.perf = null; S.stock = null; S.pos = null;
     shell().classList.add('open');
     document.body.classList.add('vs-lock');
     paintHead(); paintTabs(); paintBody();
@@ -204,14 +205,63 @@
       </div></div>`;
   }
   function paintTabs() {
-    const tabs = [['overview', 'Overview'], ['items', 'Items'], ['orders', 'Orders'], ['stock', 'Stock'], ['contract', 'Contract']].filter(([k]) => canData() || k === 'orders');
+    const tabs = [['overview', 'Overview'], ['items', 'Items'], ['orders', 'Orders'], ['pos', 'POs'], ['stock', 'Stock'], ['contract', 'Contract']].filter(([k]) => canData() || k === 'orders');
     if (!canData()) S.tab = 'orders';
     el('vsTabs').innerHTML = tabs.map(([k, l]) => `<button type="button" data-vs="tab" data-tab="${k}" class="${k === S.tab ? 'active' : ''}">${l}${k === 'stock' && S.stock ? ` <span class="vs-n">${S.stock.low.length + S.stock.top.length + S.stock.over.length + S.stock.slow.length}</span>` : ''}</button>`).join('');
   }
   function paintBody() {
     const box = el('vsBody'); if (!box) return;
     paintTabs();
-    box.innerHTML = ({ overview: overviewHtml, items: itemsHtml, orders: ordersHtml, stock: stockHtml, contract: contractHtml }[S.tab] || overviewHtml)();
+    box.innerHTML = ({ overview: overviewHtml, items: itemsHtml, orders: ordersHtml, pos: posHtml, stock: stockHtml, contract: contractHtml }[S.tab] || overviewHtml)();
+  }
+
+  /* ---------------- POs tab (owner, 2026-10-11): the supplier's POs of the last 7 days, live from the system ---------------- */
+  async function loadPos(po) {
+    const v = vendor(), id = S.id; if (!v) return;
+    const sups = (v.systemSuppliers || []).map(s => String(s.code || '')).filter(Boolean);
+    if (!sups.length) { S.pos = { id, none: true }; return paintBody(); }
+    S.pos = { id, loading: true, picked: po, prev: S.pos && S.pos.id === id ? S.pos.data : null }; paintBody();
+    try {
+      const { data, error } = await sb.functions.invoke('lv-dashboard', { body: { action: 'vendor_pos', suppliers: sups, po } });
+      let msg = data?.error || '';
+      if (error && !msg) { try { msg = (await error.context.json()).error || ''; } catch (x) { msg = error.message || ''; } }
+      if (msg || error || !data) throw new Error(msg || 'no answer');
+      if (S.id !== id) return;
+      S.pos = { id, data };
+    } catch (e) { if (S.id !== id) return; S.pos = { id, error: /Unknown action/i.test(e.message) ? 'Deploy the latest lv-dashboard to see the POs.' : 'The system did not answer: ' + e.message }; }
+    if (S.tab === 'pos') paintBody();
+  }
+  function posHtml() {
+    const v = vendor(), p = S.pos;
+    if (!p || p.id !== S.id) return '<div class="vs-note vs-loading">Reading the POs from the system…</div>';
+    if (p.none) return `<div class="vs-note">${esc(v.name)} is not linked to its supplier in the system yet, so its POs can't be found. <button type="button" class="btn small" data-vs="edit">Link it now</button></div>`;
+    if (p.error) return `<div class="vs-note vs-err">${esc(p.error)} <button type="button" class="btn ghost small" data-vs="po">Try again</button></div>`;
+    const d = p.loading ? p.prev : p.data;
+    if (!d) return '<div class="vs-note vs-loading">Reading the POs of the last 7 days from the system…</div>';
+    if (!d.po) return `<div class="vs-note">No PO for ${esc(v.name)} in the last 7 days (since ${esc(dmy(d.since))}). <button type="button" class="btn ghost small" data-vs="po">↻ Read again</button></div>`;
+    const po = d.po, ls = po.lines || [], got = ls.filter(l => l.received > 0), delivered = got.length > 0;
+    const missing = delivered ? ls.filter(l => !(l.received > 0)) : [], partial = ls.filter(l => l.received > 0 && l.received < l.qty);
+    const age = daysSince(po.po_date);
+    const status = !po.receivedRead ? '<span class="badge inactive">Delivery could not be read</span>'
+      : !delivered ? `<span class="badge warn">Not delivered yet · ${age === 0 ? 'ordered today' : age + ' day' + (age === 1 ? '' : 's') + ' ago'}</span>`
+      : missing.length || partial.length ? `<span class="badge danger">Delivered ${esc(dmy(got.map(l => l.received_on).sort()[0]))} · ${missing.length} not delivered${partial.length ? ` · ${partial.length} short` : ''}</span>`
+      : `<span class="badge active">Delivered complete · ${esc(dmy(got.map(l => l.received_on).sort()[0]))}</span>`;
+    const row = l => {
+      const out = l.stock !== null && l.stock <= 0, miss = delivered && !(l.received > 0), short = l.received > 0 && l.received < l.qty;
+      const rec = l.received > 0 ? `<b>${qty(l.received)}</b> <span class="muted-note">${esc(dmy(l.received_on).slice(0, 5))}</span>${short ? ' <em class="vs-warn">short</em>' : ''}`
+        : miss ? '<em class="vs-warn">not delivered</em>' : '<span class="muted-note">—</span>';
+      return `<tr data-code="${esc(l.code)}" class="${miss && out ? 'vs-hot' : ''}"><td class="mono">${esc(l.code)}</td><td>${esc(l.description)}</td><td class="num"><b>${qty(l.qty)}</b></td>
+        <td class="num">${l.unit_price === null ? '—' : (Math.round(l.unit_price * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td><td>${rec}</td>
+        <td class="num">${l.stock === null ? '<span class="muted-note">—</span>' : out ? `<b class="vs-warn">${qty(l.stock)}</b>` : qty(l.stock)}</td></tr>`;
+    };
+    return `${p.loading ? '<div class="vs-note vs-loading">Reading…</div>' : ''}
+      <div class="filter-row vs-range" style="margin:0 0 10px;flex-wrap:wrap;">${d.pos.map(x => `<button type="button" data-vs="po" data-po="${esc(x.po)}" class="${x.po === po.po ? 'active' : ''}">${esc(x.po)} · ${esc(dmy(x.po_date).slice(0, 5))} · ${x.lines} line${x.lines === 1 ? '' : 's'}</button>`).join('')}
+        <button type="button" class="btn ghost small" data-vs="po" data-po="${esc(po.po)}" title="Read again from the system">↻</button></div>
+      <div class="vs-card vs-wide"><h4>${esc(po.po)} <span class="muted-note">· ${esc(dmy(po.po_date))} · ${ls.length} item${ls.length === 1 ? '' : 's'} · ${qty(ls.reduce((s, l) => s + l.qty, 0))} units${po.total ? ` · ${esc(po.currency || '$')}${(Math.round(po.total * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 2 })}` : ''}</span></h4>
+        <div class="vs-badges" style="margin:0 0 8px;">${status}</div>
+        <div class="items-scroll vs-scroll"><table class="items vs-table"><thead><tr><th>Code</th><th>Item</th><th class="num">Ordered</th><th class="num">Price</th><th>Delivered</th><th class="num">Stock now</th></tr></thead>
+          <tbody>${ls.map(row).join('') || '<tr><td colspan="6" class="empty-note">No line on this PO.</td></tr>'}</tbody></table></div>
+        <p class="muted-note" style="margin:8px 0 0;">Delivered = the units this supplier delivered of the item since the PO's day (its PUs). Red = not delivered and out of stock: ask the supplier. Double-click an item for its details.</p></div>`;
   }
 
   /* ---------------- tabs ---------------- */

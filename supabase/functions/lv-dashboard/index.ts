@@ -778,6 +778,59 @@ async function poSync() {
   return { pos: rows.length, linesRead: readPos, linesLeft: todo.length - readPos, openLines: open.length, received, stockRead };
 }
 
+/* ---------------- one supplier's last POs (owner, 2026-10-11; the vendor sheet's POs tab) ----------------
+   Live from the system: its POs of the last 7 days only (owner: "the last PO in the last 7 days"; the PO list, newest
+   first, read until a page goes older than that) and the lines of one of them (the newest, or `po`): each with the
+   units that supplier delivered of it since the PO's day (the daily purchases report, its first day) and the stock now. */
+async function vendorPos(sups: string[], wanted = '') {
+  const sk = (c: unknown) => trimCode(c).replace(/^0+(?=\d)/, '').toUpperCase(), today = beirutToday(), cutoff = plusDays(today, -7);
+  const mine = new Set(sups.map(sk));
+  const pos: { po: string; year: string; po_date: string; supplier_code: string; supplier_name: string; lines: number; requested: number; received: number; remaining: number }[] = [];
+  let looked = 0;
+  for (let page = 1; page <= 10; page++) {
+    const d = await dash(`/wms/purchase-orders?${new URLSearchParams({ page: String(page), page_size: '200' })}`) as Record<string, unknown>;
+    const data = (d?.data || {}) as Record<string, unknown>, items = (data.items || []) as Record<string, unknown>[];
+    looked += items.length;
+    const week = items.filter(x => String(x.document_date || '').slice(0, 10) >= cutoff);
+    week.filter(x => mine.has(sk(x.supplier_code)) && String(x.branch_name || BRANCH) === BRANCH).forEach(x => pos.push({
+      po: String(x.typecode || 'PO') + String(x.number || ''), year: String(x.year || today.slice(0, 4)), po_date: String(x.document_date || '').slice(0, 10),
+      supplier_code: trimCode(x.supplier_code), supplier_name: String(x.supplier_name || ''), lines: Number(x.line_count || 0),
+      requested: Number(x.requested_qty_total || 0), received: Number(x.received_qty_total || 0), remaining: Number(x.remaining_qty_total ?? 0) }));
+    if (!(data.pagination as Record<string, unknown>)?.has_next || week.length < items.length) break;   // newest first: older than the week = done
+  }
+  const list = pos.sort((a, b) => b.po_date.localeCompare(a.po_date) || b.po.localeCompare(a.po)), pick = list.find(p => p.po === wanted) || list[0];
+  if (!pick) return { pos: [], po: null, looked, since: cutoff };
+  const v = (await dash('/operations/viewer', postJson({ year: pick.year, branch: BRANCH, document_type: 'PO', document_number: pick.po.replace(/^[A-Z]+/, '') })) as Record<string, unknown>)?.data as Record<string, unknown> | undefined;
+  const raw = (Array.isArray(v?.lines) ? v!.lines : []) as Record<string, unknown>[];
+  const lines = raw.map((l, n) => ({ line: Number(l.line_number) || n + 1, code: trimCode(l.item_code), description: String(l.item_description || '').trim(), qty: Number(l.quantity || 0),
+    unit_price: l.unit_price === null || l.unit_price === undefined ? null : Number(l.unit_price), total: Number(l.total_with_vat || 0),
+    received: 0, received_on: null as string | null, stock: null as number | null })).filter(l => l.code);
+  // delivered since the PO's day, by that supplier
+  const codes = [...new Set(lines.map(l => l.code))];
+  let receivedRead = true;
+  for (let i = 0; i < codes.length; i += 150) {
+    try {
+      (await report('purchases', pick.po_date, today, { aggregation: 'Daily', group_by: ['item', 'supplier'], item: codes.slice(i, i + 150) })).forEach(r => {
+        if (sk(r.supplier) !== sk(pick.supplier_code)) return;
+        const q = Number(r.total_quantity || 0), d = String(r.period || '').slice(0, 10); if (q <= 0 || !d) return;
+        lines.filter(l => sk(l.code) === sk(r.item)).forEach(l => { l.received += q; if (!l.received_on || d < l.received_on) l.received_on = d; });
+      });
+    } catch (e) { console.warn('vendor pos received', e); receivedRead = false; }
+  }
+  // the stock now, 12 at a time
+  const key = (c: string) => c.replace(/^0+(?=\d)/, '').toUpperCase();
+  for (let i = 0; i < lines.length && i < 120; i += 12) {
+    await Promise.all(lines.slice(i, i + 12).map(async l => {
+      try {
+        const d = await dash(`/items/search?${new URLSearchParams({ search: l.code, year: year(), preferred_branch: BRANCH })}`);
+        const hit = (Array.isArray(d) ? d : []).find((x: Record<string, unknown>) => key(String(x.code ?? '')) === key(l.code)) as Record<string, unknown> | undefined;
+        if (hit && hit.available_quantity !== null && hit.available_quantity !== undefined) l.stock = Number(hit.available_quantity);
+      } catch (e) { console.warn('vendor pos stock', l.code, e); }
+    }));
+  }
+  return { pos: list, po: { ...pick, total: Number(v?.total_with_vat || 0), currency: String(v?.currency || '$'), lines, receivedRead }, looked, since: cutoff };
+}
+
 /* ---------------- codes across years (owner, 2026-10-06; migration 069) ----------------
    The system numbers its items AND its suppliers per year: a year's sales and purchases only know that year's codes
    (Abboud trading 0768 in 2025 / 1134 in 2026; Taanayel labneh 400g 016580 / 128420), while the app uses today's.
@@ -1494,12 +1547,18 @@ Deno.serve(async req => {
       }
       return json(await priceChangesSync(120));
     }
-    if (['perf_suppliers', 'perf_supplier', 'pricing_day', 'pricing_supplier', 'returns_range', 'pu_find'].includes(String(body.action))) {
+    if (['perf_suppliers', 'perf_supplier', 'pricing_day', 'pricing_supplier', 'returns_range', 'pu_find', 'vendor_pos'].includes(String(body.action))) {
       if (!isServer && role !== 'admin') {
         const anon = Deno.env.get('SUPABASE_ANON_KEY') || '';
         const asUser = createClient(SUPABASE_URL, anon, { global: { headers: { Authorization: `Bearer ${bearer}` } }, auth: { persistSession: false, autoRefreshToken: false } });
         const { data: okPerm } = await asUser.rpc('has_perm', { p_perms: ['vendors.manage'] });
         if (!okPerm) return json({ error: 'Not allowed.' }, 403);
+      }
+      // a supplier's last POs, live from the system (the vendor sheet's POs tab)
+      if (body.action === 'vendor_pos') {
+        const sups = (Array.isArray(body.suppliers) ? body.suppliers : []).map(String).filter(Boolean).slice(0, 10);
+        if (!sups.length) return json({ error: 'This vendor is not linked to its supplier in the system.' }, 400);
+        return json(await vendorPos(sups, String(body.po || '')));
       }
       const from = String(body.from || ''), to = String(body.to || ''), day = String(body.day || '');
       if (body.action === 'perf_suppliers' || body.action === 'perf_supplier') {
