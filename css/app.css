@@ -2857,3 +2857,35 @@ tr.ls-nopo{background:rgba(200,68,63,.07);}
 tr:hover .so-note,.so-note:focus{border-color:var(--line-strong);background:var(--paper-raised);}
 .so-note.has-note{background:#fff6d6;border:1px solid #ecd27a;color:#5c4400;font-weight:600;}
 .so-note-text{display:inline-block;max-width:240px;padding:2px 8px;border-radius:6px;background:#fff6d6;border:1px solid #ecd27a;color:#5c4400;font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:middle;}
+
+/* page sections (menu groups: Cash differences / Cash count, Staff / Schedule / Users, Tools…): underline tabs, not
+   pills (owner, 2026-10-11: "I don't like the tabs like this") */
+.filter-row.group-tabs{gap:2px;margin:-4px 0 18px;border-bottom:1px solid var(--line);flex-wrap:wrap;}
+.filter-row.group-tabs button{background:none;border:0;border-bottom:2px solid transparent;border-radius:0;margin-bottom:-1px;padding:9px 14px 10px;
+  font:600 14px var(--font-body);letter-spacing:0;color:var(--ink-soft);box-shadow:none;}
+.filter-row.group-tabs button:hover{color:var(--ink);}
+.filter-row.group-tabs button.active{background:none;color:var(--pine);border-bottom-color:var(--pine);}
+
+/* Cash differences: one toolbar (month · what to see · lock and more) */
+.cash-toolbar{display:flex;align-items:center;gap:10px 14px;flex-wrap:wrap;margin:0 0 14px;padding:10px 12px;background:var(--paper-raised);border:1px solid var(--line);border-radius:14px;}
+.cash-month{display:flex;align-items:center;gap:6px;}
+.cash-month.is-off{display:none;}
+.cash-month input[type=month]{width:auto;height:34px;padding:0 10px;font:600 13.5px var(--font-body);background:var(--paper);color:var(--ink);border:1px solid var(--line-strong);border-radius:8px;}
+.cash-month .muted-note{font-size:12.5px;}
+.cash-seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--paper);max-width:100%;overflow-x:auto;}
+.cash-seg button{height:34px;padding:0 14px;border:0;background:transparent;font:600 13px var(--font-body);color:var(--ink-soft);cursor:pointer;white-space:nowrap;}
+.cash-seg button + button{border-left:1px solid var(--line);}
+.cash-seg button:hover{color:var(--ink);}
+.cash-seg button.active{background:var(--pine);color:#fff;}
+.cash-actions{margin-left:auto;display:flex;align-items:center;gap:8px;}
+#cashLockArea{display:flex;align-items:center;gap:8px;}
+#cashLockArea:empty{display:none;}
+.cash-more{position:relative;}
+.cash-more-btn{font-size:20px;line-height:1;letter-spacing:1px;}
+.cash-menu{position:absolute;right:0;top:calc(100% + 6px);z-index:40;min-width:200px;padding:4px;display:flex;flex-direction:column;
+  background:var(--paper-raised);border:1px solid var(--line);border-radius:10px;box-shadow:0 14px 34px -14px rgba(0,0,0,.35);}
+.cash-menu[hidden]{display:none;}
+.cash-menu button{text-align:left;border:0;background:none;padding:9px 12px;border-radius:7px;font:500 13.5px var(--font-body);color:var(--ink);cursor:pointer;}
+.cash-menu button:hover{background:var(--paper);}
+.cash-menu button.active{background:var(--pine-tint);color:var(--pine);font-weight:600;}
+@media (max-width:640px){.cash-actions{margin-left:0;}.cash-toolbar{padding:8px;}}

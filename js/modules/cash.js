@@ -124,26 +124,44 @@
   const cashierName = id => S.cashiers.find(c => c.id === id)?.name || '(removed)';
 
   /* ---------------- shell ---------------- */
+  // One toolbar (owner, 2026-10-11: "I don't like the tabs like this"): the month on the left, one switch for what to
+  // see (Month grid · By cashier · Analysis · Cash count grid), Lock month and a ⋯ menu (Settings, Import old sheets,
+  // seldom used) on the right. The page's sections (Cash differences / Cash count) are the underline tabs above it.
   function shell() {
+    const more = [can('cash.cashiers') && ['cashiers', 'Settings'], can('cash.enter') && ['import', 'Import old sheets']].filter(Boolean);
     panel.innerHTML = `
-      <div class="filter-row cash-tabs" id="cashTabs">
-        <button data-tab="grid">Month grid</button>
-        <button data-tab="analysis">Analysis</button>
-        ${can('cash.cashiers') ? '<button data-tab="cashiers">Settings</button>' : ''}
-        ${can('cash.enter') ? '<button data-tab="import">Import old sheets</button>' : ''}
-        ${window.CashCount && can('cashcount.view', 'cashcount.reconcile') ? '<button data-tab="counts">Cash count</button>' : ''}
-      </div>
-      <div class="cash-monthbar" id="cashMonthBar">
-        <button class="icon-btn" id="cashPrev" aria-label="Previous month"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
-        <input type="month" id="cashMonth" aria-label="Month">
-        <button class="icon-btn" id="cashNext" aria-label="Next month"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></button>
-        <span class="muted-note" id="cashMonthNote"></span>
-        <div class="filter-row cash-views" id="cashViews" style="margin:0;"><button type="button" data-view="grid">Month grid</button><button type="button" data-view="person">By cashier</button></div>
-        <span class="cash-monthbar-right" id="cashLockArea"></span>
+      <div class="cash-toolbar">
+        <div class="cash-month" id="cashMonthBar">
+          <button class="icon-btn" id="cashPrev" aria-label="Previous month"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+          <input type="month" id="cashMonth" aria-label="Month">
+          <button class="icon-btn" id="cashNext" aria-label="Next month"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></button>
+          <span class="muted-note" id="cashMonthNote"></span>
+        </div>
+        <div class="cash-seg" id="cashSeg" role="tablist">
+          <button type="button" data-seg="grid">Month grid</button><button type="button" data-seg="person">By cashier</button><button type="button" data-seg="analysis">Analysis</button>
+          ${window.CashCount && can('cashcount.view', 'cashcount.reconcile') ? '<button type="button" data-seg="counts" title="The cash counts\' differences, per cashier and day">Cash count grid</button>' : ''}
+        </div>
+        <div class="cash-actions">
+          <span id="cashLockArea"></span>
+          ${more.length ? `<div class="cash-more"><button type="button" class="icon-btn cash-more-btn" id="cashMoreBtn" aria-haspopup="menu" aria-expanded="false" title="More">⋯</button>
+            <div class="cash-menu" id="cashMenu" role="menu" hidden>${more.map(([k, l]) => `<button type="button" role="menuitem" data-tab="${k}">${l}</button>`).join('')}</div></div>` : ''}
+        </div>
       </div>
       <div id="cashBody"></div>`;
-    el('cashTabs').onclick = e => { const b = e.target.closest('button'); if (b) { S.tab = b.dataset.tab; S.jump = true; render(); } };
-    el('cashViews').onclick = e => { const b = e.target.closest('[data-view]'); if (b) { S.view = b.dataset.view; S.jump = true; render(); } };
+    el('cashSeg').onclick = e => {
+      const b = e.target.closest('[data-seg]'); if (!b) return;
+      const s = b.dataset.seg;
+      if (s === 'grid' || s === 'person') { S.tab = 'grid'; S.view = s; } else S.tab = s;
+      S.jump = true; render();
+    };
+    const menu = el('cashMenu'), moreBtn = el('cashMoreBtn');
+    if (menu && moreBtn) {
+      const close = () => { menu.hidden = true; moreBtn.setAttribute('aria-expanded', 'false'); };
+      moreBtn.onclick = e => { e.stopPropagation(); menu.hidden = !menu.hidden; moreBtn.setAttribute('aria-expanded', String(!menu.hidden)); };
+      menu.onclick = e => { const b = e.target.closest('[data-tab]'); if (!b) return; close(); S.tab = b.dataset.tab; S.jump = true; render(); };
+      document.addEventListener('click', e => { if (!menu.hidden && !e.target.closest('.cash-more')) close(); });
+      document.addEventListener('keydown', e => { if (e.key === 'Escape' && !menu.hidden) close(); });
+    }
     window.addEventListener('resize', fitBox);
     el('cashPrev').onclick = () => setMonth(addMonths(S.month, -1));
     el('cashNext').onclick = () => setMonth(addMonths(S.month, 1));
@@ -157,12 +175,12 @@
   }
 
   function render() {
-    panel.querySelectorAll('#cashTabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === S.tab));
-    el('cashMonthBar').hidden = !['grid', 'analysis'].includes(S.tab);
+    const seg = S.tab === 'grid' ? (S.view === 'person' ? 'person' : 'grid') : S.tab;
+    panel.querySelectorAll('#cashSeg [data-seg]').forEach(b => { const on = b.dataset.seg === seg; b.classList.toggle('active', on); b.setAttribute('aria-selected', String(on)); });
+    panel.querySelectorAll('#cashMenu [data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === S.tab));
+    el('cashMonthBar').classList.toggle('is-off', !['grid', 'analysis'].includes(S.tab));
     el('cashMonth').value = S.month;
     el('cashMonthNote').textContent = S.month === todayStr().slice(0, 7) ? 'This month' : '';
-    el('cashViews').hidden = S.tab !== 'grid';
-    el('cashViews').querySelectorAll('[data-view]').forEach(b => b.classList.toggle('active', b.dataset.view === S.view));
     renderLockArea();
     if (S.tab === 'grid') renderBody();
     if (S.tab === 'analysis') renderAnalysis();
@@ -175,6 +193,7 @@
   /* ---------------- lock ---------------- */
   function renderLockArea() {
     const area = el('cashLockArea');
+    if (!['grid', 'analysis'].includes(S.tab)) { area.innerHTML = ''; return; }   // the month's lock goes with its grid
     if (S.locked) {
       area.innerHTML = `<span class="badge warn">Locked${S.lockInfo?.locked_at ? ' · ' + esc(fmtTs(S.lockInfo.locked_at)) : ''}</span>
         ${can('cash.unlock') ? '<button class="btn secondary small" id="cashUnlock">Unlock month</button>' : ''}`;
@@ -953,8 +972,8 @@
   }
   // Analysis needs 12 months of history: load it when that tab opens.
   panel.addEventListener('click', async e => {
-    const b = e.target.closest('#cashTabs button');
-    if (b && b.dataset.tab === 'analysis') { await loadHistory(); if (S.tab === 'analysis') render(); }
+    const b = e.target.closest('#cashSeg [data-seg]');
+    if (b && b.dataset.seg === 'analysis') { await loadHistory(); if (S.tab === 'analysis') render(); }
   });
 
   // Live updates (js/core/live.js): someone else changed differences, the month lock or the settings.
