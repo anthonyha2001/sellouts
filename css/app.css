@@ -2582,3 +2582,23 @@ td .lb-info{margin:0;}
 .vb-card.st-late{border-color:#d64545;box-shadow:inset 4px 0 0 #d64545;animation:vbBlink 1s ease-in-out infinite;}
 @keyframes vbBlink{0%,100%{border-color:#d64545;box-shadow:inset 4px 0 0 #d64545,0 0 0 0 rgba(214,69,69,0);}50%{border-color:rgba(214,69,69,.15);box-shadow:inset 4px 0 0 rgba(214,69,69,.15),0 0 0 4px rgba(214,69,69,.35);}}
 @media (prefers-reduced-motion:reduce){.vb-card.st-late{animation:none;}}
+
+/* vendor board: a calmer, more professional state style (owner, 2026-10-11): a thin border, a colored accent bar on the
+   left edge and a very light tint; only the overdue card moves (a soft pulse of the bar and a faint halo) */
+.vb-card{position:relative;overflow:hidden;border-width:1px;border-radius:12px;box-shadow:none;
+  --st:transparent;border-color:color-mix(in srgb,var(--st) 40%,var(--line));
+  background:color-mix(in srgb,var(--st) 5%,var(--paper-raised));}
+.vb-card::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--st);}
+.vb-card:hover{box-shadow:0 4px 14px -6px rgba(18,48,39,.25);}
+.vb-card.st-draft{--st:#d9a406;box-shadow:none;}
+.vb-card.st-sent{--st:#2f9e5b;box-shadow:none;}
+.vb-card.st-noorder{--st:#c8443f;box-shadow:none;}
+.vb-card.st-due{--st:var(--gold);border-style:dashed;box-shadow:none;}
+.vb-card.st-due::before{opacity:.55;}
+.vb-card.st-received{--st:#8b938d;background:var(--paper);filter:grayscale(1);opacity:.66;box-shadow:none;}
+.vb-card.st-received:hover{opacity:.95;filter:none;}
+.vb-card.st-late{--st:#c8443f;border-color:#c8443f;animation:vbHalo 1.6s ease-in-out infinite;}
+.vb-card.st-late::before{animation:vbBar 1.6s ease-in-out infinite;}
+@keyframes vbHalo{0%,100%{box-shadow:0 0 0 0 rgba(200,68,63,0);}50%{box-shadow:0 0 0 4px rgba(200,68,63,.18);}}
+@keyframes vbBar{0%,100%{opacity:1;}50%{opacity:.35;}}
+@media (prefers-reduced-motion:reduce){.vb-card.st-late,.vb-card.st-late::before{animation:none;}}
