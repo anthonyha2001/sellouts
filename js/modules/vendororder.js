@@ -138,6 +138,23 @@
     if (!(await showConfirm(`Log "no order" for "${v.name}" on ${d}?`, 'Log no order'))) return;
     if (await createSkip(v, d)) { refresh(); showToast('Logged — no order for ' + v.name + '.'); }
   }
+  // undo an order logged today by mistake (owner, 2026-10-11): the small undo icon next to the card's main button.
+  // Only today's order (draft or sent today) can be undone; it is removed. An older one is cancelled instead.
+  function undoable(vendorId) {
+    const t = todayStr(), ns = notSentOrderForVendor(vendorId), pend = pendingOrderForVendor(vendorId);
+    const o = ns || pend;
+    return o && String(o.orderDate || '').slice(0, 10) === t ? o : null;
+  }
+  async function undo(vendorId) {
+    const v = vendorsList.find(x => x.id === vendorId), o = undoable(vendorId); if (!v || !o) return;
+    if (!(await showConfirm(`Undo the order logged today for "${v.name}"? It will be removed.`, 'Undo order'))) return;
+    const { error } = await sb.from('vendor_orders').delete().eq('id', o.id);
+    if (error) { console.error(error); showToast('Could not undo that order — ' + sbErrText(error), true); return; }
+    const ix = ordersList.indexOf(o); if (ix >= 0) ordersList.splice(ix, 1);
+    refresh();
+    showToast('Order undone for ' + v.name + '.');
+    if (typeof logActivity === 'function') logActivity('vendors', 'order_undo', { type: 'vendor_order', id: o.id }, `Order for ${v.name} undone`, { date: o.orderDate, status: o.status });
+  }
   function refresh() {
     if (typeof renderVendorsPage === 'function') renderVendorsPage();
     if (typeof renderOrdersView === 'function') renderOrdersView();
@@ -145,5 +162,5 @@
     if (window.VendorSheet && el('vendorSheet')?.classList.contains('open')) VendorSheet.refreshLocal && VendorSheet.refreshLocal();
     if (window.Warehouse) Warehouse.refresh();
   }
-  window.VendorOrder = { open, noOrder };
+  window.VendorOrder = { open, noOrder, undo, undoable };
 })();

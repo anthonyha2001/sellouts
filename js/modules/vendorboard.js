@@ -182,10 +182,10 @@
       ${!i.pend && !i.ns ? lastHtml(delivery(v.id)) : ''}
       <div class="vb-badges">${badges.join('') || '<span class="muted-note">Nothing waiting</span>'}</div>
       <div class="vb-actions">
-        ${i.skipToday && !i.ns && !i.pend ? '<button type="button" class="btn small" data-act="unskip" title="No order was logged today: click to undo">Undo no order</button>'
+        <div class="vb-cta">${i.skipToday && !i.ns && !i.pend ? '<button type="button" class="btn small" data-act="unskip" title="No order was logged today: click to undo">Undo no order</button>'
           : i.ns ? '<button type="button" class="btn small" data-act="sent">Mark sent</button>'
           : i.pend ? '<button type="button" class="btn small" data-act="delivered">Delivered</button>'
-          : '<button type="button" class="btn small" data-act="order">Order now</button>'}
+          : '<button type="button" class="btn small" data-act="order">Order now</button>'}${(i.ns || i.pend) && window.VendorOrder && VendorOrder.undoable && VendorOrder.undoable(v.id) ? '<button type="button" class="vb-ico vb-undo" data-act="undoorder" aria-label="Undo order" data-tip="Undo order"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg></button>' : ''}</div>
         ${!(i.skipToday && !i.ns && !i.pend) ? `
         ${i.pend ? '<button type="button" class="btn ghost small vb-cancel" data-act="cancel" title="The supplier will not deliver this order: cancel it (kept in the history)">Cancel</button>' : ''}
         ${i.late ? '<button type="button" class="btn ghost small" data-act="order" title="The delivery is overdue: order again">Order again</button>' : ''}
@@ -200,6 +200,7 @@
     if (a === 'edit') return openVendorForm(id);
     if (a === 'order') return window.VendorOrder && VendorOrder.open(id);
     if (a === 'skip') return window.VendorOrder && VendorOrder.noOrder(id, todayStr());
+    if (a === 'undoorder') return window.VendorOrder && VendorOrder.undo(id);
     if (a === 'unskip') { await undoSkip(id, todayStr()); renderVendorsPage(); if (window.VendorCal) VendorCal.renderStats(); showToast('The no-order entry was removed.'); return; }
     if (a === 'sent') { const o = notSentOrderForVendor(id); if (o) { await markOrderSent(o.id); render(); } return; }
     if (a === 'cancel') { const o = pendingOrderForVendor(id); if (o && await cancelOrder(o.id)) { render(); if (window.VendorCal) VendorCal.renderStats(); } return; }

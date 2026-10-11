@@ -2633,12 +2633,12 @@ td .lb-info{margin:0;}
 .vb-actions > :first-child{grid-column:1 / -1;}
 
 /* vendor board: the main button takes the card's state color */
-.vb-card.st-draft .vb-actions > :first-child{background:#d9a406;border-color:#d9a406;color:#1d1a0a;}
-.vb-card.st-draft .vb-actions > :first-child:hover{background:#c29400;border-color:#c29400;}
-.vb-card.st-sent .vb-actions > :first-child{background:#2f9e5b;border-color:#2f9e5b;color:#fff;}
-.vb-card.st-sent .vb-actions > :first-child:hover{background:#278a4e;border-color:#278a4e;}
-.vb-card.st-late .vb-actions > :first-child{background:#c8443f;border-color:#c8443f;color:#fff;}
-.vb-card.st-late .vb-actions > :first-child:hover{background:#b23a35;border-color:#b23a35;}
+.vb-card.st-draft .vb-cta > .btn{background:#d9a406;border-color:#d9a406;color:#1d1a0a;}
+.vb-card.st-draft .vb-cta > .btn:hover{background:#c29400;border-color:#c29400;}
+.vb-card.st-sent .vb-cta > .btn{background:#2f9e5b;border-color:#2f9e5b;color:#fff;}
+.vb-card.st-sent .vb-cta > .btn:hover{background:#278a4e;border-color:#278a4e;}
+.vb-card.st-late .vb-cta > .btn{background:#c8443f;border-color:#c8443f;color:#fff;}
+.vb-card.st-late .vb-cta > .btn:hover{background:#b23a35;border-color:#b23a35;}
 
 /* vendor board: last order → received, how long it took, and the vendor's on-time record */
 .vb-last{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--paper);}
@@ -2655,8 +2655,8 @@ td .lb-info{margin:0;}
 .vb-card.st-received > .vb-last,.vb-card.st-received > .vb-rel{opacity:1;}
 
 /* vendor board: "Undo no order" is red like the no-order state; Cancel (a sent order) reads as a red text button */
-.vb-actions > [data-act="unskip"]{background:#c8443f;border-color:#c8443f;color:#fff;}
-.vb-actions > .btn[data-act="unskip"]:hover{background:#b23a35;border-color:#b23a35;color:#fff;}
+.vb-cta > [data-act="unskip"]{background:#c8443f;border-color:#c8443f;color:#fff;}
+.vb-cta > .btn[data-act="unskip"]:hover{background:#b23a35;border-color:#b23a35;color:#fff;}
 .vb-actions > .vb-cancel{color:#c8443f;}
 .vb-actions > .vb-cancel:hover{border-color:#c8443f;background:color-mix(in srgb,#c8443f 8%,transparent);}
 
@@ -2709,3 +2709,9 @@ td .lb-info{margin:0;}
 .vr-late{font-style:normal;color:#c8443f;font-weight:700;}
 .vr-ok{font-style:normal;color:#2f9e5b;font-weight:700;}
 @media (max-width:760px){.vr-days{grid-template-columns:repeat(2,minmax(0,1fr));}.vr-issues li > button{min-width:0;}}
+
+/* vendor board: the main button row; a small undo icon sits next to it for an order logged today */
+.vb-actions > .vb-cta{grid-column:1 / -1;display:flex;gap:6px;height:auto;padding:0;overflow:visible;background:none;border:0;box-shadow:none;}
+.vb-cta > .btn{flex:1;min-width:0;height:38px;margin:0;padding:0 10px;font-size:14px;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;}
+.vb-cta > .vb-undo{flex:none;width:38px;height:38px;border:1px solid var(--line-strong);border-radius:var(--radius-sm);background:var(--paper-raised);color:var(--ink-soft);}
+.vb-cta > .vb-undo:hover{color:#c8443f;border-color:#c8443f;background:color-mix(in srgb,#c8443f 8%,var(--paper-raised));}
