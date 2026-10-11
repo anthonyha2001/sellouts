@@ -19,8 +19,17 @@
   const cancelDay = o => { const m = /Cancelled (\d{4}-\d{2}-\d{2})/.exec(o.receiveNote || ''); return m ? m[1] : day10(o.orderDate); };
   const vName = (id, fb) => (vendorsList.find(v => v.id === id) || {}).name || fb || 'Unknown vendor';
 
+  // the tracking starts with the first order or "no order" logged (owner, 2026-10-11: the orders were emptied to start
+  // clean): an order day before it is not "missed", there was nothing to compare with. Nothing logged yet = today.
+  function trackStart() {
+    let s = todayStr();
+    ordersList.forEach(o => { const d = day10(o.orderDate); if (d && d < s) s = d; });
+    skipsList.forEach(x => { if (x.skipDate && x.skipDate < s) s = x.skipDate; });
+    return s;
+  }
+
   function build(a) {
-    const b = addDaysStr(a, 6), t = todayStr(), days = WD.map((_, i) => addDaysStr(a, i));
+    const b = addDaysStr(a, 6), t = todayStr(), days = WD.map((_, i) => addDaysStr(a, i)), since = trackStart();
     const inW = d => !!d && day10(d) >= a && day10(d) <= b;
     const rows = new Map();
     const row = (id, name) => {
@@ -33,7 +42,7 @@
     vendorsList.forEach(v => days.forEach(d => {
       if (!isVendorDueOn(v, d)) return;
       const r = row(v.id, v.name); r.due.push(d);
-      if (d >= t) return;
+      if (d >= t || d < since) return;
       const lo = addDaysStr(d, -6), hi = addDaysStr(d, 1);
       const answered = ordersList.some(o => o.vendorId === v.id && o.orderDate && day10(o.orderDate) >= lo && day10(o.orderDate) <= hi)
         || skipsList.some(s => s.vendorId === v.id && s.skipDate >= lo && s.skipDate <= hi);
@@ -69,7 +78,7 @@
       missed: list.filter(r => r.missed.includes(d)).length,
     }));
     return {
-      a, b, t, days, list, perDay,
+      a, b, t, days, list, perDay, since,
       k: {
         due: all('due'), sent: all('sent'), drafts: all('drafts'), delivered: dels.length, onTime: judged.length - late.length, judged: judged.length,
         late: late.length, waiting: all('waiting'), cancelled: all('cancelled'), skips: all('skips'), missed: all('missed'),
@@ -134,7 +143,8 @@
           <td>${res}</td></tr>`;
       }).join('')}</tbody></table></div>` : '<p class="muted-note" style="margin:0;">No vendor activity this week.</p>'}</div>`;
 
-    box.innerHTML = `<div class="card">${kpis}${strip}</div>${attention}${table}`;
+    const since = R.since > R.a ? `<p class="muted-note" style="margin:10px 0 0;">Missed orders are counted from ${longDate(R.since)}, the first order or "no order" logged.</p>` : '';
+    box.innerHTML = `<div class="card">${kpis}${strip}${since}</div>${attention}${table}`;
     box.querySelectorAll('[data-vr-open]').forEach(b => b.addEventListener('click', () => openVendorDetail(b.dataset.vrOpen)));
   }
 
