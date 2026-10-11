@@ -328,13 +328,11 @@
 
       <div class="filter-row" id="vendorSubTabs">
         <button class="active" data-vsub="directory">Directory</button>
-        <button data-vsub="orders">Orders</button>
-        <button data-vsub="week">Week plan</button>
+        <button data-vsub="orders">Weekly report</button>
         <button data-vsub="receiving">Receiving</button>
       </div>
 
       <!-- Receiving (js/modules/vendorcal.js; migration 062) -->
-      <div id="vendorWeekView" style="display:none;"></div>
       <div id="vendorReceivingView" style="display:none;"></div>
 
       <div id="vendorDirectoryView">
@@ -466,6 +464,21 @@
 
       <div id="vendorOrdersView" style="display:none;">
 
+        <!-- Weekly report (js/modules/vendorreport.js; owner, 2026-10-11): replaces the old Orders tables below (kept hidden: app.js still fills them) -->
+        <div class="card vr-headcard">
+          <div class="vr-nav">
+            <button class="icon-btn" id="vrPrev" aria-label="Previous week"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+            <div><div class="vr-title" id="vrLabel">&nbsp;</div><button class="btn ghost small" id="vrThisWeek" style="display:none;margin-top:4px;">This week</button></div>
+            <button class="icon-btn" id="vrNext" aria-label="Next week"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></button>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn secondary small" id="importOrdersBtn">Import from Excel</button>
+            <input type="file" id="ordersFileInput" accept=".xlsx,.xls,.csv" style="display:none;">
+          </div>
+        </div>
+        <div id="vendorReport"></div>
+
+        <div id="ordersLegacy" hidden>
         <div class="card">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
             <div class="date-nav-row" style="display:flex;align-items:center;gap:10px;">
@@ -479,10 +492,6 @@
               <button class="icon-btn" id="ordersDateNext" aria-label="Next day">
                 <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
               </button>
-            </div>
-            <div style="display:flex;gap:8px;flex-wrap:wrap;">
-              <button class="btn secondary small" id="importOrdersBtn">Import from Excel</button>
-              <input type="file" id="ordersFileInput" accept=".xlsx,.xls,.csv" style="display:none;">
             </div>
           </div>
           <div style="margin-top:14px;">
@@ -587,6 +596,7 @@
             <p>No orders in this view.</p>
           </div>
         </div>
+        </div><!-- /ordersLegacy -->
 
       </div>
 
@@ -1118,8 +1128,8 @@
 <script src="js/modules/pricecheck.js"></script>
 <script src="js/modules/vendorsheet.js"></script>
 <script src="js/modules/vendororder.js"></script>
-<script src="js/modules/vendorweek.js"></script>
 <script src="js/modules/vendorboard.js"></script>
+<script src="js/modules/vendorreport.js"></script>
 <script src="js/modules/vendorcontract.js"></script>
 <script src="js/modules/performance.js"></script>
 <script src="js/modules/pricing.js"></script>

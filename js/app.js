@@ -4514,8 +4514,6 @@ document.querySelectorAll('#vendorSubTabs button').forEach(btn => {
     document.getElementById('vendorDirectoryView').style.display = vendorSubTab === 'directory' ? 'block' : 'none';
     document.getElementById('vendorOrdersView').style.display = vendorSubTab === 'orders' ? 'block' : 'none';
     document.getElementById('vendorReceivingView').style.display = vendorSubTab === 'receiving' ? 'block' : 'none';
-    document.getElementById('vendorWeekView').style.display = vendorSubTab === 'week' ? 'block' : 'none';
-    if (vendorSubTab === 'week' && window.VendorWeek) VendorWeek.show();
     if (vendorSubTab === 'directory' && window.VendorBoard) VendorBoard.show();
     if (vendorSubTab === 'orders') renderOrdersView();
     if (window.VendorCal && vendorSubTab === 'receiving') VendorCal.renderReceiving();
@@ -4679,6 +4677,7 @@ function renderOrdersView() {
   }
 
   renderOrderHistory();
+  if (window.VendorReport) VendorReport.render();   // the weekly report that replaced these tables (js/modules/vendorreport.js)
 }
 
 // A rolling 7-day look-ahead (today + the next 6 days) so a vendor's next

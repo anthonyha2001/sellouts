@@ -143,7 +143,6 @@
     if (typeof renderOrdersView === 'function') renderOrdersView();
     if (window.VendorCal) VendorCal.renderStats();
     if (window.VendorSheet && el('vendorSheet')?.classList.contains('open')) VendorSheet.refreshLocal && VendorSheet.refreshLocal();
-    if (window.VendorWeek && el('vendorWeekView') && el('vendorWeekView').style.display === 'block') VendorWeek.render();
     if (window.Warehouse) Warehouse.refresh();
   }
   window.VendorOrder = { open, noOrder };

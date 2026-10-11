@@ -2659,3 +2659,53 @@ td .lb-info{margin:0;}
 .vb-actions > .btn[data-act="unskip"]:hover{background:#b23a35;border-color:#b23a35;color:#fff;}
 .vb-actions > .vb-cancel{color:#c8443f;}
 .vb-actions > .vb-cancel:hover{border-color:#c8443f;background:color-mix(in srgb,#c8443f 8%,transparent);}
+
+/* vendor board: the small icons top right (No order ×, Edit) with a quick tooltip */
+.vb-icons{flex:none;display:flex;gap:2px;margin:-4px -6px 0 0;}
+.vb-icons .vb-edit{margin:0;}
+.vb-ico{position:relative;width:30px;height:30px;border:0;border-radius:8px;background:transparent;color:var(--muted,#6b746e);display:grid;place-items:center;cursor:pointer;padding:0;}
+.vb-ico:hover{background:var(--paper);color:var(--pine);}
+.vb-x:hover{background:color-mix(in srgb,#c8443f 10%,transparent);color:#c8443f;}
+.vb-ico[data-tip]::after,.vb-reset[data-tip]::after{content:attr(data-tip);position:absolute;top:calc(100% + 6px);right:0;z-index:5;white-space:nowrap;
+  background:#1f2a26;color:#fff;font:600 11.5px var(--font-body);padding:4px 8px;border-radius:6px;opacity:0;pointer-events:none;transform:translateY(-2px);transition:opacity .12s,transform .12s;}
+.vb-ico[data-tip]:hover::after,.vb-ico[data-tip]:focus-visible::after,.vb-reset[data-tip]:hover::after{opacity:1;transform:none;}
+/* the No order tab and its reset button */
+.vb-fgroup{display:inline-flex;align-items:center;gap:2px;}
+#vbFilters .vb-reset{position:relative;width:28px;height:28px;border:1px solid var(--line);border-radius:999px;background:var(--paper-raised);color:var(--muted,#6b746e);display:grid;place-items:center;cursor:pointer;padding:0;}
+#vbFilters .vb-reset:hover{color:#c8443f;border-color:#c8443f;}
+.vb-reset[data-tip]::after{right:auto;left:50%;transform:translate(-50%,-2px);}
+.vb-reset[data-tip]:hover::after{transform:translate(-50%,0);}
+#vbFilters .vb-n.red{background:#c8443f;color:#fff;font-weight:700;}
+#vendorReport .vb-n{display:inline-block;min-width:20px;padding:0 6px;margin-left:4px;border-radius:9px;background:var(--pine-tint);color:var(--pine);font-size:12px;text-align:center;vertical-align:2px;}
+#vendorReport .vb-n.hot{background:var(--brick-tint);color:var(--brick);}
+
+/* Vendors › Weekly report */
+.vr-headcard{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;}
+.vr-nav{display:flex;align-items:center;gap:10px;}
+.vr-title{font-weight:700;font-size:16px;}
+.vr-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;}
+.vr-kpi{border:1px solid var(--line);border-radius:12px;padding:12px 14px;background:var(--paper-raised);display:flex;flex-direction:column;gap:2px;}
+.vr-kpi b{font:700 24px/1.1 var(--font-head);}
+.vr-kpi span{font-size:12.5px;font-weight:600;color:var(--ink-soft);}
+.vr-kpi em{font-style:normal;font-size:11.5px;color:var(--muted,#6b746e);}
+.vr-kpi.ok b{color:#2f9e5b;}
+.vr-kpi.warn b{color:#b07d00;}
+.vr-kpi.bad{border-color:color-mix(in srgb,#c8443f 40%,var(--line));}
+.vr-kpi.bad b{color:#c8443f;}
+.vr-days{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:8px;margin-top:14px;}
+.vr-day{border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:12px;display:flex;flex-direction:column;gap:3px;background:var(--paper);}
+.vr-day.today{border-color:var(--pine);box-shadow:inset 0 3px 0 var(--pine);}
+.vr-day.future{opacity:.6;}
+.vr-dname{font-weight:700;font-size:13px;}
+.vr-dname span{font-weight:500;color:var(--muted,#6b746e);font-size:11.5px;}
+.vr-day .bad{color:#c8443f;font-weight:600;}
+.vr-day .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px;vertical-align:1px;}
+.dot.sent{background:#2f9e5b;}.dot.recv{background:var(--pine);}.dot.no{background:#8b938d;}.dot.miss{background:#c8443f;}
+.vr-issues{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;}
+.vr-issues li{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;padding:8px 0;border-top:1px solid var(--line);font-size:13px;}
+.vr-issues li:first-child{border-top:0;}
+.vr-issues li > button{font-weight:700;min-width:140px;text-align:left;}
+.vr-table td{vertical-align:top;}
+.vr-late{font-style:normal;color:#c8443f;font-weight:700;}
+.vr-ok{font-style:normal;color:#2f9e5b;font-weight:700;}
+@media (max-width:760px){.vr-days{grid-template-columns:repeat(2,minmax(0,1fr));}.vr-issues li > button{min-width:0;}}
