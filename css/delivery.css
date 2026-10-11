@@ -223,3 +223,4 @@
 #panel-delivery .drv-veh{margin:4px 0 10px 4px;}
 #panel-delivery .drv-veh h5{margin:8px 0 6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13.5px;font-weight:600;}
 #panel-delivery .drv-veh h5 svg,#panel-delivery .van-drv h4 .tag svg{width:16px;height:16px;}
+#panel-delivery .van-report th svg{width:15px;height:15px;vertical-align:-3px;}
