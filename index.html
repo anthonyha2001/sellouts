@@ -664,11 +664,12 @@
       <div class="summary" id="ordersSummary"></div>
       <div class="card table-wrap">
         <table class="tbl">
-          <thead><tr><th></th><th>Customer</th><th>Driver</th><th>Area</th><th class="num">Amount</th><th>Platform</th><th>Payment</th><th>Status</th><th></th></tr>
+          <thead><tr><th></th><th>Customer</th><th>Driver</th><th>Vehicle</th><th>Area</th><th class="num">Amount</th><th>Platform</th><th>Payment</th><th>Status</th><th></th></tr>
           <tr class="quick-row" id="quickRow">
             <td class="qplus"><i data-ic="plus"></i></td>
             <td class="qcust"><input id="qCust" placeholder="Customer name or phone…" autocomplete="off"></td>
             <td><select id="qDriver" title="Keys 1–9 pick a driver"></select></td>
+            <td><div class="seg" id="qVeh"></div></td>
             <td id="qArea" class="muted"></td>
             <td><input id="qAmount" inputmode="decimal" placeholder="Amount" autocomplete="off"></td>
             <td><div class="seg" id="qPlat"></div></td>
@@ -756,11 +757,12 @@
       <form class="card filters" id="driverForm">
         <label class="grow">Driver name<input name="name" required placeholder="e.g. Elie"></label>
         <label>Phone (optional)<input name="phone"></label>
+        <label>Default vehicle<select name="vehicle"><option>Motorcycle</option><option>Van</option></select></label>
         <button class="btn primary"><i data-ic="plus"></i> Add driver</button>
       </form>
       <div class="card table-wrap">
         <table class="tbl">
-          <thead><tr><th>Driver</th><th>Phone</th><th class="num">Orders (all)</th><th class="num">Orders this month</th><th class="num">Unpaid orders</th><th class="num">Unpaid amount</th><th></th></tr></thead>
+          <thead><tr><th>Driver</th><th>Phone</th><th>Default vehicle</th><th class="num">Orders (all)</th><th class="num">Orders this month</th><th class="num">Unpaid orders</th><th class="num">Unpaid amount</th><th></th></tr></thead>
           <tbody id="driversBody"></tbody>
         </table>
       </div>
@@ -816,6 +818,7 @@
         <label>Amount<input type="number" step="0.01" min="0" name="amount" required></label>
         <label>Platform<select name="platform"></select></label>
         <label>Payment<select name="payment"></select></label>
+        <label>Vehicle<select name="vehicle"></select></label>
         <label class="chk" style="align-self:end;padding-bottom:8px"><input type="checkbox" name="paid"> Paid</label>
         <label class="span2">Note (optional)<input name="note"></label>
       </div>

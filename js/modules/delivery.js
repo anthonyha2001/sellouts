@@ -9,6 +9,8 @@
 /* ---------- constants & storage ---------- */
 const PAYMENTS = ['Cash','Online','Credit Card','On Account'];
 const PLATFORMS = ['Application','WhatsApp'];
+const VEHICLES = ['Motorcycle','Van'];
+const vehOf = v => VEHICLES.includes(v) ? v : VEHICLES[0];
 const DEFAULT_AREAS = ['Achkout','Ain Rihane','Ajaltoun','Ballouneh','Batha','Bzommar','Daraya','Faraya','Feytroun','Ghosta','Hrajel','Jeita','Kfardebian','Kleiat','Mayrouba','Mrah El Mir','Reyfoun','Shaileh'];
 // other spellings found in the customer list -> one clean name (keys: lowercase letters only)
 const AREA_ALIASES = {ajaltoune:'Ajaltoun', ajatoun:'Ajaltoun', ajaltun:'Ajaltoun', shaile:'Shaileh', shaeily:'Shaileh', shaily:'Shaileh', shaileh:'Shaileh',
@@ -21,23 +23,23 @@ const panel = document.getElementById('panel-delivery');
 
 let db = {customers:[], drivers:[], orders:[], areas:[...DEFAULT_AREAS], currency:'$'};
 function loadLast(){ try{ return JSON.parse(localStorage.getItem('dt_last')) || {}; }catch(e){ return {}; } }
-db.last = Object.assign({platform:'WhatsApp', payment:'Cash', driverId:''}, loadLast());
+db.last = Object.assign({platform:'WhatsApp', payment:'Cash', driverId:'', vehicle:'Motorcycle'}, loadLast());
 
 const TBL = {
   drivers: { table:'dt_drivers',
-    to: d => ({id:d.id, name:d.name, phone:d.phone || ''}),
-    from: r => ({id:r.id, name:r.name, phone:r.phone || ''}) },
+    to: d => ({id:d.id, name:d.name, phone:d.phone || '', vehicle:vehOf(d.vehicle)}),
+    from: r => ({id:r.id, name:r.name, phone:r.phone || '', vehicle:vehOf(r.vehicle)}) },
   customers: { table:'dt_customers',
     to: c => ({id:c.id, name:c.name, phone:c.phone || '', area:c.area || '', address:c.address || ''}),
     from: r => ({id:r.id, name:r.name, phone:r.phone || '', area:r.area || '', address:r.address || ''}) },
   orders: { table:'dt_orders',
     to: o => ({id:o.id, created:o.created || 0, order_date:o.date, customer_id:o.customerId || null,
       c_name:o.cName || '', c_phone:o.cPhone || '', c_area:o.cArea || '', c_address:o.cAddress || '',
-      driver_id:o.driverId || null, amount:+o.amount || 0, platform:o.platform, payment:o.payment,
+      driver_id:o.driverId || null, amount:+o.amount || 0, platform:o.platform, payment:o.payment, vehicle:vehOf(o.vehicle),
       paid:!!o.paid, paid_at:o.paidAt || null, note:o.note || ''}),
     from: r => ({id:r.id, created:+r.created || 0, date:r.order_date, customerId:r.customer_id,
       cName:r.c_name || '', cPhone:r.c_phone || '', cArea:r.c_area || '', cAddress:r.c_address || '',
-      driverId:r.driver_id, amount:+r.amount, platform:r.platform, payment:r.payment,
+      driverId:r.driver_id, amount:+r.amount, platform:r.platform, payment:r.payment, vehicle:vehOf(r.vehicle),
       paid:!!r.paid, paidAt:r.paid_at || '', note:r.note || ''}) },
 };
 // snapshot of what the database has, so save() only sends what changed
@@ -234,6 +236,8 @@ const ICONS = {
   check:'<path d="M20 6 9 17l-5-5"/>',
   checkc:'<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
   truck:'<path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.62L18.3 9.38a1 1 0 0 0-.78-.38H14"/><circle cx="17" cy="18" r="2"/><circle cx="7" cy="18" r="2"/>',
+  moto:'<circle cx="5" cy="17" r="3"/><circle cx="19" cy="17" r="3"/><path d="M8 17h5l2-7h3"/><path d="m15 10-2-4h-3"/>',
+  van:'<path d="M2 6a1 1 0 0 1 1-1h11v12H2z"/><path d="M14 9h4l4 4v4h-8"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/>',
   info:'<circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/>',
   help:'<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>',
   alert:'<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4M12 17h.01"/>',
@@ -241,6 +245,8 @@ const ICONS = {
   cash:'<rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/>',
 };
 const ic = n => `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true">${ICONS[n] || ''}</svg>`;
+// vehicle as an icon; the title / aria-label keeps it readable on hover and for screen readers
+const vehIc = v => `<span title="${vehOf(v)}" aria-label="${vehOf(v)}">${ic(vehOf(v) === 'Van' ? 'van' : 'moto')}</span>`;
 panel.querySelectorAll('i[data-ic]').forEach(el => el.outerHTML = ic(el.dataset.ic));
 
 /* ---------- helpers ---------- */
@@ -412,6 +418,7 @@ function renderOrders(){
       <td class="exp">${ic('right')}</td>
       <td><b>${esc(o.cName)}</b>${OF.q.trim() ? `<div class="muted" style="font-size:12px">${fmtDate(o.date)}</div>` : ''}</td>
       <td>${esc(driverName(o.driverId))}</td>
+      <td><span class="tag veh-${o.vehicle === 'Van' ? 'van' : 'moto'}">${vehIc(o.vehicle)}</span></td>
       <td>${esc(o.cArea)}</td>
       <td class="num">${money(o.amount)}</td>
       <td><span class="tag ${platClass(o.platform)}">${esc(o.platform)}</span></td>
@@ -419,14 +426,14 @@ function renderOrders(){
       <td><button class="status ${o.paid?'paid':'unpaid'}" data-act="toggle" ${can.markPaid() ? 'title="Click to change"' : 'disabled'}>${o.paid?'Paid':'Unpaid'}</button></td>
       <td class="actions">${can.editOrder(o) ? `<button data-act="edit" title="Edit">${ic('edit')}</button>` : ''}${can.deleteOrder(o) ? `<button data-act="del" title="Delete">${ic('trash')}</button>` : ''}</td>
     </tr>
-    <tr class="detail" data-for="${o.id}" ${openIds.has(o.id)?'':'hidden'}><td></td><td colspan="8"><div class="detail-grid">
+    <tr class="detail" data-for="${o.id}" ${openIds.has(o.id)?'':'hidden'}><td></td><td colspan="9"><div class="detail-grid">
       <div><span>Phone</span>${o.cPhone ? `<a href="tel:${esc(normPhone(o.cPhone))}">${esc(o.cPhone)}</a>` : '—'}</div>
       <div><span>Area</span>${esc(o.cArea) || '—'}</div>
       <div><span>Address</span>${esc(o.cAddress) || '—'}</div>
       ${o.note ? `<div><span>Note</span>${esc(o.note)}</div>` : ''}
       ${o.paid && o.paidAt ? `<div><span>Paid on</span>${fmtDate(o.paidAt)}</div>` : ''}
     </div></td></tr>`).join('')
-    : `<tr><td colspan="9" class="empty">${OF.q.trim() ? 'No orders match your search.' : 'No orders on this day yet.'}${db.drivers.length ? '' : ' Start by adding a driver in the Drivers tab.'}</td></tr>`;
+    : `<tr><td colspan="10" class="empty">${OF.q.trim() ? 'No orders match your search.' : 'No orders on this day yet.'}${db.drivers.length ? '' : ' Start by adding a driver in the Drivers tab.'}</td></tr>`;
   orderIds = list.map(o => o.id);
   if(selId && !orderIds.includes(selId)) selId = null;
   flashId = null;
@@ -485,7 +492,8 @@ function openOrder(o){
   oForm.driverId.innerHTML = options(db.drivers.map(d => [d.id,d.name]), o?.driverId, 'Choose driver…');
   oForm.platform.innerHTML = options(PLATFORMS, o?.platform || 'WhatsApp');
   oForm.payment.innerHTML = options(PAYMENTS, o?.payment || 'Cash');
-  const c = o && db.customers.find(x => x.id === o.customerId);
+  oForm.vehicle.innerHTML = options(VEHICLES, vehOf(o ? o.vehicle : (db.drivers.find(d => d.id === db.last.driverId) || {}).vehicle));
+  const c = o &&db.customers.find(x => x.id === o.customerId);
   oForm.customer.value = o ? (c ? custLabel(c) : o.cName) : '';
   oForm.customer._cust = c || null;
   oForm.amount.value = o?.amount ?? '';
@@ -510,6 +518,11 @@ function updateCustHint(){
   $('#custHint').style.color = c || !oForm.customer.value ? '' : 'var(--red)';
 }
 oForm.customer.addEventListener('input', updateCustHint);
+// choosing a driver on a new order pre-selects that driver's default vehicle
+oForm.driverId.addEventListener('change', () => {
+  const d = db.drivers.find(x => x.id === oForm.driverId.value);
+  if(d) oForm.vehicle.value = vehOf(d.vehicle);
+});
 $('#newOrderBtn').onclick = () => focusQuick();
 function dlgMemory(c){
   if(editingOrder || !c) return;
@@ -530,7 +543,7 @@ oForm.addEventListener('submit', e => {
   const before = editingOrder ? {...editingOrder} : null;
   Object.assign(o, {
     date: editingOrder ? editingOrder.date : today(), driverId: oForm.driverId.value, amount: Math.round(parseFloat(oForm.amount.value)*100)/100,
-    platform: oForm.platform.value, payment: oForm.payment.value, paid: oForm.paid.checked, note: oForm.note.value.trim()
+    platform: oForm.platform.value, payment: oForm.payment.value, vehicle: oForm.vehicle.value, paid: oForm.paid.checked, note: oForm.note.value.trim()
   });
   if(c) Object.assign(o, {customerId:c.id, cName:c.name, cPhone:c.phone, cArea:c.area, cAddress:c.address});
   if(o.paid && !wasPaid) o.paidAt = today();
@@ -539,7 +552,7 @@ oForm.addEventListener('submit', e => {
   save(); $('#orderDlg').close(); toast(editingOrder ? 'Order updated' : 'Order added');
   if(before){
     const changed = {};
-    ['cName','driverId','amount','platform','payment','paid','note'].forEach(k => { if(String(before[k] ?? '') !== String(o[k] ?? '')) changed[k] = {from:before[k] ?? null, to:o[k] ?? null}; });
+    ['cName','driverId','amount','platform','payment','vehicle','paid','note'].forEach(k => { if(String(before[k] ?? '') !== String(o[k] ?? '')) changed[k] = {from:before[k] ?? null, to:o[k] ?? null}; });
     if(Object.keys(changed).length) logOrder('edit', o, `Edited order for ${o.cName} (${money(o.amount)})`, {changed});
   }else logOrder('create', o, `New order: ${o.cName} ${money(o.amount)} · ${driverName(o.driverId)}`);
   if(!editingOrder) OF.day = o.date;
@@ -965,7 +978,7 @@ $('#impGo').onclick = () => {
 $('#driverForm').addEventListener('submit', e => {
   e.preventDefault(); const f = e.target, name = f.name.value.trim(); if(!name) return;
   if(db.drivers.some(d => d.name.toLowerCase() === name.toLowerCase())) return uiAlert(`${name} already exists.`, {title:'Duplicate driver', icon:'alert'});
-  const d = {id:uid(), name, phone:f.phone.value.trim()};
+  const d = {id:uid(), name, phone:f.phone.value.trim(), vehicle:vehOf(f.vehicle.value)};
   db.drivers.push(d); save(); f.reset(); renderDrivers(); toast('Driver added');
   logActivity('delivery', 'create', {type:'driver', id:d.id}, `New driver ${name}`);
 });
@@ -973,14 +986,19 @@ function renderDrivers(){
   const m = today().slice(0,7);
   $('#driversBody').innerHTML = db.drivers.map(d => {
     const mine = db.orders.filter(o => o.driverId === d.id), un = mine.filter(o => !o.paid);
-    return `<tr data-id="${d.id}"><td><b>${esc(d.name)}</b></td><td>${esc(d.phone)||'—'}</td><td class="num">${mine.length}</td><td class="num">${mine.filter(o => o.date.startsWith(m)).length}</td><td class="num">${un.length}</td><td class="num" style="color:${un.length?'var(--red)':'inherit'}">${money(un.reduce((s,o)=>s+(+o.amount||0),0))}</td>
+    return `<tr data-id="${d.id}"><td><b>${esc(d.name)}</b></td><td>${esc(d.phone)||'—'}</td><td><button class="tag veh-${d.vehicle === 'Van' ? 'van' : 'moto'}" data-act="veh" title="${vehOf(d.vehicle)} — click to switch the default vehicle">${vehIc(d.vehicle)}</button></td><td class="num">${mine.length}</td><td class="num">${mine.filter(o => o.date.startsWith(m)).length}</td><td class="num">${un.length}</td><td class="num" style="color:${un.length?'var(--red)':'inherit'}">${money(un.reduce((s,o)=>s+(+o.amount||0),0))}</td>
       <td class="actions"><button data-act="pay" title="Payments">${ic('cash')}</button><button data-act="edit" title="Rename">${ic('edit')}</button><button data-act="del" title="Delete">${ic('trash')}</button></td></tr>`;
-  }).join('') || '<tr><td colspan="7" class="empty">No drivers yet.</td></tr>';
+  }).join('') || '<tr><td colspan="8" class="empty">No drivers yet.</td></tr>';
 }
 $('#driversBody').addEventListener('click', async e => {
   const act = e.target.closest('[data-act]')?.dataset.act; if(!act) return;
   const d = db.drivers.find(x => x.id === e.target.closest('tr').dataset.id);
   if(act === 'pay'){ settleDriver = d.id; go('settle'); }
+  if(act === 'veh'){
+    d.vehicle = vehOf(d.vehicle) === 'Van' ? 'Motorcycle' : 'Van'; save(); renderDrivers();
+    toast(`${d.name}: default vehicle ${d.vehicle}`);
+    logActivity('delivery', 'edit', {type:'driver', id:d.id}, `${d.name}: default vehicle set to ${d.vehicle}`);
+  }
   if(act === 'edit'){
     const v = await uiForm('Edit driver', [{label:'Name', value:d.name, required:true}, {label:'Phone (optional)', value:d.phone || ''}]);
     if(v){ const old = d.name; d.name = v[0].trim(); d.phone = v[1].trim(); save(); renderDrivers(); toast('Driver saved', 'check');
@@ -1135,10 +1153,18 @@ function seg(el, vals, labels, field){
 const drawPlat = seg($('#qPlat'), PLATFORMS, ['App','WhatsApp'], 'platform');
 const drawPay  = seg($('#qPay'), PAYMENTS, ['Cash','Online','Card','Account'], 'payment');
 
+const drawVeh = seg($('#qVeh'), VEHICLES, VEHICLES.map(vehIc), 'vehicle');
+// picking a driver pre-selects that driver's default vehicle (still changeable per order)
+function useDriver(id){
+  db.last.driverId = id;
+  const d = db.drivers.find(x => x.id === id);
+  if(d) db.last.vehicle = vehOf(d.vehicle);
+  save(); drawVeh();
+}
 qDriver.addEventListener('keydown', e => {
-  if(/^[1-9]$/.test(e.key)){ const d = db.drivers[+e.key-1]; if(d){ qDriver.value = d.id; db.last.driverId = d.id; save(); } e.preventDefault(); }
+  if(/^[1-9]$/.test(e.key)){ const d = db.drivers[+e.key-1]; if(d){ qDriver.value = d.id; useDriver(d.id); } e.preventDefault(); }
 });
-qDriver.addEventListener('change', () => { db.last.driverId = qDriver.value; save(); });
+qDriver.addEventListener('change', () => useDriver(qDriver.value));
 qCust.addEventListener('input', () => { $('#qArea').textContent = ''; });
 attachAC(qCust, pickQuick, t => openCustomer(null, c => pickQuick(c), prefillFrom(t)));
 
@@ -1153,7 +1179,7 @@ function quickSave(){
   if(!qDriver.value) return bad(qDriver, 'Choose a driver (keys 1–9)');
   if(!(amt > 0)) return bad(qAmount, 'Enter the amount');
   const o = {id:uid(), created:Date.now(), date:today(), driverId:qDriver.value, amount:Math.round(amt*100)/100,
-    platform:db.last.platform, payment:db.last.payment, paid:qIsPaid, paidAt:qIsPaid ? today() : '', note:'',
+    platform:db.last.platform, payment:db.last.payment, vehicle:vehOf(db.last.vehicle), paid:qIsPaid, paidAt:qIsPaid ? today() : '', note:'',
     customerId:c.id, cName:c.name, cPhone:c.phone, cArea:c.area, cAddress:c.address};
   db.orders.push(o); db.last.driverId = o.driverId; save();
   logOrder('create', o, `New order: ${o.cName} ${money(o.amount)} · ${driverName(o.driverId)}`);

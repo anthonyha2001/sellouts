@@ -80,6 +80,9 @@
 #panel-delivery .tag{display:inline-block;font-family:var(--font-mono);font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.03em;padding:4px 10px;border-radius:20px;white-space:nowrap}
 #panel-delivery .tag.app{background:var(--app-bg);color:var(--app)}
 #panel-delivery .tag.wa{background:var(--wa-bg);color:var(--wa)}
+#panel-delivery .tag.veh-moto{background:var(--app-bg);color:var(--app)}
+#panel-delivery .tag.veh-van{background:var(--wa-bg);color:var(--wa)}
+#panel-delivery button.tag{border:0;font:inherit;font-size:12px;font-weight:600;cursor:pointer}
 #panel-delivery .tag.area{background:var(--line);color:var(--ink-soft);margin:2px;text-transform:none}
 #panel-delivery .status{border:0;border-radius:20px;padding:5px 11px;font-family:var(--font-mono);font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.03em;cursor:pointer}
 #panel-delivery .status.paid{background:var(--green-bg);color:var(--green)}
