@@ -119,11 +119,11 @@
       <div class="vb-meta">${sched ? esc(sched) : ''}${v.leadTimeDays !== null && v.leadTimeDays !== undefined ? ` · ${esc(v.leadTimeDays)}d lead` : ''}${(v.receivingDays || []).length ? ` · receives ${esc(v.receivingDays.map(d => DAYS[d]).join(', '))}` : ''}${i.last ? ` · last delivery ${esc(dmy(i.last.deliveredDate))}` : ''}</div>
       <div class="vb-badges">${badges.join('') || '<span class="muted-note">Nothing waiting</span>'}</div>
       <div class="vb-actions">
-        <button type="button" class="btn small" data-act="order">Order now</button>
-        ${i.skipToday ? '<button type="button" class="btn ghost small" data-act="unskip" title="No order was logged today: click to undo">No order today ✓ · Undo</button>' : '<button type="button" class="btn ghost small" data-act="skip" title="Log that nothing is ordered from this vendor today">No order</button>'}
-        ${i.ns ? '<button type="button" class="btn ghost small" data-act="sent">Mark sent</button>' : ''}
-        ${i.pend ? '<button type="button" class="btn ghost small" data-act="delivered">Delivered</button>' : ''}
-        <span class="vb-spacer"></span>
+        ${i.ns ? '<button type="button" class="btn small" data-act="sent">Mark sent</button>'
+          : i.pend ? '<button type="button" class="btn small" data-act="delivered">Delivered</button>'
+          : '<button type="button" class="btn small" data-act="order">Order now</button>'}
+        ${!i.ns && !i.pend ? (i.skipToday ? '<button type="button" class="btn ghost small" data-act="unskip" title="No order was logged today: click to undo">No order today ✓ · Undo</button>' : '<button type="button" class="btn ghost small" data-act="skip" title="Log that nothing is ordered from this vendor today">No order</button>') : ''}
+        ${i.late ? '<button type="button" class="btn ghost small" data-act="order" title="The delivery is overdue: order again">Order again</button>' : ''}
         ${tel ? `<a class="btn ghost small" href="tel:${esc(tel)}" title="Call">Call</a>` : ''}
         ${wa ? `<a class="btn ghost small" href="${esc(wa)}" target="_blank" rel="noopener" title="WhatsApp">WA</a>` : ''}
         <button type="button" class="btn ghost small" data-act="open">Open</button>
