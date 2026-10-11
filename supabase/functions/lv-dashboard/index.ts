@@ -1263,9 +1263,9 @@ Deno.serve(async req => {
       return json({ ok: true, user: Deno.env.get('LV_DASH_USER'), expires_at: new Date(tokenExp).toISOString(), ms: Date.now() - t0,
         sample: sample[0] ? { code: sample[0].code, description: sample[0].description, stock: sample[0].available_quantity ?? null } : null });
     }
-    // Server key only (maintenance): one read-only report, as the dashboard answers it, to map its fields.
+    // Server key or an admin (maintenance): one read-only report, as the dashboard answers it, to map its fields.
     if (body.action === 'probe') {
-      if (!isServer) return json({ error: 'Not allowed.' }, 403);
+      if (!isServer && role !== 'admin') return json({ error: 'Admin only.' }, 403);
       const path = String(body.path || '');
       const READ = /^\/(item-price-checker|item-cardex|items\/search|items\/filter-options\/[a-z]+|items_sales(\/grid|\/summary)?|items_purchases(\/grid)?|operations(\/[a-z_-]+)*|wms\/documents(\/\d+)?|wms\/purchase-orders)$/;
       if (!READ.test(path)) return json({ error: 'Not a read-only report.' }, 400);
