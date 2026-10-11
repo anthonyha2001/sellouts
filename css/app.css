@@ -2631,3 +2631,11 @@ td .lb-info{margin:0;}
 .vb-edit{flex:none;width:30px;height:30px;margin:-4px -6px 0 0;border:0;border-radius:8px;background:transparent;color:var(--muted,#6b746e);display:grid;place-items:center;cursor:pointer;}
 .vb-edit:hover{background:var(--paper);color:var(--pine);}
 .vb-actions > :first-child{grid-column:1 / -1;}
+
+/* vendor board: the main button takes the card's state color */
+.vb-card.st-draft .vb-actions > :first-child{background:#d9a406;border-color:#d9a406;color:#1d1a0a;}
+.vb-card.st-draft .vb-actions > :first-child:hover{background:#c29400;border-color:#c29400;}
+.vb-card.st-sent .vb-actions > :first-child{background:#2f9e5b;border-color:#2f9e5b;color:#fff;}
+.vb-card.st-sent .vb-actions > :first-child:hover{background:#278a4e;border-color:#278a4e;}
+.vb-card.st-late .vb-actions > :first-child{background:#c8443f;border-color:#c8443f;color:#fff;}
+.vb-card.st-late .vb-actions > :first-child:hover{background:#b23a35;border-color:#b23a35;}
