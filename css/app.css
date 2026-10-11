@@ -2940,3 +2940,18 @@ tr:hover .so-note,.so-note:focus{border-color:var(--line-strong);background:var(
 #vbFilters select.vb-day:hover{color:var(--ink);}
 #vbFilters .vb-reset{width:32px;height:32px;border:1px solid var(--line);border-left:0;border-radius:0 8px 8px 0;background:transparent;color:var(--ink-soft);}
 #vbFilters .vb-reset:hover{color:#b42318;background:color-mix(in srgb,#c8443f 8%,var(--paper));border-color:var(--line);}
+
+/* One look for every switch (owner, 2026-10-11: "keep the design consistent"): soft corners (8px), a light border,
+   plain text, green when selected; counters as soft labels. Same as the filter rows above. */
+.promo-tabstrip{gap:6px;}
+.promo-tab,.rp-floors button,.st-f-chips button,.st-f-seg button,.cc-types button{border-radius:8px;border:1px solid var(--line);background:var(--paper-raised);
+  color:var(--ink-soft);font:600 13px var(--font-body);letter-spacing:0;transition:border-color .12s,color .12s,background .12s;}
+.promo-tab{min-height:38px;padding:0 14px;}
+.promo-tab:hover,.rp-floors button:hover,.st-f-chips button:hover,.st-f-seg button:hover,.cc-types button:hover{border-color:var(--line-strong);color:var(--ink);}
+.promo-tab.active,.promo-tab.active:hover,.rp-floors button.on,.st-f-chips button.on,.st-f-seg button.on,.cc-types button.on{background:var(--pine);border-color:var(--pine);color:#fff;}
+.promo-tab.active .plow{background:#fff;}
+.rental-screen-filter select{border-radius:8px;}
+.sh-tab-n,.st-filter-n{min-width:0;padding:0 7px;border-radius:6px;font:600 11.5px/1.5 var(--font-body);font-variant-numeric:tabular-nums;
+  background:color-mix(in srgb,var(--ink-soft) 12%,transparent);color:var(--ink-soft);}
+.st-filter-n{background:color-mix(in srgb,var(--pine) 14%,transparent);color:var(--pine);}
+.sh-dept-tabs button.active .sh-tab-n,button.active .st-filter-n,button.on .st-filter-n{background:rgba(255,255,255,.2);color:#fff;}
