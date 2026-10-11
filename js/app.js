@@ -1351,6 +1351,7 @@ const PAGES = {
   creditnotes: { eyebrow: 'Tracker', title: 'Credit notes', sub: 'Every credit note logged against your suppliers, issued or signed.' },
   promotions:  { eyebrow: 'Builder', title: 'Promotions', sub: 'Look up items by code, build a flyer, and export it when it’s ready.' },
   vendors:     { eyebrow: 'Suppliers', title: 'Vendors', sub: 'Salesmen, order days, deliveries and receiving.' },
+  pricecheck:  { eyebrow: 'Store floor', title: 'Price check', sub: 'Scan an item and see its price in the system; compare it with the shelf tag.' },
   warehouse:   { eyebrow: 'Receiving', title: 'Warehouse', sub: 'Who is coming to the receiving warehouse, and when it is open.' },
   stockcontrol: { eyebrow: 'Suppliers', title: 'Stock control', sub: 'What is running low, what sells more or less than it used to, what was bought big, and what is overstocked.' },
   performance: { eyebrow: 'Suppliers', title: 'Performance', sub: 'A supplier\u2019s sales against its purchases, for the dates you choose, from the system.' },
@@ -1375,7 +1376,7 @@ const PAGES = {
 const NAV_GROUPS = {
   cashgroup:  { label: 'Cash',  members: [['cash', 'Cash differences'], ['cashcount', 'Cash count']] },
   people:     { label: 'Staff', members: [['staff', 'Staff'], ['schedule', 'Staff schedule'], ['users', 'Users']] },
-  toolsgroup: { label: 'Tools', members: [['tools', 'PDF / photo to Excel'], ['labels', 'Shelf labels']] },
+  toolsgroup: { label: 'Tools', members: [['tools', 'PDF / photo to Excel'], ['labels', 'Shelf labels'], ['pricecheck', 'Price check']] },
 };
 const groupLast = {};
 const groupOfTab = name => Object.keys(NAV_GROUPS).find(g => NAV_GROUPS[g].members.some(m => m[0] === name)) || null;
@@ -1414,6 +1415,7 @@ function switchTab(name, sub) {
   if (name === 'cashcount' && window.CashCount) CashCount.show();
   if (name === 'dashboard' && window.Dashboard) Dashboard.show();
   if (name === 'floorcheck' && window.FloorCheck) FloorCheck.show();
+  if (name === 'pricecheck' && window.PriceCheck) PriceCheck.show();
   if (name === 'warehouse' && window.Warehouse) Warehouse.show();
   if (name === 'stockcontrol' && window.StockControl) StockControl.show();
   if (name === 'performance' && window.Performance) Performance.show();
@@ -1425,7 +1427,7 @@ function switchTab(name, sub) {
   if (name === 'schedule' && window.Schedule) Schedule.show();
   if (name === 'staff' && window.Staff) Staff.show();
   if (name === 'rentals' && typeof Rentals !== 'undefined') Rentals.show();
-  if (name !== 'floorcheck' && name !== 'labels' && window.Scanner) Scanner.close();
+  if (name !== 'floorcheck' && name !== 'labels' && name !== 'pricecheck' && window.Scanner) Scanner.close();
   if (name === 'activity' && window.ActivityPage) ActivityPage.show();
   if (typeof Live !== 'undefined') Live.shown(name);   // changed while closed: reload now
 }

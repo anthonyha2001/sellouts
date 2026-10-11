@@ -2480,3 +2480,46 @@ span.vw-chip{display:inline-block;cursor:default;}
 .vs-recv button{border:1px solid var(--line);background:var(--paper);border-radius:7px;padding:3px 9px;font:600 12.5px var(--font-body);cursor:pointer;color:var(--ink-soft);}
 .vs-recv button.on{border-color:var(--pine);background:var(--pine);color:#fff;}
 .vs-recv button:disabled{opacity:.4;cursor:not-allowed;}
+
+/* ================= Price check (owner, 2026-10-11; js/modules/pricecheck.js) ================= */
+.pc-inputrow{display:flex;gap:8px;}
+.pc-inputrow input{flex:1;min-width:0;font-size:18px;padding:12px;}
+.pc-item h3{margin:0 0 2px;font:700 22px/1.25 var(--font-head);}
+.pc-prices{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin:12px 0;}
+.pc-now,.pc-normal,.pc-stock{border:1px solid var(--line);border-radius:var(--radius);padding:12px 14px;display:flex;flex-direction:column;gap:2px;background:var(--paper);}
+.pc-now{border-color:var(--pine);background:var(--pine-tint);}
+.pc-now.promo{border-color:var(--brick);background:var(--brick-tint);}
+.pc-now span,.pc-normal span,.pc-stock span{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-soft);}
+.pc-now em{font-style:normal;background:var(--brick);color:#fff;border-radius:6px;padding:0 6px;margin-left:4px;font-size:11px;}
+.pc-now b,.pc-normal b,.pc-stock b{font:700 30px/1.15 var(--font-head);}
+.pc-stock small{font-size:12px;font-weight:700;color:var(--ink-soft);min-height:14px;}
+.pc-stock.out{border-color:var(--brick);background:var(--brick-tint);} .pc-stock.out b,.pc-stock.out small{color:var(--brick);}
+.pc-stock.low{border-color:var(--gold);background:var(--gold-tint);}
+.pc-tag{margin-top:6px;} .pc-tag label{display:block;font-weight:600;margin-bottom:4px;}
+.pc-tag input{font-size:22px;padding:10px 12px;max-width:260px;}
+.pc-v{margin:10px 0 0;padding:12px 14px;border-radius:var(--radius);font-size:17px;font-weight:600;}
+.pc-v span{font-weight:500;color:inherit;opacity:.85;}
+.pc-v.ok{background:#e4f4ea;color:#14633c;border:1px solid #9bd0b0;}
+.pc-v.bad{background:var(--brick-tint);color:var(--brick);border:1px solid var(--brick);}
+.pc-v.warn{background:var(--gold-tint);color:#7a5412;border:1px solid var(--gold);}
+.pc-facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px 14px;margin:14px 0 0;}
+.pc-facts dt{font-size:12px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.04em;} .pc-facts dd{margin:0;font-weight:600;}
+.pc-next{margin-top:12px;} .pc-next .btn{padding:12px 20px;font-size:16px;}
+.pc-choices{display:flex;flex-direction:column;gap:6px;}
+.pc-choice{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left;border:1px solid var(--line);background:var(--paper-raised);border-radius:var(--radius);padding:10px 12px;cursor:pointer;}
+.pc-choice:hover{border-color:var(--pine);}
+.pc-rh{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;}
+.pc-list{list-style:none;margin:0;padding:0;}
+.pc-list button{width:100%;display:flex;justify-content:space-between;gap:10px;text-align:left;border:0;border-bottom:1px solid var(--line);background:none;padding:9px 2px;cursor:pointer;font-size:14px;}
+.pc-alt{display:block;font:500 15px var(--font-body);color:var(--ink-soft);margin-top:2px;}
+.pc-tagrow{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
+.pc-cur button{padding:8px 12px;}
+
+/* labels: the item's name and price next to its barcode (owner, 2026-10-11) */
+.lb-info{display:block;margin-top:2px;font:500 13px var(--font-body);color:var(--ink-soft);}
+.lb-info .lb-name{color:var(--ink);}
+.lb-info .lb-price{font:700 15px var(--font-body);color:var(--pine);margin-left:4px;}
+.lb-info .lb-promo{display:inline-block;background:var(--brick);color:#fff;border-radius:6px;padding:0 6px;font-size:11px;font-weight:700;margin-left:4px;}
+.lb-info .lb-info-alt{color:var(--ink-faint);font-size:12px;margin-left:4px;}
+.lb-info-none{color:var(--brick);} .lb-info-wait{opacity:.5;}
+td .lb-info{margin:0;}

@@ -23,6 +23,34 @@
   const splitKey = k => { const i = k.lastIndexOf('|'); return { barcode: k.slice(0, i), kind: k.slice(i + 1) }; };
   try { S.kind = localStorage.getItem('lv:labelKind') === 'promo' ? 'promo' : 'label'; } catch (e) { S.kind = 'label'; }
   const cleanCode = v => String(v ?? '').trim().replace(/\s+/g, '');
+
+  /* ---- the item's name and price next to each barcode (owner, 2026-10-11): from the system, kept while the page is open ---- */
+  const INFO = new Map(), ASKED = new Set();
+  let USD_RATE = 0;
+  const money = (v, cur) => v === null || v === undefined || v === '' ? '' : cur === 'LBP' ? Math.round(Number(v)).toLocaleString('en-US') + ' LBP' : '$' + Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  function infoHtml(code) {
+    const i = INFO.get(code);
+    if (i === undefined) return '<span class="lb-info-wait">…</span>';
+    if (!i) return '<span class="lb-info-none">not in the system</span>';
+    const alt = USD_RATE && i.price !== null && i.price !== undefined
+      ? ' <span class="lb-info-alt">' + esc(i.currency === 'LBP' ? money(Number(i.price) / USD_RATE, '$') : money(Math.round(Number(i.price) * USD_RATE / 1000) * 1000, 'LBP')) + '</span>' : '';
+    return '<span class="lb-name">' + esc(i.description || '') + '</span> <b class="lb-price">' + esc(money(i.price, i.currency)) + '</b>' + (i.promoted ? ' <span class="lb-promo">PROMO</span>' : '') + alt;
+  }
+  async function fetchInfo(codes) {
+    const todo = [...new Set(codes)].filter(c => c && !ASKED.has(c)).slice(0, 150);
+    if (!todo.length) return;
+    todo.forEach(c => ASKED.add(c));
+    try {
+      if (!USD_RATE) { try { const r = await sb.rpc('get_usd_rate'); USD_RATE = Number(r.data) > 0 ? Number(r.data) : 89500; } catch (e) { USD_RATE = 89500; } }
+      for (let i = 0; i < todo.length; i += 60) {
+        const part = todo.slice(i, i + 60);
+        const { data, error } = await sb.functions.invoke('lv-dashboard', { body: { action: 'items_lookup', tokens: part } });
+        if (error || !data || data.error) { part.forEach(c => ASKED.delete(c)); continue; }   // asked again at the next repaint
+        part.forEach(c => INFO.set(c, (data.items && data.items[c]) || false));
+        document.querySelectorAll('[data-info]').forEach(n => { if (part.includes(n.dataset.info)) n.innerHTML = infoHtml(n.dataset.info); });
+      }
+    } catch (e) { todo.forEach(c => ASKED.delete(c)); }
+  }
   const validCode = v => /^[0-9A-Za-z.\-]{1,64}$/.test(v);
 
   /* ---------------- shell ---------------- */
@@ -221,7 +249,7 @@
       <div class="lb-pending" id="lbPending" hidden></div>
       <div class="lb-list">${S.items.map(x => `
         <div class="lb-row ${keyOf(x) === flash ? 'flash' : ''}" data-code="${esc(keyOf(x))}">
-          <span class="lb-code">${esc(x.barcode)}<button type="button" class="lb-kind-chip lb-kind-${kindOf(x)}" data-switch title="Tap to switch between a regular label and a promo paper">${KINDS[kindOf(x)]}</button></span>
+          <span class="lb-code">${esc(x.barcode)}<button type="button" class="lb-kind-chip lb-kind-${kindOf(x)}" data-switch title="Tap to switch between a regular label and a promo paper">${KINDS[kindOf(x)]}</button><span class="lb-info" data-info="${esc(x.barcode)}">${infoHtml(x.barcode)}</span></span>
           <div class="lb-qty">
             <button type="button" data-q="-1" aria-label="One less">−</button>
             <input type="text" inputmode="numeric" value="${x.qty}" aria-label="Quantity for ${esc(x.barcode)}">
@@ -242,6 +270,7 @@
       row.querySelector('[data-remove]').onclick = () => removeCode(code);
     });
     el('lbDone')?.addEventListener('click', submitList);
+    fetchInfo(S.items.map(x => x.barcode));
     updatePending();
   }
 
@@ -306,18 +335,20 @@
       ${S.toPrint.map(listCard).join('')}`;
     el('lbExportAll')?.addEventListener('click', () => exportLists(S.toPrint));
     body.querySelectorAll('.sellout[data-list]').forEach(card => wireCard(card));
+    fetchInfo(S.toPrint.flatMap(l => l.items.map(i => i.barcode)));
   }
   function listCard(l) {
     const editing = S.editing === l.id;
     const items = (editing ? S.draftItems : l.items).slice().sort((x, y) => kindOf(x).localeCompare(kindOf(y)) || x.barcode.localeCompare(y.barcode));
+    const infoCell = i => `<td><span class="lb-info" data-info="${esc(i.barcode)}">${infoHtml(i.barcode)}</span></td>`;
     const kindCell = i => `<td><span class="lb-kind-chip lb-kind-${kindOf(i)}">${KINDS[kindOf(i)]}</span></td>`;
     const labels = l.items.reduce((n, i) => n + i.qty, 0);
     const open = editing || S.open.has(l.id);
     const rows = items.map(i => editing
-      ? `<tr data-code="${esc(keyOf(i))}"><td style="font-family:var(--font-mono);">${esc(i.barcode)}</td>${kindCell(i)}
+      ? `<tr data-code="${esc(keyOf(i))}"><td style="font-family:var(--font-mono);">${esc(i.barcode)}</td>${infoCell(i)}${kindCell(i)}
           <td class="num"><input type="text" inputmode="numeric" class="lb-edit-qty" value="${i.qty}" aria-label="Quantity for ${esc(i.barcode)}"></td>
           <td class="num"><button type="button" class="icon-btn danger" data-act="remove" title="Remove" aria-label="Remove ${esc(i.barcode)}">${svg('<path d="M6 6l12 12M18 6L6 18"/>')}</button></td></tr>`
-      : `<tr><td style="font-family:var(--font-mono);">${esc(i.barcode)}</td>${kindCell(i)}<td class="num" style="font-family:var(--font-mono);">${i.qty}</td></tr>`).join('');
+      : `<tr><td style="font-family:var(--font-mono);">${esc(i.barcode)}</td>${infoCell(i)}${kindCell(i)}<td class="num" style="font-family:var(--font-mono);">${i.qty}</td></tr>`).join('');
     return `<div class="sellout ${open ? 'open' : ''}" data-list="${esc(l.id)}">
       <div class="sellout-head" data-toggle>
         <span class="chev">${svg('<path d="M9 6l6 6-6 6"/>')}</span>
@@ -330,7 +361,7 @@
       </div>
       <div class="sellout-body">
         <div class="items-scroll" style="margin:0;">
-          <table class="items"><thead><tr><th>ItemCode</th><th>Type</th><th class="num">Qty</th>${editing ? '<th></th>' : ''}</tr></thead><tbody>${rows || '<tr><td colspan="4" class="empty-note">No items.</td></tr>'}</tbody></table>
+          <table class="items"><thead><tr><th>ItemCode</th><th>Item and price</th><th>Type</th><th class="num">Qty</th>${editing ? '<th></th>' : ''}</tr></thead><tbody>${rows || '<tr><td colspan="4" class="empty-note">No items.</td></tr>'}</tbody></table>
         </div>
         ${editing ? `<form class="lb-edit-add" data-act="add-form"><input type="text" inputmode="numeric" placeholder="Add a barcode" aria-label="Add a barcode"><select aria-label="Type">${Object.entries(KINDS).map(([k, t]) => `<option value="${k}">${t}</option>`).join('')}</select><input type="text" inputmode="numeric" value="1" class="lb-edit-qty" aria-label="Quantity"><button class="btn secondary small" type="submit">Add</button></form>
           <div class="actions-row"><button type="button" class="btn ghost small" data-act="cancel">Cancel</button><button type="button" class="btn small" data-act="save">Save changes</button></div>` : ''}

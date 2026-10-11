@@ -1467,7 +1467,8 @@ Deno.serve(async req => {
             const hit = rows.find(r => key(String(r.Barcode ?? '')) === key(tk)) || rows.find(r => key(String(r.ItemCode ?? '')) === key(tk)) || (rows.length === 1 ? rows[0] : null);
             const t = (v: unknown) => String(v ?? '').trim();
             out[tk] = hit ? { code: t(hit.ItemCode), description: t(hit.Description), barcode: t(hit.Barcode), supplier: t(hit.Supplier), group: t(hit.Group), brand: t(hit.Brand),
-              pack: hit.Pack ?? null, price: hit.Price ?? null, salePrice: unitSale(hit), promoted: !!Number(hit.isPromoted || 0), stock: hit.AvailableQuantity ?? null } : null;
+              pack: hit.Pack ?? null, price: hit.Price ?? null, salePrice: unitSale(hit), promoted: !!Number(hit.isPromoted || 0), stock: hit.AvailableQuantity ?? null,
+              currency: String(hit.CurrencyCode) === '01' ? 'LBP' : '$' } : null;
           } catch (e) { console.warn('lookup', tk, e); out[tk] = null; }
         }));
       }
