@@ -224,3 +224,22 @@
 #panel-delivery .drv-veh h5{margin:8px 0 6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13.5px;font-weight:600;}
 #panel-delivery .drv-veh h5 svg,#panel-delivery .van-drv h4 .tag svg{width:16px;height:16px;}
 #panel-delivery .van-report th svg{width:15px;height:15px;vertical-align:-3px;}
+/* Reports › Where — by vehicle (owner, 2026-10-11): a Motorcycle / Van tab, the areas as "Ajaltoun × 3" */
+#panel-delivery .veh-where{padding:14px;}
+#panel-delivery .veh-where-head{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;}
+#panel-delivery .veh-where-head h3{margin:0;}
+#panel-delivery .veh-tabs button{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;font-size:13px;font-weight:600;}
+#panel-delivery .veh-tabs button svg{width:17px;height:17px;}
+#panel-delivery .veh-tabs button b{min-width:20px;padding:0 6px;border-radius:9px;background:rgba(0,0,0,.08);font-size:11.5px;text-align:center;}
+#panel-delivery .veh-tabs button.on b{background:rgba(255,255,255,.25);}
+#panel-delivery .veh-areas-list{display:flex;flex-wrap:wrap;gap:8px;}
+#panel-delivery .veh-areas-list[hidden]{display:none;}
+#panel-delivery .veh-area{display:inline-flex;align-items:center;gap:8px;padding:6px 6px 6px 12px;border:1px solid var(--line);border-radius:999px;background:var(--paper);font-size:13.5px;}
+#panel-delivery .veh-area b{padding:2px 8px;border-radius:999px;background:var(--brand);color:#fff;font-size:12px;}
+#panel-delivery .veh-areas-list .print-only{display:none;width:100%;margin:6px 0 2px;font-size:14px;align-items:center;gap:6px;}
+#panel-delivery .veh-areas-list .print-only svg{width:16px;height:16px;}
+@media print{
+  #panel-delivery .veh-tabs{display:none;}
+  #panel-delivery .veh-areas-list,#panel-delivery .veh-areas-list[hidden]{display:flex !important;margin-bottom:10px;}
+  #panel-delivery .veh-areas-list .print-only{display:flex;}
+}

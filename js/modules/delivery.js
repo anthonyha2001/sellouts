@@ -652,6 +652,9 @@ function stats(list){
 const pct = (a,b) => b ? (a/b*100).toFixed(1)+'%' : '0%';
 
 let reportMode = 'sales';     // 'sales' | 'customers'
+// Where the orders went, by vehicle (owner, 2026-10-11): a Motorcycle / Van tab, the areas as "Ajaltoun × 3"
+let reportVeh = 'Motorcycle';
+$('#reportBody').addEventListener('click', e => { const b = e.target.closest('[data-rveh]'); if(!b) return; reportVeh = b.dataset.rveh; renderReports(); });
 $('#rMode').addEventListener('click', e => { const b = e.target.closest('[data-mode]'); if(!b) return; reportMode = b.dataset.mode; renderReports(); });
 function renderReports(){
   $('#rMode').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.mode === reportMode));
@@ -682,6 +685,16 @@ function renderReports(){
   const areaRows = byTotal(s.area).map(([k,v]) => `<tr><td>${esc(k)}</td><td class="num">${v.count}</td><td class="num">${money(v.total)}</td><td class="num">${money(v.total/v.count)}</td></tr>`);
   const dayRows = Object.entries(s.days).sort().map(([d,v]) => `<tr><td>${fmtDate(d)}</td><td class="num">${v.count}</td><td class="num">${money(v.total)}</td><td class="num">${money(v.total/v.count)}</td></tr>`);
 
+  // where, by vehicle: the areas of the orders that went by motorcycle / by van (both printed)
+  const byVeh = {}; VEHICLES.forEach(v => byVeh[v] = {count:0, areas:{}});
+  list.forEach(o => { const v = vehOf(o.vehicle), ar = o.cArea || '(no area)'; byVeh[v].count++; byVeh[v].areas[ar] = (byVeh[v].areas[ar]||0) + 1; });
+  const vehWhere = `<div class="card veh-where">
+      <div class="veh-where-head"><h3>Where — by vehicle</h3>
+        <div class="seg veh-tabs">${VEHICLES.map(v => `<button type="button" data-rveh="${v}" class="${v === reportVeh ? 'on' : ''}">${vehIc(v)} ${v} <b>${byVeh[v].count}</b></button>`).join('')}</div></div>
+      ${VEHICLES.map(v => { const areas = Object.entries(byVeh[v].areas).sort((a,b) => b[1]-a[1] || a[0].localeCompare(b[0]));
+        return `<div class="veh-areas-list" data-veh-list="${v}" ${v === reportVeh ? '' : 'hidden'}><h4 class="print-only">${vehIc(v)} ${v} — ${byVeh[v].count}</h4>
+          ${areas.length ? areas.map(([a,n]) => `<span class="veh-area"><span>${esc(a)}</span><b>× ${n}</b></span>`).join('') : `<p class="empty">No order by ${v.toLowerCase()} in this period.</p>`}</div>`; }).join('')}
+    </div>`;
   $('#reportBody').innerHTML = `
     <h3 class="report-title">${esc(title)}${drv ? ' · Driver: ' + esc(driverName(drv)) : ''}</h3>
     <div class="kpis">
@@ -700,6 +713,7 @@ function renderReports(){
     <div class="card table-wrap van-report"><h3 style="padding:14px 14px 0">Deliveries by driver and vehicle — ${nMoto} by motorcycle · ${nVan} by van (to pay the drivers)</h3>
       <table class="tbl"><thead><tr><th>Driver</th><th class="num">Deliveries</th><th class="num">${vehIc('Motorcycle')} Motorcycle</th><th>Motorcycle areas</th><th class="num">${vehIc('Van')} Van</th><th>Van areas</th></tr></thead>
       <tbody>${drvDetail || '<tr><td colspan="6" class="empty">No delivery in this period.</td></tr>'}</tbody></table></div>
+    ${vehWhere}
     <div class="grid-2">
       <div class="card table-wrap"><h3 style="padding:14px 14px 0">By area</h3>${table(['Area','Orders','Total','AOV'], areaRows)}</div>
       ${dayRows.length > 1 ? `<div class="card table-wrap"><h3 style="padding:14px 14px 0">Day by day</h3>${table(['Date','Orders','Total','AOV'], dayRows)}</div>` : ''}
