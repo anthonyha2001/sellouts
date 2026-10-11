@@ -2734,3 +2734,12 @@ td .lb-info{margin:0;}
 #vbFilters .vb-n.zero{background:var(--line);color:var(--muted,#6b746e);font-weight:600;}
 #vbFilters button.active .vb-n{box-shadow:0 0 0 2px rgba(255,255,255,.9);}
 #vbFilters button.active .vb-n.zero{background:rgba(255,255,255,.25);color:#fff;box-shadow:none;}
+
+/* Stock control: the supplier's order next to an item out of stock / running low */
+.ls-po{display:inline-block;padding:1px 7px;border-radius:9px;font:700 11px var(--font-body);white-space:nowrap;vertical-align:1px;}
+.ls-po.ok{background:#e3f4ea;color:#1f7a45;border:1px solid #9fd6b5;}
+.ls-po.late{background:#fde8e7;color:#b42318;border:1px solid #f1a9a4;}
+.ls-po.draft{background:#fff6d6;color:#8a6500;border:1px solid #ecd27a;}
+.ls-po.none{background:#c8443f;color:#fff;border:1px solid #c8443f;}
+.ls-head h3 .ls-po{margin-left:6px;font-size:11.5px;}
+tr.ls-nopo{background:rgba(200,68,63,.07);}
