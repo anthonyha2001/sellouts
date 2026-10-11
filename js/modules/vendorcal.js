@@ -1,5 +1,5 @@
 /* ============================================================
-   Vendors › Calendar and Receiving (owner, 2026-10-05; migration 062).
+   Vendors › Receiving and the stats strip (owner, 2026-10-05; migration 062). The calendar was removed 2026-10-11.
    Calendar (month), two views:
      - Order days: who to order from each day (the vendor's day and
        frequency), and what happened: sent, not sent yet, no order,
@@ -12,7 +12,7 @@
    Uses the vendor page's data and helpers (js/app.js: vendorsList,
    ordersList, skipsList, isVendorDueOn, saveOrderRemote).
    Rights: vendors.manage = everything; vendors.receive = the deliveries
-   calendar and the receiving page only.
+   receiving page only.
    Public API: window.VendorCal = { renderCalendar, renderReceiving, renderStats, openReceiving }.
    ============================================================ */
 (function () {
@@ -79,80 +79,27 @@
     box.innerHTML = (canManage() ? stat(vendorsList.length, 'vendors', '', 'directory') + stat(toOrder, 'to order today', toOrder ? 'warn' : '', 'orders') : '')
       + stat(expected, 'deliveries expected today', expected ? 'info' : '', 'receiving')
       + stat(late, 'late deliveries', late ? 'bad' : '', 'receiving')
-      + stat(received, 'received in the last 7 days', 'ok', 'calendar-deliveries')
+      + stat(received, 'received in the last 7 days', 'ok', 'receiving')
       + (canManage() && window.LowStock && vendorsList.some(v => v.watchStock) ? stat(LowStock.openCount(), 'items running low', LowStock.openCount() ? 'bad' : 'ok', 'lowstock') : '');
     box.querySelectorAll('[data-vgo]').forEach(b => b.onclick = () => {
       const g = b.dataset.vgo;
-      if (g === 'calendar-deliveries') { S.mode = 'deliveries'; return goTab('calendar'); }
       if (g === 'receiving') S.day = todayStr();
       goTab(g);
     });
   }
-  const goTab = tab => document.querySelector(`#vendorSubTabs [data-vsub="${tab}"]`)?.click();
-
-  /* ---------------- calendar ---------------- */
-  function renderCalendar() {
-    const box = el('vendorCalendarView'); if (!box) return;
-    if (!canManage()) S.mode = 'deliveries';
-    const [y, m] = S.month.split('-').map(Number);
-    const first = new Date(y, m - 1, 1), startOff = (first.getDay() + 6) % 7, days = new Date(y, m, 0).getDate();
-    const t = todayStr(), cells = [];
-    for (let i = 0; i < startOff; i++) cells.push(null);
-    for (let d = 1; d <= days; d++) cells.push(`${S.month}-${String(d).padStart(2, '0')}`);
-    while (cells.length % 7) cells.push(null);
-    const list = d => S.mode === 'orders' ? ordersOn(d) : deliveriesOn(d);
-    const labels = S.mode === 'orders' ? ORDER_LABEL : DELIV_LABEL;
-    // month totals
-    const tally = {};
-    cells.filter(Boolean).forEach(d => list(d).forEach(x => { tally[x.st] = (tally[x.st] || 0) + 1; }));
-    box.innerHTML = `
-      <div class="card vc-head">
-        <div class="vc-nav">
-          <button type="button" class="icon-btn" data-vm="-1" aria-label="Previous month">${svg('prev')}</button>
-          <h3>${esc(first.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }))}</h3>
-          <button type="button" class="icon-btn" data-vm="1" aria-label="Next month">${svg('next')}</button>
-          ${S.month !== t.slice(0, 7) ? '<button type="button" class="btn ghost small" data-vm="0">Today</button>' : ''}
-        </div>
-        ${canManage() ? `<div class="filter-row vc-modes" style="margin:0;"><button type="button" data-vmode="orders" class="${S.mode === 'orders' ? 'active' : ''}">Order days</button><button type="button" data-vmode="deliveries" class="${S.mode === 'deliveries' ? 'active' : ''}">Deliveries</button></div>` : '<span class="muted-note">Deliveries</span>'}
-      </div>
-      <div class="vc-legend">${Object.entries(labels).map(([k, l]) => `<span class="vc-chip vc-${k}">${l}${tally[k] ? ` <b>${tally[k]}</b>` : ''}</span>`).join('')}</div>
-      <div class="card vc-cal">
-        <div class="vc-grid vc-dow">${['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(d => `<span>${d}</span>`).join('')}</div>
-        <div class="vc-grid">${cells.map(d => {
-          if (!d) return '<div class="vc-day vc-out"></div>';
-          const items = list(d);
-          return `<div class="vc-day ${d === t ? 'today' : ''} ${d < t ? 'past' : ''} ${items.length ? '' : 'vc-empty'}" data-day="${d}">
-            <div class="vc-num"><span class="vc-dname">${dayName(d)}</span>${Number(d.slice(8))}${items.length ? `<small>${items.length}</small>` : ''}</div>
-            ${items.slice(0, 6).map(x => `<button type="button" class="vc-chip vc-${x.st}" data-day="${d}" title="${esc(x.v.name)} — ${labels[x.st]}${x.st === 'planned' ? ' (order on ' + short(x.od) + ')' : ''}">${esc(x.v.name)}</button>`).join('')}
-            ${items.length > 6 ? `<button type="button" class="vc-more" data-day="${d}">+${items.length - 6} more</button>` : ''}
-          </div>`; }).join('')}</div>
-      </div>
-      <p class="muted-note" style="margin:6px 0 0;">${S.mode === 'orders' ? 'Tap a day to open its orders.' : 'Tap a day to open its receiving page. Planned = the vendor\'s next order day plus its lead time.'}</p>`;
-    box.querySelectorAll('[data-vm]').forEach(b => b.onclick = () => {
-      const k = Number(b.dataset.vm);
-      if (!k) S.month = todayStr().slice(0, 7);
-      else { const d = new Date(y, m - 1 + k, 1); S.month = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; }
-      renderCalendar();
-    });
-    box.querySelectorAll('[data-vmode]').forEach(b => b.onclick = () => { S.mode = b.dataset.vmode; renderCalendar(); });
-    box.querySelectorAll('.vc-day[data-day], .vc-chip[data-day], .vc-more').forEach(c => c.onclick = e => {
-      e.stopPropagation();
-      const d = c.dataset.day;
-      if (S.mode === 'orders') { ordersViewDate = d; goTab('orders'); }
-      else openReceiving(d);
-    });
-  }
+  const goTab = tab => tab === 'lowstock' ? switchTab('stockcontrol') : document.querySelector(`#vendorSubTabs [data-vsub="${tab}"]`)?.click();
 
   /* ---------------- receiving ---------------- */
   function openReceiving(d) { S.day = d || todayStr(); goTab('receiving'); }
   function renderReceiving() {
     const box = el('vendorReceivingView'); if (!box) return;
     const d = S.day, t = todayStr();
-    const expected = ordersList.filter(o => o.status === 'pending' && o.expectedDelivery === d);
-    const late = d === t ? ordersList.filter(o => o.status === 'pending' && o.expectedDelivery && o.expectedDelivery < t).sort((a, b) => a.expectedDelivery.localeCompare(b.expectedDelivery)) : [];
+    const eff = o => (window.Warehouse && o.expectedDelivery) ? Warehouse.effective(o) : o.expectedDelivery;   // a closed day moves to the next open one
+    const expected = ordersList.filter(o => o.status === 'pending' && eff(o) === d);
+    const late = d === t ? ordersList.filter(o => o.status === 'pending' && o.expectedDelivery && eff(o) < t).sort((a, b) => a.expectedDelivery.localeCompare(b.expectedDelivery)) : [];
     const noDate = d === t ? ordersList.filter(o => o.status === 'pending' && !o.expectedDelivery) : [];
     const received = ordersList.filter(o => o.status === 'delivered' && o.deliveredDate === d);
-    const planned = deliveriesOn(d).filter(x => x.st === 'planned');
+    const planned = window.Warehouse ? Warehouse.planned(d, d) : deliveriesOn(d).filter(x => x.st === 'planned');
     const row = (o, kind) => {
       const v = vendorOf(o.vendorId) || {}, open = S.open === o.id;
       const meta = kind === 'late' ? `<span class="vc-late">${daysBetween(o.expectedDelivery, t)} day${daysBetween(o.expectedDelivery, t) === 1 ? '' : 's'} late</span> · expected ${esc(short(o.expectedDelivery))}`
@@ -175,7 +122,7 @@
           <button type="button" class="icon-btn" data-vd="1" aria-label="Next day">${svg('next')}</button>
           ${d !== t ? '<button type="button" class="btn ghost small" data-vd="0">Today</button>' : ''}
         </div>
-        <span class="muted-note">${d === t ? 'Today' : d < t ? 'Past day' : 'Coming day'}</span>
+        <span class="muted-note">${d === t ? 'Today' : d < t ? 'Past day' : 'Coming day'}${window.Warehouse && !Warehouse.isOpen(d) ? ' · <b>warehouse closed</b>' : ''}</span>
       </div>
       ${d === t && late.length ? sec('Late', 'late', late.map(o => row(o, 'late')), '') : ''}
       ${sec(d === t ? 'Expected today' : 'Expected', 'exp', expected.map(o => row(o, d < t ? 'late' : 'exp')), 'No delivery expected on this day.')}
@@ -202,17 +149,25 @@
       <div class="vc-rform-act"><button type="button" class="btn ghost small" id="vcRcvCancel">Cancel</button><button type="submit" class="btn small">Confirm received</button></div>
     </form>`;
   }
-  async function markReceived(id) {
-    const o = ordersList.find(x => x.id === id); if (!o) return;
-    const status = document.querySelector('#vcRcvForm [data-rs].active')?.dataset.rs || 'complete';
+  // one order received: complete or partial, the invoice number, a note, who and when (also used by the Warehouse page)
+  async function receiveOrder(id, { status = 'complete', invoice = '', note = '', day = '' } = {}) {
+    const o = ordersList.find(x => x.id === id); if (!o) return false;
     const me = Session.profile?.display_name || Session.profile?.username || '';
-    const patch = { status: 'delivered', delivered_date: S.day > todayStr() ? todayStr() : S.day, received_at: new Date().toISOString(), received_by: Session.user?.id || null,
-      received_by_name: me, receive_status: status, invoice_no: el('vcInvoice').value.trim() || null, receive_note: el('vcNote').value.trim() || null };
+    const d = day && day <= todayStr() ? day : todayStr();
+    const patch = { status: 'delivered', delivered_date: d, received_at: new Date().toISOString(), received_by: Session.user?.id || null,
+      received_by_name: me, receive_status: status, invoice_no: String(invoice).trim() || null, receive_note: String(note).trim() || null };
     const { error } = await sb.from('vendor_orders').update(patch).eq('id', id);
-    if (error) { console.error(error); return showToast('Not saved — ' + sbErrText(error), true); }
+    if (error) { console.error(error); showToast('Not saved — ' + sbErrText(error), true); return false; }
     Object.assign(o, { status: 'delivered', deliveredDate: patch.delivered_date, receivedAt: patch.received_at, receivedByName: me, receiveStatus: status, invoiceNo: patch.invoice_no, receiveNote: patch.receive_note });
     logActivity('vendors', 'receive', { type: 'vendor_order', id }, `Received the order of ${o.vendorName}${status === 'partial' ? ' (partial)' : ''}${patch.invoice_no ? ', invoice ' + patch.invoice_no : ''}`, { status, invoice_no: patch.invoice_no, note: patch.receive_note });
-    S.open = null; showToast(`${o.vendorName}: received.`);
+    showToast(`${o.vendorName}: received.`);
+    return true;
+  }
+  async function markReceived(id) {
+    const status = document.querySelector('#vcRcvForm [data-rs].active')?.dataset.rs || 'complete';
+    const ok = await receiveOrder(id, { status, invoice: el('vcInvoice').value, note: el('vcNote').value, day: S.day });
+    if (!ok) return;
+    S.open = null;
     renderReceiving(); renderStats();
   }
   async function undoReceived(id) {
@@ -226,5 +181,5 @@
     renderReceiving(); renderStats();
   }
 
-  window.VendorCal = { renderCalendar, renderReceiving, renderStats, openReceiving };
+  window.VendorCal = { renderReceiving, renderStats, openReceiving, receiveOrder };
 })();

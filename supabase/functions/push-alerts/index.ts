@@ -194,8 +194,8 @@ async function buildAlerts(today: string): Promise<Alert[]> {
   if (newLow.length) {
     newLow.sort((a, b) => b.n - a.n);
     const slot = beirutHour() < 13 ? 'am' : 'pm';
-    add({ key: `stock:${today}:${slot}`, perms: ['vendors.manage'], title: `Low stock — ${newLow.length} supplier${newLow.length === 1 ? '' : 's'}`, url: '#vendors',
-      body: `Newly running low today: ${newLow.slice(0, 6).map(x => `${x.name} (${x.n})`).join(', ')}${newLow.length > 6 ? ` and ${newLow.length - 6} more` : ''}. See Vendors › Low stock & orders.` });
+    add({ key: `stock:${today}:${slot}`, perms: ['vendors.manage'], title: `Low stock — ${newLow.length} supplier${newLow.length === 1 ? '' : 's'}`, url: '#stockcontrol',
+      body: `Newly running low today: ${newLow.slice(0, 6).map(x => `${x.name} (${x.n})`).join(', ')}${newLow.length > 6 ? ` and ${newLow.length - 6} more` : ''}. See Stock control.` });
   }
 
   // Big purchases (migration 071; owner, 2026-10-06): once per PU, the items bought far above their usual order
@@ -209,8 +209,36 @@ async function buildAlerts(today: string): Promise<Alert[]> {
     const n = (v: unknown) => Math.round(Number(v) * 10) / 10;
     const sup = String(list[0].supplier || '').split(',')[0].trim();
     const lines = list.slice(0, 4).map(b => `${b.description} ${n(b.qty)} (usually ${n(b.usual_qty)}, ${b.weeks_cover === null ? 'no sales in 90 days' : Math.round(Number(b.weeks_cover)) + ' weeks of sales'})`);
-    add({ key: `bigbuy:${doc}`, perms: ['vendors.manage'], title: `Big purchase${list[0].documents ? ' — ' + list[0].documents : ''}`, url: '#vendors',
-      body: `${sup ? sup + ': ' : ''}${lines.join('; ')}${list.length > 4 ? ` and ${list.length - 4} more` : ''}. See Vendors › Low stock & orders.` });
+    add({ key: `bigbuy:${doc}`, perms: ['vendors.manage'], title: `Big purchase${list[0].documents ? ' — ' + list[0].documents : ''}`, url: '#stockcontrol',
+      body: `${sup ? sup + ': ' : ''}${lines.join('; ')}${list.length > 4 ? ` and ${list.length - 4} more` : ''}. See Stock control.` });
+  }
+
+  // Top sales (migration 073; owner, 2026-10-11): every day, the items newly selling more than they used to (not in the
+  // previous day's set), to order again.
+  // Per day / week / month (migration 074): an item counts once, whichever views it is in; "attention" = may run out soon.
+  const { data: tops } = await db.from('top_sales').select('week_end, code, supplier, attention, created_at')
+    .gte('week_end', addDays(today, -3)).order('week_end', { ascending: false });
+  type TopRow = { week_end: string; code: string; supplier: string | null; attention: boolean; created_at: string };
+  const topRows = (tops ?? []) as TopRow[];
+  // the three periods are counted a few minutes apart: wait until nothing was added for 12 minutes, so each is in the message
+  const topSettled = topRows.length && Date.now() - Math.max(...topRows.filter((t: TopRow) => String(t.week_end) === String(topRows[0].week_end)).map((t: TopRow) => Date.parse(t.created_at))) > 12 * 60 * 1000;
+  if (topRows.length && topSettled) {
+    const wk = String(topRows[0].week_end);
+    const prevDay = topRows.map((t: TopRow) => String(t.week_end)).find((d: string) => d < wk);
+    const before = new Set(topRows.filter((t: TopRow) => String(t.week_end) === prevDay).map((t: TopRow) => String(t.code)));
+    const seen = new Map<string, TopRow>();
+    topRows.filter((t: TopRow) => String(t.week_end) === wk && !before.has(String(t.code)))
+      .forEach((t: TopRow) => { const o = seen.get(String(t.code)); if (!o || (t.attention && !o.attention)) seen.set(String(t.code), t); });
+    const list = [...seen.values()];
+    if (list.length) {
+      const risk = list.filter((t: TopRow) => t.attention);
+      const bySup = new Map<string, number>();
+      (risk.length ? risk : list).forEach((t: TopRow) => { const s = String(t.supplier || 'No vendor'); bySup.set(s, (bySup.get(s) || 0) + 1); });
+      const names = [...bySup.entries()].sort((a, b) => b[1] - a[1]);
+      add({ key: `topsales:${wk}`, perms: ['vendors.manage'],
+        title: risk.length ? `Selling fast — ${risk.length} may run out` : `Selling more — ${list.length} item${list.length === 1 ? '' : 's'}`, url: '#stockcontrol',
+        body: `${risk.length ? `${risk.length} of ${list.length} newly selling more than usual may run out soon` : `Newly selling more than usual`}: ${names.slice(0, 6).map(([s, n]) => `${s} (${n})`).join(', ')}${names.length > 6 ? ` and ${names.length - 6} more` : ''}. Vendors › Top sales.` });
+    }
   }
 
   // Cash: yesterday still empty after the reminder hour.

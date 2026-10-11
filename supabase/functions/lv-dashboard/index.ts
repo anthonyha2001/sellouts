@@ -311,6 +311,335 @@ async function bigBuys() {
   return { bought: buys.size, checked: cand.length, big: big.length };
 }
 
+/* ---------------- top sales (owner, 2026-10-11; migrations 073, 074) ----------------
+   The items selling more than they used to, per day / week / month: the period's units (ending yesterday) against the
+   average of the same-length periods before it. Flagged = at least the period's ratio and extra units, and it did sell
+   before (a new item is not "more than it used to"). Each is put under the vendor whose linked system supplier sold it,
+   with its stock now and the days that stock lasts at its selling rate (the faster of the period's and the last 7 days').
+   attention = out of stock, or fewer days of stock than the vendor's cover days (lead time + 4, default 7).
+   Run every day; saved in top_sales; push-alerts notifies the newly flagged. */
+// the three views: the period's units against the average of the same-length periods just before it
+const TOP_PERIODS = [
+  { id: 'day',   days: 1,  baseDays: 28, baseCount: 28, ratio: 2,   minExtra: 3 },    // yesterday vs the daily average of the 4 weeks before
+  { id: 'week',  days: 7,  baseDays: 56, baseCount: 8,  ratio: 1.5, minExtra: 4 },    // last 7 days vs the weekly average of the 8 weeks before
+  { id: 'month', days: 30, baseDays: 90, baseCount: 3,  ratio: 1.3, minExtra: 10 },   // last 30 days vs the monthly average of the 3 months before
+] as const;
+// A run does ONE period (the store has ~150k items: the whole-store reads of the three periods in one call would not
+// fit the function's time): the cron schedules three jobs a few minutes apart, "Count now" calls them one after another.
+async function topSales(periodId: string) {
+  const p = TOP_PERIODS.find(x => x.id === periodId);
+  if (!p) throw new Error('Choose a period: day, week or month.');
+  const yday = plusDays(beirutToday(), -1);
+  const { data: vs, error } = await db.from('vendors').select('id, name, system_suppliers, cover_days, lead_time_days');
+  if (error) throw error;
+  const vendorOf = new Map<string, { id: string; name: string; cover: number }>();
+  (vs || []).forEach(v => (Array.isArray(v.system_suppliers) ? v.system_suppliers : []).forEach((s: Record<string, unknown>) => {
+    const c = trimCode(s.code); if (!c) return;
+    const cover = Number(v.cover_days) > 0 ? Number(v.cover_days) : (Number(v.lead_time_days) > 0 ? Number(v.lead_time_days) : 3) + 4;
+    vendorOf.set(c, { id: String(v.id), name: String(v.name), cover });
+  }));
+  type Row = { code: string; description: string; qty: number; supQty: Record<string, number> };
+  const read = async (from: string, to: string, items?: string[]) => {
+    const m = new Map<string, Row>();
+    (await report('sales', from, to, { group_by: ['item', 'supplier'], ...(items ? { item: items } : {}) })).forEach(r => {
+      const c = trimCode(r.item); if (!c || c.includes(':')) return;
+      const q = Number(r.total_quantity || 0); if (!q) return;
+      const it = m.get(c) || { code: c, description: '', qty: 0, supQty: {} };
+      it.qty += q; if (!it.description) it.description = String(r.item_desc ?? '').trim();
+      const s = trimCode(r.supplier); if (s) it.supQty[s] = (it.supQty[s] || 0) + q;
+      m.set(c, it);
+    });
+    return m;
+  };
+  const recent = await read(plusDays(yday, -(p.days - 1)), yday);
+  const baseTo = plusDays(yday, -p.days), base = await read(plusDays(baseTo, -(p.baseDays - 1)), baseTo);
+  const found: { it: Row; usual: number }[] = [];
+  for (const it of recent.values()) {
+    const usual = (base.get(it.code)?.qty || 0) / p.baseCount;
+    if (usual > 0 && it.qty / usual >= p.ratio && it.qty - usual >= p.minExtra) found.push({ it, usual });
+  }
+  const top = found.sort((a, b) => (b.it.qty - b.usual) - (a.it.qty - a.usual)).slice(0, 50);
+  // the last 7 days' units of these items only (one small read): the rate for "how long will the stock last"
+  const last7 = p.id === 'week' ? recent : top.length ? await read(plusDays(yday, -6), yday, top.map(h => h.it.code)) : new Map<string, Row>();
+  // the stock now of each, 16 lookups at a time
+  const key = (c: string) => c.replace(/^0+(?=\d)/, '').toUpperCase();
+  const stock: Record<string, number | null> = {};
+  for (let i = 0; i < top.length; i += 16) {
+    await Promise.all(top.slice(i, i + 16).map(async ({ it }) => {
+      try {
+        const d = await dash(`/items/search?${new URLSearchParams({ search: it.code, year: year(), preferred_branch: BRANCH })}`);
+        const hit = (Array.isArray(d) ? d : []).find((x: Record<string, unknown>) => key(String(x.code ?? '')) === key(it.code)) as Record<string, unknown> | undefined;
+        stock[it.code] = hit && hit.available_quantity !== null && hit.available_quantity !== undefined ? Number(hit.available_quantity) : null;
+      } catch (e) { console.warn('top sales stock', it.code, e); stock[it.code] = null; }
+    }));
+  }
+  const r2 = (v: number | null) => v === null ? null : Math.round(v * 100) / 100;
+  const rows = top.map(({ it, usual }) => {
+    const supplier = Object.entries(it.supQty).sort((a, b) => b[1] - a[1])[0]?.[0] || '';
+    const v = vendorOf.get(supplier), st = stock[it.code] ?? null;
+    const perDay = Math.max(it.qty / p.days, (last7.get(it.code)?.qty || 0) / 7);
+    const daysLeft = st !== null && perDay > 0 ? Math.max(0, st) / perDay : null;
+    // attention: out of stock now, or it lasts fewer days than the vendor needs to be re-supplied (its cover days)
+    const attention = st !== null && (st <= 0 || (daysLeft !== null && daysLeft < (v?.cover ?? 7)));
+    return { week_end: yday, period: p.id, code: it.code, vendor_id: v?.id ?? null, supplier: v?.name ?? null, description: it.description || null,
+      sold_week: r2(it.qty) as number, usual_week: r2(usual) as number, ratio: r2(it.qty / usual), stock: r2(st), per_day: r2(perDay),
+      days_left: daysLeft === null ? null : Math.round(daysLeft * 10) / 10, attention };
+  });
+  await db.from('top_sales').delete().eq('week_end', yday).eq('period', p.id);   // a re-run replaces that period of that day
+  await db.from('top_sales').delete().lt('week_end', plusDays(yday, -14));      // 14 days of daily sets kept
+  if (rows.length) {
+    const { error: e2 } = await db.from('top_sales').insert(rows);
+    if (e2) throw e2;
+  }
+  return { week_end: yday, period: p.id, items: recent.size, flagged: rows.length, attention: rows.filter(r => r.attention).length };
+}
+
+/* ---------------- stock review (owner, 2026-10-11; migration 075) ----------------
+   Overstock and slow movers, one kind per call (the store has ~150k items; only what moved is read).
+   overstock: bought in the last 90 days; net = units bought - units sold; the biggest by value get their stock read;
+     flagged when stock covers 12 weeks or more at the 90-day selling rate (or no sale), worth $50 or more.
+   slow: units of the last 4 weeks against the 8 weeks before: at most half the weekly rate, with at least 8 units before;
+     the biggest drops get their stock read; kept when there is stock left. Value = stock x the purchase cost, when known. */
+async function stockReview(kind: string) {
+  if (kind !== 'overstock' && kind !== 'slow') throw new Error('Choose overstock or slow.');
+  const yday = plusDays(beirutToday(), -1);
+  const { data: vs, error } = await db.from('vendors').select('id, name, system_suppliers');
+  if (error) throw error;
+  const vendorOf = new Map<string, { id: string; name: string }>();
+  (vs || []).forEach(v => (Array.isArray(v.system_suppliers) ? v.system_suppliers : []).forEach((s: Record<string, unknown>) => {
+    const c = trimCode(s.code); if (c) vendorOf.set(c, { id: String(v.id), name: String(v.name) });
+  }));
+  type Agg = { code: string; description: string; qty: number; value: number; supQty: Record<string, number> };
+  const read = async (what: 'sales' | 'purchases', from: string, to: string) => {
+    const m = new Map<string, Agg>();
+    (await report(what, from, to, { group_by: ['item', 'supplier'] })).forEach(r => {
+      const c = trimCode(r.item); if (!c || c.includes(':')) return;
+      const q = Number(r.total_quantity || 0); if (!q) return;
+      const it = m.get(c) || { code: c, description: '', qty: 0, value: 0, supQty: {} };
+      it.qty += q; it.value += Number(what === 'sales' ? r.total_sales : r.total_purchases) || 0;
+      if (!it.description) it.description = String(r.item_desc ?? '').trim();
+      const s = trimCode(r.supplier); if (s) it.supQty[s] = (it.supQty[s] || 0) + q;
+      m.set(c, it);
+    });
+    return m;
+  };
+  const supplierOf = (a: Agg) => Object.entries(a.supQty).sort((x, y) => y[1] - x[1])[0]?.[0] || '';
+  type Cand = { a: Agg; per_week: number; prior_week: number | null; bought: number | null; sold: number | null; unit_cost: number | null; rank: number };
+  let cands: Cand[] = [];
+  if (kind === 'overstock') {
+    const from = plusDays(yday, -89);
+    const bought = await read('purchases', from, yday), sold = await read('sales', from, yday);
+    for (const b of bought.values()) {
+      const s = sold.get(b.code)?.qty || 0, unitCost = b.qty > 0 && b.value > 0 ? b.value / b.qty : null;
+      const net = b.qty - s;                     // more bought than sold: something is piling up
+      if (net <= 0 || unitCost === null) continue;
+      cands.push({ a: b, per_week: s / (90 / 7), prior_week: null, bought: b.qty, sold: s, unit_cost: unitCost, rank: net * unitCost });
+    }
+  } else {
+    const recent = await read('sales', plusDays(yday, -27), yday), prior = await read('sales', plusDays(yday, -83), plusDays(yday, -28));
+    for (const p of prior.values()) {
+      const priorWeek = p.qty / 8, nowWeek = (recent.get(p.code)?.qty || 0) / 4;
+      if (p.qty < 8 || nowWeek > priorWeek * 0.5) continue;
+      cands.push({ a: recent.get(p.code) || p, per_week: nowWeek, prior_week: priorWeek, bought: null, sold: null, unit_cost: null, rank: priorWeek - nowWeek });
+    }
+    // the units and cost of the last 90 days' purchases, for the value of what is left (only for the ones kept below)
+  }
+  cands = cands.sort((a, b) => b.rank - a.rank).slice(0, 70);
+  // the stock now of each, 16 lookups at a time
+  const key = (c: string) => c.replace(/^0+(?=\d)/, '').toUpperCase();
+  const stock: Record<string, number | null> = {};
+  for (let i = 0; i < cands.length; i += 16) {
+    await Promise.all(cands.slice(i, i + 16).map(async ({ a }) => {
+      try {
+        const d = await dash(`/items/search?${new URLSearchParams({ search: a.code, year: year(), preferred_branch: BRANCH })}`);
+        const hit = (Array.isArray(d) ? d : []).find((x: Record<string, unknown>) => key(String(x.code ?? '')) === key(a.code)) as Record<string, unknown> | undefined;
+        stock[a.code] = hit && hit.available_quantity !== null && hit.available_quantity !== undefined ? Number(hit.available_quantity) : null;
+      } catch (e) { console.warn('stock review stock', a.code, e); stock[a.code] = null; }
+    }));
+  }
+  // slow movers: the unit cost of what is still in stock = its purchases of the last 90 days (one small read, those items only)
+  const cost = new Map<string, number>();
+  if (kind === 'slow') {
+    const withStock = cands.filter(c => (stock[c.a.code] ?? 0) > 0).map(c => c.a.code);
+    for (let i = 0; i < withStock.length; i += 70) {
+      try {
+        (await report('purchases', plusDays(yday, -89), yday, { group_by: ['item'], item: withStock.slice(i, i + 70) })).forEach(r => {
+          const c = trimCode(r.item), q = Number(r.total_quantity || 0), v = Number(r.total_purchases || 0);
+          if (c && q > 0 && v > 0) cost.set(c, (cost.get(c) || 0) + v / q);
+        });
+      } catch (e) { console.warn('slow cost', e); }
+    }
+  }
+  const r2 = (v: number | null) => v === null ? null : Math.round(v * 100) / 100;
+  const rows = cands.map(c => {
+    const st = stock[c.a.code] ?? null;
+    const unit = c.unit_cost ?? cost.get(c.a.code) ?? null;
+    const weeks = st !== null && c.per_week > 0 ? st / c.per_week : null;
+    return { c, st, unit, weeks, value: st !== null && st > 0 && unit !== null ? st * unit : null };
+  }).filter(x => x.st !== null && x.st > 0 && (kind === 'overstock'
+    ? (x.weeks === null || x.weeks >= 12) && (x.value ?? 0) >= 50
+    : true))
+    .map(x => {
+      const sup = supplierOf(x.c.a), v = vendorOf.get(sup);
+      return { day: yday, kind, code: x.c.a.code, vendor_id: v?.id ?? null, supplier: v?.name ?? null, description: x.c.a.description || null,
+        stock: r2(x.st), per_week: r2(x.c.per_week), prior_week: r2(x.c.prior_week), weeks_cover: r2(x.weeks), bought: r2(x.c.bought), sold: r2(x.c.sold),
+        unit_cost: r2(x.unit), value: r2(x.value) };
+    });
+  await db.from('stock_review').delete().eq('day', yday).eq('kind', kind);          // a re-run replaces that day
+  await db.from('stock_review').delete().lt('day', plusDays(yday, -14));            // 14 days kept
+  if (rows.length) {
+    const { error: e2 } = await db.from('stock_review').insert(rows);
+    if (e2) throw e2;
+  }
+  return { day: yday, kind, candidates: cands.length, flagged: rows.length };
+}
+
+/* ---------------- stock snapshots (owner, 2026-10-11; migration 076) ----------------
+   Every night, the stock of every item of the store that moved in the last year (sold in the last 90 days, or
+   bought in the last 12 months: an item with stock and no movement at all cannot be listed, the system has no
+   catalogue report), kept per day. The system has no bulk stock report, so it is read item by item: the list is
+   built first (two calls: sales, then purchases), then as many as fit in 85 seconds per call (cron, every 2
+   minutes during the night; about 150,000 items in one night). Once all are read, yesterday's stock -> today's is
+   set against what the documents explain (units bought - units sold of the day): the rest is "unexplained"
+   (count, adjustment, loss, return, wrong entry), saved in stock_moves. The day counted: before noon Beirut =
+   yesterday (the night after closing), else today. */
+const SNAP_MAX_ITEMS = 200000, SNAP_BUDGET_MS = 85000, SNAP_CONCURRENCY = 12;
+async function stockSnapshot() {
+  const hour = Number(new Date().toLocaleString('en-GB', { timeZone: 'Asia/Beirut', hour: '2-digit', hour12: false }));
+  const day = hour < 12 ? plusDays(beirutToday(), -1) : beirutToday();
+  const { data: run, error } = await db.from('stock_snapshot_runs').select('*').eq('day', day).maybeSingle();
+  if (error) throw error;
+  const started = Date.now();
+
+  // 1a. the list of the day: what sold in the last 90 days
+  if (!run) {
+    const { data: vs } = await db.from('vendors').select('name, system_suppliers');
+    const vendorName = new Map<string, string>();
+    (vs || []).forEach(v => (Array.isArray(v.system_suppliers) ? v.system_suppliers : []).forEach((s: Record<string, unknown>) => { const c = trimCode(s.code); if (c) vendorName.set(c, String(v.name)); }));
+    const items = new Map<string, { code: string; description: string; qty: number; supQty: Record<string, number> }>();
+    (await report('sales', plusDays(day, -89), day, { group_by: ['item', 'supplier'] })).forEach(r => {
+      const c = trimCode(r.item); if (!c || c.includes(':')) return;
+      const q = Number(r.total_quantity || 0); if (q <= 0) return;
+      const it = items.get(c) || { code: c, description: '', qty: 0, supQty: {} };
+      it.qty += q; if (!it.description) it.description = String(r.item_desc ?? '').trim();
+      const s = trimCode(r.supplier); if (s) it.supQty[s] = (it.supQty[s] || 0) + q;
+      items.set(c, it);
+    });
+    const list = [...items.values()].sort((a, b) => b.qty - a.qty).slice(0, SNAP_MAX_ITEMS);
+    for (let i = 0; i < list.length; i += 1000) {
+      const { error: e } = await db.from('stock_snapshots').upsert(list.slice(i, i + 1000).map(it => {
+        const sup = Object.entries(it.supQty).sort((a, b) => b[1] - a[1])[0]?.[0] || '';
+        return { day, code: it.code, description: it.description || null, supplier: vendorName.get(sup) || null };
+      }), { onConflict: 'day,code' });
+      if (e) throw e;
+    }
+    await db.from('stock_snapshot_runs').upsert({ day, total: list.length, read: 0, list_stage: 1, started_at: new Date().toISOString() });
+    await db.from('stock_snapshots').delete().lt('day', plusDays(day, -60));
+    await db.from('stock_moves').delete().lt('day', plusDays(day, -60));
+    await db.from('stock_snapshot_runs').delete().lt('day', plusDays(day, -60));
+    return { day, step: 'list-sales', total: list.length };
+  }
+
+  // 1b. … plus what was bought in the last 12 months (stock may sit there without selling)
+  if (Number(run.list_stage || 0) < 2) {
+    const extra = new Map<string, { code: string; description: string }>();
+    (await report('purchases', plusDays(day, -364), day, { group_by: ['item'] })).forEach(r => {
+      const c = trimCode(r.item); if (!c || c.includes(':') || Number(r.total_quantity || 0) <= 0) return;
+      if (!extra.has(c)) extra.set(c, { code: c, description: String(r.item_desc ?? '').trim() });
+    });
+    const room = Math.max(0, SNAP_MAX_ITEMS - Number(run.total || 0));
+    const list = [...extra.values()].slice(0, room);
+    for (let i = 0; i < list.length; i += 1000) {
+      // an item already listed (it sold) keeps its row: ignore the duplicates
+      const { error: e } = await db.from('stock_snapshots').upsert(list.slice(i, i + 1000).map(it => ({ day, code: it.code, description: it.description || null })),
+        { onConflict: 'day,code', ignoreDuplicates: true });
+      if (e) throw e;
+    }
+    const { count } = await db.from('stock_snapshots').select('code', { count: 'exact', head: true }).eq('day', day);
+    await db.from('stock_snapshot_runs').update({ total: count ?? run.total, list_stage: 2 }).eq('day', day);
+    return { day, step: 'list-purchases', total: count ?? run.total };
+  }
+
+  // 2. stock reads, as many as fit in the time of one call
+  if (!run.finished_at) {
+    const key = (c: string) => c.replace(/^0+(?=\d)/, '').toUpperCase();
+    let readNow = 0;
+    while (Date.now() - started < SNAP_BUDGET_MS) {
+      const { data: todo, error: e1 } = await db.from('stock_snapshots').select('code').eq('day', day).is('read_at', null).order('code').limit(240);
+      if (e1) throw e1;
+      if (!todo?.length) {
+        await db.from('stock_snapshot_runs').update({ finished_at: new Date().toISOString(), read: Number(run.read || 0) + readNow }).eq('day', day);
+        return { day, step: 'finished', total: run.total, read: Number(run.read || 0) + readNow };
+      }
+      const out: { day: string; code: string; stock: number | null; read_at: string }[] = [];
+      for (let i = 0; i < todo.length && Date.now() - started < SNAP_BUDGET_MS + 20000; i += SNAP_CONCURRENCY) {
+        await Promise.all(todo.slice(i, i + SNAP_CONCURRENCY).map(async ({ code }) => {
+          let stock: number | null = null;
+          try {
+            const d = await dash(`/items/search?${new URLSearchParams({ search: code, year: year(), preferred_branch: BRANCH })}`);
+            const hit = (Array.isArray(d) ? d : []).find((x: Record<string, unknown>) => key(String(x.code ?? '')) === key(code)) as Record<string, unknown> | undefined;
+            if (hit && hit.available_quantity !== null && hit.available_quantity !== undefined) stock = Number(hit.available_quantity);
+          } catch (e) { console.warn('snapshot stock', code, e); }
+          out.push({ day, code, stock, read_at: new Date().toISOString() });
+        }));
+      }
+      for (let i = 0; i < out.length; i += 200) {
+        const { error: e2 } = await db.from('stock_snapshots').upsert(out.slice(i, i + 200), { onConflict: 'day,code' });
+        if (e2) throw e2;
+      }
+      readNow += out.length;
+    }
+    await db.from('stock_snapshot_runs').update({ read: Number(run.read || 0) + readNow }).eq('day', day);
+    return { day, step: 'read', read: Number(run.read || 0) + readNow, total: run.total };
+  }
+
+  // 3. the movements the documents do not explain (needs the previous finished day)
+  if (!run.diff_done) {
+    const { data: prevRun } = await db.from('stock_snapshot_runs').select('day').lt('day', day).not('finished_at', 'is', null).order('day', { ascending: false }).limit(1).maybeSingle();
+    const stocks = async (d: string) => {
+      const m = new Map<string, { stock: number; description: string; supplier: string }>();
+      for (let from = 0; ; from += 1000) {
+        const { data, error: e } = await db.from('stock_snapshots').select('code, stock, description, supplier').eq('day', d).not('stock', 'is', null).order('code').range(from, from + 999);
+        if (e) throw e;
+        (data || []).forEach(r => m.set(String(r.code), { stock: Number(r.stock), description: String(r.description || ''), supplier: String(r.supplier || '') }));
+        if ((data || []).length < 1000) break;
+      }
+      return m;
+    };
+    let moves = 0;
+    // two consecutive days only: otherwise the change holds the documents of several days
+    if (prevRun?.day && Math.round((Date.parse(day + 'T00:00:00Z') - Date.parse(String(prevRun.day) + 'T00:00:00Z')) / 864e5) === 1) {
+      const [prev, now] = await Promise.all([stocks(String(prevRun.day)), stocks(day)]);
+      const sum = async (what: 'sales' | 'purchases') => {
+        const m = new Map<string, number>();
+        (await report(what, day, day, { group_by: ['item'] })).forEach(r => { const c = trimCode(r.item); if (c) m.set(c, (m.get(c) || 0) + Number(r.total_quantity || 0)); });
+        return m;
+      };
+      const [sold, bought] = await Promise.all([sum('sales'), sum('purchases')]);
+      const r2 = (v: number) => Math.round(v * 100) / 100;
+      const rows: Record<string, unknown>[] = [];
+      for (const [code, n] of now) {
+        const p = prev.get(code); if (!p) continue;
+        const b = bought.get(code) || 0, s = sold.get(code) || 0;
+        const un = (n.stock - p.stock) - (b - s);
+        if (Math.abs(un) < 3) continue;   // rounding, pack / piece noise
+        rows.push({ day, code, description: n.description || null, supplier: n.supplier || null, stock_prev: r2(p.stock), stock_now: r2(n.stock), bought: r2(b), sold: r2(s), unexplained: r2(un) });
+      }
+      rows.sort((a, b) => Math.abs(Number(b.unexplained)) - Math.abs(Number(a.unexplained)));
+      const keep = rows.slice(0, 500);
+      await db.from('stock_moves').delete().eq('day', day);
+      for (let i = 0; i < keep.length; i += 200) {
+        const { error: e3 } = await db.from('stock_moves').insert(keep.slice(i, i + 200));
+        if (e3) throw e3;
+      }
+      moves = keep.length;
+    }
+    await db.from('stock_snapshot_runs').update({ diff_done: true }).eq('day', day);
+    return { day, step: 'moves', moves };
+  }
+  return { day, step: 'done', total: run.total, read: run.read };
+}
+
 /* ---------------- codes across years (owner, 2026-10-06; migration 069) ----------------
    The system numbers its items AND its suppliers per year: a year's sales and purchases only know that year's codes
    (Abboud trading 0768 in 2025 / 1134 in 2026; Taanayel labneh 400g 016580 / 128420), while the app uses today's.
@@ -856,6 +1185,36 @@ Deno.serve(async req => {
     catch (e) { console.error(e); return json({ error: e instanceof Error ? e.message : 'failed' }, 502); }
   }
 
+  // Top sales (migration 073), from pg_cron (every day) or the server key.
+  if (body.action === 'top_sales') {
+    const cron = req.headers.get('x-cron-secret') || '';
+    let ok = serverKeys().includes(req.headers.get('apikey') || '');
+    if (!ok && cron) { const { data } = await db.rpc('push_keys'); ok = !!data && cron === (data as Record<string, string>).push_cron_secret; }
+    if (!ok) return json({ error: 'Not allowed.' }, 403);
+    try { return json(await topSales(String(body.period || ""))); }
+    catch (e) { console.error(e); return json({ error: e instanceof Error ? e.message : 'failed' }, 502); }
+  }
+
+  // Daily stock snapshots (migration 076), from pg_cron (every 5 minutes at night) or the server key.
+  if (body.action === 'stock_snapshot') {
+    const cron = req.headers.get('x-cron-secret') || '';
+    let ok = serverKeys().includes(req.headers.get('apikey') || '');
+    if (!ok && cron) { const { data } = await db.rpc('push_keys'); ok = !!data && cron === (data as Record<string, string>).push_cron_secret; }
+    if (!ok) return json({ error: 'Not allowed.' }, 403);
+    try { return json(await stockSnapshot()); }
+    catch (e) { console.error(e); return json({ error: e instanceof Error ? e.message : 'failed' }, 502); }
+  }
+
+  // Stock review (migration 075): overstock / slow movers, from pg_cron (every day) or the server key.
+  if (body.action === 'stock_review') {
+    const cron = req.headers.get('x-cron-secret') || '';
+    let ok = serverKeys().includes(req.headers.get('apikey') || '');
+    if (!ok && cron) { const { data } = await db.rpc('push_keys'); ok = !!data && cron === (data as Record<string, string>).push_cron_secret; }
+    if (!ok) return json({ error: 'Not allowed.' }, 403);
+    try { return json(await stockReview(String(body.kind || ''))); }
+    catch (e) { console.error(e); return json({ error: e instanceof Error ? e.message : 'failed' }, 502); }
+  }
+
   // who is asking: a signed-in, active app user (or the server itself, for "status")
   const bearer = (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '');
   const apikey = req.headers.get('apikey') || '';
@@ -870,6 +1229,21 @@ Deno.serve(async req => {
   }
 
   try {
+    // One step of the stock snapshot now (admin, the Stock control page): the list, a batch, the movements.
+    if (body.action === 'stock_snapshot_now') {
+      if (!isServer && role !== 'admin') return json({ error: 'Admin only.' }, 403);
+      return json(await stockSnapshot());
+    }
+    // Recount the overstock / slow movers now (admin, the Stock control page).
+    if (body.action === 'stock_review_now') {
+      if (!isServer && role !== 'admin') return json({ error: 'Admin only.' }, 403);
+      return json(await stockReview(String(body.kind || '')));
+    }
+    // Recount the top sales now (admin, the Stock control page's Top sales).
+    if (body.action === 'top_sales_now') {
+      if (!isServer && role !== 'admin') return json({ error: 'Admin only.' }, 403);
+      return json(await topSales(String(body.period || "")));
+    }
     // Check one watched vendor's stock now (admin, the Vendors page's Check now).
     if (body.action === 'stock_check_now') {
       if (!isServer && role !== 'admin') return json({ error: 'Admin only.' }, 403);

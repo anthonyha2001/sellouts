@@ -76,6 +76,14 @@
       <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
       <span class="label">Vendors</span>
     </button>
+    <button class="nav-btn" data-tab="warehouse" title="Warehouse" hidden>
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10 12 4l9 6v10H3Z"/><path d="M8 20v-6h8v6"/><path d="M8 17h8"/></svg>
+      <span class="label">Warehouse</span>
+    </button>
+    <button class="nav-btn" data-tab="stockcontrol" title="Stock control" hidden>
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8 12 3 3 8v8l9 5 9-5Z"/><path d="m3 8 9 5 9-5"/><path d="M12 13v8"/></svg>
+      <span class="label">Stock control</span>
+    </button>
     <button class="nav-btn" data-tab="performance" title="Performance" hidden>
       <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 6-7"/><path d="M16 7h4v4"/></svg>
       <span class="label">Performance</span>
@@ -317,14 +325,12 @@
       <div class="filter-row" id="vendorSubTabs">
         <button class="active" data-vsub="directory">Directory</button>
         <button data-vsub="orders">Orders</button>
-        <button data-vsub="calendar">Calendar</button>
+        <button data-vsub="week">Week plan</button>
         <button data-vsub="receiving">Receiving</button>
-        <button data-vsub="lowstock">Low stock &amp; orders</button>
       </div>
-      <div id="vendorLowStockView" style="display:none;"></div>
 
-      <!-- Calendar (order days / deliveries) and Receiving (js/modules/vendorcal.js; migration 062) -->
-      <div id="vendorCalendarView" style="display:none;"></div>
+      <!-- Receiving (js/modules/vendorcal.js; migration 062) -->
+      <div id="vendorWeekView" style="display:none;"></div>
       <div id="vendorReceivingView" style="display:none;"></div>
 
       <div id="vendorDirectoryView">
@@ -383,11 +389,17 @@
               <label for="vendorLeadTime">Lead time (days)</label>
               <input type="text" inputmode="numeric" id="vendorLeadTime" placeholder="e.g. 4">
             </div>
+            <div class="full">
+              <label>Receiving days <span style="opacity:.6;">(the warehouse receives this supplier only on these days; none ticked = any open day after the lead time)</span></label>
+              <div class="vr-days" id="vendorRecvDays">
+                <label><input type="checkbox" value="1"> Mon</label><label><input type="checkbox" value="2"> Tue</label><label><input type="checkbox" value="3"> Wed</label><label><input type="checkbox" value="4"> Thu</label><label><input type="checkbox" value="5"> Fri</label><label><input type="checkbox" value="6"> Sat <small>(if open)</small></label>
+              </div>
+            </div>
             <!-- Watch stock (owner, 2026-10-06; js/modules/lowstock.js) -->
             <div class="full vw-box" id="vendorWatchBox">
               <label class="vw-check"><input type="checkbox" id="vendorWatch"> <span><b>Watch stock</b> — tell me when one of this supplier's selling items runs low</span></label>
               <div class="vw-more" hidden>
-                <label for="vendorSysQ">Supplier in the system <span style="opacity:.6;">(for low stock and purchase orders)</span></label>
+                <label for="vendorSysQ">Supplier in the system <span style="opacity:.6;">(for low stock, top purchases and top sales)</span></label>
                 <div class="ip-chosen" id="vendorSysChosen"></div>
                 <input type="search" id="vendorSysQ" placeholder="Search the supplier in the system…" autocomplete="off">
                 <div class="vw-options" id="vendorSysOptions"></div>
@@ -431,15 +443,10 @@
         </div>
 
         <div class="card">
-          <input type="text" id="vendorSearchInput" placeholder="Search by vendor, salesman, or phone...">
-          <div class="items-scroll" style="margin-top:14px;">
-            <table class="items">
-              <thead><tr>
-                <th>Name</th><th>Salesman</th><th>Phone</th><th>Day</th><th>Frequency</th><th>Lead time</th><th>Anchor date</th><th></th>
-              </tr></thead>
-              <tbody id="vendorTableBody"></tbody>
-            </table>
-          </div>
+          <input type="text" id="vendorSearchInput" placeholder="Search by vendor, salesman, or phone..." style="max-width:360px;">
+          <div class="vb-bar"><select id="vbSort" aria-label="Sort"><option value="urgency">Most urgent first</option><option value="next">Next order day</option><option value="name">Name</option></select></div>
+          <div class="filter-row" id="vbFilters" style="margin-top:10px;"></div>
+          <div class="vb-grid" id="vendorBoard"></div>
           <div class="empty-state" id="vendorEmpty" style="display:none;">
             <div class="glyph"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21V7l8-4 8 4v14"/><path d="M9 21v-6h6v6"/><path d="M9 9h.01M15 9h.01M9 13h.01M15 13h.01"/></svg></div>
             <p class="big">No vendors yet</p>
@@ -906,6 +913,27 @@
     <!-- PROMO LADIES: in-store promoters booked by suppliers (js/modules/promoladies.js) -->
     <section class="panel" id="panel-promoladies"></section>
 
+    <!-- WAREHOUSE: who is coming to the receiving warehouse (js/modules/warehouse.js) -->
+    <section class="panel" id="panel-warehouse"></section>
+
+    <!-- STOCK CONTROL: low stock, top purchases, top sales, overstock, slow movers (js/modules/lowstock.js, stockcontrol.js) -->
+    <section class="panel" id="panel-stockcontrol">
+      <div class="filter-row" id="scTabs">
+        <button class="active" data-sc="lowstock">Low stock</button>
+        <button data-sc="toppurchases">Top purchases</button>
+        <button data-sc="topsales">Top sales</button>
+        <button data-sc="overstock">Overstock</button>
+        <button data-sc="slow">Slow movers</button>
+        <button data-sc="history">Stock history</button>
+      </div>
+      <div id="vendorLowStockView"></div>
+      <div id="vendorTopPurchasesView" style="display:none;"></div>
+      <div id="vendorTopSalesView" style="display:none;"></div>
+      <div id="scOverstockView" style="display:none;"></div>
+      <div id="scSlowView" style="display:none;"></div>
+      <div id="scHistoryView" style="display:none;"></div>
+    </section>
+
     <!-- PERFORMANCE: supplier sales vs purchases (js/modules/performance.js) -->
     <section class="panel" id="panel-performance"></section>
 
@@ -1074,8 +1102,13 @@
 <script src="js/modules/pasteitems.js"></script>
 <script src="js/modules/itemdetail.js"></script>
 <script src="js/modules/lowstock.js"></script>
+<script src="js/modules/stockcontrol.js"></script>
+<script src="js/modules/warehouse.js"></script>
+<script src="js/modules/vendorsheet.js"></script>
+<script src="js/modules/vendororder.js"></script>
+<script src="js/modules/vendorweek.js"></script>
+<script src="js/modules/vendorboard.js"></script>
 <script src="js/modules/vendorcontract.js"></script>
-<script src="js/modules/purchaseorder.js"></script>
 <script src="js/modules/performance.js"></script>
 <script src="js/modules/pricing.js"></script>
 <script src="js/modules/tools.js"></script>

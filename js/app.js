@@ -1351,6 +1351,8 @@ const PAGES = {
   creditnotes: { eyebrow: 'Tracker', title: 'Credit notes', sub: 'Every credit note logged against your suppliers, issued or signed.' },
   promotions:  { eyebrow: 'Builder', title: 'Promotions', sub: 'Look up items by code, build a flyer, and export it when it’s ready.' },
   vendors:     { eyebrow: 'Suppliers', title: 'Vendors', sub: 'Salesmen, order days, deliveries and receiving.' },
+  warehouse:   { eyebrow: 'Receiving', title: 'Warehouse', sub: 'Who is coming to the receiving warehouse, and when it is open.' },
+  stockcontrol: { eyebrow: 'Suppliers', title: 'Stock control', sub: 'What is running low, what sells more or less than it used to, what was bought big, and what is overstocked.' },
   performance: { eyebrow: 'Suppliers', title: 'Performance', sub: 'A supplier\u2019s sales against its purchases, for the dates you choose, from the system.' },
   pricing:     { eyebrow: 'Suppliers', title: 'Pricing', sub: 'A day\u2019s purchases, PU by PU: price changes since the last purchase, and items that arrived with over 2 months of stock.' },
   rentals:     { eyebrow: 'Store map', title: 'Rentals', sub: 'Every rented spot on the store map: its contract, billing, renewal and the supplier’s sales.' },
@@ -1412,6 +1414,8 @@ function switchTab(name, sub) {
   if (name === 'cashcount' && window.CashCount) CashCount.show();
   if (name === 'dashboard' && window.Dashboard) Dashboard.show();
   if (name === 'floorcheck' && window.FloorCheck) FloorCheck.show();
+  if (name === 'warehouse' && window.Warehouse) Warehouse.show();
+  if (name === 'stockcontrol' && window.StockControl) StockControl.show();
   if (name === 'performance' && window.Performance) Performance.show();
   if (name === 'pricing' && window.Pricing) Pricing.show();
   if (name === 'labels' && window.Labels) Labels.show();
@@ -4135,7 +4139,8 @@ async function loadVendorsData() {
     anchorDate: r.anchor_date || '',
     // low stock (migration 066)
     watchStock: !!r.watch_stock, systemSuppliers: Array.isArray(r.system_suppliers) ? r.system_suppliers : [], coverDays: r.cover_days || null, stockCheckedAt: r.stock_checked_at || null,
-    contract: r.contract && typeof r.contract === 'object' ? r.contract : {}   // migration 068
+    contract: r.contract && typeof r.contract === 'object' ? r.contract : {},   // migration 068
+    receivingDays: Array.isArray(r.receiving_days) ? r.receiving_days.map(Number) : []   // migration 078
   }));
 }
 async function saveVendorRemote(v) {
@@ -4147,6 +4152,7 @@ async function saveVendorRemote(v) {
   };
   if (v.watchStock !== undefined) Object.assign(row, { watch_stock: !!v.watchStock, system_suppliers: v.systemSuppliers || [], cover_days: v.coverDays || null });
   if (v.contract !== undefined) row.contract = v.contract || {};
+  if (v.receivingDays !== undefined) row.receiving_days = (v.receivingDays || []).length ? v.receivingDays : null;   // migration 078
   const { error } = await sb.from('vendors').upsert(row);
   if (error) { console.error(error); showToast('Could not save that vendor — ' + sbErrText(error), true); return false; }
   return true;
@@ -4157,6 +4163,7 @@ async function deleteVendorRemote(id) {
 }
 
 function renderVendorsPage() {
+  if (window.VendorBoard) return VendorBoard.render();   // the vendor board (js/modules/vendorboard.js)
   const term = vendorSearchTerm.trim().toLowerCase();
   const filtered = vendorsList.filter(v => {
     if (!term) return true;
@@ -4175,7 +4182,9 @@ function renderVendorsPage() {
       <td>${v.dayOfWeek === null ? '—' : VENDOR_DAY_NAMES[v.dayOfWeek]}</td>
       <td>${VENDOR_FREQ_LABELS[v.frequencyWeeks] || '—'}</td>
       <td>${v.leadTimeDays === null ? '—' : v.leadTimeDays + 'd'}</td>
-      <td class="mono">${escapeHtml(v.anchorDate || '—')}</td>
+      <td class="mono">${(() => { for (let i = 0; i < 90; i++) { const d = addDaysStr(todayStr(), i); if (isVendorDueOn(v, d)) return i === 0 ? '<b>Today</b>' : escapeHtml(d); } return '—'; })()}</td>
+      <td>${(() => { const p = pendingOrderForVendor(v.id), ns = notSentOrderForVendor(v.id);
+        return p ? (isOrderOverdue(p) ? '<span class="badge danger">Late</span>' : '<span class="badge warn">Awaiting</span>') : ns ? '<span class="badge inactive">Not sent</span>' : '<span class="muted-note">—</span>'; })()}</td>
       <td style="white-space:nowrap;">
         <button class="btn ghost small" data-role="edit-vendor">Edit</button>
         <button class="btn ghost small" data-role="delete-vendor" style="color:var(--brick);">Delete</button>
@@ -4188,6 +4197,8 @@ function renderVendorsPage() {
 
   body.querySelectorAll('tr[data-vendor-id]').forEach(tr => {
     const id = tr.dataset.vendorId;
+    tr.style.cursor = 'pointer';
+    tr.addEventListener('click', e => { if (!e.target.closest('button, a, input, select')) openVendorDetail(id); });   // the whole row opens the vendor sheet
     tr.querySelector('[data-role="open-vendor-detail"]').addEventListener('click', () => openVendorDetail(id));
     tr.querySelector('[data-role="edit-vendor"]').addEventListener('click', () => openVendorForm(id));
     tr.querySelector('[data-role="delete-vendor"]').addEventListener('click', async () => {
@@ -4214,6 +4225,7 @@ function openVendorForm(id) {
   document.getElementById('vendorFrequency').value = v ? String(v.frequencyWeeks) : '1';
   document.getElementById('vendorLeadTime').value = v && v.leadTimeDays !== null ? v.leadTimeDays : '';
   document.getElementById('vendorAnchor').value = v ? v.anchorDate : '';
+  document.querySelectorAll('#vendorRecvDays input').forEach(c => { c.checked = !!v && (v.receivingDays || []).includes(Number(c.value)); });
   if (window.LowStock) LowStock.wireForm(v);
   if (window.VendorContract) VendorContract.wireForm(v);
   document.getElementById('vendorFormCard').style.display = 'block';
@@ -4241,6 +4253,7 @@ document.getElementById('saveVendorBtn').addEventListener('click', async () => {
     frequencyWeeks: Number(document.getElementById('vendorFrequency').value),
     leadTimeDays: leadRaw === '' ? null : Number(leadRaw),
     anchorDate: document.getElementById('vendorAnchor').value || '',
+    receivingDays: [...document.querySelectorAll('#vendorRecvDays input:checked')].map(c => Number(c.value)),
     ...(window.LowStock ? LowStock.readForm() : {}),
     ...(window.VendorContract ? VendorContract.readForm() : {})
   };
@@ -4496,12 +4509,12 @@ document.querySelectorAll('#vendorSubTabs button').forEach(btn => {
     document.querySelectorAll('#vendorSubTabs button').forEach(b => b.classList.toggle('active', b === btn));
     document.getElementById('vendorDirectoryView').style.display = vendorSubTab === 'directory' ? 'block' : 'none';
     document.getElementById('vendorOrdersView').style.display = vendorSubTab === 'orders' ? 'block' : 'none';
-    document.getElementById('vendorCalendarView').style.display = vendorSubTab === 'calendar' ? 'block' : 'none';
     document.getElementById('vendorReceivingView').style.display = vendorSubTab === 'receiving' ? 'block' : 'none';
-    document.getElementById('vendorLowStockView').style.display = vendorSubTab === 'lowstock' ? 'block' : 'none';
-    if (vendorSubTab === 'lowstock' && window.LowStock) LowStock.render();
+    document.getElementById('vendorWeekView').style.display = vendorSubTab === 'week' ? 'block' : 'none';
+    if (vendorSubTab === 'week' && window.VendorWeek) VendorWeek.show();
+    if (vendorSubTab === 'directory' && window.VendorBoard) VendorBoard.show();
     if (vendorSubTab === 'orders') renderOrdersView();
-    if (window.VendorCal) { if (vendorSubTab === 'calendar') VendorCal.renderCalendar(); if (vendorSubTab === 'receiving') VendorCal.renderReceiving(); }
+    if (window.VendorCal && vendorSubTab === 'receiving') VendorCal.renderReceiving();
   });
 });
 
@@ -4739,8 +4752,11 @@ async function markOrderSent(orderId) {
   if (!o) return;
   const sentDate = todayStr();
   const leadTimeDays = (o.leadTimeDays === null || o.leadTimeDays === undefined) ? 4 : Number(o.leadTimeDays);
-  const expected = addDaysStr(sentDate, leadTimeDays);
-  const ok = await showConfirm(`Mark this order as sent to the supplier today (${sentDate})? Expected delivery ${expected} (lead time ${leadTimeDays}d).`, 'Mark sent');
+const rawExpected = addDaysStr(sentDate, leadTimeDays);
+if (window.Warehouse) await Warehouse.ensure();
+// the warehouse is closed on Sundays and (usually) Saturdays: the delivery is expected on the next open day
+const expected = window.Warehouse ? Warehouse.expectedFor(vendorsList.find(x => x.id === o.vendorId), sentDate, leadTimeDays) : rawExpected;   // the vendor's receiving days (migration 078)
+const ok = await showConfirm(`Mark this order as sent to the supplier today (${sentDate})? Expected delivery ${expected} (lead time ${leadTimeDays}d${expected !== rawExpected ? '; the warehouse receives this vendor on other days' : ''}).`, 'Mark sent');
   if (!ok) return;
   o.orderDate = sentDate;
   o.expectedDelivery = expected;
@@ -4829,6 +4845,7 @@ async function deleteOrderRow(orderId) {
 // last actually order from them?" doesn't mean hunting across the
 // separate Due / Not sent / Awaiting / Skipped / History tables above.
 function openVendorDetail(vendorId) {
+  if (window.VendorSheet) return VendorSheet.open(vendorId);   // the vendor sheet (js/modules/vendorsheet.js); the old small window below is the fallback
   const v = vendorsList.find(x => x.id === vendorId);
   if (!v) return;
 
@@ -5050,16 +5067,15 @@ async function refreshVendors() {
   renderOrdersView();
   renderVendorExtras();
 }
-// Calendar / receiving tabs and the stats strip (js/modules/vendorcal.js). Receiving only (vendors.receive
-// without vendors.manage): the calendar (deliveries) and the receiving page, nothing else.
+// Receiving tab and the stats strip (js/modules/vendorcal.js). Receiving only (vendors.receive
+// without vendors.manage): the receiving page, nothing else.
 function renderVendorExtras() {
   if (!window.VendorCal) return;
   const manage = can('vendors.manage');
-  document.querySelectorAll('#vendorSubTabs [data-vsub="directory"], #vendorSubTabs [data-vsub="orders"]').forEach(b => { b.hidden = !manage; });
+  document.querySelectorAll('#vendorSubTabs [data-vsub="directory"], #vendorSubTabs [data-vsub="orders"], #vendorSubTabs [data-vsub="week"]').forEach(b => { b.hidden = !manage; });
   if (!manage && (vendorSubTab === 'directory' || vendorSubTab === 'orders')) { document.querySelector('#vendorSubTabs [data-vsub="receiving"]')?.click(); return; }
   VendorCal.renderStats();
-  if (window.LowStock && manage) LowStock.reload().then(() => { VendorCal.renderStats(); if (vendorSubTab === 'lowstock') LowStock.render(); });   // low stock count (migration 066)
-  if (vendorSubTab === 'calendar') VendorCal.renderCalendar();
+  if (window.LowStock && manage) LowStock.reload().then(() => { VendorCal.renderStats(); if (window.StockControl) StockControl.refresh(); });   // low stock count (migration 066)
   if (vendorSubTab === 'receiving') VendorCal.renderReceiving();
 }
 

@@ -38,30 +38,64 @@
   }
   function bigHtml() {
     if (!S.big || !S.big.length) return '';
-    return `<section class="card ls-big"><div class="ls-head"><div><h3>Big purchases</h3><span class="muted-note">bought at least 3 times the item's usual order, more than 6 weeks of sales · the last 14 days</span></div></div>
+    return `<section class="card ls-big"><div class="ls-head"><div><h3>Top purchases</h3><span class="muted-note">bought at least 3 times the item's usual order, more than 6 weeks of sales · the last 14 days</span></div></div>
       <div class="items-scroll" style="margin:0;"><table class="items ls-table"><thead><tr><th>Day</th><th>PU</th><th>Supplier</th><th>Code</th><th>Item</th><th class="num">Bought</th><th class="num">Usually</th><th class="num">Sells / week</th><th class="num">Weeks of sales</th></tr></thead>
       <tbody>${S.big.map(b => `<tr data-ls-code="${esc(b.code)}"><td>${esc(dmy(b.day))}</td><td class="mono">${esc(b.documents || '')}</td><td>${esc(b.supplier || '')}</td><td class="mono">${esc(b.code)}</td><td>${esc(b.description || '')}</td>
         <td class="num"><b>${fq(b.qty)}</b></td><td class="num" title="The middle quantity of its ${b.times} purchase days in the 12 months before">${fq(b.usual_qty)}</td><td class="num">${fq(b.weekly_sales)}</td>
         <td class="num"><b class="ls-urgent">${b.weeks_cover === null ? 'no sales' : fq(b.weeks_cover)}</b></td></tr>`).join('')}</tbody></table></div></section>`;
   }
 
+  // top sales (migrations 073, 074): items selling more than they used to, per day / week / month, the latest daily run,
+  // per supplier; the ones that may run out soon are marked (attention) and come first
+  const TOP_VIEWS = {
+    day:   { label: 'Day',   span: 'Yesterday',    usual: 'Usually / day',   note: 'yesterday against the daily average of the 4 weeks before (at least 2×)' },
+    week:  { label: 'Week',  span: 'Last 7 days',  usual: 'Usually / week',  note: 'the last 7 days against the weekly average of the 8 weeks before (at least 1.5×)' },
+    month: { label: 'Month', span: 'Last 30 days', usual: 'Usually / month', note: 'the last 30 days against the monthly average of the 3 months before (at least 1.3×)' },
+  };
+  S.topPeriod = 'week'; S.topRisk = false;
+  async function loadTop() {
+    const { data, error } = await sb.from('top_sales').select('*').order('week_end', { ascending: false }).order('sold_week', { ascending: false }).limit(1000);
+    if (error) { S.top = null; return; }
+    const wk = data?.[0]?.week_end;
+    S.top = (data || []).filter(t => t.week_end === wk);
+  }
+  const refreshBtn = () => isAdmin() ? `<button type="button" class="icon-btn" id="lsTopNow" title="Recount now" aria-label="Recount now"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/></svg></button>` : '';
+  function topHtml() {
+    if (!S.top) return '';   // table not there yet (migration 073 / 074 not run)
+    if (!S.top.length) return isAdmin() ? `<section class="card ls-big"><div class="ls-head"><div><h3>Selling more than usual</h3><span class="muted-note">Nothing counted yet: it runs every morning, or press the button.</span></div>${refreshBtn()}</div></section>` : '';
+    const v = TOP_VIEWS[S.topPeriod], all = S.top.filter(t => t.period === S.topPeriod);
+    const nAttn = all.filter(t => t.attention).length, list = S.topRisk ? all.filter(t => t.attention) : all;
+    const groups = new Map();
+    list.forEach(t => { const k = t.supplier || 'No vendor linked'; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(t); });
+    // a supplier with something to order first, then by its biggest gain
+    const ordered = [...groups.entries()].map(([sup, l]) => [sup, l.slice().sort((a, b) => (b.attention - a.attention) || (Number(b.sold_week) - Number(b.usual_week)) - (Number(a.sold_week) - Number(a.usual_week)))])
+      .sort((a, b) => (b[1].filter(x => x.attention).length - a[1].filter(x => x.attention).length) || a[0].localeCompare(b[0]));
+    const days = n => n === null ? '<span class="muted-note">—</span>' : `<b class="${Number(n) < 3 ? 'ls-urgent' : 'ls-soon'}">${fq(n)}</b>`;
+    return `<section class="card ls-big"><div class="ls-head"><div><h3>Selling more than usual</h3><span class="muted-note">${esc(v.note)} · ${esc(dmy(S.top[0].week_end))}</span></div>${refreshBtn()}</div>
+      <div class="filter-row" id="lsTopPeriods" style="margin:8px 0;">${Object.entries(TOP_VIEWS).map(([id, x]) => `<button type="button" data-lsp="${id}" class="${id === S.topPeriod ? 'active' : ''}">${x.label} <span class="muted-note">${S.top.filter(t => t.period === id).length}</span></button>`).join('')}
+        <button type="button" id="lsTopRisk" class="${S.topRisk ? 'active' : ''}" title="Only the items that may run out soon">⚠ May run out <span class="muted-note">${nAttn}</span></button></div>
+      ${ordered.length ? ordered.map(([sup, l]) => `<h4 style="margin:10px 0 4px;">${esc(sup)} <span class="muted-note">${l.length} item${l.length === 1 ? '' : 's'}${l.some(x => x.attention) ? ` · <b class="ls-urgent">${l.filter(x => x.attention).length} to order</b>` : ''}</span></h4>
+      <div class="items-scroll" style="margin:0;"><table class="items ls-table"><thead><tr><th></th><th>Code</th><th>Item</th><th class="num">${esc(v.span)}</th><th class="num">${esc(v.usual)}</th><th class="num">Times</th><th class="num">Stock</th><th class="num">Days left</th></tr></thead>
+      <tbody>${l.map(t => `<tr data-ls-code="${esc(t.code)}"${t.attention ? ' style="background:rgba(214,69,69,.08)"' : ''}><td>${t.attention ? '<span class="badge" title="May run out soon: order again" style="color:#b42318;font-weight:700;">⚠ Order</span>' : ''}</td><td class="mono">${esc(t.code)}</td><td>${esc(t.description || '')}</td>
+        <td class="num"><b>${fq(t.sold_week)}</b></td><td class="num">${fq(t.usual_week)}</td><td class="num">${fq(t.ratio)}×</td>
+        <td class="num">${t.stock === null ? '<span class="muted-note">—</span>' : Number(t.stock) <= 0 ? '<span class="rc-zero">0</span>' : fq(t.stock)}</td>
+        <td class="num">${days(t.days_left)}</td></tr>`).join('')}</tbody></table></div>`).join('')
+        : `<p class="muted-note" style="margin:8px 0 0;">${S.topRisk ? 'None of these may run out soon.' : 'Nothing selling more than usual in this view.'}</p>`}
+      <p class="muted-note" style="margin:8px 0 0;">⚠ Order = out of stock, or fewer days of stock than the vendor needs to be re-supplied (its cover days, default 7) at the item's selling rate. Double-click an item for its details.</p></section>`;
+  }
+
   async function render() {
     const box = el('vendorLowStockView'); if (!box) return;
-    if (!S.loaded) { box.innerHTML = '<div class="card"><p class="muted-note" style="margin:0;">Loading…</p></div>'; await Promise.all([load(), loadBig()]); }
+    if (!S.loaded) { box.innerHTML = '<div class="card"><p class="muted-note" style="margin:0;">Loading…</p></div>'; await load(); }
     const watched = vendorsList.filter(v => v.watchStock);
     const byV = new Map(); S.alerts.forEach(a => { if (!byV.has(a.vendor_id)) byV.set(a.vendor_id, []); byV.get(a.vendor_id).push(a); });
     box.innerHTML = `
-      ${window.PurchaseOrder ? `<div class="card ls-po-start"><b>Purchase order</b> for any vendor:
-        <select id="lsPoVendor"><option value="">Choose a vendor…</option>${vendorsList.slice().sort((a, b) => a.name.localeCompare(b.name)).map(v => `<option value="${esc(v.id)}">${esc(v.name)}${(v.systemSuppliers || []).length ? '' : ' (not linked)'}</option>`).join('')}</select>
-        <button type="button" class="btn small" id="lsPoGo">Open</button></div>` : ''}
       <div class="card ls-intro"><p style="margin:0;">Items of the suppliers you watch that are <b>running low</b>, from the system. Only items that sold in the last 30 days are followed. ${watched.length
         ? `<b>${watched.length}</b> supplier${watched.length === 1 ? '' : 's'} watched.` : 'No supplier is watched yet: edit a vendor in the Directory and tick <b>Watch stock</b>.'}</p></div>
-      ${bigHtml()}
       ${watched.map(v => {
         const all = byV.get(v.id) || [], list = all.filter(a => !a.doubtful), wrong = all.filter(a => a.doubtful);
         return `<section class="card ls-vendor">
           <div class="ls-head"><div><h3>${esc(v.name)}</h3><span class="muted-note">${esc((v.systemSuppliers || []).map(s => s.name).join(', ') || 'no supplier linked')} · keep ${v.coverDays || ((v.leadTimeDays || 3) + 4)} days of stock · ${esc(ago(v.stockCheckedAt))}</span></div>
-            ${window.PurchaseOrder ? `<button type="button" class="btn small" data-ls-po="${esc(v.id)}">Purchase order</button>` : ''}
             ${isAdmin() ? `<button type="button" class="icon-btn" data-ls-check="${esc(v.id)}" title="Check now" aria-label="Check now"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/></svg></button>` : ''}</div>
           ${list.length ? `<div class="items-scroll" style="margin:0;"><table class="items ls-table"><thead><tr><th>Code</th><th>Item</th><th class="num">Stock</th><th class="num">Sells / week</th><th class="num">Days left</th><th>Last PU</th><th class="num">Sold since</th><th>Since</th></tr></thead>
             <tbody>${list.map(a => `<tr data-ls-code="${esc(a.code)}"><td class="mono">${esc(a.code)}</td><td>${esc(a.description || '')}</td>
@@ -88,14 +122,49 @@
       await loadVendorsData(); await load(); render();
       if (window.VendorCal) VendorCal.renderStats();
     });
-    box.querySelectorAll('[data-ls-po]').forEach(b => b.onclick = () => PurchaseOrder.open({ vendor: vendorsList.find(v => v.id === b.dataset.lsPo) }));
-    el('lsPoGo')?.addEventListener('click', () => {
-      const v = vendorsList.find(x => x.id === el('lsPoVendor').value);
-      if (!v) return showToast('Choose a vendor.', true);
-      if (!(v.systemSuppliers || []).length) return showToast(`Link ${v.name} to its supplier in the system first: Directory › edit › Watch stock › Supplier in the system.`, true);
-      PurchaseOrder.open({ vendor: v });
-    });
     box.querySelectorAll('tr[data-ls-code]').forEach(tr => tr.ondblclick = () => window.ItemDetail && ItemDetail.open(tr.dataset.lsCode));
+  }
+
+  /* ---------------- Top purchases tab: the big purchases (migration 071) ---------------- */
+  async function renderTopPurchases() {
+    const box = el('vendorTopPurchasesView'); if (!box) return;
+    box.innerHTML = '<div class="card"><p class="muted-note" style="margin:0;">Loading…</p></div>';
+    await loadBig();
+    box.innerHTML = S.big === null ? '<div class="card"><p class="muted-note" style="margin:0;">Could not be read.</p></div>'
+      : S.big.length ? bigHtml() : '<div class="card"><p class="muted-note" style="margin:0;">No big purchase in the last 14 days.</p></div>';
+    box.querySelectorAll('tr[data-ls-code]').forEach(tr => tr.ondblclick = () => window.ItemDetail && ItemDetail.open(tr.dataset.lsCode));
+  }
+
+  /* ---------------- Top sales tab (migration 073): selling more than they used to ---------------- */
+  async function renderTopSales() {
+    const box = el('vendorTopSalesView'); if (!box) return;
+    box.innerHTML = '<div class="card"><p class="muted-note" style="margin:0;">Loading…</p></div>';
+    await loadTop();
+    paintTopSales();
+  }
+  function paintTopSales() {
+    const box = el('vendorTopSalesView'); if (!box) return;
+    box.innerHTML = topHtml() || '<div class="card"><p class="muted-note" style="margin:0;">Nothing selling more than usual yet. It is counted every morning.</p></div>';
+    box.querySelectorAll('tr[data-ls-code]').forEach(tr => tr.ondblclick = () => window.ItemDetail && ItemDetail.open(tr.dataset.lsCode));
+    box.querySelectorAll('[data-lsp]').forEach(b => b.onclick = () => { S.topPeriod = b.dataset.lsp; paintTopSales(); });
+    el('lsTopRisk')?.addEventListener('click', () => { S.topRisk = !S.topRisk; paintTopSales(); });
+    el('lsTopNow')?.addEventListener('click', async e => {
+      const b = e.currentTarget; b.disabled = true; b.classList.add('ls-spin');
+      try {
+        // one period per call (the store is big): day, week, month, one after the other
+        let flagged = 0, attention = 0;
+        for (const period of ['day', 'week', 'month']) {
+          b.title = `Counting the ${period}…`;
+          const { data, error } = await sb.functions.invoke('lv-dashboard', { body: { action: 'top_sales_now', period } });
+          let msg = data?.error || '';
+          if (error && !msg) { try { msg = (await error.context.json()).error || ''; } catch (e) { msg = error.message || ''; } }
+          if (msg || error || !data) throw new Error(`${period}: ${msg || 'no answer'}`);
+          flagged += data.flagged; attention += data.attention;
+        }
+        showToast(`${flagged} selling more than usual (${attention} may run out soon).`);
+      } catch (err) { console.warn('top sales', err); showToast(err.message && err.message !== 'no answer' ? err.message : 'The system did not answer.', true); }
+      renderTopSales();
+    });
   }
 
   /* ---------------- the vendor form: Watch stock ---------------- */
@@ -136,5 +205,5 @@
     return { watchStock: !!el('vendorWatch')?.checked && picked.length > 0, systemSuppliers: picked.slice(), coverDays: cover > 0 ? Math.round(cover) : null };   // the link is kept even when not watched (purchase orders use it)
   }
 
-  window.LowStock = { render, wireForm, readForm, openCount, reload: async () => { await Promise.all([load(), loadBig()]); } };
+  window.LowStock = { render, wireForm, readForm, openCount, renderTopPurchases, renderTopSales, reload: async () => { await load(); } };
 })();
