@@ -4526,6 +4526,8 @@ document.querySelectorAll('#vendorSubTabs button').forEach(btn => {
     vendorSubTab = btn.dataset.vsub;
     document.querySelectorAll('#vendorSubTabs button').forEach(b => b.classList.toggle('active', b === btn));
     document.getElementById('vendorDirectoryView').style.display = vendorSubTab === 'directory' ? 'block' : 'none';
+    document.getElementById('vendorPosView').style.display = vendorSubTab === 'pos' ? 'block' : 'none';
+    if (vendorSubTab === 'pos' && window.VendorPos) VendorPos.show();
     document.getElementById('vendorOrdersView').style.display = vendorSubTab === 'orders' ? 'block' : 'none';
     document.getElementById('vendorReceivingView').style.display = vendorSubTab === 'receiving' ? 'block' : 'none';
     if (vendorSubTab === 'directory' && window.VendorBoard) VendorBoard.show();
@@ -5112,8 +5114,8 @@ async function refreshVendors() {
 function renderVendorExtras() {
   if (!window.VendorCal) return;
   const manage = can('vendors.manage');
-  document.querySelectorAll('#vendorSubTabs [data-vsub="directory"], #vendorSubTabs [data-vsub="orders"], #vendorSubTabs [data-vsub="week"]').forEach(b => { b.hidden = !manage; });
-  if (!manage && (vendorSubTab === 'directory' || vendorSubTab === 'orders')) { document.querySelector('#vendorSubTabs [data-vsub="receiving"]')?.click(); return; }
+  document.querySelectorAll('#vendorSubTabs [data-vsub="directory"], #vendorSubTabs [data-vsub="orders"], #vendorSubTabs [data-vsub="pos"]').forEach(b => { b.hidden = !manage; });
+  if (!manage && (vendorSubTab === 'directory' || vendorSubTab === 'orders' || vendorSubTab === 'pos')) { document.querySelector('#vendorSubTabs [data-vsub="receiving"]')?.click(); return; }
   VendorCal.renderStats();
   if (window.LowStock && manage) LowStock.reload().then(() => { VendorCal.renderStats(); if (window.StockControl) StockControl.refresh(); });   // low stock count (migration 066)
   if (vendorSubTab === 'receiving') VendorCal.renderReceiving();

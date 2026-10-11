@@ -2836,3 +2836,6 @@ tr.ls-nopo{background:rgba(200,68,63,.07);}
 /* the navigation never runs off the screen: its groups wrap, and so do their tabs */
 .sc-navgrp{max-width:100%;}
 .sc-cnt{cursor:default;}
+/* Vendors › POs: the day picker in the tools */
+.sc-vtools .vp-day{width:auto;height:32px;padding:0 8px;font-size:13px;border-radius:8px;}
+.sc-vtools .sc-ico{font-size:18px;line-height:1;}
