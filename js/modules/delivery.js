@@ -638,9 +638,10 @@ function stats(list){
     const a = +o.amount || 0, cust = o.customerId || o.cName, ar = o.cArea || '(no area)';
     s.total += a; o.paid ? s.paid += a : s.unpaid += a;
     for(const [bucket,key] of [[s.pay,o.payment],[s.plat,o.platform]]){ const b = bucket[key] || (bucket[key] = {count:0,total:0,cust:new Set()}); b.count++; b.total += a; b.cust.add(cust); }
-    const d = s.drv[o.driverId] || (s.drv[o.driverId] = {count:0,total:0,unpaid:0,areas:{},van:0,moto:0,vanAreas:{},vanOrders:[]}); d.count++; d.total += a; if(!o.paid) d.unpaid += a; d.areas[ar] = (d.areas[ar]||0) + 1;
+    const d = s.drv[o.driverId] || (s.drv[o.driverId] = {count:0,total:0,unpaid:0,areas:{},van:0,moto:0,byVeh:{}}); d.count++; d.total += a; if(!o.paid) d.unpaid += a; d.areas[ar] = (d.areas[ar]||0) + 1;
     // by vehicle (owner, 2026-10-11): how many each driver took in the van, and where, to pay him
-    if(vehOf(o.vehicle) === 'Van'){ d.van++; d.vanAreas[ar] = (d.vanAreas[ar]||0) + 1; d.vanOrders.push(o); } else d.moto++;
+    const vb = d.byVeh[vehOf(o.vehicle)] || (d.byVeh[vehOf(o.vehicle)] = {count:0, areas:{}, orders:[]}); vb.count++; vb.areas[ar] = (vb.areas[ar]||0) + 1; vb.orders.push(o);
+    if(vehOf(o.vehicle) === 'Van') d.van++; else d.moto++;
     const A = s.area[ar] || (s.area[ar] = {count:0,total:0}); A.count++; A.total += a;
     const D = s.days[o.date] || (s.days[o.date] = {count:0,total:0}); D.count++; D.total += a;
   }
@@ -668,14 +669,18 @@ function renderReports(){
   const payRows = byTotal(s.pay).map(([k,v]) => `<tr><td>${esc(k)}</td><td class="num">${v.count}</td><td class="num">${v.cust.size}</td><td class="num">${money(v.total)}</td><td class="num">${pct(v.total,s.total)}</td></tr>`);
   const platRows = byTotal(s.plat).map(([k,v]) => `<tr><td><span class="tag ${platClass(k)}">${esc(k)}</span></td><td class="num">${v.count}</td><td class="num">${v.cust.size}</td><td class="num">${money(v.total)}</td><td class="num">${money(v.count ? v.total/v.count : 0)}</td></tr>`);
   const drvRows = byTotal(s.drv).map(([id,v]) => `<tr><td><b>${esc(driverName(id))}</b><div style="margin-top:4px">${Object.entries(v.areas).sort((a,b)=>b[1]-a[1]).map(([a,n]) => `<span class="tag area">${esc(a)} × ${n}</span>`).join('')}</div></td><td class="num">${v.count}</td><td class="num">${v.moto}</td><td class="num">${v.van ? `<b>${v.van}</b>` : '0'}</td><td class="num">${money(v.total)}</td><td class="num">${money(v.total/v.count)}</td><td class="num" style="color:${v.unpaid?'var(--red)':'inherit'}">${money(v.unpaid)}</td></tr>`);
-  // the van deliveries, driver by driver: how many, where (areas), and each order (date, customer, address), to pay them
-  const vanDrivers = Object.entries(s.drv).filter(([,v]) => v.van).sort((a,b) => b[1].van - a[1].van);
-  const vanTotal = vanDrivers.reduce((n,[,v]) => n + v.van, 0);
-  const vanHtml = vanDrivers.map(([id,v]) => `<div class="van-drv">
-      <h4>${vehIc('Van')} ${esc(driverName(id))} — <b>${v.van}</b> van deliver${v.van === 1 ? 'y' : 'ies'}
-        <span class="van-areas">${Object.entries(v.vanAreas).sort((a,b)=>b[1]-a[1]).map(([a,n]) => `<span class="tag area">${esc(a)} × ${n}</span>`).join('')}</span></h4>
+  // the deliveries driver by driver, by vehicle (owner, 2026-10-11: "it only shows by van???"): motorcycle and van, each
+  // with how many, where (areas) and every order (date, customer, address), to pay the drivers
+  const areaTags = areas => Object.entries(areas).sort((a,b)=>b[1]-a[1]).map(([a,n]) => `<span class="tag area">${esc(a)} × ${n}</span>`).join('');
+  const vehBlock = (veh, b) => !b ? '' : `<div class="drv-veh">
+      <h5>${vehIc(veh)} ${veh} — <b>${b.count}</b> deliver${b.count === 1 ? 'y' : 'ies'} <span class="van-areas">${areaTags(b.areas)}</span></h5>
       <table class="tbl"><thead><tr><th>Date</th><th>Customer</th><th>Area</th><th>Address</th><th class="num">Amount</th></tr></thead>
-      <tbody>${v.vanOrders.slice().sort((a,b) => a.date.localeCompare(b.date) || (a.created||0) - (b.created||0)).map(o => `<tr><td>${fmtDate(o.date)}</td><td>${esc(o.cName || '')}</td><td>${esc(o.cArea || '—')}</td><td>${esc(o.cAddress || '')}</td><td class="num">${money(+o.amount || 0)}</td></tr>`).join('')}</tbody></table></div>`).join('');
+      <tbody>${b.orders.slice().sort((x,y) => x.date.localeCompare(y.date) || (x.created||0) - (y.created||0)).map(o => `<tr><td>${fmtDate(o.date)}</td><td>${esc(o.cName || '')}</td><td>${esc(o.cArea || '—')}</td><td>${esc(o.cAddress || '')}</td><td class="num">${money(+o.amount || 0)}</td></tr>`).join('')}</tbody></table></div>`;
+  const drvDetail = Object.entries(s.drv).sort((a,b) => b[1].count - a[1].count).map(([id,v]) => `<div class="van-drv">
+      <h4>${esc(driverName(id))} — <b>${v.count}</b> deliver${v.count === 1 ? 'y' : 'ies'}
+        <span class="tag veh-moto">${vehIc('Motorcycle')} ${v.moto}</span><span class="tag veh-van">${vehIc('Van')} ${v.van}</span></h4>
+      ${vehBlock('Van', v.byVeh.Van)}${vehBlock('Motorcycle', v.byVeh.Motorcycle)}</div>`).join('');
+  const nMoto = Object.values(s.drv).reduce((n,v) => n + v.moto, 0), nVan = Object.values(s.drv).reduce((n,v) => n + v.van, 0);
   const areaRows = byTotal(s.area).map(([k,v]) => `<tr><td>${esc(k)}</td><td class="num">${v.count}</td><td class="num">${money(v.total)}</td><td class="num">${money(v.total/v.count)}</td></tr>`);
   const dayRows = Object.entries(s.days).sort().map(([d,v]) => `<tr><td>${fmtDate(d)}</td><td class="num">${v.count}</td><td class="num">${money(v.total)}</td><td class="num">${money(v.total/v.count)}</td></tr>`);
 
@@ -694,8 +699,8 @@ function renderReports(){
       <div class="card table-wrap"><h3 style="padding:14px 14px 0">By platform</h3>${table(['Platform','Orders','Customers','Total','AOV'], platRows)}</div>
     </div>
     <div class="card table-wrap"><h3 style="padding:14px 14px 0">By driver — orders delivered and areas</h3>${table(['Driver / areas','Orders','Motorcycle','Van','Total','AOV','Unpaid'], drvRows)}</div>
-    <div class="card table-wrap van-report"><h3 style="padding:14px 14px 0">Van deliveries — ${vanTotal} in this period${vanTotal ? ' (to pay the drivers)' : ''}</h3>
-      ${vanHtml || '<p class="empty" style="padding:6px 14px 14px">No order went by van in this period.</p>'}</div>
+    <div class="card table-wrap van-report"><h3 style="padding:14px 14px 0">Deliveries by driver and vehicle — ${nMoto} by motorcycle · ${nVan} by van (to pay the drivers)</h3>
+      ${drvDetail || '<p class="empty" style="padding:6px 14px 14px">No delivery in this period.</p>'}</div>
     <div class="grid-2">
       <div class="card table-wrap"><h3 style="padding:14px 14px 0">By area</h3>${table(['Area','Orders','Total','AOV'], areaRows)}</div>
       ${dayRows.length > 1 ? `<div class="card table-wrap"><h3 style="padding:14px 14px 0">Day by day</h3>${table(['Date','Orders','Total','AOV'], dayRows)}</div>` : ''}

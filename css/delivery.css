@@ -219,3 +219,7 @@
 #panel-delivery .van-drv h4 svg{width:18px;height:18px;}
 #panel-delivery .van-areas{display:flex;gap:4px;flex-wrap:wrap;font-weight:400;}
 @media print{#panel-delivery .van-report{break-inside:auto;}#panel-delivery .van-drv{break-inside:avoid;}}
+#panel-delivery .van-drv h4 .tag{display:inline-flex;align-items:center;gap:4px;}
+#panel-delivery .drv-veh{margin:4px 0 10px 4px;}
+#panel-delivery .drv-veh h5{margin:8px 0 6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13.5px;font-weight:600;}
+#panel-delivery .drv-veh h5 svg,#panel-delivery .van-drv h4 .tag svg{width:16px;height:16px;}
