@@ -651,7 +651,8 @@
   /* ---------------- shell ---------------- */
   function shell() {
     // floorcheck.do: today's check + own checks; floorcheck.manage: everyone's results + repeat problems.
-    const tabs = [can('floorcheck.do') && window.FloorRef && ['ref', 'Today'], can('floorcheck.do') && ['today', "Full check"], can('floorcheck.do', 'floorcheck.manage') && ['results', can('floorcheck.manage') ? 'Results' : 'My checks']]
+    const tabs = [can('floorcheck.do') && window.FloorRef && ['ref', 'Today'], can('floorcheck.do') && window.FloorRef && ['today', 'Full list'], can('floorcheck.do', 'floorcheck.manage') && ['results', can('floorcheck.manage') ? 'Results' : 'My checks']]
+      .concat(can('floorcheck.manage') && window.FloorRef ? [['placed', 'Placed labels']] : [])
       .concat(can('floorcheck.manage') ? [['repeats', 'Repeat problems']] : [])
       .concat(window.NewPrices && can('floorcheck.do', 'floorcheck.manage', 'vendors.manage') ? [['prices', 'New prices']] : [])   // js/modules/newprices.js
       .concat(can('rentals.spotcheck', 'rentals.contracts') && window.SpotCheck ? [['spots', 'Rented spots']] : []).filter(Boolean);
@@ -662,7 +663,8 @@
   function render() {
     panel.querySelectorAll('#fcTabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === S.tab));
     if (S.tab === 'ref') FloorRef.render(el('fcBody'));
-    if (S.tab === 'today') renderToday();
+    if (S.tab === 'today') (window.FloorRef ? FloorRef.renderFull(el('fcBody')) : renderToday());
+    if (S.tab === 'placed') FloorRef.renderHistory(el('fcBody'));
     if (S.tab === 'results') renderResults();
     if (S.tab === 'repeats') renderRepeats();
     if (S.tab === 'spots') SpotCheck.render(el('fcBody'));        // js/modules/spotcheck.js
@@ -671,12 +673,14 @@
   async function show() {
     if (!S.started) { S.started = true; shell(); }
     if (S.tab === 'ref') { render(); await FloorRef.load(); }
-    if (S.tab === 'today') { Scanner.warmUp(); await loadToday(); }
+    if (S.tab === 'today' && window.FloorRef) { render(); await FloorRef.loadFull(); }
+    else if (S.tab === 'today') { Scanner.warmUp(); await loadToday(); }
+    if (S.tab === 'placed') { render(); await FloorRef.loadHistory(); }
     if (S.tab === 'results') await loadResults();
     if (S.tab === 'spots') await SpotCheck.load();
     if (S.tab === 'prices') await NewPrices.load();
     render();
-    if (S.tab === 'today' && S.check && !S.check.completed_at) { await syncOpenCheck(); if (S.tab === 'today') renderToday(); }
+    if (S.tab === 'today' && !window.FloorRef && S.check && !S.check.completed_at) { await syncOpenCheck(); if (S.tab === 'today') renderToday(); }
   }
 
   // Admin: a bell notification when someone else finishes a check.

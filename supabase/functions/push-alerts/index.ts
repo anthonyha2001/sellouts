@@ -125,6 +125,16 @@ async function buildAlerts(today: string): Promise<Alert[]> {
   if (changedToday) add({ key: `fr:prices:${today}`, perms: ['floorcheck.do'], title: `${changedToday} price${changedToday === 1 ? '' : 's'} changed today`, url: '#floorcheck',
     body: `The system changed ${changedToday} price${changedToday === 1 ? '' : 's'} today. Check the tags: Floor check › Today.` });
 
+  // Labels placed (migration 081; owner, 2026-10-11): a promotion or a sell-out whose every group was checked on the
+  // shelves — told once to the floor check managers / the admin, with who checked. The record is floor_ref_done.
+  const { data: placed } = await db.from('floor_ref_done').select('id, source_kind, source_name, reason, groups, items, completed_by, completed_by_name, completed_at')
+    .gt('completed_at', new Date(dayAgo).toISOString());
+  for (const d of placed ?? []) {
+    const what = d.reason === 'ends' ? 'back to the normal price' : d.reason === 'price_changed' ? 'the changed prices' : 'new prices';
+    add({ key: `frdone:${d.id}`, perms: ['floorcheck.manage'], title: `Labels placed — ${d.source_name || (d.source_kind === 'promotion' ? 'a promotion' : 'a sell-out')}`, url: '#floorcheck',
+      body: `${d.completed_by_name || 'A floor manager'} checked every label of "${d.source_name || ''}" (${what}): ${d.items} item${d.items === 1 ? '' : 's'} in ${d.groups} group${d.groups === 1 ? '' : 's'}, all placed correctly.` });
+  }
+
   // Promo ladies (018): the day before she starts, and the morning she starts — to whoever manages them.
   const { data: pls, error: plErr } = await db.from('promo_ladies').select('id, supplier, item, paid, amount, start_date, end_date').in('start_date', [today, tomorrow]);
   if (!plErr) for (const p of pls ?? []) {
