@@ -2947,3 +2947,8 @@ tr:hover .so-note,.so-note:focus{border-color:var(--line-strong);background:var(
 .vs-pt-head .icon-btn{margin-left:auto;}
 .vs-pt-dlg tfoot td{border-top:2px solid var(--line-strong);}
 .vs-pt-dlg tr[data-today]{cursor:default;}
+/* vendor sheet header: icons instead of text buttons (owner, 2026-10-12) */
+.vs-actions .vs-ic svg{width:18px;height:18px;stroke:currentColor;}
+.vs-actions .vs-ic{color:var(--ink-soft);}
+.vs-actions .vs-ic:hover{color:var(--ink);}
+.vs-actions .vs-ic-del:hover{color:var(--brick);}
