@@ -418,7 +418,7 @@ function renderOrders(){
       <td class="exp">${ic('right')}</td>
       <td><b>${esc(o.cName)}</b>${OF.q.trim() ? `<div class="muted" style="font-size:12px">${fmtDate(o.date)}</div>` : ''}</td>
       <td>${esc(driverName(o.driverId))}</td>
-      <td><span class="tag veh-${o.vehicle === 'Van' ? 'van' : 'moto'}">${vehIc(o.vehicle)}</span></td>
+      <td>${can.editOrder(o) ? `<button type="button" class="tag veh-btn veh-${o.vehicle === 'Van' ? 'van' : 'moto'}" data-act="veh" title="${vehOf(o.vehicle)}: click to switch to ${vehOf(o.vehicle) === 'Van' ? 'Motorcycle' : 'Van'}" aria-label="${vehOf(o.vehicle)}: switch">${ic(vehOf(o.vehicle) === 'Van' ? 'van' : 'moto')}</button>` : `<span class="tag veh-${o.vehicle === 'Van' ? 'van' : 'moto'}">${vehIc(o.vehicle)}</span>`}</td>
       <td>${esc(o.cArea)}</td>
       <td class="num">${money(o.amount)}</td>
       <td><span class="tag ${platClass(o.platform)}">${esc(o.platform)}</span></td>
@@ -449,6 +449,12 @@ function togglePaid(o){
   o.paid = !o.paid; o.paidAt = o.paid ? today() : ''; save(); renderOrders(); toast(`${o.cName}: ${o.paid ? 'Paid' : 'Unpaid'}`);
   logOrder(o.paid ? 'marked_paid' : 'marked_unpaid', o, `${o.cName} (${money(o.amount)}) marked ${o.paid ? 'paid' : 'unpaid'}`);
 }
+// the order's vehicle, from the list (owner, 2026-10-11)
+function toggleVeh(o){
+  if(!can.editOrder(o)) return;
+  const from = vehOf(o.vehicle); o.vehicle = from === 'Van' ? 'Motorcycle' : 'Van'; save(); renderOrders(); toast(`${o.cName}: ${o.vehicle}`);
+  logOrder('edit', o, `${o.cName}: vehicle ${from} → ${o.vehicle}`);
+}
 async function deleteOrder(o){
   if(!can.deleteOrder(o)) return;
   if(!(await uiConfirm(`Delete the order for ${o.cName} (${money(o.amount)})?`, {title:'Delete order', ok:'Delete', danger:true}))) return;
@@ -471,6 +477,7 @@ $('#ordersBody').addEventListener('click', e => {
   selId = o.id; markSel();
   const act = e.target.closest('[data-act]')?.dataset.act;
   if(act === 'toggle') return togglePaid(o);
+  if(act === 'veh') return toggleVeh(o);
   if(act === 'edit') return can.editOrder(o) && openOrder(o);
   if(act === 'del') return deleteOrder(o);
   toggleDetail(o.id);
@@ -493,6 +500,7 @@ function openOrder(o){
   oForm.platform.innerHTML = options(PLATFORMS, o?.platform || 'WhatsApp');
   oForm.payment.innerHTML = options(PAYMENTS, o?.payment || 'Cash');
   oForm.vehicle.innerHTML = options(VEHICLES, vehOf(o ? o.vehicle : (db.drivers.find(d => d.id === db.last.driverId) || {}).vehicle));
+  paintVehPick();
   const c = o &&db.customers.find(x => x.id === o.customerId);
   oForm.customer.value = o ? (c ? custLabel(c) : o.cName) : '';
   oForm.customer._cust = c || null;
@@ -522,7 +530,15 @@ oForm.customer.addEventListener('input', updateCustHint);
 oForm.driverId.addEventListener('change', () => {
   const d = db.drivers.find(x => x.id === oForm.driverId.value);
   if(d) oForm.vehicle.value = vehOf(d.vehicle);
+  paintVehPick();
 });
+// the vehicle in the order window: icons only (owner, 2026-10-11), the hover names it
+function paintVehPick(){
+  const box = $('#oVehPick'); if(!box) return;
+  const cur = vehOf(oForm.vehicle.value);
+  box.innerHTML = VEHICLES.map(v => `<button type="button" data-v="${v}" role="radio" aria-checked="${v === cur}" class="${v === cur ? 'on' : ''}" title="${v}" aria-label="${v}">${ic(v === 'Van' ? 'van' : 'moto')}</button>`).join('');
+}
+$('#oVehPick')?.addEventListener('click', e => { const b = e.target.closest('[data-v]'); if(!b) return; oForm.vehicle.value = b.dataset.v; paintVehPick(); });
 $('#newOrderBtn').onclick = () => focusQuick();
 function dlgMemory(c){
   if(editingOrder || !c) return;

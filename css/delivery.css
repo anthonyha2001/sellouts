@@ -243,3 +243,9 @@
   #panel-delivery .veh-areas-list,#panel-delivery .veh-areas-list[hidden]{display:flex !important;margin-bottom:10px;}
   #panel-delivery .veh-areas-list .print-only{display:flex;}
 }
+/* the vehicle: icons only, in the order window and clickable in the list (owner, 2026-10-11) */
+#panel-delivery .veh-field,#orderDlg .veh-field{display:flex;align-items:flex-end;padding-bottom:4px}
+#panel-delivery .veh-pick button,#orderDlg .veh-pick button{padding:7px 14px;display:inline-flex;align-items:center}
+#panel-delivery .veh-pick .ic,#orderDlg .veh-pick .ic{width:20px;height:20px}
+#panel-delivery .tag.veh-btn{border:0;cursor:pointer;font:inherit}
+#panel-delivery .tag.veh-btn:hover{filter:brightness(.95);outline:1px solid currentColor}

@@ -838,7 +838,7 @@
         <label>Amount<input type="number" step="0.01" min="0" name="amount" required></label>
         <label>Platform<select name="platform"></select></label>
         <label>Payment<select name="payment"></select></label>
-        <label>Vehicle<select name="vehicle"></select></label>
+        <div class="veh-field"><select name="vehicle" hidden></select><div class="seg veh-pick" id="oVehPick" role="radiogroup" aria-label="Vehicle"></div></div>
         <label class="chk" style="align-self:end;padding-bottom:8px"><input type="checkbox" name="paid"> Paid</label>
         <label class="span2">Note (optional)<input name="note"></label>
       </div>
