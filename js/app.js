@@ -1141,6 +1141,20 @@ function showPrompt(message, opts = {}) {
     input.addEventListener('keydown', onKeydown);
   });
 }
+// The prompt window with a date picker instead of text (owner, 2026-10-11). Resolves the date (YYYY-MM-DD) or null.
+// min: the earliest date accepted (an earlier one is refused with a toast).
+async function askDate(message, defaultValue, confirmLabel = 'OK', min = '') {
+  const input = document.getElementById('modalInput');
+  input.type = 'date';
+  if (min) input.min = min;
+  let v;
+  try { v = await showPrompt(message, { defaultValue, confirmLabel }); }
+  finally { input.type = 'text'; input.removeAttribute('min'); }
+  if (v === null) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) { showToast('Choose a date.', true); return null; }
+  if (min && v < min) { showToast('The date cannot be before ' + min + '.', true); return null; }
+  return v;
+}
 function showToast(message, isError = false) {
   const stack = document.getElementById('toastStack');
   const t = document.createElement('div');
@@ -4761,10 +4775,15 @@ const rawExpected = addDaysStr(sentDate, leadTimeDays);
 if (window.Warehouse) await Warehouse.ensure();
 // the warehouse is closed on Sundays and (usually) Saturdays: the delivery is expected on the next open day
 const expected = window.Warehouse ? Warehouse.expectedFor(vendorsList.find(x => x.id === o.vendorId), sentDate, leadTimeDays) : rawExpected;   // the vendor's receiving days (migration 078)
-const ok = await showConfirm(`Mark this order as sent to the supplier today (${sentDate})? Expected delivery ${expected} (lead time ${leadTimeDays}d${expected !== rawExpected ? '; the warehouse receives this vendor on other days' : ''}).`, 'Mark sent');
-  if (!ok) return;
+  // the delivery date can be changed before it is sent (owner, 2026-10-11): the computed one is only the default
+  let chosen = await askDate(`Mark this order as sent to the supplier today (${sentDate})? Delivery expected on (lead time ${leadTimeDays}d${expected !== rawExpected ? '; moved to a day the warehouse receives this vendor' : ''}; change it if the supplier said otherwise):`, expected, 'Mark sent', sentDate);
+  if (!chosen) return;
+  if (window.Warehouse && !Warehouse.isOpen(chosen)) {
+    const to = Warehouse.nextOpen(chosen);
+    if (await showConfirm(`The warehouse is closed on ${chosen}. Expect the delivery on ${to} instead?`, 'Use ' + to)) chosen = to;
+  }
   o.orderDate = sentDate;
-  o.expectedDelivery = expected;
+  o.expectedDelivery = chosen;
   o.status = 'pending';
   const saved = await saveOrderRemote(o);
   if (!saved) return;
