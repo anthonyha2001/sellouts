@@ -2839,3 +2839,14 @@ tr.ls-nopo{background:rgba(200,68,63,.07);}
 /* Vendors › POs: the day picker in the tools */
 .sc-vtools .vp-day{width:auto;height:32px;padding:0 8px;font-size:13px;border-radius:8px;}
 .sc-vtools .sc-ico{font-size:18px;line-height:1;}
+/* Vendors › POs: rows open on double-click, in their own window */
+.vp-table tbody tr{cursor:pointer;user-select:none;}
+.vp-overlay{position:fixed;inset:0;z-index:90;display:none;align-items:flex-start;justify-content:center;padding:5vh 16px;background:rgba(15,20,18,.45);}
+.vp-overlay.open{display:flex;}
+.vp-dialog{width:min(980px,100%);max-height:90vh;display:flex;flex-direction:column;background:var(--paper-raised);border:1px solid var(--line);border-radius:14px;box-shadow:0 24px 60px -20px rgba(0,0,0,.45);overflow:hidden;}
+.vp-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:14px 16px;border-bottom:1px solid var(--line);}
+.vp-title h3{margin:0;font:700 18px/1.2 var(--font-head);}
+.vp-title p{margin:4px 0 0;font-size:13px;color:var(--ink-soft);}
+.vp-hact{display:flex;gap:6px;align-items:center;flex:none;}
+.vp-body{padding:10px 12px 14px;overflow:auto;}
+@media (max-width:640px){.vp-overlay{padding:0;}.vp-dialog{max-height:100vh;height:100%;border-radius:0;}}

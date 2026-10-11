@@ -78,20 +78,18 @@
       <button type="button" class="sc-ico" data-vp="next" title="The day after" aria-label="The day after" ${day >= t ? 'disabled' : ''}>›</button>
       ${day !== t ? '<button type="button" class="btn ghost small" data-vp="today">Today</button>' : ''}`;
     const units = pos.reduce((s, p) => s + Number(p.requested || 0), 0), sups = new Set(pos.map(p => sk(p.supplier_code))).size;
+    // one row per PO; a double-click opens it (owner: "I don't want accordions, open them on double click")
     const body = S.err ? U().empty(esc(S.err))
       : S.loading && !S.data ? U().loading()
       : !pos.length ? U().empty(`No PO entered on ${esc(nice(day))}.`)
-      : pos.map(p => {
+      : `<div class="sc-tbl sc-flat"><table class="items sc-table vp-table"><thead><tr><th>PO</th><th>Supplier</th><th class="num">Lines</th><th class="num">Units</th><th>Status</th><th></th></tr></thead><tbody>${pos.map(p => {
           const v = vendorOf(p.supplier_code), dl = S.delivered[p.po];
-          return U().group({
-            title: `${esc(v ? v.name : p.supplier_name || 'Unknown supplier')} <span class="mono muted-note">${esc(p.po)}</span>`,
-            chips: U().chip(plural(p.lines, 'line')) + U().chip(`${fq(p.requested)} units`)
-              + (dl === undefined ? '' : dl ? U().chip(`delivered ${esc(dm(dl))}`) : U().chip('not delivered yet', 'warn'))
-              + (v ? '' : '<span class="sc-meta" title="Link this supplier to a vendor (Edit vendor › supplier in the system)">not linked</span>'),
-            actions: v ? `<button type="button" class="btn ghost small" data-vp-vendor="${esc(v.id)}">Vendor</button>` : '',
-            body: `<div class="vp-lines" data-vp-po="${esc(p.po)}"><div class="sc-empty">Open to read its lines…</div></div>`,
-          });
-        }).join('');
+          return `<tr data-vp-row="${esc(p.po)}" title="Double-click to open ${esc(p.po)}"><td class="mono"><b>${esc(p.po)}</b></td>
+            <td>${esc(v ? v.name : p.supplier_name || 'Unknown supplier')}${v ? '' : ' <span class="sc-meta" title="Link this supplier to a vendor (Edit vendor › supplier in the system)">not linked</span>'}</td>
+            <td class="num">${p.lines}</td><td class="num">${fq(p.requested)}</td>
+            <td>${dl === undefined ? '<span class="muted-note">—</span>' : dl ? `<span class="ls-po ok">delivered ${esc(dm(dl))}</span>` : '<span class="ls-po draft">not delivered yet</span>'}</td>
+            <td class="num">${v ? `<button type="button" class="btn ghost small" data-vp-vendor="${esc(v.id)}">Vendor</button>` : ''}</td></tr>`;
+        }).join('')}</tbody></table></div><p class="sc-quiet">Double-click a PO to open it.</p>`;
     box.innerHTML = U().view({
       title: 'POs',
       sub: `${esc(nice(day))}${day === t ? ' (today)' : ''}${S.loading ? ' · reading…' : pos.length ? ` · <b>${plural(pos.length, 'PO')}</b> · ${fq(units)} units · ${plural(sups, 'supplier')}` : ''}`,
@@ -103,12 +101,33 @@
     box.querySelector('[data-vp="next"]')?.addEventListener('click', () => go(addDaysStr(S.day, 1)));
     box.querySelector('[data-vp="today"]')?.addEventListener('click', () => go(todayStr()));
     box.querySelector('.vp-day')?.addEventListener('change', e => { if (e.target.value) go(e.target.value > t ? t : e.target.value); });
-    box.querySelectorAll('[data-vp-vendor]').forEach(b => b.addEventListener('click', () => openVendorDetail(b.dataset.vpVendor)));
-    box.querySelectorAll('.sc-grp').forEach(g => g.addEventListener('toggle', () => {
-      if (!g.open) return;
-      const holder = g.querySelector('[data-vp-po]'), p = pos.find(x => x.po === holder?.dataset.vpPo);
-      if (p && holder && !holder.dataset.loaded) { holder.dataset.loaded = '1'; loadDetail(p, holder).then(() => U().wire(holder.closest('.sc-view') ? holder : box)); }
-    }));
+    box.querySelectorAll('[data-vp-vendor]').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); openVendorDetail(b.dataset.vpVendor); }));
+    box.querySelectorAll('tr[data-vp-row]').forEach(tr => tr.addEventListener('dblclick', () => { const p = pos.find(x => x.po === tr.dataset.vpRow); if (p) openPo(p); }));
+  }
+
+  /* ---------------- one PO, in its own window (double-click a row) ---------------- */
+  function sheet() {
+    let o = el('vpSheet');
+    if (o) return o;
+    o = document.createElement('div');
+    o.id = 'vpSheet'; o.className = 'vp-overlay';
+    o.innerHTML = '<div class="vp-dialog" role="dialog" aria-modal="true" aria-label="Purchase order"><header class="vp-head" id="vpHead"></header><div class="vp-body" id="vpBody"></div></div>';
+    document.body.appendChild(o);
+    o.addEventListener('mousedown', e => { if (e.target === o) closePo(); });
+    o.addEventListener('click', e => { if (e.target.closest('[data-vp-close]')) closePo(); const vb = e.target.closest('[data-vp-vendor]'); if (vb) { closePo(); openVendorDetail(vb.dataset.vpVendor); } });
+    o.addEventListener('dblclick', e => { const tr = e.target.closest('tr[data-ls-code]'); if (tr && window.ItemDetail) ItemDetail.open(tr.dataset.lsCode); });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape' && o.classList.contains('open')) closePo(); });
+    return o;
+  }
+  function closePo() { el('vpSheet')?.classList.remove('open'); }
+  async function openPo(p) {
+    const o = sheet(), v = vendorOf(p.supplier_code), dl = S.delivered[p.po];
+    el('vpHead').innerHTML = `<div class="vp-title"><h3>${esc(p.po)} <span class="muted-note">· ${esc(nice(p.po_date))}</span></h3>
+        <p>${esc(v ? v.name : p.supplier_name || 'Unknown supplier')} · ${plural(p.lines, 'line')} · ${fq(p.requested)} units${dl === undefined ? '' : dl ? ` · <span class="ls-po ok">delivered ${esc(dm(dl))}</span>` : ' · <span class="ls-po draft">not delivered yet</span>'}</p></div>
+      <div class="vp-hact">${v ? `<button type="button" class="btn ghost small" data-vp-vendor="${esc(v.id)}">Vendor sheet</button>` : ''}
+        <button type="button" class="sc-ico" data-vp-close aria-label="Close" title="Close (Esc)">×</button></div>`;
+    o.classList.add('open');
+    await loadDetail(p, el('vpBody'));
   }
   function go(day) { S.day = day; S.data = null; S.delivered = {}; load(); }
 
