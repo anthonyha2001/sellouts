@@ -2602,3 +2602,21 @@ td .lb-info{margin:0;}
 @keyframes vbHalo{0%,100%{box-shadow:0 0 0 0 rgba(200,68,63,0);}50%{box-shadow:0 0 0 4px rgba(200,68,63,.18);}}
 @keyframes vbBar{0%,100%{opacity:1;}50%{opacity:.35;}}
 @media (prefers-reduced-motion:reduce){.vb-card.st-late,.vb-card.st-late::before{animation:none;}}
+
+/* vendor board v3 (owner: "not pro"): the card stays neutral, no tint, no colored frame. The state is a short rounded
+   accent bar inside the card edge (the pill already says it in words); the buttons sit in an even grid. */
+.vb-card,.vb-card[class]{background:var(--paper-raised);border:1px solid var(--line);border-style:solid;border-radius:14px;
+  box-shadow:0 1px 2px rgba(18,48,39,.05);padding:16px 16px 14px 20px;overflow:visible;filter:none;opacity:1;animation:none;}
+.vb-card:hover{border-color:var(--line-strong);box-shadow:0 6px 18px -10px rgba(18,48,39,.35);}
+.vb-card::before{content:"";position:absolute;left:7px;top:16px;bottom:16px;width:4px;border-radius:4px;background:var(--st,transparent);opacity:1;animation:none;}
+.vb-card.st-due{border-style:solid;}
+.vb-card.st-due::before{background:repeating-linear-gradient(to bottom,var(--gold) 0 6px,transparent 6px 10px);opacity:1;}
+.vb-card.st-received{background:var(--paper);}
+.vb-card.st-received > *{opacity:.6;}
+.vb-card.st-received::before{opacity:.6;}
+.vb-card.st-received:hover > *{opacity:1;}
+.vb-card.st-late{border-color:color-mix(in srgb,#c8443f 45%,var(--line));}
+.vb-card.st-late::before{animation:vbBar 1.4s ease-in-out infinite;}
+.vb-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding-top:12px;}
+.vb-actions > *{width:100%;justify-content:center;text-align:center;white-space:nowrap;min-width:0;}
+.vb-actions > :first-child{grid-column:1 / -1;}
