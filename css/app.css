@@ -2929,3 +2929,12 @@ tr:hover .so-note,.so-note:focus{border-color:var(--line-strong);background:var(
 .vb-card.st-late .vb-cta > .btn,.vb-cta > .btn[data-act="unskip"]{background:#dc2626;border-color:#dc2626;color:#fff;}
 .vb-card.st-late .vb-cta > .btn:hover,.vb-cta > .btn[data-act="unskip"]:hover{background:#b91c1c;border-color:#b91c1c;color:#fff;}
 .vb-cta > .vb-undo{border-color:var(--line);color:var(--ink-soft);}
+/* Performance › Categories and Daily sales (owner, 2026-10-11) */
+.sc-crumbs{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+.sc-crumbs button{border:0;background:none;color:var(--pine);font:inherit;font-weight:600;cursor:pointer;padding:2px 4px;}
+.sc-share{display:inline-block;width:46px;height:6px;border-radius:3px;background:var(--line);margin-right:6px;vertical-align:middle;overflow:hidden;}
+.sc-share i{display:block;height:100%;background:var(--pine);border-radius:3px;}
+.sd-cmp{fill:none;stroke:var(--ink-faint);stroke-width:2;stroke-dasharray:4 3;stroke-linejoin:round;}
+.sd-k-cmp{display:inline-block;width:14px;height:0;border-top:2px dashed var(--ink-faint);vertical-align:middle;}
+.pf-s.sd-today{opacity:.45;}
+.sd-row-today td{background:color-mix(in srgb, var(--gold) 8%, transparent);}

@@ -1142,6 +1142,29 @@ async function report(kind: 'sales' | 'purchases', from: string, to: string, ext
   }
   return rows;
 }
+// the store's sales day by day (owner, 2026-10-11: Performance › Daily sales)
+async function storeDaily(from: string, to: string) {
+  const days: Record<string, { sales: number; qty: number }> = {};
+  (await report('sales', from, to, { aggregation: 'Daily', group_by: [] })).forEach(r => {
+    const d = String(r.period || '').slice(0, 10); if (!d) return;
+    const x = days[d] = days[d] || { sales: 0, qty: 0 }; x.sales += Number(r.total_sales || 0); x.qty += Number(r.total_quantity || 0);
+  });
+  return { from, to, days };
+}
+// sales by category (owner, 2026-10-11: Performance › Categories): one level (department, section, group, subgroup, brand),
+// optionally inside one parent (e.g. the groups of one section)
+const CAT_LEVELS = ['department', 'section', 'group', 'subgroup', 'brand'];
+async function salesCategories(from: string, to: string, level: string, parentLevel?: string, parentCode?: string) {
+  const extra: Record<string, unknown> = { group_by: [level] };
+  if (parentLevel && parentCode) extra[parentLevel] = [parentCode];
+  const m = new Map<string, { code: string; name: string; sales: number; qty: number }>();
+  (await report('sales', from, to, extra)).forEach(r => {
+    const c = String(r[level] ?? '').trim() || '?';
+    const x = m.get(c) || { code: c, name: String(r[level + '_desc'] ?? '').trim() || (c === '?' ? 'Not classified' : c), sales: 0, qty: 0 };
+    x.sales += Number(r.total_sales || 0); x.qty += Number(r.total_quantity || 0); m.set(c, x);
+  });
+  return { from, to, level, rows: [...m.values()] };
+}
 // every supplier: purchases vs sales in the period
 // months (owner, 2026-10-06, the rental spots' trend): each supplier's sales per month too, when asked
 async function perfSuppliers(from: string, to: string, months = false) {
@@ -1611,7 +1634,7 @@ Deno.serve(async req => {
       }
       return json(await priceChangesSync(120));
     }
-    if (['perf_suppliers', 'perf_supplier', 'pricing_day', 'pricing_supplier', 'returns_range', 'pu_find', 'vendor_pos', 'pos_of_day', 'po_detail'].includes(String(body.action))) {
+    if (['perf_suppliers', 'perf_supplier', 'store_daily', 'sales_categories', 'pricing_day', 'pricing_supplier', 'returns_range', 'pu_find', 'vendor_pos', 'pos_of_day', 'po_detail'].includes(String(body.action))) {
       if (!isServer && role !== 'admin') {
         const anon = Deno.env.get('SUPABASE_ANON_KEY') || '';
         const asUser = createClient(SUPABASE_URL, anon, { global: { headers: { Authorization: `Bearer ${bearer}` } }, auth: { persistSession: false, autoRefreshToken: false } });
@@ -1636,6 +1659,13 @@ Deno.serve(async req => {
         return json(await poDetail(p));
       }
       const from = String(body.from || ''), to = String(body.to || ''), day = String(body.day || '');
+      if (body.action === 'store_daily' || body.action === 'sales_categories') {
+        if (!isDay(from) || !isDay(to) || from > to || Number(to.slice(0, 4)) - Number(from.slice(0, 4)) > 1) return json({ error: 'Choose dates within two years.' }, 400);
+        if (body.action === 'store_daily') return json(await storeDaily(from, to));
+        const level = String(body.level || 'section'), pl = body.parentLevel ? String(body.parentLevel) : '';
+        if (!CAT_LEVELS.includes(level) || (pl && !CAT_LEVELS.includes(pl))) return json({ error: 'Unknown level.' }, 400);
+        return json(await salesCategories(from, to, level, pl || undefined, body.parentCode ? String(body.parentCode) : undefined));
+      }
       if (body.action === 'perf_suppliers' || body.action === 'perf_supplier') {
         if (!isDay(from) || !isDay(to) || from > to || Number(to.slice(0, 4)) - Number(from.slice(0, 4)) > 1) return json({ error: 'Choose dates within two years.' }, 400);
         if (body.action === 'perf_suppliers') return json(await perfSuppliers(from, to, body.months === true));
