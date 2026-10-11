@@ -105,7 +105,9 @@
       safe(sb.from('stock_review').select('day, kind, value').order('day', { ascending: false }).limit(1500)),
       safe(sb.from('big_purchases').select('weeks_cover').gte('day', addDaysStr(today, -14))),
     ]);
-    if (!low.error) c.lowstock = low.count ?? null;
+    // Low stock: what needs doing (order now + check the shelf), the same sorting as its view
+    if (window.LowStock && LowStock.actionCount) { try { c.lowstock = await LowStock.actionCount(); } catch (e) { if (!low.error) c.lowstock = low.count ?? null; } }
+    else if (!low.error) c.lowstock = low.count ?? null;
     if (!na.error) c.notavail = na.count ?? null;
     if (!top.error) { const wk = top.data?.[0]?.week_end; c.topsales = (top.data || []).filter(t => t.week_end === wk && t.period === 'week' && t.attention).length; }
     if (!rev.error) ['overstock', 'slow'].forEach(k => { const rows = (rev.data || []).filter(r => r.kind === k), d = rows[0]?.day; const l = rows.filter(r => r.day === d); c[k] = l.length; if (k === 'overstock') c.overstockValue = l.reduce((s, r) => s + Number(r.value || 0), 0); });

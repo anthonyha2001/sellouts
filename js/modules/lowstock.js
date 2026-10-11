@@ -216,58 +216,97 @@
     });
   }
 
-  /* ---------------- Low stock (migration 066): the watched suppliers' items running low ---------------- */
+  /* ---------------- Low stock (migration 066): the watched suppliers' items running low ----------------
+     Sorted by what to do (owner, 2026-10-11: "still huge, I have 551 items"), one list at a time, "Order now" first:
+       Order now   : not on a PO of the week, sells 1 a week or more, and out of stock, or it runs out before a delivery
+                     can come (its days left <= the vendor's lead time, 2 days at least)
+       Check shelf : ghost stock (migration 083): stock in the system, but it stopped selling when it always sells
+       Soon        : low, not on a PO, but there is still time (or it sells less than 1 a week)
+       On order    : on a PO of the week from the system, not received yet: nothing to do
+     Count these (the stock in the system looks wrong) stays apart, folded, under every list. */
+  S.lsMode = 'now';
+  const LS_MODES = [['now', 'Order now'], ['shelf', 'Check shelf'], ['soon', 'Soon'], ['onorder', 'On order'], ['all', 'All']];
+  const out = a => Number(a.stock) <= 0 || a.days_left === null;
+  const weekly = a => Number(a.per_day) * 7;
+  const lead = v => Math.max(2, Number(v && v.leadTimeDays) || 3);
+  const ghostOnly = a => a.ghost && Number(a.stock) > 0 && !(a.days_left !== null && Number(a.days_left) < Number(a.cover_days || 7));
+  // every item in one bucket (see above), with the count of each
+  function classify() {
+    const watched = vendorsList.filter(v => v.watchStock), vOf = new Map(watched.map(v => [v.id, v]));
+    const items = S.alerts.filter(a => vOf.has(a.vendor_id)).map(a => {
+      const v = vOf.get(a.vendor_id);
+      const cat = a.doubtful ? 'wrong' : ghostOnly(a) ? 'shelf' : onPO(a.code) ? 'onorder'
+        : weekly(a) >= 1 && (out(a) || Number(a.days_left) <= lead(v)) ? 'now' : 'soon';
+      return { ...a, v, cat };
+    });
+    const n = { now: 0, shelf: 0, soon: 0, onorder: 0, wrong: 0 };
+    items.forEach(a => { n[a.cat]++; });
+    n.all = n.now + n.shelf + n.soon + n.onorder;
+    return { watched, vOf, items, n };
+  }
+  // for Stock control's navigation: what needs doing (order now + check the shelf), not every low item
+  async function actionCount() {
+    if (!S.loaded) await load();
+    await loadPOs();
+    const { n } = classify();
+    return n.now + n.shelf;
+  }
   async function render() {
     const box = el('vendorLowStockView'); if (!box) return;
     if (!S.loaded) { box.innerHTML = U().loading(); await load(); }
     await loadPOs();
-    const watched = vendorsList.filter(v => v.watchStock);
-    const byV = new Map(); S.alerts.forEach(a => { if (!byV.has(a.vendor_id)) byV.set(a.vendor_id, []); byV.get(a.vendor_id).push(a); });
-    const out = a => Number(a.stock) <= 0 || a.days_left === null;
-    const noPo = a => S.po && Number(a.stock) <= 0 && !onPO(a.code);
-    // ghost stock (migration 083): in stock in the system, but not selling for days when it always does. Not low by the
-    // system's count: listed apart ("Check the shelf"); one that is low too keeps its row, with a tag
-    const ghostOnly = a => a.ghost && Number(a.stock) > 0 && !(a.days_left !== null && Number(a.days_left) < Number(a.cover_days || 7));
-    const rows = watched.map(v => { const all = byV.get(v.id) || []; return { v, list: all.filter(a => !a.doubtful && !ghostOnly(a)), wrong: all.filter(a => a.doubtful), ghosts: all.filter(a => !a.doubtful && ghostOnly(a)) }; });
-    const withLow = rows.filter(r => r.list.length)
-      .sort((a, b) => b.list.filter(noPo).length - a.list.filter(noPo).length || b.list.filter(out).length - a.list.filter(out).length || b.list.length - a.list.length);
-    const quiet = rows.filter(r => !r.list.length && !r.ghosts.length), wrong = rows.flatMap(r => r.wrong.map(a => ({ ...a, vendor: r.v.name })));
-    const ghosts = rows.flatMap(r => r.ghosts.map(a => ({ ...a, vendor: r.v.name }))).sort((a, b) => Number(b.quiet_days) * Number(b.per_day) - Number(a.quiet_days) * Number(a.per_day));
-    const all = withLow.flatMap(r => r.list), nOut = all.filter(out).length, nNoPo = all.filter(noPo).length;
-    U().setCount('lowstock', all.length + ghosts.length);
+    const { watched, vOf, items, n } = classify();
+    const wrong = items.filter(a => a.cat === 'wrong');
+    U().setCount('lowstock', n.now + n.shelf);
+    const mode = S.lsMode, shown = items.filter(a => a.cat !== 'wrong' && (mode === 'all' || a.cat === mode));
+    // the most urgent first: out of stock, then the fewest days left, then the fastest sellers
+    shown.sort((a, b) => (out(b) - out(a)) || (Number(a.days_left ?? -1) - Number(b.days_left ?? -1)) || weekly(b) - weekly(a));
+
     const ghostTag = a => a.ghost ? ` <span class="ls-po draft" title="Sold on ${a.days_sold} of the last 30 days, nothing for ${a.quiet_days} days: check the shelf">no sale ${a.quiet_days}d</span>` : '';
     const checkBtn = v => isAdmin() ? `<button type="button" class="sc-ico" data-ls-check="${esc(v.id)}" title="Check ${esc(v.name)} now" aria-label="Check now"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/></svg></button>` : '';
-    const shelfGroup = () => (
-        ghosts.length ? U().group({ title: 'Check the shelf: in stock in the system, not selling', tone: 'bad', open: true, chips: U().chip(plural(ghosts.length, 'item'), 'bad'),
-            body: `<p class="muted-note sc-gnote">These sell almost every day but have not sold for days while the system shows stock: the shelf is most likely empty (lost, stolen, still in the storeroom, or mis-scanned at the till). Count them, fix the stock in the system, then reorder.</p>`
-              + U().table('<th>Item</th><th>Supplier</th><th class="num">In the system</th><th class="num">Sells / wk</th><th>Last sale</th><th class="num">No sale for</th><th>Order</th>',
-                ghosts.map(a => `<tr data-ls-code="${esc(a.code)}">${U().item(a.code, a.description)}<td>${esc(a.vendor)}</td><td class="num"><b>${fq(a.stock)}</b></td><td class="num">${fq(Number(a.per_day) * 7)}</td>
-                  <td>${a.last_sale ? esc(dm(a.last_sale)) : '<span class="muted-note">—</span>'} <span class="muted-note" title="Days with a sale in the last 30">· sold ${a.days_sold}/30 d</span></td>
-                  <td class="num"><b class="ls-urgent">${a.quiet_days} days</b></td><td>${poFlag(a.code, false)}</td></tr>`).join('')) }) : '');
+    const tag = { now: '<span class="ls-po none">Order now</span>', soon: '<span class="ls-po draft">Soon</span>' };
+    const lowRow = a => `<tr data-ls-code="${esc(a.code)}" class="${a.cat === 'now' && out(a) ? 'ls-nopo' : ''}">${U().item(a.code, a.description)}
+      <td class="num">${Number(a.stock) <= 0 ? '<span class="rc-zero">0</span>' : fq(a.stock)}</td><td class="num">${fq(weekly(a))}</td>
+      <td class="num"><b class="${out(a) || Number(a.days_left) < 3 ? 'ls-urgent' : 'ls-soon'}">${out(a) ? 'out' : fq(a.days_left)}</b></td>
+      <td>${a.cat === 'onorder' ? poFlag(a.code, false) : (mode === 'all' ? tag[a.cat] || '' : '') + (Number(a.stock) <= 0 ? ' ' + poFlag(a.code, true) : '')}${ghostTag(a)}</td><td>${lastPu(a)}</td><td class="num">${soldSince(a)}</td></tr>`;
+    const lowHead = '<th>Item</th><th class="num">Stock</th><th class="num">Sells / wk</th><th class="num">Days left</th><th>Order</th><th>Last PU</th><th class="num">Sold since</th>';
+    const shelfRow = a => `<tr data-ls-code="${esc(a.code)}">${U().item(a.code, a.description)}<td class="num"><b>${fq(a.stock)}</b></td><td class="num">${fq(weekly(a))}</td>
+      <td>${a.last_sale ? esc(dm(a.last_sale)) : '<span class="muted-note">—</span>'} <span class="muted-note" title="Days with a sale in the last 30">· sold ${a.days_sold}/30 d</span></td>
+      <td class="num"><b class="ls-urgent">${a.quiet_days} days</b></td><td>${poFlag(a.code, false)}</td></tr>`;
+    const shelfHead = '<th>Item</th><th class="num">In the system</th><th class="num">Sells / wk</th><th>Last sale</th><th class="num">No sale for</th><th>Order</th>';
+
+    // by supplier: the most "order now" first; the first 3 open
+    const groups = new Map();
+    shown.forEach(a => { if (!groups.has(a.vendor_id)) groups.set(a.vendor_id, []); groups.get(a.vendor_id).push(a); });
+    const ordered = [...groups.entries()].map(([vid, l]) => [vOf.get(vid), l]).sort((a, b) => b[1].filter(x => x.cat === 'now').length - a[1].filter(x => x.cat === 'now').length || b[1].length - a[1].length);
+    const groupHtml = ([v, l], i) => {
+      const nNow = l.filter(x => x.cat === 'now').length, nOut = l.filter(out).length;
+      return U().group({
+        title: esc(v.name), open: i < 3, tone: nNow ? 'bad' : '',
+        chips: U().chip(plural(l.length, 'item')) + (nNow && mode !== 'now' ? U().chip(`${nNow} order now`, 'bad') : '') + (nOut && mode !== 'shelf' ? U().chip(`${nOut} out`, 'warn') : '')
+          + `<span class="sc-meta" title="${esc((v.systemSuppliers || []).map(s => s.name).join(', '))}">lead ${lead(v)} d · ${esc(ago(v.stockCheckedAt))}</span>`,
+        actions: checkBtn(v),
+        body: mode === 'shelf' ? `<p class="muted-note sc-gnote">Sells almost every day, no sale for days while the system shows stock: the shelf is most likely empty (lost, stolen, still in the storeroom, or mis-scanned). Count it, fix the stock in the system, then reorder.</p>` + U().table(shelfHead, l.map(shelfRow).join(''))
+          : U().table(lowHead, l.map(a => a.cat === 'shelf' ? lowRow({ ...a }) : lowRow(a)).join('')),
+      });
+    };
+    const empty = { now: 'Nothing to order now: every low item is on a PO, or has time left.', shelf: 'No ghost stock: every regular seller sold recently.', soon: 'Nothing in this list.', onorder: 'No low item is on a PO of the week.', all: 'Nothing running low.' }[mode];
+    const tools = `<div class="sc-seg">${LS_MODES.map(([k, l]) => `<button type="button" data-lsm="${k}" class="${k === mode ? 'active' : ''}">${l} <small>${n[k]}</small></button>`).join('')}</div>` + poTools();
     box.innerHTML = U().view({
       title: 'Low stock',
       sub: !watched.length ? 'No supplier is watched yet: edit a vendor and tick <b>Watch stock</b>.'
-        : all.length || ghosts.length ? `<b>${plural(all.length, 'item')}</b> running low${nOut ? ` · ${nOut} out` : ''}${nNoPo ? ` · <b class="ls-urgent">${nNoPo} out with no PO</b>` : ''}${ghosts.length ? ` · <b class="ls-urgent">${ghosts.length} to check on the shelf</b>` : ''} · ${plural(watched.length, 'supplier')} watched` : `Nothing running low at the ${plural(watched.length, 'supplier')} watched.`,
-      info: 'The watched suppliers\' items that sold in the last 30 days and will not last the vendor\'s stock days (its cover days, default lead time + 4) at their own selling rate, or are at 0. Checked every 15 minutes in the day. The Order column: the PO of the week from the system (not received yet), "Not delivered" (the PO came without it) or "No PO". Last PU = the last purchase and its quantity; Sold since = units sold from that day.<br><b>Check the shelf (ghost stock)</b>: the system shows stock, but an item that sells on 6 days or more of 30 has not sold for so long that it almost never happens by chance (at least 3 units expected in the full days since its last sale). The shelf is most likely empty: count it, fix the stock in the system, then reorder. Double-click an item for its details.',
-      tools: poTools(),
-      body: (shelfGroup() + withLow.map((r, i) => { const v = r.v, l = r.list, o = l.filter(out).length, n = l.filter(noPo).length; return U().group({
-          title: esc(v.name), open: n > 0 || i < 3, tone: n ? 'bad' : '',
-          chips: U().chip(`${l.length} low`) + (o ? U().chip(`${o} out`, 'warn') : '') + (n ? U().chip(`${n} no PO`, 'bad') : '') + `<span class="sc-meta" title="${esc((v.systemSuppliers || []).map(s => s.name).join(', '))}">keep ${v.coverDays || ((v.leadTimeDays || 3) + 4)} d · ${esc(ago(v.stockCheckedAt))}</span>`,
-          actions: checkBtn(v),
-          body: U().table('<th>Item</th><th class="num">Stock</th><th class="num">Sells / wk</th><th class="num">Days left</th><th>Order</th><th>Last PU</th><th class="num">Sold since</th>',
-            l.map(a => `<tr data-ls-code="${esc(a.code)}" class="${noPo(a) ? 'ls-nopo' : ''}">${U().item(a.code, a.description)}
-              <td class="num">${Number(a.stock) <= 0 ? '<span class="rc-zero">0</span>' : fq(a.stock)}</td><td class="num">${fq(Number(a.per_day) * 7)}</td>
-              <td class="num"><b class="${out(a) || Number(a.days_left) < 3 ? 'ls-urgent' : 'ls-soon'}">${out(a) ? 'out' : fq(a.days_left)}</b></td>
-              <td>${poFlag(a.code, Number(a.stock) <= 0)}${ghostTag(a)}</td><td>${lastPu(a)}</td><td class="num">${soldSince(a)}</td></tr>`).join('')),
-        }); }).join('')
+        : `<b class="${n.now ? 'ls-urgent' : ''}">${n.now} to order now</b>${n.shelf ? ` · <b class="ls-urgent">${n.shelf} to check on the shelf</b>` : ''} · ${n.soon} soon · ${n.onorder} on order · ${plural(watched.length, 'supplier')} watched`,
+      info: '<b>Order now</b>: not on a PO of the week, sells 1 a week or more, and out of stock or it runs out before a delivery can come (days left ≤ the vendor\'s lead time, 2 days at least). <b>Check shelf</b>: the system shows stock, but an item that sells on 6 days or more of 30 has not sold for so long that it almost never happens by chance: the shelf is most likely empty. <b>Soon</b>: low, but there is still time, or it sells less than 1 a week. <b>On order</b>: on a PO of the week from the system, not received yet. Checked every 15 minutes in the day (only the items that sold in the last 30 days). Last PU = the last purchase and its quantity; Sold since = units sold from that day. Double-click an item for its details.',
+      tools,
+      body: (ordered.length ? ordered.map(groupHtml).join('') : U().empty(empty))
         + (wrong.length ? U().group({ title: 'Count these: the stock in the system looks wrong', tone: 'warn', chips: U().chip(plural(wrong.length, 'item'), 'warn'),
             body: `<p class="muted-note sc-gnote">Not counted as running low: below 0 in the system (impossible on a shelf), or the last PU minus the sales since leaves more than the system shows. Count them and fix the stock in the system.</p>`
               + U().table('<th>Item</th><th>Supplier</th><th class="num">In the system</th><th>Last PU</th><th class="num">Sold since</th><th class="num">Should be</th>',
-                wrong.map(a => `<tr data-ls-code="${esc(a.code)}">${U().item(a.code, a.description)}<td>${esc(a.vendor)}</td><td class="num"><b class="ls-urgent">${fq(a.stock)}</b></td><td>${lastPu(a)}</td><td class="num">${soldSince(a)}</td>
-                  <td class="num" title="Bought at the last PU minus sold since">${a.est_stock !== null && Number(a.est_stock) > Number(a.stock) ? '<b>' + fq(a.est_stock) + '</b>' : '<span class="muted-note">—</span>'}</td></tr>`).join('')) }) : '')
-        + (quiet.length ? `<p class="sc-quiet">Nothing low at ${quiet.map(r => esc(r.v.name)).join(', ')}.</p>` : '')) || U().empty('Nothing to show.'),
+                wrong.map(a => `<tr data-ls-code="${esc(a.code)}">${U().item(a.code, a.description)}<td>${esc(a.v.name)}</td><td class="num"><b class="ls-urgent">${fq(a.stock)}</b></td><td>${lastPu(a)}</td><td class="num">${soldSince(a)}</td>
+                  <td class="num" title="Bought at the last PU minus sold since">${a.est_stock !== null && Number(a.est_stock) > Number(a.stock) ? '<b>' + fq(a.est_stock) + '</b>' : '<span class="muted-note">—</span>'}</td></tr>`).join('')) }) : ''),
     });
     U().wire(box);
+    box.querySelectorAll('[data-lsm]').forEach(b => b.onclick = () => { S.lsMode = b.dataset.lsm; render(); });
     box.querySelectorAll('[data-ls-check]').forEach(b => b.addEventListener('click', async () => {
       b.disabled = true; b.classList.add('ls-spin');
       try {
@@ -320,5 +359,5 @@
     return { watchStock: !!el('vendorWatch')?.checked && picked.length > 0, systemSuppliers: picked.slice(), coverDays: cover > 0 ? Math.round(cover) : null };   // the link is kept even when not watched (purchase orders use it)
   }
 
-  window.LowStock = { render, renderNotAvailable, loadPOs, onPO, poFlag, notAvailable, wireForm, readForm, openCount, renderTopPurchases, renderTopSales, reload: async () => { await load(); } };
+  window.LowStock = { render, actionCount, renderNotAvailable, loadPOs, onPO, poFlag, notAvailable, wireForm, readForm, openCount, renderTopPurchases, renderTopSales, reload: async () => { await load(); } };
 })();
