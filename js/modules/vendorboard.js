@@ -121,8 +121,13 @@
     const t = todayStr(), term = (typeof vendorSearchTerm === 'string' ? vendorSearchTerm : '').trim().toLowerCase();
     const all = vendorsList.map(v => info(v, t));
     const searched = all.filter(i => !term || ((i.v.name || '') + ' ' + (i.v.salesmanName || '') + ' ' + (i.v.phone || '')).toLowerCase().includes(term));
+    // This week (owner, 2026-10-11): a small day picker next to the tab, the next 7 days with today chosen by default;
+    // a day shows every supplier ordered on that day, "Whole week" the ones still to order in the next 7 days
+    const week = [...Array(7)].map((_, k) => addDaysStr(t, k));
+    if (S.day !== 'all' && !week.includes(S.day)) S.day = t;
+    const weekFn = i => S.day === 'all' ? i.week : isVendorDueOn(i.v, S.day);
     const f = FILTERS.find(x => x[0] === S.filter) || FILTERS[0];
-    const list = searched.filter(f[2]);
+    const list = searched.filter(S.filter === 'week' ? weekFn : f[2]);
     const sorters = {
       urgency: (a, b) => a.urgency - b.urgency || (a.days ?? 999) - (b.days ?? 999) || a.v.name.localeCompare(b.v.name),
       next: (a, b) => (a.days ?? 999) - (b.days ?? 999) || a.v.name.localeCompare(b.v.name),
@@ -135,6 +140,14 @@
       if (k === 'noorder') {   // counts the no-order entries (not vendors) since the reset, with the reset button next to it
         const n = searched.reduce((s, i) => s + i.nos.length, 0), r = noReset();
         return `<span class="vb-fgroup"><button type="button" data-vbf="${k}" class="${k === S.filter ? 'active' : ''}" title="No-order entries since ${r.auto ? 'Monday' : 'the reset of ' + dmy(r.date)}">${l} <span class="vb-n ${n ? 'red' : ''}">${n}</span></button><button type="button" class="vb-reset" data-vbreset aria-label="Reset the no-order counter" data-tip="Reset counter"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg></button></span>`;
+      }
+      if (k === 'week') {
+        const opts = week.map((d, x) => {
+          const c = searched.filter(i => isVendorDueOn(i.v, d)).length;
+          return `<option value="${d}" ${S.day === d ? 'selected' : ''}>${DAYS[new Date(d + 'T00:00:00').getDay()]} ${dmy(d)}${x === 0 ? ' · today' : ''} (${c})</option>`;
+        }).join('');
+        const n = searched.filter(weekFn).length;
+        return `<span class="vb-fgroup"><button type="button" data-vbf="${k}" class="${k === S.filter ? 'active' : ''}">${l} <span class="vb-n">${n}</span></button><select class="vb-day" data-vbday aria-label="Day of the week">${opts}<option value="all" ${S.day === 'all' ? 'selected' : ''}>Whole week</option></select></span>`;
       }
       const n = searched.filter(fn).length;
       return `<button type="button" data-vbf="${k}" class="${k === S.filter ? 'active' : ''}">${l}${k !== 'all' ? ` <span class="vb-n ${n && (k === 'late' || k === 'now') ? 'hot' : ''}">${n}</span>` : ''}</button>`;
@@ -214,6 +227,7 @@
       if (e.target.closest('[data-vbreset]')) return resetNoOrders();
       const b = e.target.closest('[data-vbf]'); if (b) { S.filter = b.dataset.vbf; render(); }
     });
+    bar.addEventListener('change', e => { const s = e.target.closest('[data-vbday]'); if (s) { S.day = s.value; S.filter = 'week'; render(); } });
     el('vbSort')?.addEventListener('change', e => { S.sort = e.target.value; render(); });
   }
   function show() { wire(); render(); loadStock(); }

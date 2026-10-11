@@ -2715,3 +2715,8 @@ td .lb-info{margin:0;}
 .vb-cta > .btn{flex:1;min-width:0;height:38px;margin:0;padding:0 10px;font-size:14px;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;}
 .vb-cta > .vb-undo{flex:none;width:38px;height:38px;border:1px solid var(--line-strong);border-radius:var(--radius-sm);background:var(--paper-raised);color:var(--ink-soft);}
 .vb-cta > .vb-undo:hover{color:#c8443f;border-color:#c8443f;background:color-mix(in srgb,#c8443f 8%,var(--paper-raised));}
+
+/* vendor board: the small day picker next to "This week" */
+#vbFilters select.vb-day{width:auto;height:28px;margin:0 0 0 2px;padding:0 26px 0 10px;border:1px solid var(--line-strong);border-radius:20px;background-color:var(--paper-raised);
+  font:600 11.5px var(--font-mono);color:var(--ink-soft);cursor:pointer;}
+#vbFilters select.vb-day:focus{border-color:var(--pine);box-shadow:0 0 0 3px var(--pine-tint);}
