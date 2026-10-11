@@ -138,7 +138,7 @@
     el('vbFilters').innerHTML = FILTERS.filter(x => x[0] !== 'stock' || canManage()).map(([k, l, fn]) => {
       if (k === 'noorder') {   // counts the no-order entries (not vendors) since the reset, with the reset button next to it
         const n = searched.reduce((s, i) => s + i.nos.length, 0), r = noReset();
-        return `<span class="vb-fgroup"><button type="button" data-vbf="${k}" class="${k === S.filter ? 'active' : ''}" title="No-order entries since ${r.auto ? 'Monday' : 'the reset of ' + dmy(r.date)}">${l} <span class="vb-n ${n ? 'red' : ''}">${n}</span></button><button type="button" class="vb-reset" data-vbreset aria-label="Reset the no-order counter" data-tip="Reset counter"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg></button></span>`;
+        return `<span class="vb-fgroup"><button type="button" data-vbf="${k}" class="${k === S.filter ? 'active' : ''}" title="No-order entries since ${r.auto ? 'Monday' : 'the reset of ' + dmy(r.date)}">${l} <span class="vb-n k-noorder ${n ? '' : 'zero'}">${n}</span></button><button type="button" class="vb-reset" data-vbreset aria-label="Reset the no-order counter" data-tip="Reset counter"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg></button></span>`;
       }
       if (k === 'week') {
         const opts = week.map((d, x) => {
@@ -146,10 +146,10 @@
           return `<option value="${d}" ${S.day === d ? 'selected' : ''}>${DAYS[new Date(d + 'T00:00:00').getDay()]} ${dmy(d)}${x === 0 ? ' · today' : ''} (${c})</option>`;
         }).join('');
         const n = searched.filter(weekFn).length;
-        return `<span class="vb-fgroup"><button type="button" data-vbf="${k}" class="${k === S.filter ? 'active' : ''}">${l} <span class="vb-n">${n}</span></button><select class="vb-day" data-vbday aria-label="Day of the week">${opts}<option value="all" ${S.day === 'all' ? 'selected' : ''}>Whole week</option></select></span>`;
+        return `<span class="vb-fgroup"><button type="button" data-vbf="${k}" class="${k === S.filter ? 'active' : ''}">${l} <span class="vb-n k-week ${n ? '' : 'zero'}">${n}</span></button><select class="vb-day" data-vbday aria-label="Day of the week">${opts}<option value="all" ${S.day === 'all' ? 'selected' : ''}>Whole week</option></select></span>`;
       }
       const n = searched.filter(fn).length;
-      return `<button type="button" data-vbf="${k}" class="${k === S.filter ? 'active' : ''}">${l}${k !== 'all' ? ` <span class="vb-n ${n && k === 'late' ? 'hot' : ''}">${n}</span>` : ''}</button>`;
+      return `<button type="button" data-vbf="${k}" class="${k === S.filter ? 'active' : ''}">${l}${k !== 'all' ? ` <span class="vb-n k-${k} ${n ? '' : 'zero'}">${n}</span>` : ''}</button>`;
     }).join('');
     const sel = el('vbSort'); if (sel && sel.value !== S.sort) sel.value = S.sort;
 

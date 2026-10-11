@@ -2720,3 +2720,17 @@ td .lb-info{margin:0;}
 #vbFilters select.vb-day{width:auto;height:28px;margin:0 0 0 2px;padding:0 26px 0 10px;border:1px solid var(--line-strong);border-radius:20px;background-color:var(--paper-raised);
   font:600 11.5px var(--font-mono);color:var(--ink-soft);cursor:pointer;}
 #vbFilters select.vb-day:focus{border-color:var(--pine);box-shadow:0 0 0 3px var(--pine-tint);}
+
+/* vendor board: the counters next to the tabs stand out, each with its own color; a 0 stays quiet */
+#vbFilters .vb-n{display:inline-block;min-width:20px;height:18px;line-height:18px;padding:0 6px;margin-left:5px;border-radius:9px;
+  font:700 11px var(--font-body);text-align:center;color:#fff;background:var(--pine);vertical-align:1px;}
+#vbFilters .vb-n.k-week{background:#2563eb;}
+#vbFilters .vb-n.k-awaiting{background:#2f9e5b;}
+#vbFilters .vb-n.k-late{background:#c8443f;}
+#vbFilters .vb-n.k-notsent{background:#d9a406;color:#1d1a0a;}
+#vbFilters .vb-n.k-noorder{background:#c8443f;}
+#vbFilters .vb-n.k-stock{background:#e8590c;}
+#vbFilters .vb-n.k-none{background:#6b746e;}
+#vbFilters .vb-n.zero{background:var(--line);color:var(--muted,#6b746e);font-weight:600;}
+#vbFilters button.active .vb-n{box-shadow:0 0 0 2px rgba(255,255,255,.9);}
+#vbFilters button.active .vb-n.zero{background:rgba(255,255,255,.25);color:#fff;box-shadow:none;}
