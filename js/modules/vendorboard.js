@@ -152,7 +152,7 @@
       ${!i.pend && !i.ns ? lastHtml(delivery(v.id)) : ''}
       <div class="vb-badges">${badges.join('') || '<span class="muted-note">Nothing waiting</span>'}</div>
       <div class="vb-actions">
-        ${i.skipToday && !i.ns && !i.pend ? '<button type="button" class="btn ghost small" data-act="unskip" title="No order was logged today: click to undo">Undo no order</button>'
+        ${i.skipToday && !i.ns && !i.pend ? '<button type="button" class="btn small" data-act="unskip" title="No order was logged today: click to undo">Undo no order</button>'
           : i.ns ? '<button type="button" class="btn small" data-act="sent">Mark sent</button>'
           : i.pend ? '<button type="button" class="btn small" data-act="delivered">Delivered</button>'
           : '<button type="button" class="btn small" data-act="order">Order now</button>'}
