@@ -2833,3 +2833,6 @@ tr.ls-nopo{background:rgba(200,68,63,.07);}
   .sc-vtools .sc-q{width:100%;max-width:none;flex:1 1 100%;order:9;}
   .sc-gchips .sc-meta{display:none;}
 }
+/* the navigation never runs off the screen: its groups wrap, and so do their tabs */
+.sc-navgrp{max-width:100%;}
+.sc-cnt{cursor:default;}

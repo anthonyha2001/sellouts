@@ -178,6 +178,15 @@ async function stockWatch(onlyVendor?: string) {
   const key = (c: string) => c.replace(/^0+(?=\d)/, '').toUpperCase();
   // a run stops after 90 s (the function's limit is 150 s): the vendors checked longest ago first, the next run goes on
   let budget = 450; const done: Record<string, unknown>[] = []; const started = Date.now();
+  // the last FULL day the sales report has (it can lag behind today): the days without a sale (ghost stock) are counted
+  // up to it, never into days the report does not have yet (that flagged nearly every regular seller)
+  let fullEnd = plusDays(today, -1);
+  try {
+    const days = (await report('sales', plusDays(today, -6), today, { aggregation: 'Daily', group_by: [] }))
+      .filter(r => Number(r.total_quantity || 0) > 0).map(r => String(r.period || '').slice(0, 10)).filter(Boolean).sort();
+    if (days.length) { const last = days[days.length - 1]; fullEnd = last >= today ? plusDays(today, -1) : last; }
+    else fullEnd = '';   // no sale at all in the report this week: do not judge ghost stock
+  } catch (e) { console.warn('sales data end', e); fullEnd = ''; }
   for (const v of vs || []) {
     const sups = (Array.isArray(v.system_suppliers) ? v.system_suppliers : []).map((s: Record<string, unknown>) => String(s.code || '')).filter(Boolean);
     if (!sups.length) continue;
@@ -208,11 +217,11 @@ async function stockWatch(onlyVendor?: string) {
           // ghost stock (owner, 2026-10-11: "the low stock doesn't fight the ghost stock"): the system shows stock, but an
           // item that sells regularly (on 6 days or more of the 30) has not sold for so long that it almost never happens
           // by chance: at its selling rate (the days before the quiet ones) at least 3 units would have sold in the full
-          // days since its last sale (about a 5% chance of none), and at least 2 full days (today not counted: it is not
-          // over). Most likely the shelf is empty (lost, stolen, in the storeroom, mis-scanned): check the shelf.
-          const quiet = it.last ? Math.max(0, Math.round((Date.parse(today + 'T00:00:00Z') - Date.parse(it.last + 'T00:00:00Z')) / 864e5) - 1) : 30;
+          // days since its last sale (about a 5% chance of none), and at least 2 full days, counted up to the last full
+          // day the sales report has (fullEnd). Most likely the shelf is empty (lost, stolen, in the storeroom, mis-scanned).
+          const quiet = !fullEnd ? 0 : it.last ? Math.max(0, Math.round((Date.parse(fullEnd + 'T00:00:00Z') - Date.parse(it.last + 'T00:00:00Z')) / 864e5)) : 30;
           const rate = it.qty / Math.max(1, 30 - quiet);
-          const ghost = stock > 0 && it.days.size >= 6 && quiet >= 2 && rate * quiet >= 3;
+          const ghost = !!fullEnd && stock > 0 && it.days.size >= 6 && quiet >= 2 && rate * quiet >= 3;
           if (stock <= 0 || (daysLeft !== null && daysLeft < cover) || ghost) low.push({ vendor_id: v.id, code: it.code, description: it.description || String(hit.description || ''),
             stock, sold30: it.qty, per_day: Math.round(perDay * 100) / 100, days_left: daysLeft === null ? null : Math.round(daysLeft * 10) / 10, cover_days: cover,
             ghost, last_sale: it.last || null, quiet_days: quiet, days_sold: it.days.size });

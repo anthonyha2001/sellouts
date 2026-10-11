@@ -235,8 +235,11 @@
     const watched = vendorsList.filter(v => v.watchStock), vOf = new Map(watched.map(v => [v.id, v]));
     const items = S.alerts.filter(a => vOf.has(a.vendor_id)).map(a => {
       const v = vOf.get(a.vendor_id);
+      // order now only what sold lately (its last sale within 14 days): out of stock for weeks = most likely stopped,
+      // seasonal or delisted, not to order today (it stays in Soon)
+      const recent = !a.last_sale || daysSince(a.last_sale) <= 14;
       const cat = a.doubtful ? 'wrong' : ghostOnly(a) ? 'shelf' : onPO(a.code) ? 'onorder'
-        : weekly(a) >= 1 && (out(a) || Number(a.days_left) <= lead(v)) ? 'now' : 'soon';
+        : weekly(a) >= 1 && recent && (out(a) || Number(a.days_left) <= lead(v)) ? 'now' : 'soon';
       return { ...a, v, cat };
     });
     const n = { now: 0, shelf: 0, soon: 0, onorder: 0, wrong: 0 };
@@ -296,7 +299,7 @@
       title: 'Low stock',
       sub: !watched.length ? 'No supplier is watched yet: edit a vendor and tick <b>Watch stock</b>.'
         : `<b class="${n.now ? 'ls-urgent' : ''}">${n.now} to order now</b>${n.shelf ? ` · <b class="ls-urgent">${n.shelf} to check on the shelf</b>` : ''} · ${n.soon} soon · ${n.onorder} on order · ${plural(watched.length, 'supplier')} watched`,
-      info: '<b>Order now</b>: not on a PO of the week, sells 1 a week or more, and out of stock or it runs out before a delivery can come (days left ≤ the vendor\'s lead time, 2 days at least). <b>Check shelf</b>: the system shows stock, but an item that sells on 6 days or more of 30 has not sold for so long that it almost never happens by chance: the shelf is most likely empty. <b>Soon</b>: low, but there is still time, or it sells less than 1 a week. <b>On order</b>: on a PO of the week from the system, not received yet. Checked every 15 minutes in the day (only the items that sold in the last 30 days). Last PU = the last purchase and its quantity; Sold since = units sold from that day. Double-click an item for its details.',
+      info: '<b>Order now</b>: not on a PO of the week, sells 1 a week or more, sold in the last 14 days, and out of stock or it runs out before a delivery can come (days left ≤ the vendor\'s lead time, 2 days at least). <b>Check shelf</b>: the system shows stock, but an item that sells on 6 days or more of 30 has not sold for so long that it almost never happens by chance: the shelf is most likely empty. <b>Soon</b>: low, but there is still time, or it sells less than 1 a week. <b>On order</b>: on a PO of the week from the system, not received yet. Checked every 15 minutes in the day (only the items that sold in the last 30 days). Last PU = the last purchase and its quantity; Sold since = units sold from that day. Double-click an item for its details.',
       tools,
       body: (ordered.length ? ordered.map(groupHtml).join('') : U().empty(empty))
         + (wrong.length ? U().group({ title: 'Count these: the stock in the system looks wrong', tone: 'warn', chips: U().chip(plural(wrong.length, 'item'), 'warn'),
