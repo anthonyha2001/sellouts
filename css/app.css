@@ -2938,3 +2938,12 @@ tr:hover .so-note,.so-note:focus{border-color:var(--line-strong);background:var(
 .sd-k-cmp{display:inline-block;width:14px;height:0;border-top:2px dashed var(--ink-faint);vertical-align:middle;}
 .pf-s.sd-today{opacity:.45;}
 .sd-row-today td{background:color-mix(in srgb, var(--gold) 8%, transparent);}
+/* vendor sheet > Returns: one PT in a window (owner, 2026-10-11) */
+.vs-pt{cursor:pointer;}
+.vs-pt-dlg{width:min(980px,calc(100vw - 24px));max-height:calc(100vh - 40px);border:1px solid var(--line);border-radius:14px;padding:16px 18px;background:var(--paper-raised);color:var(--ink);box-shadow:var(--shadow-md);}
+.vs-pt-dlg::backdrop{background:rgba(0,0,0,.35);}
+.vs-pt-head{display:flex;align-items:baseline;gap:12px;margin:0 0 10px;}
+.vs-pt-head h3{margin:0;font-family:var(--font-mono);}
+.vs-pt-head .icon-btn{margin-left:auto;}
+.vs-pt-dlg tfoot td{border-top:2px solid var(--line-strong);}
+.vs-pt-dlg tr[data-today]{cursor:default;}

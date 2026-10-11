@@ -1282,6 +1282,70 @@ async function returnsRange(from: string, to: string, withPrev = false) {
 //   part 'more':  for the given codes: sales of the 90 days before, the price now, the previous purchase
 //   no part:      both
 // one document as the dashboard shows it: PU0010852 -> type PU, number 0010852; a return (PT) is operation 20
+/* ---------------- a supplier's returns, PT by PT (owner, 2026-10-11: vendor sheet › Returns) ----------------
+   The returns are the negative quantities of the supplier's purchases report (day by day, its items). Each return day:
+   one item's cardex gives the PT number(s), the PT itself (document viewer, operation 20) gives all its lines, so the other
+   items of that PT need no more reading. A PT made to another supplier (another code / name) is left out. */
+async function readPt(code: string, yr: string) {
+  const m = /^([A-Z]+)(\d+)$/.exec(code); if (!m) return null;
+  const d = await dash('/operations/viewer', postJson({ year: yr, branch: BRANCH, document_type: m[1], document_number: m[2], operation_code: '20' })) as Record<string, unknown>;
+  const v = d?.data as Record<string, unknown> | undefined;
+  return v && Array.isArray(v.lines) ? v : null;
+}
+async function vendorPts(sups: string[], names: string[], from: string, to: string) {
+  const want = new Set(sups.map(trimCode)), wantNames = new Set(names.map(supNameKey).filter(Boolean));
+  const rows = await report('purchases', from, to, { aggregation: 'Daily', group_by: ['item'], supplier: sups });
+  const byDay = new Map<string, Set<string>>();   // day -> that year's item codes returned that day
+  rows.forEach(r => { if (Number(r.total_quantity || 0) >= 0) return; const d = String(r.period || '').slice(0, 10), c = trimCode(r._yrItem ?? r.item);
+    if (!d || !c) return; if (!byDay.has(d)) byDay.set(d, new Set()); byDay.get(d)!.add(c); });
+  const pts = new Map<string, Record<string, unknown>>(), seen = new Set<string>();
+  let reads = 0, truncated = false;
+  for (const [day, items] of [...byDay.entries()].sort((a, b) => b[0].localeCompare(a[0]))) {
+    const left = new Set(items);
+    for (const c of items) {
+      if (!left.has(c)) continue;
+      if (reads >= 80) { truncated = true; break; }
+      reads++;
+      let docs: string[] = [];
+      try {
+        const cx = await dash(`/item-cardex?${new URLSearchParams({ branch: BRANCH, item_code: c, year: day.slice(0, 4), from_date: day, to_date: day })}`) as Record<string, unknown>;
+        docs = [...new Set(((((cx.data as Record<string, unknown>)?.rows || []) as Record<string, unknown>[])).filter(isReturn).map(r => String(r.document_no || '').trim()).filter(Boolean))];
+      } catch (e) { console.warn('pt cardex', c, e); }
+      left.delete(c);
+      for (const doc of docs) {
+        if (seen.has(doc + day.slice(0, 4))) continue;
+        seen.add(doc + day.slice(0, 4));
+        try {
+          const v = await readPt(doc, day.slice(0, 4));
+          if (!v) continue;
+          const lines = v.lines as Record<string, unknown>[];
+          lines.forEach(l => left.delete(trimCode(l.item_code)));
+          const code = trimCode(v.customer_code), partner = String(v.partner_name || '').trim();
+          const mine = day.slice(0, 4) === year() ? want.has(code) || wantNames.has(supNameKey(partner)) : wantNames.has(supNameKey(partner)) || want.has(code);
+          if (!mine) continue;
+          pts.set(doc + day.slice(0, 4), { pt: String(v.document_code || doc), year: day.slice(0, 4), date: String(v.document_date || day).slice(0, 10), partner, supplierCode: code,
+            currency: String(v.currency || ''), lines: lines.length, qty: lines.reduce((t, l) => t + Number(l.quantity || 0), 0),
+            withoutVat: Number(v.total_without_vat || 0), vat: Number(v.vat_amount || 0), withVat: Number(v.total_with_vat || 0) });
+        } catch (e) { console.warn('pt read', doc, e); }
+      }
+    }
+    if (truncated) break;
+  }
+  return { from, to, pts: [...pts.values()].sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(b.pt).localeCompare(String(a.pt))), truncated };
+}
+// one PT, its lines in the system's order (codes of a past year turned into today's, for the item details)
+async function ptDetail(code: string, yr: string) {
+  const v = await readPt(code, yr);
+  if (!v) return null;
+  const lines = (v.lines as Record<string, unknown>[]).map((l, i) => ({ line: Number(l.line_number) || i + 1, code: trimCode(l.item_code), description: String(l.item_description || '').trim(),
+    qty: Number(l.quantity || 0), unit: Number(l.unit_price || 0), disc: Number(l.unit_discount_percent || 0), net: Number(l.net_unit_price || 0),
+    withoutVat: Number(l.total_without_vat || 0), vat: Number(l.vat_amount || 0), withVat: Number(l.total_with_vat || 0), remarks: String(l.remarks || '').trim(), today: '' }))
+    .sort((a, b) => a.line - b.line);
+  try { const m = await fromYear('item', lines.map(l => l.code), yr); lines.forEach(l => { l.today = m[l.code] || (yr === year() ? l.code : ''); }); } catch { lines.forEach(l => { l.today = yr === year() ? l.code : ''; }); }
+  return { pt: String(v.document_code || code), year: yr, date: String(v.document_date || '').slice(0, 10), partner: String(v.partner_name || '').trim(), supplierCode: trimCode(v.customer_code),
+    currency: String(v.currency || ''), discountPct: Number(v.total_percent_discount || 0), withoutVat: Number(v.total_without_vat || 0), vat: Number(v.vat_amount || 0),
+    withVat: Number(v.total_with_vat || 0), qty: Number(v.total_quantity || 0), lines };
+}
 async function viewDoc(code: string, ret: boolean, yr = year()) {
   const m = /^([A-Z]+)(\d+)$/.exec(code); if (!m) return null;
   const d = await dash('/operations/viewer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
@@ -1634,7 +1698,7 @@ Deno.serve(async req => {
       }
       return json(await priceChangesSync(120));
     }
-    if (['perf_suppliers', 'perf_supplier', 'store_daily', 'sales_categories', 'pricing_day', 'pricing_supplier', 'returns_range', 'pu_find', 'vendor_pos', 'pos_of_day', 'po_detail'].includes(String(body.action))) {
+    if (['perf_suppliers', 'perf_supplier', 'store_daily', 'sales_categories', 'vendor_pts', 'pt_detail', 'pricing_day', 'pricing_supplier', 'returns_range', 'pu_find', 'vendor_pos', 'pos_of_day', 'po_detail'].includes(String(body.action))) {
       if (!isServer && role !== 'admin') {
         const anon = Deno.env.get('SUPABASE_ANON_KEY') || '';
         const asUser = createClient(SUPABASE_URL, anon, { global: { headers: { Authorization: `Bearer ${bearer}` } }, auth: { persistSession: false, autoRefreshToken: false } });
@@ -1642,6 +1706,21 @@ Deno.serve(async req => {
         if (!okPerm) return json({ error: 'Not allowed.' }, 403);
       }
       // a supplier's last POs, live from the system (the vendor sheet's POs tab)
+      // a supplier's returns (PTs) and one PT (vendor sheet › Returns, owner 2026-10-11)
+      if (body.action === 'vendor_pts') {
+        const sups = (Array.isArray(body.suppliers) ? body.suppliers : []).map(String).filter(Boolean).slice(0, 10);
+        const names = (Array.isArray(body.names) ? body.names : []).map(String).filter(Boolean).slice(0, 10);
+        if (!sups.length) return json({ error: 'This vendor is not linked to its supplier in the system.' }, 400);
+        const pf = String(body.from || ''), pt = String(body.to || '');
+        if (!isDay(pf) || !isDay(pt) || pf > pt || Number(pt.slice(0, 4)) - Number(pf.slice(0, 4)) > 1) return json({ error: 'Choose dates within two years.' }, 400);
+        return json(await vendorPts(sups, names, pf, pt));
+      }
+      if (body.action === 'pt_detail') {
+        const pt = String(body.pt || '').toUpperCase(), yr = String(body.year || '');
+        if (!/^PT\d+$/.test(pt) || !/^\d{4}$/.test(yr)) return json({ error: 'Which PT?' }, 400);
+        const d = await ptDetail(pt, yr);
+        return d ? json(d) : json({ error: pt + ' was not found in ' + yr + '.' }, 404);
+      }
       if (body.action === 'vendor_pos') {
         const sups = (Array.isArray(body.suppliers) ? body.suppliers : []).map(String).filter(Boolean).slice(0, 10);
         if (!sups.length) return json({ error: 'This vendor is not linked to its supplier in the system.' }, 400);

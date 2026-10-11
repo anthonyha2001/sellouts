@@ -115,14 +115,20 @@
     document.addEventListener('keydown', e => { if (e.key === 'Escape' && o.classList.contains('open')) close(); });
     o.addEventListener('click', onClick);
     o.addEventListener('input', e => { if (e.target.id === 'vsQ') { S.q = e.target.value; const pos = e.target.selectionStart; paintBody(); const q = el('vsQ'); if (q) { q.focus(); q.setSelectionRange(pos, pos); } } });
-    o.addEventListener('dblclick', e => { const tr = e.target.closest('tr[data-code]'); if (tr && window.ItemDetail) ItemDetail.open(tr.dataset.code); });
+    o.addEventListener('dblclick', e => {
+      const pt = e.target.closest('tr[data-pt]'); if (pt) return openPt(pt.dataset.pt, pt.dataset.year);
+      const tr = e.target.closest('tr[data-code]'); if (tr && window.ItemDetail) ItemDetail.open(tr.dataset.code);
+    });
+    o.addEventListener('keydown', e => { const pt = e.target.closest?.('tr[data-pt]'); if (pt && e.key === 'Enter') openPt(pt.dataset.pt, pt.dataset.year); });
     return o;
   }
   function onClick(e) {
     const t = e.target.closest('[data-vs]'); if (!t) return;
     const a = t.dataset.vs;
     if (a === 'close') return close();
-    if (a === 'tab') { S.tab = t.dataset.tab; paintTabs(); paintBody(); if (S.tab === 'pos' && (!S.pos || S.pos.id !== S.id)) loadPos(''); return; }
+    if (a === 'tab') { S.tab = t.dataset.tab; paintTabs(); paintBody(); if (S.tab === 'pos' && (!S.pos || S.pos.id !== S.id)) loadPos(''); if (S.tab === 'pts' && (!S.pts || S.pts.id !== S.id || S.pts.days !== S.ptDays)) loadPts(); return; }
+    if (a === 'ptrange') { S.ptDays = Number(t.dataset.days); return loadPts(); }
+    if (a === 'ptreload') return loadPts();
     if (a === 'po') return loadPos(t.dataset.po || '');
     if (a === 'range') { S.range = Number(t.dataset.days); refresh(false); return; }
     if (a === 'reload') return refresh(true);
@@ -161,7 +167,7 @@
   }
   function open(id) {
     const v = vendorsList.find(x => x.id === id); if (!v) return;
-    S.id = id; S.tab = 'overview'; S.q = ''; S.sort = 'sold'; S.dir = -1; S.perf = null; S.stock = null; S.pos = null;
+    S.id = id; S.tab = 'overview'; S.q = ''; S.sort = 'sold'; S.dir = -1; S.perf = null; S.stock = null; S.pos = null; S.pts = null;
     shell().classList.add('open');
     document.body.classList.add('vs-lock');
     paintHead(); paintTabs(); paintBody();
@@ -205,14 +211,14 @@
       </div></div>`;
   }
   function paintTabs() {
-    const tabs = [['overview', 'Overview'], ['items', 'Items'], ['orders', 'Orders'], ['pos', 'POs'], ['stock', 'Stock'], ['contract', 'Contract']].filter(([k]) => canData() || k === 'orders');
+    const tabs = [['overview', 'Overview'], ['items', 'Items'], ['orders', 'Orders'], ['pos', 'POs'], ['pts', 'Returns'], ['stock', 'Stock'], ['contract', 'Contract']].filter(([k]) => canData() || k === 'orders');
     if (!canData()) S.tab = 'orders';
     el('vsTabs').innerHTML = tabs.map(([k, l]) => `<button type="button" data-vs="tab" data-tab="${k}" class="${k === S.tab ? 'active' : ''}">${l}${k === 'stock' && S.stock ? ` <span class="vs-n">${S.stock.low.length + S.stock.top.length + S.stock.over.length + S.stock.slow.length}</span>` : ''}</button>`).join('');
   }
   function paintBody() {
     const box = el('vsBody'); if (!box) return;
     paintTabs();
-    box.innerHTML = ({ overview: overviewHtml, items: itemsHtml, orders: ordersHtml, pos: posHtml, stock: stockHtml, contract: contractHtml }[S.tab] || overviewHtml)();
+    box.innerHTML = ({ overview: overviewHtml, items: itemsHtml, orders: ordersHtml, pos: posHtml, pts: ptsHtml, stock: stockHtml, contract: contractHtml }[S.tab] || overviewHtml)();
   }
 
   /* ---------------- POs tab (owner, 2026-10-11): the supplier's POs of the last 7 days, live from the system ---------------- */
@@ -262,6 +268,68 @@
         <div class="items-scroll vs-scroll"><table class="items vs-table"><thead><tr><th>Code</th><th>Item</th><th class="num">Ordered</th><th class="num">Price</th><th>Delivered</th><th class="num">Stock now</th></tr></thead>
           <tbody>${ls.map(row).join('') || '<tr><td colspan="6" class="empty-note">No line on this PO.</td></tr>'}</tbody></table></div>
         <p class="muted-note" style="margin:8px 0 0;">Delivered = the units this supplier delivered of the item since the PO's day (its PUs). Red = not delivered and out of stock: ask the supplier. Double-click an item for its details.</p></div>`;
+  }
+
+  /* ---------------- Returns tab (owner, 2026-10-11): the supplier's PTs, live from the system; double-click one for its lines ---------------- */
+  const call = async body => {
+    const { data, error } = await sb.functions.invoke('lv-dashboard', { body });
+    let msg = data?.error || '';
+    if (error && !msg) { try { msg = (await error.context.json()).error || ''; } catch (x) { msg = error.message || ''; } }
+    if (msg || error || !data) throw new Error(msg || 'no answer');
+    return data;
+  };
+  const cur = (v, c) => (c && c !== '$' ? c + ' ' : '$') + (Math.round(n(v) * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const ptErr = e => /Unknown action/i.test(e.message) ? 'Deploy the latest lv-dashboard to see the returns.' : 'The system did not answer: ' + e.message;
+  async function loadPts() {
+    const v = vendor(), id = S.id; if (!v) return;
+    S.ptDays = S.ptDays || 90;
+    const sups = (v.systemSuppliers || []).map(s => String(s.code || '')).filter(Boolean), names = (v.systemSuppliers || []).map(s => String(s.name || '')).filter(Boolean);
+    if (!sups.length) { S.pts = { id, days: S.ptDays, none: true }; return paintBody(); }
+    const days = S.ptDays;
+    S.pts = { id, days, loading: true }; if (S.tab === 'pts') paintBody();
+    try {
+      const data = await call({ action: 'vendor_pts', suppliers: sups, names, from: rangeFrom(days), to: todayStr() });
+      if (S.id !== id || S.ptDays !== days) return;
+      S.pts = { id, days, data };
+    } catch (e) { if (S.id !== id) return; S.pts = { id, days, error: ptErr(e) }; }
+    if (S.tab === 'pts') paintBody();
+  }
+  function ptsHtml() {
+    const v = vendor(), p = S.pts, days = S.ptDays || 90;
+    const bar = `<div class="filter-row vs-range" style="margin:0 0 10px;">${[[30, '30 days'], [90, '90 days'], [365, '12 months']].map(([d, l]) => `<button type="button" data-vs="ptrange" data-days="${d}" class="${days === d ? 'active' : ''}">${l}</button>`).join('')}<button type="button" class="btn ghost small" data-vs="ptreload" title="Read again from the system">↻</button></div>`;
+    if (!p || p.id !== S.id || p.loading) return bar + '<div class="vs-note vs-loading">Reading the returns (PTs) from the system…</div>';
+    if (p.none) return `<div class="vs-note">${esc(v.name)} is not linked to its supplier in the system yet, so its returns can't be found. <button type="button" class="btn small" data-vs="edit">Link it now</button></div>`;
+    if (p.error) return bar + `<div class="vs-note vs-err">${esc(p.error)}</div>`;
+    const list = p.data.pts || [];
+    if (!list.length) return bar + `<div class="vs-note">No return (PT) to ${esc(v.name)} in the last ${days === 365 ? '12 months' : days + ' days'}.</div>`;
+    const byCur = {}; list.forEach(x => { const c = x.currency || '$'; byCur[c] = (byCur[c] || 0) + n(x.withVat); });
+    return bar + `<div class="vs-card vs-wide"><h4>${list.length} return${list.length === 1 ? '' : 's'} <span class="muted-note">· ${Object.entries(byCur).map(([c, t]) => cur(t, c)).join(' + ')} · ${qty(list.reduce((t, x) => t + n(x.qty), 0))} units</span></h4>
+      <div class="items-scroll vs-scroll"><table class="items vs-table"><thead><tr><th>PT</th><th>Date</th><th>Supplier in the system</th><th class="num">Lines</th><th class="num">Units</th><th class="num">Total</th></tr></thead>
+        <tbody>${list.map(x => `<tr data-pt="${esc(x.pt)}" data-year="${esc(x.year)}" tabindex="0" class="vs-pt" title="Double-click to see its lines"><td class="mono"><b>${esc(x.pt)}</b></td><td>${esc(dmy(x.date))}</td><td>${esc(x.partner)}</td>
+          <td class="num">${x.lines}</td><td class="num">${qty(x.qty)}</td><td class="num"><b>${cur(x.withVat, x.currency)}</b></td></tr>`).join('')}</tbody></table></div>
+      ${p.data.truncated ? '<p class="vs-note vs-err" style="margin:8px 0 0;">Many return days: the oldest may be missing. Choose a shorter period.</p>' : ''}
+      <p class="muted-note" style="margin:8px 0 0;">The returns to this supplier, from the system. Double-click a PT (or Enter) to see its lines.</p></div>`;
+  }
+  // one PT, as the system has it: its lines in their order
+  async function openPt(pt, yr) {
+    let dlg = el('vsPtDlg');
+    if (!dlg) {
+      dlg = document.createElement('dialog'); dlg.id = 'vsPtDlg'; dlg.className = 'vs-pt-dlg'; document.body.appendChild(dlg);
+      dlg.addEventListener('click', e => { if (e.target === dlg || e.target.closest('[data-ptclose]')) dlg.close(); });
+      dlg.addEventListener('dblclick', e => { const tr = e.target.closest('tr[data-today]'); if (tr && tr.dataset.today && window.ItemDetail) ItemDetail.open(tr.dataset.today); });
+    }
+    const head = t => `<div class="vs-pt-head"><h3>${esc(pt)}</h3>${t}<button type="button" class="icon-btn" data-ptclose title="Close" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>`;
+    dlg.innerHTML = head('') + '<div class="vs-note vs-loading">Reading the PT from the system…</div>';
+    if (!dlg.open) dlg.showModal();
+    try {
+      const d = await call({ action: 'pt_detail', pt, year: yr });
+      dlg.innerHTML = head(`<span class="muted-note">${esc(dmy(d.date))} · ${esc(d.partner)}${d.supplierCode ? ' · ' + esc(d.supplierCode) : ''}</span>`) + `
+        <div class="items-scroll vs-scroll"><table class="items vs-table"><thead><tr><th class="num">#</th><th>Code</th><th>Item</th><th class="num">Qty</th><th class="num">Unit price</th><th class="num">Disc.</th><th class="num">Total incl. VAT</th><th class="num">VAT</th></tr></thead>
+          <tbody>${d.lines.map(l => `<tr data-today="${esc(l.today)}" ${l.today ? 'title="Double-click for the item details"' : ''}><td class="num muted-note">${l.line}</td><td class="mono">${esc(l.today || l.code)}</td><td>${esc(l.description)}${l.remarks ? `<div class="muted-note">${esc(l.remarks)}</div>` : ''}</td>
+            <td class="num"><b>${qty(l.qty)}</b></td><td class="num">${cur(l.unit, d.currency)}</td><td class="num">${l.disc ? l.disc + '%' : ''}</td><td class="num">${cur(l.withVat, d.currency)}</td><td class="num">${l.vat ? cur(l.vat, d.currency) : ''}</td></tr>`).join('')}</tbody>
+          <tfoot><tr><td></td><td></td><td><b>Total</b></td><td class="num"><b>${qty(d.qty)}</b></td><td></td><td class="num">${d.discountPct ? d.discountPct + '%' : ''}</td><td class="num"><b>${cur(d.withVat, d.currency)}</b></td><td class="num">${d.vat ? cur(d.vat, d.currency) : ''}</td></tr></tfoot></table></div>
+        <p class="muted-note" style="margin:8px 0 0;">${d.lines.length} line${d.lines.length === 1 ? '' : 's'}, in the system's order. Without VAT ${cur(d.withoutVat, d.currency)}. Double-click an item for its details.</p>`;
+    } catch (e) { dlg.innerHTML = head('') + `<div class="vs-note vs-err">${esc(ptErr(e))}</div>`; }
   }
 
   /* ---------------- tabs ---------------- */
