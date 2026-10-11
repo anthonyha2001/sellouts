@@ -56,6 +56,7 @@
         <p class="muted-note">${esc(it.code)}${it.size ? ' · ' + esc(it.size) : ''}${it.barcode ? ' · ' + esc(it.barcode) : ''}</p></div>
         <button type="button" class="icon-btn" data-id-close title="Close" aria-label="Close">${X}</button></div>
       <div class="id-tags">${tags.map(([k, v]) => `<span><em>${k}</em>${esc(v)}</span>`).join('')}</div>
+      ${S.data.raw && typeof isAdmin === 'function' && isAdmin() ? `<details class="id-raw"><summary>System fields of this item</summary><table class="items"><tbody>${Object.entries(S.data.raw).filter(([, v]) => v !== null && typeof v !== 'object').map(([k, v]) => `<tr><td><b>${esc(k)}</b></td><td>${esc(String(v))}</td></tr>`).join('')}</tbody></table></details>` : ''}
       <div class="id-prices">
         <div class="id-price-main"><b>${money(it.price)}</b><span>selling price now${it.promoted ? ' <span class="badge warn">on promotion</span>' : ''}</span></div>
         <div><b>${money(it.salePrice)}</b><span>normal price (unit)</span></div>

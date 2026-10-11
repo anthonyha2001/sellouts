@@ -1449,7 +1449,7 @@ Deno.serve(async req => {
           rows: rows.slice(-400).reverse().map(r => ({ date: r.date, doc: r.document_no, op: r.operation_label, type: r.document_type, details: r.details,
             in: r.qty_in, out: r.qty_out, unit: r.unit_price, net: r.net_unit_price, total: r.line_total, currency: r.currency, balance: r.running_balance })) };
       } catch (e) { console.warn('detail cardex', e); }
-      return json({ item, branches: branches.map(x => ({ branch: x.branch, found: !!x.hit, stock: x.hit ? (x.hit as Record<string, unknown>).AvailableQuantity ?? null : null,
+      return json({ item, raw: main, branches: branches.map(x => ({ branch: x.branch, found: !!x.hit, stock: x.hit ? (x.hit as Record<string, unknown>).AvailableQuantity ?? null : null,
         price: x.hit ? (x.hit as Record<string, unknown>).Price ?? null : null, salePrice: x.hit ? unitSale(x.hit as Record<string, unknown>) : null,
         promoted: x.hit ? !!Number((x.hit as Record<string, unknown>).isPromoted || 0) : false })), cardex });
     }

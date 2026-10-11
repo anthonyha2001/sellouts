@@ -2523,3 +2523,4 @@ span.vw-chip{display:inline-block;cursor:default;}
 .lb-info .lb-info-alt{color:var(--ink-faint);font-size:12px;margin-left:4px;}
 .lb-info-none{color:var(--brick);} .lb-info-wait{opacity:.5;}
 td .lb-info{margin:0;}
+.id-raw{margin:6px 0 10px;font-size:13px;} .id-raw summary{cursor:pointer;color:var(--ink-soft);} .id-raw table{margin-top:6px;} .id-raw td{padding:3px 8px;}
