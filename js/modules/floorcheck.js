@@ -24,7 +24,7 @@
     price_changed: ['Price changed in the system', 'warn'] };   // the nightly price watch (owner, 2026-10-06; migration 064)
   const PROBLEMS = ['wrong_price', 'missing_tag', 'out_of_stock'];
   const PHOTO_BUCKET = 'floor-photos';
-  const S = { tab: 'today', check: null, items: [], filter: 'todo', started: false, openNote: null, checks: [], results: new Map(), photoUrls: new Map(),
+  const S = { tab: 'ref', check: null, items: [], filter: 'todo', started: false, openNote: null, checks: [], results: new Map(), photoUrls: new Map(),
     groupBy: 'category', show: 'all', openGroups: null };
   const el = id => document.getElementById(id);
   const esc = escapeHtml;
@@ -651,7 +651,7 @@
   /* ---------------- shell ---------------- */
   function shell() {
     // floorcheck.do: today's check + own checks; floorcheck.manage: everyone's results + repeat problems.
-    const tabs = [can('floorcheck.do') && ['today', "Today's check"], can('floorcheck.do', 'floorcheck.manage') && ['results', can('floorcheck.manage') ? 'Results' : 'My checks']]
+    const tabs = [can('floorcheck.do') && window.FloorRef && ['ref', 'Today'], can('floorcheck.do') && ['today', "Full check"], can('floorcheck.do', 'floorcheck.manage') && ['results', can('floorcheck.manage') ? 'Results' : 'My checks']]
       .concat(can('floorcheck.manage') ? [['repeats', 'Repeat problems']] : [])
       .concat(window.NewPrices && can('floorcheck.do', 'floorcheck.manage', 'vendors.manage') ? [['prices', 'New prices']] : [])   // js/modules/newprices.js
       .concat(can('rentals.spotcheck', 'rentals.contracts') && window.SpotCheck ? [['spots', 'Rented spots']] : []).filter(Boolean);
@@ -661,6 +661,7 @@
   }
   function render() {
     panel.querySelectorAll('#fcTabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === S.tab));
+    if (S.tab === 'ref') FloorRef.render(el('fcBody'));
     if (S.tab === 'today') renderToday();
     if (S.tab === 'results') renderResults();
     if (S.tab === 'repeats') renderRepeats();
@@ -669,6 +670,7 @@
   }
   async function show() {
     if (!S.started) { S.started = true; shell(); }
+    if (S.tab === 'ref') { render(); await FloorRef.load(); }
     if (S.tab === 'today') { Scanner.warmUp(); await loadToday(); }
     if (S.tab === 'results') await loadResults();
     if (S.tab === 'spots') await SpotCheck.load();
@@ -698,5 +700,7 @@
     setInterval(notifyFinishedChecks, 5 * 60 * 1000);
   }
 
-  window.FloorCheck = { show, start };
+  // for the simple Today page (js/modules/floorref.js): the same sources and rules as the full check
+  async function refItems(mode, since) { const src = await todaysSources(since); return { items: itemsFor(src, mode, since, []), sellouts: src.sellouts, promotions: src.promotions }; }
+  window.FloorCheck = { show, start, refItems };
 })();

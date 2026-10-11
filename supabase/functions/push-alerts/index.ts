@@ -110,6 +110,21 @@ async function buildAlerts(today: string): Promise<Alert[]> {
       body: `"${p.name}" starts tomorrow (${fmt(p.from_date)}) but has no items yet.` });
   }
 
+  // Floor managers (owner, 2026-10-11; Floor check › Today): a promotion starting today (promo paper to put up), one that
+  // ended yesterday (the normal price comes back), and the prices that changed in the system today.
+  const { data: promosToday } = await db.from('promotions').select('id, name, from_date, to_date').eq('archived', false).or(`from_date.eq.${today},to_date.eq.${addDays(today, -1)}`);
+  for (const p of promosToday ?? []) {
+    const { count } = await db.from('promotion_rows').select('id', { count: 'exact', head: true }).eq('promotion_id', p.id).not('code', 'is', null).neq('code', '');
+    if (p.from_date === today) add({ key: `fr:promo:${p.id}:starts`, perms: ['floorcheck.do'], title: 'Promotion starts today', url: '#floorcheck',
+      body: `"${p.name}" starts today${count ? ` — ${count} item${count === 1 ? '' : 's'}` : ''}. Put the promo papers up: Floor check › Today.` });
+    if (p.to_date === addDays(today, -1)) add({ key: `fr:promo:${p.id}:ended`, perms: ['floorcheck.do'], title: 'Promotion ended', url: '#floorcheck',
+      body: `"${p.name}" ended yesterday — the prices go back to normal. Floor check › Today.` });
+  }
+  const { count: changedToday } = await db.from('item_price_watch').select('code', { count: 'exact', head: true })
+    .gte('changed_at', new Date(`${today}T00:00:00+03:00`).toISOString());
+  if (changedToday) add({ key: `fr:prices:${today}`, perms: ['floorcheck.do'], title: `${changedToday} price${changedToday === 1 ? '' : 's'} changed today`, url: '#floorcheck',
+    body: `The system changed ${changedToday} price${changedToday === 1 ? '' : 's'} today. Check the tags: Floor check › Today.` });
+
   // Promo ladies (018): the day before she starts, and the morning she starts — to whoever manages them.
   const { data: pls, error: plErr } = await db.from('promo_ladies').select('id, supplier, item, paid, amount, start_date, end_date').in('start_date', [today, tomorrow]);
   if (!plErr) for (const p of pls ?? []) {
