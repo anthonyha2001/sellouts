@@ -1564,60 +1564,6 @@ td .lb-kind-chip{margin-left:0;cursor:default;}
 .st-f-seg{display:flex;gap:6px;flex-wrap:wrap;}
 .st-f-foot{display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding-top:10px;border-top:1px solid var(--line);}
 
-/* Sell-out calendar (owner, 2026-10-04) */
-.so-tabs{margin-bottom:12px;}
-.socal-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;}
-.socal-head h3{margin:0;min-width:170px;text-align:center;}
-.socal-legend{display:flex;gap:12px;flex-wrap:wrap;font-size:12.5px;color:var(--ink-soft);}
-.socal-legend i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:5px;vertical-align:-1px;}
-.socal{padding:0;overflow:hidden;}
-.socal-dow{display:grid;grid-template-columns:repeat(7,1fr);border-bottom:1px solid var(--line);}
-.socal-dow span{padding:8px 10px;font:600 11px var(--font-mono);text-transform:uppercase;color:var(--ink-faint);}
-.socal-week{position:relative;border-bottom:1px solid var(--line);min-height:96px;}
-.socal-week:last-child{border-bottom:0;}
-.socal-days{position:absolute;inset:0;display:grid;grid-template-columns:repeat(7,1fr);}
-.socal-day{border-right:1px solid var(--line);padding:6px 8px;}
-.socal-day:last-child{border-right:0;}
-.socal-day span{font:600 12px var(--font-mono);color:var(--ink-soft);}
-.socal-day.out{background:var(--paper);}
-.socal-day.out span{color:var(--ink-faint);opacity:.6;}
-.socal-day.today span{display:inline-block;min-width:22px;padding:1px 5px;border-radius:999px;background:var(--brick);color:#fff;text-align:center;}
-.socal-bars{position:relative;display:grid;grid-template-columns:repeat(7,1fr);grid-auto-rows:24px;gap:4px 0;padding:30px 0 10px;}
-.socal-bar{margin:0 4px;padding:0 8px;border-radius:6px;border:1px solid transparent;font:600 12px var(--font-body);text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;display:flex;align-items:center;gap:6px;}
-.socal-bar span{font-weight:400;opacity:.8;}
-.socal-bar.cont{margin-left:0;border-top-left-radius:0;border-bottom-left-radius:0;}
-.socal-bar.more{margin-right:0;border-top-right-radius:0;border-bottom-right-radius:0;}
-.socal-bar:hover{filter:brightness(.95);box-shadow:0 0 0 2px var(--pine);}
-.socal-active{background:#DCEFE2;color:#1D5B33;border-color:#2E8B57;}
-.socal-upcoming{background:#DDE7F7;color:#1F3F75;border-color:#3D67B1;}
-.socal-ended,.socal-off{background:var(--paper);color:var(--ink-soft);border-color:var(--line-strong);}
-.socal-online{background:var(--so-purple-tint);color:var(--so-purple);border-color:var(--so-purple);}
-.socal-archived{background:var(--paper);color:var(--ink-faint);border-color:var(--line);border-style:dashed;}
-.socal-legend i.socal-active,.socal-legend i.socal-upcoming,.socal-legend i.socal-ended,.socal-legend i.socal-off,.socal-legend i.socal-online,.socal-legend i.socal-archived{border-width:1px;border-style:solid;}
-@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]) .socal-active{background:#1E3A28;color:#9FE0B5;} :root:not([data-theme="light"]) .socal-upcoming{background:#1F2D45;color:#A9C4F0;} }
-:root[data-theme="dark"] .socal-active{background:#1E3A28;color:#9FE0B5;} :root[data-theme="dark"] .socal-upcoming{background:#1F2D45;color:#A9C4F0;}
-@media (max-width:640px){ .socal-bar span{display:none;} .socal-bar{font-size:11px;padding:0 5px;} .socal-week{min-height:80px;} }
-
-/* Sell-out calendar, promo-ladies style (owner, 2026-10-04) */
-.so-chip-active{background:#DCEFE2 !important;color:#1D5B33 !important;border-left:3px solid #2E8B57 !important;}
-.so-chip-upcoming{background:#DDE7F7 !important;color:#1F3F75 !important;border-left:3px solid #3D67B1 !important;}
-.so-chip-off,.so-chip-ended{background:var(--paper) !important;color:var(--ink-soft) !important;border-left:3px solid var(--line-strong) !important;}
-.so-chip-online{background:var(--so-purple-tint) !important;color:var(--so-purple) !important;border-left:3px solid var(--so-purple) !important;}
-@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]) .so-chip-active{background:#1E3A28 !important;color:#9FE0B5 !important;} :root:not([data-theme="light"]) .so-chip-upcoming{background:#1F2D45 !important;color:#A9C4F0 !important;} }
-:root[data-theme="dark"] .so-chip-active{background:#1E3A28 !important;color:#9FE0B5 !important;} :root[data-theme="dark"] .so-chip-upcoming{background:#1F2D45 !important;color:#A9C4F0 !important;}
-.so-chip-cont{opacity:.5;margin-right:3px;}
-.pl-legend i.so-chip-active,.pl-legend i.so-chip-upcoming,.pl-legend i.so-chip-off,.pl-legend i.so-chip-ended,.pl-legend i.so-chip-online{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-1px;}
-.so-cal{user-select:none;}
-.so-cal .pl-day.range{background:var(--pine-tint);box-shadow:inset 0 0 0 2px var(--pine);}
-.so-dot{display:inline-block;width:12px;height:12px;border-radius:3px;flex:0 0 auto;}
-.so-day-main{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;}
-.so-day-main small{color:var(--ink-soft);}
-.so-daylist{list-style:none;margin:10px 0 0;padding:0;}
-.so-daylist li{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line);}
-.so-daylist li .btn{flex:0 0 auto;width:auto;}
-/* Sell-out calendar: the last day of a sell-out in red (owner, 2026-10-04) */
-.so-chip.so-chip-last{background:var(--brick) !important;color:#fff !important;border-left:3px solid var(--brick) !important;font-weight:700;}
-.pl-legend i.so-chip-last{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-1px;background:var(--brick);}
 
 /* Cash count (owner, 2026-10-04) */
 .cc-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;}
@@ -2903,12 +2849,7 @@ tr:hover .so-note,.so-note:focus{border-color:var(--line-strong);background:var(
 .sc-tab.active .sc-cnt,.sc-tab.active .sc-cnt.hot{background:rgba(255,255,255,.18);color:#fff;}
 .sc-tab.active .sc-cnt.zero{background:transparent;color:rgba(255,255,255,.7);}
 
-/* Sell-outs (owner, 2026-10-11: "fix this too"): list / calendar as underline tabs, the filters as one segmented bar */
-.filter-row.so-tabs{gap:2px;margin:-4px 0 16px;border-bottom:1px solid var(--line);flex-wrap:wrap;}
-.filter-row.so-tabs button{background:none;border:0;border-bottom:2px solid transparent;border-radius:0;margin-bottom:-1px;min-height:0;padding:9px 14px 10px;
-  font:600 14px var(--font-body);color:var(--ink-soft);}
-.filter-row.so-tabs button:hover{color:var(--ink);}
-.filter-row.so-tabs button.active,.filter-row.so-tabs button.active:hover{background:none;color:var(--pine);border-bottom-color:var(--pine);}
+/* Sell-outs (owner, 2026-10-11: "fix this too"): the filters as one segmented bar */
 #selloutFilters{gap:0 !important;flex-wrap:nowrap !important;border:1px solid var(--line);border-radius:10px;overflow:hidden;overflow-x:auto;background:var(--paper-raised);max-width:100%;}
 #selloutFilters button{min-height:34px;border:0;border-radius:0;background:transparent;}
 #selloutFilters button + button{border-left:1px solid var(--line);}
