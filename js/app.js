@@ -429,9 +429,9 @@ const withMoved = (rows, moved) => [...new Set([...rows, ...moved])];
 // Import from the system into the promotion (owner, 2026-10-06), as for sell-outs: pick by supplier, brand, group,
 // sub-group or section, tick the items, give the discount; they go below the row (afterRowId) or at the end, with the
 // normal price, the discount and the promo price. Items already in the promotion are left out.
-async function importFromSystem(afterRowId) {
+async function importFromSystem(afterRowId, field) {
   if (!window.ItemPicker) return;
-  const res = await ItemPicker.open({ title: 'Import items from the system', okLabel: 'Next: the discount', withPrices: true });
+  const res = await ItemPicker.open({ title: 'Import items from the system', okLabel: 'Next: the discount', withPrices: true, field: field || 'supplier' });
   if (!res || !res.items.length) return;
   const have = new Set(currentRows.map(r => normalizeCatalogCode(r.code)).filter(Boolean));
   const fresh = res.items.filter(i => !have.has(normalizeCatalogCode(i.code)));
@@ -5104,3 +5104,15 @@ function startMainModules() {
   if (canSee('floorcheck') && window.FloorCheck) FloorCheck.start();   // admin: finished-check notifications
   if (typeof Live !== 'undefined') Live.start();                        // changes by others show up without a reload
 }
+
+// F2 on the promotions page (owner, 2026-10-11): search an item in the system (code, barcode or name) and add it to the
+// open promotion, below the row you are on (or at the end). The same key does it on the sell-outs page.
+document.addEventListener('keydown', e => {
+  if (e.key !== 'F2') return;
+  const panel = document.getElementById('panel-promotions');
+  if (!panel || !panel.classList.contains('active') || document.querySelector('.modal-overlay.open, #ipOverlay')) return;
+  e.preventDefault();
+  if (!currentPromoId) return showToast('Open a promotion first, then press F2.', true);
+  const rowId = document.activeElement && document.activeElement.closest ? document.activeElement.closest('tr[data-row-id]')?.dataset.rowId : null;
+  importFromSystem(rowId || null, 'item');
+});

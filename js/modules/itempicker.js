@@ -16,7 +16,7 @@
   const call = async body => { const { data, error } = await sb.functions.invoke('lv-dashboard', { body }); if (error) throw error; return data; };
   const fq = v => (Math.round(Number(v || 0) * 100) / 100).toLocaleString('en-US');
 
-  function open({ title = 'Add items from the system', okLabel = 'Add', withPrices = false } = {}) {
+  function open({ title = 'Add items from the system', okLabel = 'Add', withPrices = false, field: startField = 'supplier' } = {}) {
     return new Promise(resolve => {
       document.getElementById('ipOverlay')?.remove();
       document.body.insertAdjacentHTML('beforeend', `<div class="modal-overlay open" id="ipOverlay"><div class="modal-box ip-box" role="dialog" aria-modal="true">
@@ -83,6 +83,8 @@
         search(); $('ipQ').focus();
       };
       $('ipQ').oninput = () => { clearTimeout(timer); timer = setTimeout(search, 300); };
+      // F2 opens straight on the Item tab: type, tick, add
+      if (startField && startField !== 'supplier') { const tb = $('ipFields').querySelector('[data-f="' + startField + '"]'); if (tb) tb.click(); }
       $('ipOptions').onclick = e => {
         const it = e.target.closest('[data-item]');
         if (it) { const c = it.dataset.item; if (S.basket.has(c)) S.basket.delete(c); else S.basket.set(c, { code: c, description: it.dataset.desc, barcodes: it.dataset.bc ? [it.dataset.bc] : [], sold: 0, bought: 0 });

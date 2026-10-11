@@ -644,6 +644,7 @@ function pricingPanelHtml(so) {
       <div class="so-price-buttons">
         <button type="button" class="btn small" data-role="apply-all">Apply to all</button>
         <button type="button" class="btn secondary small" data-role="apply-selected" ${st.selected.size ? '' : 'disabled'}>Apply to selected (${st.selected.size})</button>
+        ${canEditSellouts() ? '<button type="button" class="btn secondary small" data-role="add-items" title="Search an item in the system and add it to this sell-out (F2)">+ Add items <kbd>F2</kbd></button>' : ''}
       </div>
       <div><label>Old price column</label><select data-role="price-column"><option value="">— none —</option>${cols.map(c => `<option value="${escapeHtml(c)}" ${c === so.priceColumn ? 'selected' : ''}>${escapeHtml(c)}</option>`).join('')}</select></div>
     </div>
@@ -683,6 +684,7 @@ function pricingPanelHtml(so) {
         <button type="button" class="btn secondary small" data-role="copy-selected">Copy codes</button>
         <button type="button" class="btn secondary small" data-role="copy-sales-selected" title="Copy the selected codes with their units sold (paste into Excel)">Copy codes and sales</button>
         <button type="button" class="btn secondary small" data-role="apply-selected-foot">Apply the rule</button>
+        ${canEditSellouts() ? '<button type="button" class="btn ghost small" data-role="delete-selected" style="color:var(--brick);">Delete from the sell-out</button>' : ''}
         <button type="button" class="icon-btn" data-role="clear-selected" title="Clear the selection" aria-label="Clear the selection"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
     </div>`;
 }
@@ -759,6 +761,8 @@ function wirePricingPanel(el, so) {
     rerender();
     showToast(`Prices set on ${targets.length - skipped} item${targets.length - skipped === 1 ? '' : 's'}` + (skipped ? ` — ${skipped} skipped (no old price).` : '.'));
   };
+  panel.querySelector('[data-role="add-items"]')?.addEventListener('click', () => addItemsToSellout(so));
+  panel.querySelector('[data-role="delete-selected"]')?.addEventListener('click', () => deleteItemsFromSellout(so, st.selected, () => { st.selected = new Set(); renderSellouts(); }));
   panel.querySelector('[data-role="apply-all"]').addEventListener('click', () => apply('all'));
   panel.querySelector('[data-role="apply-selected"]').addEventListener('click', () => apply('selected'));
 
@@ -1220,3 +1224,85 @@ async function soDayClick(e) {
 const _renderSelloutsList = renderSellouts;
 renderSellouts = function () { _renderSelloutsList(); if (soView === 'calendar') renderSelloutCalendar(); };
 setSoView(soView);
+
+/* ---------------- add and delete items in an existing sell-out (owner, 2026-10-11) ----------------
+   "+ Add items" (or F2): search the system (code, barcode or name), tick, add: the items join the sell-out's file
+   and its price list (the last rule is applied to them when it was a % or an amount). The selected rows can be
+   deleted from the sell-out (every file row of their code). The file is rebuilt from the rows so the download
+   matches. The same F2 opens the system search on the promotions page (js/app.js). */
+function rebuildSelloutFile(so) {
+  const cols = itemColumns(so.items);
+  const ws = XLSX.utils.json_to_sheet(so.items, { header: cols }), wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Items');
+  const base = String(so.fileName || so.name || 'sell-out').replace(/\.(xlsx|xls|csv)$/i, '');
+  so.fileName = base + '.xlsx';
+  so.fileBlob = new File([XLSX.write(wb, { type: 'array', bookType: 'xlsx' })], so.fileName, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+}
+async function addItemsToSellout(so, onDone) {
+  if (!canEditSellouts()) return refuseViewOnly('sell-outs');
+  if (!window.ItemPicker) return;
+  const res = await ItemPicker.open({ title: `Add items to "${so.name}"`, okLabel: 'Add to the sell-out', withPrices: true, field: 'item' });
+  if (!res || !res.items.length) return;
+  const rows = pricedRowsOf(so);
+  const norm = c => String(c || '').trim().replace(/^0+(?=\d)/, '').toUpperCase();
+  const have = new Set(rows.map(p => norm(p.code)));
+  const fresh = res.items.filter(i => i.code && !have.has(norm(i.code)));
+  if (!fresh.length) return showToast('These items are already in the sell-out.');
+  let cols = itemColumns(so.items), map = detectColumns(so.items);
+  if (!cols.length) { cols = ['Code', 'Description', 'Bar Code', 'Sale Price']; map = { code: 'Code', description: 'Description', barcode: 'Bar Code', price: 'Sale Price' }; so.priceColumn = 'Sale Price'; }
+  if (so.priceColumn) map.price = so.priceColumn;
+  const rule = so.pricing && (so.pricing.mode === 'percent' || so.pricing.mode === 'amount') ? so.pricing : null;
+  fresh.forEach(i => {
+    const r = {}; cols.forEach(c => { r[c] = ''; });
+    r[map.code] = String(i.code).trim();
+    if (map.description) r[map.description] = i.description || '';
+    if (map.price) r[map.price] = i.salePrice ?? '';
+    if (map.barcode) r[map.barcode] = (i.barcodes || [])[0] || '';
+    if (map.group) r[map.group] = i.group || '';
+    if (map.supplier) r[map.supplier] = i.supplier || '';
+    so.items.push(r);
+    const old = i.salePrice === null || i.salePrice === undefined ? null : round2(Number(i.salePrice));
+    const np = rule && old !== null ? computeNewPrice(old, rule.mode, rule.value) : null;
+    rows.push({ row: so.items.length - 1, code: String(i.code).trim(), description: i.description || '', oldPrice: old, barcode: (i.barcodes || [])[0] || '',
+      barcodes: (i.barcodes || []).filter(Boolean), category: [i.group].filter(Boolean).map(titleCase).join(' › '),
+      mode: np !== null ? rule.mode : null, value: np !== null ? rule.value : null, newPrice: np });
+  });
+  so.pricedItems = rows;
+  rebuildSelloutFile(so);
+  await idbPut('sellouts', so);
+  logActivity('sellouts', 'add_items', { type: 'sellout', id: so.id }, `Added ${fresh.length} item${fresh.length === 1 ? '' : 's'} to "${so.name}" from the system`, { codes: fresh.map(i => i.code) });
+  showToast(`${fresh.length} item${fresh.length === 1 ? '' : 's'} added to "${so.name}"${res.items.length > fresh.length ? ` (${res.items.length - fresh.length} already there)` : ''}.`);
+  if (onDone) onDone(); else renderSellouts();
+}
+async function deleteItemsFromSellout(so, rowsSelected, onDone) {
+  if (!canEditSellouts()) return refuseViewOnly('sell-outs');
+  const priced = pricedRowsOf(so), gone = priced.filter(p => rowsSelected.has(p.row));
+  if (!gone.length) return;
+  const ok = await showConfirm(`Delete ${gone.length} item${gone.length === 1 ? '' : 's'} from "${so.name}"?\n\nThey leave the sell-out's prices and its file.`, 'Delete');
+  if (!ok) return;
+  const map = detectColumns(so.items);
+  const codes = new Set(gone.map(p => String(p.code || '').trim()).filter(Boolean));
+  const dropRows = new Set(gone.map(p => p.row));
+  so.items.forEach((r, i) => { if (map.code && codes.has(String(r[map.code] ?? '').trim())) dropRows.add(i); });
+  const remap = new Map(); let n = 0; const kept = [];
+  so.items.forEach((r, i) => { if (!dropRows.has(i)) { remap.set(i, n++); kept.push(r); } });
+  so.items = kept;
+  so.pricedItems = priced.filter(p => !dropRows.has(p.row) && !codes.has(String(p.code || '').trim())).map(p => ({ ...p, row: remap.get(p.row) }));
+  rebuildSelloutFile(so);
+  await idbPut('sellouts', so);
+  logActivity('sellouts', 'delete_items', { type: 'sellout', id: so.id }, `Deleted ${gone.length} item${gone.length === 1 ? '' : 's'} from "${so.name}"`, { codes: [...codes] });
+  showToast(`${gone.length} item${gone.length === 1 ? '' : 's'} deleted from "${so.name}".`);
+  if (onDone) onDone(); else renderSellouts();
+}
+// F2 on the sell-outs page: the open sell-out (the one with the focus, or the only open one)
+document.addEventListener('keydown', e => {
+  if (e.key !== 'F2') return;
+  const panel = document.getElementById('panel-sellouts');
+  if (!panel || !panel.classList.contains('active') || document.querySelector('.modal-overlay.open, #ipOverlay')) return;
+  e.preventDefault();
+  const cards = [...panel.querySelectorAll('.sellout.open[data-id]')];
+  const card = cards.find(c => c.contains(document.activeElement)) || (cards.length === 1 ? cards[0] : null);
+  if (!card) return showToast('Open a sell-out first (click its name), then press F2.', true);
+  const so = sellouts.find(s => String(s.id) === card.dataset.id);
+  if (so) addItemsToSellout(so);
+});
