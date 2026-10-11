@@ -166,6 +166,8 @@ async function priceWatch(limit: number) {
 /* ---------------- stock watch (owner, 2026-10-06; migration 066) ----------------
    One round: the watched vendor(s) checked longest ago (or one vendor), within about 110 item lookups. Its items
    that sold in the last 30 days, their stock now; low = stock <= 0, or days of stock < cover days. */
+let ghostCols = true;   // stock_alerts has the ghost stock columns (migration 083); false once a write says otherwise
+const GHOST_KEYS = ['ghost', 'last_sale', 'quiet_days', 'days_sold'];
 async function stockWatch(onlyVendor?: string) {
   const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Beirut' });
   const from = new Date(new Date(today + 'T00:00:00Z').getTime() - 29 * 864e5).toISOString().slice(0, 10);
@@ -180,11 +182,18 @@ async function stockWatch(onlyVendor?: string) {
     const sups = (Array.isArray(v.system_suppliers) ? v.system_suppliers : []).map((s: Record<string, unknown>) => String(s.code || '')).filter(Boolean);
     if (!sups.length) continue;
     if ((budget <= 0 || Date.now() - started > 90000) && done.length) break;
-    // what sold in the last 30 days (the only items watched: no sales = not followed)
-    const sold = new Map<string, { code: string; description: string; qty: number }>();
+    // what sold in the last 30 days, day by day (the only items watched: no sales = not followed): the units, the days
+    // it sold on, its last sale
+    const sold = new Map<string, { code: string; description: string; qty: number; days: Set<string>; last: string }>();
     for (const [f, t] of from.slice(0, 4) === today.slice(0, 4) ? [[from, today]] : [[from, `${from.slice(0, 4)}-12-31`], [`${today.slice(0, 4)}-01-01`, today]]) {
-      const rows = await yearRows('/items_sales', { branches: [BRANCH], year: f.slice(0, 4), from_date: f, to_date: t, aggregation: 'Monthly', group_by: ['item'], supplier: sups });
-      rows.forEach(r => { const c = String(r.item ?? '').trim(); if (!c || c.includes(':')) return; const it = sold.get(c) || { code: c, description: String(r.item_desc ?? '').trim(), qty: 0 }; it.qty += Number(r.total_quantity || 0); sold.set(c, it); });
+      const rows = await yearRows('/items_sales', { branches: [BRANCH], year: f.slice(0, 4), from_date: f, to_date: t, aggregation: 'Daily', group_by: ['item'], supplier: sups });
+      rows.forEach(r => {
+        const c = String(r.item ?? '').trim(); if (!c || c.includes(':')) return;
+        const it = sold.get(c) || { code: c, description: String(r.item_desc ?? '').trim(), qty: 0, days: new Set<string>(), last: '' };
+        const q = Number(r.total_quantity || 0), d = String(r.period || '').slice(0, 10);
+        it.qty += q; if (q > 0 && d) { it.days.add(d); if (d > it.last) it.last = d; }
+        sold.set(c, it);
+      });
     }
     const items = [...sold.values()].filter(i => i.qty > 0).sort((a, b) => b.qty - a.qty).slice(0, 150);
     const cover = Number(v.cover_days) > 0 ? Number(v.cover_days) : (Number(v.lead_time_days) > 0 ? Number(v.lead_time_days) : 3) + 4;
@@ -196,8 +205,17 @@ async function stockWatch(onlyVendor?: string) {
           const hit = (Array.isArray(d) ? d : []).find((x: Record<string, unknown>) => key(String(x.code ?? '')) === key(it.code)) as Record<string, unknown> | undefined;
           if (!hit || hit.available_quantity === null || hit.available_quantity === undefined) return;
           const stock = Number(hit.available_quantity), perDay = it.qty / 30, daysLeft = perDay > 0 ? stock / perDay : null;
-          if (stock <= 0 || (daysLeft !== null && daysLeft < cover)) low.push({ vendor_id: v.id, code: it.code, description: it.description || String(hit.description || ''),
-            stock, sold30: it.qty, per_day: Math.round(perDay * 100) / 100, days_left: daysLeft === null ? null : Math.round(daysLeft * 10) / 10, cover_days: cover });
+          // ghost stock (owner, 2026-10-11: "the low stock doesn't fight the ghost stock"): the system shows stock, but an
+          // item that sells regularly (on 6 days or more of the 30) has not sold for so long that it almost never happens
+          // by chance: at its selling rate (the days before the quiet ones) at least 3 units would have sold in the full
+          // days since its last sale (about a 5% chance of none), and at least 2 full days (today not counted: it is not
+          // over). Most likely the shelf is empty (lost, stolen, in the storeroom, mis-scanned): check the shelf.
+          const quiet = it.last ? Math.max(0, Math.round((Date.parse(today + 'T00:00:00Z') - Date.parse(it.last + 'T00:00:00Z')) / 864e5) - 1) : 30;
+          const rate = it.qty / Math.max(1, 30 - quiet);
+          const ghost = stock > 0 && it.days.size >= 6 && quiet >= 2 && rate * quiet >= 3;
+          if (stock <= 0 || (daysLeft !== null && daysLeft < cover) || ghost) low.push({ vendor_id: v.id, code: it.code, description: it.description || String(hit.description || ''),
+            stock, sold30: it.qty, per_day: Math.round(perDay * 100) / 100, days_left: daysLeft === null ? null : Math.round(daysLeft * 10) / 10, cover_days: cover,
+            ghost, last_sale: it.last || null, quiet_days: quiet, days_sold: it.days.size });
         } catch (e) { console.warn('stock', it.code, e); }
       }));
     }
@@ -220,9 +238,16 @@ async function stockWatch(onlyVendor?: string) {
     // keep the open ones, add the new ones, resolve the ones back above
     const { data: open } = await db.from('stock_alerts').select('code').eq('vendor_id', v.id).is('resolved_at', null);
     const now = new Date().toISOString(), lowCodes = new Set(low.map(x => String(x.code))), openCodes = new Set((open || []).map(x => x.code));
-    for (const x of low) {
-      if (openCodes.has(String(x.code))) await db.from('stock_alerts').update({ ...x, last_seen: now }).eq('vendor_id', v.id).eq('code', x.code);
-      else await db.from('stock_alerts').upsert({ ...x, first_seen: now, last_seen: now, resolved_at: null });
+    for (const x0 of low) {
+      // the ghost columns (migration 083) are left out while that migration is not run, so the watch keeps working
+      const x = ghostCols ? x0 : Object.fromEntries(Object.entries(x0).filter(([k]) => !GHOST_KEYS.includes(k)));
+      const write = () => openCodes.has(String(x.code))
+        ? db.from('stock_alerts').update({ ...x, last_seen: now }).eq('vendor_id', v.id).eq('code', x.code)
+        : db.from('stock_alerts').upsert({ ...x, first_seen: now, last_seen: now, resolved_at: null });
+      const { error: we } = await write();
+      if (we && ghostCols && /ghost|last_sale|quiet_days|days_sold/.test(we.message)) {
+        ghostCols = false; GHOST_KEYS.forEach(k => delete (x as Record<string, unknown>)[k]); await write();
+      } else if (we) console.warn('stock alert save', x.code, we.message);
     }
     const back = [...openCodes].filter(c => !lowCodes.has(c) && items.some(i => i.code === c));
     if (back.length) await db.from('stock_alerts').update({ resolved_at: now }).eq('vendor_id', v.id).in('code', back);

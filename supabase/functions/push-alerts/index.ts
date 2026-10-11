@@ -208,9 +208,19 @@ async function buildAlerts(today: string): Promise<Alert[]> {
 
   // Low stock (migration 066; owner, 2026-10-06: every active supplier watched): at most TWO notifications a day
   // (morning, afternoon), each naming the suppliers with an item newly running low today; the Low stock tab has the rest.
-  const { data: lows } = await db.from('stock_alerts').select('vendor_id, code, description, stock, days_left, first_seen').is('resolved_at', null).eq('doubtful', false);   // a wrong count in the system is not low (migration 072)
+  // '*': the ghost column (migration 083) may not be there yet
+  const { data: alerts } = await db.from('stock_alerts').select('*').is('resolved_at', null).eq('doubtful', false);   // a wrong count in the system is not low (migration 072)
+  // ghost stock (migration 083): stock in the system but no sale for days: not "running low", told apart once a day
+  const lows = (alerts ?? []).filter(a => !a.ghost || Number(a.stock) <= 0 || (a.days_left !== null && Number(a.days_left) < Number(a.cover_days || 7)));
+  const ghosts = (alerts ?? []).filter(a => a.ghost && new Date(String(a.last_seen || a.first_seen)).toLocaleDateString('en-CA', { timeZone: 'Asia/Beirut' }) === today);
+  if (ghosts.length) {
+    const gv = new Map<string, number>(); ghosts.forEach(a => gv.set(a.vendor_id, (gv.get(a.vendor_id) || 0) + 1));
+    const top = [...gv.entries()].sort((a, b) => b[1] - a[1]);
+    add({ key: `ghost:${today}`, perms: ['vendors.manage'], title: `Check the shelf — ${ghosts.length} item${ghosts.length === 1 ? '' : 's'}`, url: '#stockcontrol',
+      body: `In stock in the system but not selling for days (empty shelf?): ${top.slice(0, 5).map(([v, n]) => `${vname.get(v) || 'A vendor'} (${n})`).join(', ')}${top.length > 5 ? ` and ${top.length - 5} more` : ''}. See Stock control › Low stock.` });
+  }
   const byVendor = new Map<string, Record<string, unknown>[]>();
-  (lows ?? []).forEach(a => { const l = byVendor.get(a.vendor_id) || []; l.push(a); byVendor.set(a.vendor_id, l); });
+  lows.forEach(a => { const l = byVendor.get(a.vendor_id) || []; l.push(a); byVendor.set(a.vendor_id, l); });
   const newLow: { name: string; n: number }[] = [];
   for (const [vid, list] of byVendor) {
     const fresh = list.filter(a => new Date(String(a.first_seen)).toLocaleDateString('en-CA', { timeZone: 'Asia/Beirut' }) === today);

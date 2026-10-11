@@ -225,20 +225,32 @@
     const byV = new Map(); S.alerts.forEach(a => { if (!byV.has(a.vendor_id)) byV.set(a.vendor_id, []); byV.get(a.vendor_id).push(a); });
     const out = a => Number(a.stock) <= 0 || a.days_left === null;
     const noPo = a => S.po && Number(a.stock) <= 0 && !onPO(a.code);
-    const rows = watched.map(v => { const all = byV.get(v.id) || []; return { v, list: all.filter(a => !a.doubtful), wrong: all.filter(a => a.doubtful) }; });
+    // ghost stock (migration 083): in stock in the system, but not selling for days when it always does. Not low by the
+    // system's count: listed apart ("Check the shelf"); one that is low too keeps its row, with a tag
+    const ghostOnly = a => a.ghost && Number(a.stock) > 0 && !(a.days_left !== null && Number(a.days_left) < Number(a.cover_days || 7));
+    const rows = watched.map(v => { const all = byV.get(v.id) || []; return { v, list: all.filter(a => !a.doubtful && !ghostOnly(a)), wrong: all.filter(a => a.doubtful), ghosts: all.filter(a => !a.doubtful && ghostOnly(a)) }; });
     const withLow = rows.filter(r => r.list.length)
       .sort((a, b) => b.list.filter(noPo).length - a.list.filter(noPo).length || b.list.filter(out).length - a.list.filter(out).length || b.list.length - a.list.length);
-    const quiet = rows.filter(r => !r.list.length), wrong = rows.flatMap(r => r.wrong.map(a => ({ ...a, vendor: r.v.name })));
+    const quiet = rows.filter(r => !r.list.length && !r.ghosts.length), wrong = rows.flatMap(r => r.wrong.map(a => ({ ...a, vendor: r.v.name })));
+    const ghosts = rows.flatMap(r => r.ghosts.map(a => ({ ...a, vendor: r.v.name }))).sort((a, b) => Number(b.quiet_days) * Number(b.per_day) - Number(a.quiet_days) * Number(a.per_day));
     const all = withLow.flatMap(r => r.list), nOut = all.filter(out).length, nNoPo = all.filter(noPo).length;
-    U().setCount('lowstock', all.length);
+    U().setCount('lowstock', all.length + ghosts.length);
+    const ghostTag = a => a.ghost ? ` <span class="ls-po draft" title="Sold on ${a.days_sold} of the last 30 days, nothing for ${a.quiet_days} days: check the shelf">no sale ${a.quiet_days}d</span>` : '';
     const checkBtn = v => isAdmin() ? `<button type="button" class="sc-ico" data-ls-check="${esc(v.id)}" title="Check ${esc(v.name)} now" aria-label="Check now"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/></svg></button>` : '';
+    const shelfGroup = () => (
+        ghosts.length ? U().group({ title: 'Check the shelf: in stock in the system, not selling', tone: 'bad', open: true, chips: U().chip(plural(ghosts.length, 'item'), 'bad'),
+            body: `<p class="muted-note sc-gnote">These sell almost every day but have not sold for days while the system shows stock: the shelf is most likely empty (lost, stolen, still in the storeroom, or mis-scanned at the till). Count them, fix the stock in the system, then reorder.</p>`
+              + U().table('<th>Item</th><th>Supplier</th><th class="num">In the system</th><th class="num">Sells / wk</th><th>Last sale</th><th class="num">No sale for</th><th>Order</th>',
+                ghosts.map(a => `<tr data-ls-code="${esc(a.code)}">${U().item(a.code, a.description)}<td>${esc(a.vendor)}</td><td class="num"><b>${fq(a.stock)}</b></td><td class="num">${fq(Number(a.per_day) * 7)}</td>
+                  <td>${a.last_sale ? esc(dm(a.last_sale)) : '<span class="muted-note">—</span>'} <span class="muted-note" title="Days with a sale in the last 30">· sold ${a.days_sold}/30 d</span></td>
+                  <td class="num"><b class="ls-urgent">${a.quiet_days} days</b></td><td>${poFlag(a.code, false)}</td></tr>`).join('')) }) : '');
     box.innerHTML = U().view({
       title: 'Low stock',
       sub: !watched.length ? 'No supplier is watched yet: edit a vendor and tick <b>Watch stock</b>.'
-        : all.length ? `<b>${plural(all.length, 'item')}</b> running low${nOut ? ` · ${nOut} out` : ''}${nNoPo ? ` · <b class="ls-urgent">${nNoPo} out with no PO</b>` : ''} · ${plural(watched.length, 'supplier')} watched` : `Nothing running low at the ${plural(watched.length, 'supplier')} watched.`,
-      info: 'The watched suppliers\' items that sold in the last 30 days and will not last the vendor\'s stock days (its cover days, default lead time + 4) at their own selling rate, or are at 0. Checked every 15 minutes in the day. The Order column: the PO of the week from the system (not received yet), "Not delivered" (the PO came without it) or "No PO". Last PU = the last purchase and its quantity; Sold since = units sold from that day. Double-click an item for its details.',
+        : all.length || ghosts.length ? `<b>${plural(all.length, 'item')}</b> running low${nOut ? ` · ${nOut} out` : ''}${nNoPo ? ` · <b class="ls-urgent">${nNoPo} out with no PO</b>` : ''}${ghosts.length ? ` · <b class="ls-urgent">${ghosts.length} to check on the shelf</b>` : ''} · ${plural(watched.length, 'supplier')} watched` : `Nothing running low at the ${plural(watched.length, 'supplier')} watched.`,
+      info: 'The watched suppliers\' items that sold in the last 30 days and will not last the vendor\'s stock days (its cover days, default lead time + 4) at their own selling rate, or are at 0. Checked every 15 minutes in the day. The Order column: the PO of the week from the system (not received yet), "Not delivered" (the PO came without it) or "No PO". Last PU = the last purchase and its quantity; Sold since = units sold from that day.<br><b>Check the shelf (ghost stock)</b>: the system shows stock, but an item that sells on 6 days or more of 30 has not sold for so long that it almost never happens by chance (at least 3 units expected in the full days since its last sale). The shelf is most likely empty: count it, fix the stock in the system, then reorder. Double-click an item for its details.',
       tools: poTools(),
-      body: (withLow.map((r, i) => { const v = r.v, l = r.list, o = l.filter(out).length, n = l.filter(noPo).length; return U().group({
+      body: (shelfGroup() + withLow.map((r, i) => { const v = r.v, l = r.list, o = l.filter(out).length, n = l.filter(noPo).length; return U().group({
           title: esc(v.name), open: n > 0 || i < 3, tone: n ? 'bad' : '',
           chips: U().chip(`${l.length} low`) + (o ? U().chip(`${o} out`, 'warn') : '') + (n ? U().chip(`${n} no PO`, 'bad') : '') + `<span class="sc-meta" title="${esc((v.systemSuppliers || []).map(s => s.name).join(', '))}">keep ${v.coverDays || ((v.leadTimeDays || 3) + 4)} d · ${esc(ago(v.stockCheckedAt))}</span>`,
           actions: checkBtn(v),
@@ -246,7 +258,7 @@
             l.map(a => `<tr data-ls-code="${esc(a.code)}" class="${noPo(a) ? 'ls-nopo' : ''}">${U().item(a.code, a.description)}
               <td class="num">${Number(a.stock) <= 0 ? '<span class="rc-zero">0</span>' : fq(a.stock)}</td><td class="num">${fq(Number(a.per_day) * 7)}</td>
               <td class="num"><b class="${out(a) || Number(a.days_left) < 3 ? 'ls-urgent' : 'ls-soon'}">${out(a) ? 'out' : fq(a.days_left)}</b></td>
-              <td>${poFlag(a.code, Number(a.stock) <= 0)}</td><td>${lastPu(a)}</td><td class="num">${soldSince(a)}</td></tr>`).join('')),
+              <td>${poFlag(a.code, Number(a.stock) <= 0)}${ghostTag(a)}</td><td>${lastPu(a)}</td><td class="num">${soldSince(a)}</td></tr>`).join('')),
         }); }).join('')
         + (wrong.length ? U().group({ title: 'Count these: the stock in the system looks wrong', tone: 'warn', chips: U().chip(plural(wrong.length, 'item'), 'warn'),
             body: `<p class="muted-note sc-gnote">Not counted as running low: below 0 in the system (impossible on a shelf), or the last PU minus the sales since leaves more than the system shows. Count them and fix the stock in the system.</p>`
