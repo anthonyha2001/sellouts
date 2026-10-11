@@ -178,8 +178,8 @@
     if (i.st.low) badges.push(`<span class="badge danger" title="Items running low">${i.st.low} low</span>`);
     if (i.st.fast) badges.push(`<span class="badge danger" title="Selling fast, may run out">⚠ ${i.st.fast} fast</span>`);
     const sched = v.dayOfWeek !== null && v.dayOfWeek !== undefined ? `${DAYS[Number(v.dayOfWeek)]} · ${VENDOR_FREQ_LABELS[v.frequencyWeeks] ? VENDOR_FREQ_LABELS[v.frequencyWeeks].replace('Every ', 'every ').replace(' (monthly)', '') : ''}` : '';
-    // the border says where the vendor stands: late (blinks red) > no order today (red) > draft (yellow) > sent (green) > received (grey, still orderable)
-    const state = i.late ? 'late' : i.skipToday ? 'noorder' : i.ns ? 'draft' : i.pend ? 'sent' : i.received ? 'received' : i.dueNow ? 'due' : '';
+    // the border says where the vendor stands: late (blinks red) > no order today (red) > draft (yellow) > sent (green) > due today (gold) > received (grey, still orderable)
+    const state = i.late ? 'late' : i.skipToday ? 'noorder' : i.ns ? 'draft' : i.pend ? 'sent' : i.dueNow ? 'due' : i.received ? 'received' : '';
     return `<article class="vb-card ${state ? 'st-' + state : ''}" data-id="${esc(v.id)}">
       <div class="vb-top"><div class="vb-avatar" aria-hidden="true">${esc((v.name || '?').trim().charAt(0).toUpperCase())}</div>
         <div class="vb-id"><h4>${esc(v.name)}</h4><p class="muted-note">${[v.salesmanName ? esc(v.salesmanName) : '', v.phone ? `<span class="mono">${esc(v.phone)}</span>` : ''].filter(Boolean).join(' · ') || '&nbsp;'}</p></div>
