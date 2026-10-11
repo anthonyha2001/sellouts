@@ -90,7 +90,7 @@
     const box = el('scTabs'); if (!box) return;
     const c = S.counts, hot = { lowstock: 1, notavail: 1, topsales: 1 };
     // a big count shows 99+ (the exact number in the tooltip)
-    const cnt = k => c[k] === undefined || c[k] === null ? '' : `<b class="sc-cnt ${c[k] && hot[k] ? 'hot' : ''} ${!c[k] ? 'zero' : ''}" title="${Number(c[k]).toLocaleString('en-US')}">${k === 'overstock' && c.overstockValue ? kmoney(c.overstockValue) : c[k] > 99 ? '99+' : c[k]}</b>`;
+    const cnt = k => c[k] === undefined || c[k] === null ? '' : `<b class="sc-cnt ${c[k] && hot[k] ? 'hot' : ''} ${!c[k] ? 'zero' : ''}" title="${Number(c[k]).toLocaleString('en-US')}">${k === 'overstock' && c.overstockValue ? kmoney(c.overstockValue) : c[k] > 999 ? '999+' : Number(c[k]).toLocaleString('en-US')}</b>`;
     box.className = 'sc-nav';
     box.innerHTML = NAV.map(([label, tabs]) => `<div class="sc-navgrp"><span class="sc-navlbl">${label}</span><div class="sc-navrow">${tabs.map(([k, l]) =>
       `<button type="button" data-sc="${k}" class="sc-tab ${k === S.tab ? 'active' : ''}">${l}${cnt(k)}</button>`).join('')}</div></div>`).join('');

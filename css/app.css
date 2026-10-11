@@ -2889,3 +2889,11 @@ tr:hover .so-note,.so-note:focus{border-color:var(--line-strong);background:var(
 .cash-menu button:hover{background:var(--paper);}
 .cash-menu button.active{background:var(--pine-tint);color:var(--pine);font-weight:600;}
 @media (max-width:640px){.cash-actions{margin-left:0;}.cash-toolbar{padding:8px;}}
+/* Stock control: quieter counters on the tabs (owner, 2026-10-11: "the circles are so bad"): a soft tint, not a filled bubble */
+.sc-cnt,.sc-cnt.hot,.sc-cnt.zero{min-width:0;height:auto;line-height:1.5;padding:0 7px;border-radius:6px;font:600 11.5px var(--font-body);
+  font-variant-numeric:tabular-nums;letter-spacing:.01em;opacity:1;}
+.sc-cnt{background:color-mix(in srgb,var(--ink-soft) 12%,transparent);color:var(--ink-soft);}
+.sc-cnt.hot{background:color-mix(in srgb,#c8443f 12%,transparent);color:#b42318;}
+.sc-cnt.zero{background:transparent;color:var(--ink-soft);opacity:.6;}
+.sc-tab.active .sc-cnt,.sc-tab.active .sc-cnt.hot{background:rgba(255,255,255,.18);color:#fff;}
+.sc-tab.active .sc-cnt.zero{background:transparent;color:rgba(255,255,255,.7);}
