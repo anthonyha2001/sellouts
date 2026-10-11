@@ -15,6 +15,37 @@
   const nice = d => d ? new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) : '';
   const dmy = s => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(s || '')); return m ? `${m[3]}/${m[2]}` : ''; };
   const canManage = () => can('vendors.manage');
+  const dayDiff = (a, b) => Math.round((Date.parse(b + 'T00:00:00') - Date.parse(a + 'T00:00:00')) / 864e5);
+
+  // delivery monitoring (owner, 2026-10-11): for the last delivered orders of a vendor, the day it was ordered (sent),
+  // the day it arrived, how many days it took and whether it came by the expected day. Also used by the vendor sheet.
+  function delivery(vendorId) {
+    const done = ordersList.filter(o => o.vendorId === vendorId && o.status === 'delivered' && o.deliveredDate)
+      .sort((a, b) => b.deliveredDate.localeCompare(a.deliveredDate))
+      .map(o => {
+        const took = o.orderDate ? Math.max(0, dayDiff(o.orderDate.slice(0, 10), o.deliveredDate.slice(0, 10))) : null;
+        const lateBy = o.expectedDelivery ? dayDiff(o.expectedDelivery.slice(0, 10), o.deliveredDate.slice(0, 10)) : null;
+        return { o, ordered: o.orderDate, received: o.deliveredDate, took, lateBy };
+      });
+    const recent = done.slice(0, 6);
+    const tk = recent.filter(r => r.took !== null), ex = recent.filter(r => r.lateBy !== null);
+    return {
+      last: done[0] || null, recent, count: done.length,
+      avg: tk.length ? Math.round(tk.reduce((s, r) => s + r.took, 0) / tk.length * 10) / 10 : null,
+      onTime: ex.filter(r => r.lateBy <= 0).length, judged: ex.length,
+    };
+  }
+  function lastHtml(d) {
+    const r = d.last; if (!r) return '';
+    const verdict = r.lateBy === null ? '' : r.lateBy > 0 ? `<em class="late">${r.lateBy}d late</em>` : r.lateBy < 0 ? `<em class="ok">${-r.lateBy}d early</em>` : '<em class="ok">on time</em>';
+    const rel = d.recent.length > 1 ? `<div class="vb-rel">Last ${d.recent.length}: ${d.avg !== null ? `avg ${d.avg} days` : ''}${d.judged ? ` · <b class="${d.onTime === d.judged ? 'ok' : d.onTime / d.judged < .7 ? 'late' : ''}">${d.onTime}/${d.judged} on time</b>` : ''}</div>` : '';
+    return `<div class="vb-last">
+        <div><span>Ordered</span><b>${r.ordered ? esc(dmy(r.ordered)) : '—'}</b></div>
+        <i aria-hidden="true">→</i>
+        <div><span>Received</span><b>${esc(dmy(r.received))}</b></div>
+        <div class="vb-took">${r.took !== null ? `${r.took} day${r.took === 1 ? '' : 's'}` : ''}${verdict}</div>
+      </div>${rel}`;
+  }
 
   async function loadStock() {
     if (!canManage()) { S.stock = {}; return; }
@@ -117,16 +148,19 @@
       </div>
       ${window.VendorContract && VendorContract.chip(v.contract) ? `<div class="vb-chips">${VendorContract.chip(v.contract)}</div>` : ''}
       <div class="vb-when">${when}</div>
-      <div class="vb-meta">${sched ? esc(sched) : ''}${v.leadTimeDays !== null && v.leadTimeDays !== undefined ? ` · ${esc(v.leadTimeDays)}d lead` : ''}${(v.receivingDays || []).length ? ` · receives ${esc(v.receivingDays.map(d => DAYS[d]).join(', '))}` : ''}${i.last ? ` · last delivery ${esc(dmy(i.last.deliveredDate))}` : ''}</div>
+      <div class="vb-meta">${sched ? esc(sched) : ''}${v.leadTimeDays !== null && v.leadTimeDays !== undefined ? ` · ${esc(v.leadTimeDays)}d lead` : ''}${(v.receivingDays || []).length ? ` · receives ${esc(v.receivingDays.map(d => DAYS[d]).join(', '))}` : ''}</div>
+      ${!i.pend && !i.ns ? lastHtml(delivery(v.id)) : ''}
       <div class="vb-badges">${badges.join('') || '<span class="muted-note">Nothing waiting</span>'}</div>
       <div class="vb-actions">
-        ${i.ns ? '<button type="button" class="btn small" data-act="sent">Mark sent</button>'
+        ${i.skipToday && !i.ns && !i.pend ? '<button type="button" class="btn ghost small" data-act="unskip" title="No order was logged today: click to undo">Undo no order</button>'
+          : i.ns ? '<button type="button" class="btn small" data-act="sent">Mark sent</button>'
           : i.pend ? '<button type="button" class="btn small" data-act="delivered">Delivered</button>'
           : '<button type="button" class="btn small" data-act="order">Order now</button>'}
-        ${!i.ns && !i.pend ? (i.skipToday ? '<button type="button" class="btn ghost small" data-act="unskip" title="No order was logged today: click to undo">No order today ✓ · Undo</button>' : '<button type="button" class="btn ghost small" data-act="skip" title="Log that nothing is ordered from this vendor today">No order</button>') : ''}
+        ${!(i.skipToday && !i.ns && !i.pend) ? `
+        ${!i.ns && !i.pend ? '<button type="button" class="btn ghost small" data-act="skip" title="Log that nothing is ordered from this vendor today">No order</button>' : ''}
         ${i.late ? '<button type="button" class="btn ghost small" data-act="order" title="The delivery is overdue: order again">Order again</button>' : ''}
         ${tel ? `<a class="btn ghost small" href="tel:${esc(tel)}" title="Call">Call</a>` : ''}
-        ${wa ? `<a class="btn ghost small" href="${esc(wa)}" target="_blank" rel="noopener" title="WhatsApp">WA</a>` : ''}
+        ${wa ? `<a class="btn ghost small" href="${esc(wa)}" target="_blank" rel="noopener" title="WhatsApp">WA</a>` : ''}` : ''}
       </div></article>`;
   }
 
@@ -150,5 +184,5 @@
   function show() { wire(); render(); loadStock(); }
   function reload() { S.stockAt = 0; loadStock(); }
 
-  window.VendorBoard = { render: () => { wire(); render(); if (S.stock === null) loadStock(); }, show, reload };
+  window.VendorBoard = { render: () => { wire(); render(); if (S.stock === null) loadStock(); }, show, reload, delivery };
 })();

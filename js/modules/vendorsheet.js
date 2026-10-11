@@ -233,16 +233,16 @@
   function overviewHtml() {
     const v = vendor(), g = perfGuard();
     const pend = pendingOrderForVendor(v.id), orders = ordersList.filter(o => o.vendorId === v.id);
-    const delivered = orders.filter(o => o.status === 'delivered' && o.orderDate && o.deliveredDate);
-    const avgLead = delivered.length ? Math.round(delivered.slice(0, 12).reduce((s, o) => s + Math.max(0, Math.round((new Date(o.deliveredDate) - new Date(o.orderDate)) / 864e5)), 0) / Math.min(12, delivered.length) * 10) / 10 : null;
-    const lastDel = delivered.slice().sort((a, b) => b.deliveredDate.localeCompare(a.deliveredDate))[0];
+    const dv = window.VendorBoard && VendorBoard.delivery ? VendorBoard.delivery(v.id) : { last: null, avg: null, onTime: 0, judged: 0 };
+    const avgLead = dv.avg, lastDel = dv.last;
     const facts = `<div class="vs-card"><h4>Schedule</h4><ul class="vs-facts">
         <li><span>Order day</span><b>${v.dayOfWeek !== null && v.dayOfWeek !== undefined ? esc(VENDOR_DAY_NAMES[Number(v.dayOfWeek)]) : '—'}</b></li>
         <li><span>Frequency</span><b>${esc(VENDOR_FREQ_LABELS[v.frequencyWeeks] || '—')}</b></li>
         <li><span>Lead time (set)</span><b>${v.leadTimeDays === null ? '—' : esc(v.leadTimeDays) + ' days'}</b></li>
         <li><span>Lead time (real)</span><b>${avgLead === null ? '—' : avgLead + ' days'}</b>${avgLead !== null && v.leadTimeDays !== null && Math.abs(avgLead - Number(v.leadTimeDays)) >= 1.5 ? `<em class="vs-warn">${avgLead > Number(v.leadTimeDays) ? 'slower' : 'faster'} than set</em>` : ''}</li>
         <li style="flex-wrap:wrap;"><span>Received on</span><div class="vs-recv" title="The warehouse receives this vendor only on the ticked days; none = any open day">${[1, 2, 3, 4, 5, 6].map(d => `<button type="button" data-vs="recv" data-d="${d}" class="${(v.receivingDays || []).includes(d) ? 'on' : ''}" ${canData() ? '' : 'disabled'}>${['', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d]}</button>`).join('')}</div></li>
-        <li><span>Last delivery</span><b>${lastDel ? esc(dmy(lastDel.deliveredDate)) : '—'}</b></li>
+        <li><span>Last order → received</span><b>${lastDel ? `${lastDel.ordered ? esc(dmy(lastDel.ordered)) : '—'} → ${esc(dmy(lastDel.received))}${lastDel.took !== null ? ` · ${lastDel.took}d` : ''}` : '—'}</b>${lastDel && lastDel.lateBy > 0 ? `<em class="vs-warn">${lastDel.lateBy}d late</em>` : ''}</li>
+        <li><span>On time</span><b>${dv.judged ? `${dv.onTime}/${dv.judged} last deliveries` : '—'}</b>${dv.judged && dv.onTime / dv.judged < .7 ? '<em class="vs-warn">often late</em>' : ''}</li>
         <li><span>Open order</span><b>${pend ? esc(dmy(pend.orderDate)) + (pend.expectedDelivery ? ' → ' + esc(dmy(pend.expectedDelivery)) : '') : 'none'}</b></li>
         <li><span>Orders logged</span><b>${orders.length}</b></li>
         <li><span>Stock keep</span><b>${v.coverDays ? esc(v.coverDays) + ' days' : 'default'}</b></li></ul>
