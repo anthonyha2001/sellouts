@@ -2743,3 +2743,93 @@ td .lb-info{margin:0;}
 .ls-po.none{background:#c8443f;color:#fff;border:1px solid #c8443f;}
 .ls-head h3 .ls-po{margin-left:6px;font-size:11.5px;}
 tr.ls-nopo{background:rgba(200,68,63,.07);}
+
+/* ============ Stock control, one frame for every view (owner, 2026-10-11: "extremely messy") ============ */
+/* the navigation: three groups, each tab with its count */
+.sc-nav{display:flex;flex-wrap:wrap;gap:10px 22px;margin:0 0 16px;padding:12px 14px;background:var(--paper-raised);border:1px solid var(--line);border-radius:14px;}
+.sc-navgrp{display:flex;flex-direction:column;gap:6px;min-width:0;}
+.sc-navlbl{font:700 10.5px var(--font-body);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-soft);}
+.sc-navrow{display:flex;flex-wrap:wrap;gap:6px;}
+.sc-tab{display:inline-flex;align-items:center;gap:7px;padding:7px 12px;border:1px solid var(--line);border-radius:10px;background:var(--paper);color:var(--ink);font:600 13px var(--font-body);cursor:pointer;transition:border-color .12s,background .12s;}
+.sc-tab:hover{border-color:var(--line-strong);}
+.sc-tab.active{background:var(--pine);border-color:var(--pine);color:#fff;}
+.sc-cnt{min-width:20px;padding:0 6px;height:19px;line-height:19px;border-radius:10px;font:700 11px var(--font-body);text-align:center;background:color-mix(in srgb,var(--ink-soft) 16%,transparent);color:var(--ink);}
+.sc-cnt.hot{background:#c8443f;color:#fff;}
+.sc-cnt.zero{opacity:.55;}
+.sc-tab.active .sc-cnt{background:rgba(255,255,255,.22);color:#fff;}
+.sc-tab.active .sc-cnt.hot{background:#fff;color:#c8443f;}
+
+/* a view: header (title, summary, tools), the explanation, the body */
+.sc-view{background:var(--paper-raised);border:1px solid var(--line);border-radius:14px;overflow:hidden;}
+.sc-vhead{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;padding:14px 16px;border-bottom:1px solid var(--line);}
+.sc-vtitle{min-width:0;}
+.sc-vtitle h3{margin:0;font:700 18px/1.2 var(--font-head);}
+.sc-vtitle p{margin:3px 0 0;font-size:13px;color:var(--ink-soft);}
+.sc-vtitle p b{color:var(--ink);}
+.sc-vtools{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+.sc-vtools .sc-q{width:220px;max-width:60vw;height:32px;padding:0 10px;font-size:13px;border-radius:8px;}
+.sc-ico{width:32px;height:32px;display:grid;place-items:center;border:1px solid var(--line);border-radius:8px;background:var(--paper);color:var(--ink-soft);cursor:pointer;padding:0;flex:none;}
+.sc-ico:hover{color:var(--pine);border-color:var(--line-strong);}
+.sc-ico:disabled{opacity:.5;cursor:wait;}
+.sc-meta{font-size:12px;color:var(--ink-soft);white-space:nowrap;}
+.sc-info{margin:0;padding:10px 16px;font-size:13px;line-height:1.5;color:var(--ink-soft);background:var(--paper);border-bottom:1px solid var(--line);}
+.sc-vbody{padding:10px 12px 12px;display:flex;flex-direction:column;gap:8px;}
+.sc-empty{padding:26px 12px;text-align:center;color:var(--ink-soft);font-size:14px;}
+.sc-quiet{margin:4px 4px 0;font-size:12.5px;color:var(--ink-soft);}
+/* segmented control / toggle in the tools */
+.sc-seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;}
+.sc-seg button,.sc-toggle{height:32px;padding:0 11px;border:0;background:var(--paper);color:var(--ink-soft);font:600 12.5px var(--font-body);cursor:pointer;}
+.sc-seg button + button{border-left:1px solid var(--line);}
+.sc-seg button.active{background:var(--pine);color:#fff;}
+.sc-toggle{border:1px solid var(--line);border-radius:8px;}
+.sc-toggle.active{background:#c8443f;border-color:#c8443f;color:#fff;}
+.sc-seg small,.sc-toggle small{opacity:.75;font-weight:700;margin-left:3px;}
+
+/* a group (a supplier) that folds */
+.sc-grp{border:1px solid var(--line);border-radius:11px;background:var(--paper-raised);}
+.sc-grp > summary{display:flex;align-items:center;gap:10px;padding:10px 12px;cursor:pointer;list-style:none;border-radius:11px;}
+.sc-grp > summary::-webkit-details-marker{display:none;}
+.sc-grp > summary:hover{background:var(--paper);}
+.sc-grp[open] > summary{border-bottom:1px solid var(--line);border-radius:11px 11px 0 0;}
+.sc-chev{width:8px;height:8px;border-right:2px solid var(--ink-soft);border-bottom:2px solid var(--ink-soft);transform:rotate(-45deg);transition:transform .15s;flex:none;margin:0 2px;}
+.sc-grp[open] .sc-chev{transform:rotate(45deg);}
+.sc-gname{font-weight:700;font-size:14px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.sc-gchips{display:flex;gap:5px;flex-wrap:wrap;align-items:center;flex:1;min-width:0;}
+.sc-gact{margin-left:auto;display:flex;gap:6px;flex:none;}
+.sc-grp.bad{border-left:3px solid #c8443f;}
+.sc-grp.warn{border-left:3px solid #d9a406;}
+.sc-gbody{padding:4px 6px 8px;}
+.sc-gnote{margin:6px 8px 4px;}
+.sc-chip{display:inline-block;padding:1px 8px;border-radius:9px;font:600 11.5px var(--font-body);background:var(--paper);border:1px solid var(--line);color:var(--ink-soft);white-space:nowrap;}
+.sc-chip.bad{background:#c8443f;border-color:#c8443f;color:#fff;}
+.sc-chip.warn{background:#fff6d6;border-color:#ecd27a;color:#8a6500;}
+.sc-chip.money{color:var(--ink);font-weight:700;}
+
+/* tables */
+.sc-tbl{overflow-x:auto;}
+.sc-table{width:100%;margin:0;font-size:13px;}
+.sc-table th{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-soft);font-weight:700;white-space:nowrap;}
+.sc-table td{vertical-align:middle;}
+.sc-table tbody tr:hover{background:var(--paper);}
+.sc-it{min-width:180px;}
+.sc-it span{display:block;font-weight:600;line-height:1.25;}
+.sc-it small{display:block;font-size:11px;color:var(--ink-soft);}
+
+/* stock history */
+.sc-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px;}
+.sc-kpi{border:1px solid var(--line);border-radius:11px;padding:10px 12px;display:flex;flex-direction:column;gap:1px;}
+.sc-kpi b{font:700 22px/1.1 var(--font-head);}
+.sc-kpi span{font-weight:600;font-size:13px;}
+.sc-kpi small{font-size:11.5px;color:var(--ink-soft);}
+.sc-kpi.bad b{color:#c8443f;}
+.sc-kpi.warn b{color:#b07d00;}
+.sc-hsearch{display:flex;gap:6px;align-items:center;}
+.sc-hsearch input{max-width:320px;height:34px;}
+.sc-hitem{border:1px solid var(--line);border-radius:11px;padding:10px 12px;}
+
+@media (max-width:640px){
+  .sc-nav{padding:10px;gap:8px 14px;}
+  .sc-vhead{padding:12px;}
+  .sc-vtools .sc-q{width:100%;max-width:none;flex:1 1 100%;order:9;}
+  .sc-gchips .sc-meta{display:none;}
+}

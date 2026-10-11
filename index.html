@@ -935,15 +935,7 @@
 
     <!-- STOCK CONTROL: low stock, top purchases, top sales, overstock, slow movers (js/modules/lowstock.js, stockcontrol.js) -->
     <section class="panel" id="panel-stockcontrol">
-      <div class="filter-row" id="scTabs">
-        <button class="active" data-sc="lowstock">Low stock</button>
-        <button data-sc="toppurchases">Top purchases</button>
-        <button data-sc="topsales">Top sales</button>
-        <button data-sc="notavail">Not available</button>
-        <button data-sc="overstock">Overstock</button>
-        <button data-sc="slow">Slow movers</button>
-        <button data-sc="history">Stock history</button>
-      </div>
+      <nav class="sc-nav" id="scTabs" aria-label="Stock control"></nav><!-- grouped tabs with counts: js/modules/stockcontrol.js -->
       <div id="vendorLowStockView"></div>
       <div id="vendorTopPurchasesView" style="display:none;"></div>
       <div id="vendorTopSalesView" style="display:none;"></div>
