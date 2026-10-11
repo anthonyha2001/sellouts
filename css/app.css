@@ -2653,3 +2653,9 @@ td .lb-info{margin:0;}
 .vb-rel{font-size:12px;color:var(--muted,#6b746e);margin-top:-2px;}
 .vb-rel b{font-size:12px;}
 .vb-card.st-received > .vb-last,.vb-card.st-received > .vb-rel{opacity:1;}
+
+/* vendor board: "Undo no order" is red like the no-order state; Cancel (a sent order) reads as a red text button */
+.vb-actions > [data-act="unskip"]{background:#c8443f;border-color:#c8443f;color:#fff;}
+.vb-actions > [data-act="unskip"]:hover{background:#b23a35;border-color:#b23a35;}
+.vb-actions > .vb-cancel{color:#c8443f;}
+.vb-actions > .vb-cancel:hover{border-color:#c8443f;background:color-mix(in srgb,#c8443f 8%,transparent);}

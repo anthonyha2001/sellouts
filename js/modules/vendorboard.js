@@ -158,6 +158,7 @@
           : '<button type="button" class="btn small" data-act="order">Order now</button>'}
         ${!(i.skipToday && !i.ns && !i.pend) ? `
         ${!i.ns && !i.pend ? '<button type="button" class="btn ghost small" data-act="skip" title="Log that nothing is ordered from this vendor today">No order</button>' : ''}
+        ${i.pend ? '<button type="button" class="btn ghost small vb-cancel" data-act="cancel" title="The supplier will not deliver this order: cancel it (kept in the history)">Cancel</button>' : ''}
         ${i.late ? '<button type="button" class="btn ghost small" data-act="order" title="The delivery is overdue: order again">Order again</button>' : ''}
         ${tel ? `<a class="btn ghost small" href="tel:${esc(tel)}" title="Call">Call</a>` : ''}
         ${wa ? `<a class="btn ghost small" href="${esc(wa)}" target="_blank" rel="noopener" title="WhatsApp">WA</a>` : ''}` : ''}
@@ -172,6 +173,7 @@
     if (a === 'skip') return window.VendorOrder && VendorOrder.noOrder(id, todayStr());
     if (a === 'unskip') { await undoSkip(id, todayStr()); renderVendorsPage(); if (window.VendorCal) VendorCal.renderStats(); showToast('The no-order entry was removed.'); return; }
     if (a === 'sent') { const o = notSentOrderForVendor(id); if (o) { await markOrderSent(o.id); render(); } return; }
+    if (a === 'cancel') { const o = pendingOrderForVendor(id); if (o && await cancelOrder(o.id)) { render(); if (window.VendorCal) VendorCal.renderStats(); } return; }
     if (a === 'delivered') { const o = pendingOrderForVendor(id); if (o) { await markOrderDelivered(o.id); render(); if (window.VendorCal) VendorCal.renderStats(); } }
   }
 

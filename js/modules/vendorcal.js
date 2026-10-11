@@ -38,13 +38,13 @@
     const t = todayStr(), out = [];
     vendorsList.forEach(v => {
       if (!isVendorDueOn(v, d)) return;
-      const o = ordersList.find(x => x.vendorId === v.id && x.orderDate === d);
+      const o = ordersList.find(x => x.vendorId === v.id && x.orderDate === d && x.status !== 'cancelled');
       const skip = skipsList.find(s => s.vendorId === v.id && s.skipDate === d);
       const st = o ? (o.status === 'not_sent' ? 'notsent' : 'sent') : skip ? 'skip' : d < t ? 'missed' : 'todo';
       out.push({ v, st, o });
     });
     // orders placed on a day that is not the vendor's usual day
-    ordersList.filter(o => o.orderDate === d && !out.some(x => x.o === o)).forEach(o => out.push({ v: vendorOf(o.vendorId) || { name: o.vendorName }, st: o.status === 'not_sent' ? 'notsent' : 'sent', o, extra: true }));
+    ordersList.filter(o => o.orderDate === d && o.status !== 'cancelled' && !out.some(x => x.o === o)).forEach(o => out.push({ v: vendorOf(o.vendorId) || { name: o.vendorName }, st: o.status === 'not_sent' ? 'notsent' : 'sent', o, extra: true }));
     return out.sort((a, b) => String(a.v.name).localeCompare(String(b.v.name)));
   }
   function deliveriesOn(d) {

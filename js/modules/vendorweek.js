@@ -30,9 +30,9 @@
     const cols = days.map((d, i) => {
       // orders
       const orders = vendorsList.filter(v => isVendorDueOn(v, d)).map(v => {
-        const o = ordersList.find(x => x.vendorId === v.id && x.orderDate === d), skip = skipsList.some(s => s.vendorId === v.id && s.skipDate === d);
+        const o = ordersList.find(x => x.vendorId === v.id && x.orderDate === d && x.status !== 'cancelled'), skip = skipsList.some(s => s.vendorId === v.id && s.skipDate === d);
         // an order logged on another day (an early order) also answers this due day
-        const early = !o && ordersList.find(x => x.vendorId === v.id && x.status !== 'delivered' && x.orderDate && x.orderDate < d && x.orderDate >= addDaysStr(d, -6));
+        const early = !o && ordersList.find(x => x.vendorId === v.id && x.status !== 'delivered' && x.status !== 'cancelled' && x.orderDate && x.orderDate < d && x.orderDate >= addDaysStr(d, -6));
         const st = o ? (o.status === 'not_sent' ? 'notsent' : 'ordered') : early ? 'early' : skip ? 'skip' : d < t ? 'missed' : 'todo';
         return { v, st };
       }).sort((a, b) => a.v.name.localeCompare(b.v.name));

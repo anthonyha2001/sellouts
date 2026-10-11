@@ -4635,6 +4635,7 @@ function renderOrdersView() {
       <td><span class="badge ${overdue ? 'danger' : 'warn'}">${overdue ? 'Overdue' : 'Pending'}</span></td>
       <td style="white-space:nowrap;">
         <button class="btn small" data-role="mark-delivered">Mark delivered</button>
+        <button class="btn ghost small" data-role="cancel-order" style="color:var(--brick);">Cancel</button>
         <button class="btn ghost small" data-role="delete-order" style="color:var(--brick);">Delete</button>
       </td>
     </tr>`;
@@ -4644,6 +4645,7 @@ function renderOrdersView() {
     const id = tr.dataset.orderId;
     tr.querySelector('[data-role="open-vendor-detail"]').addEventListener('click', () => openVendorDetail(tr.dataset.vendorId));
     tr.querySelector('[data-role="mark-delivered"]').addEventListener('click', () => markOrderDelivered(id));
+    tr.querySelector('[data-role="cancel-order"]').addEventListener('click', () => cancelOrder(id));
     tr.querySelector('[data-role="delete-order"]').addEventListener('click', () => deleteOrderRow(id));
   });
   const awaitingHiddenNote = document.getElementById('ordersAwaitingHiddenNote');
@@ -4835,6 +4837,22 @@ async function markOrderDelivered(orderId) {
   renderOrdersView();
   showToast('Marked delivered.');
 }
+// A sent order the supplier won't deliver (owner, 2026-10-11): kept as 'cancelled' with the day and the reason, not
+// deleted, so the vendor's history and delivery record stay true. The vendor is free to be ordered from again.
+async function cancelOrder(orderId) {
+  const o = ordersList.find(x => x.id === orderId);
+  if (!o) return false;
+  const v = vendorsList.find(x => x.id === o.vendorId);
+  const reason = await showPrompt(`Cancel the order${v ? ` to "${v.name}"` : ''}${o.orderDate ? ` sent on ${o.orderDate}` : ''}? Reason (optional):`, { confirmLabel: 'Cancel order', placeholder: 'e.g. out of stock at the supplier' });
+  if (reason === null) return false;
+  const note = `Cancelled ${todayStr()}${reason.trim() ? ' — ' + reason.trim() : ''}`;
+  const { error } = await sb.from('vendor_orders').update({ status: 'cancelled', receive_note: note }).eq('id', orderId);
+  if (error) { console.error(error); showToast('Could not cancel that order — ' + sbErrText(error), true); return false; }
+  o.status = 'cancelled'; o.receiveNote = note;
+  renderOrdersView();
+  showToast('Order cancelled — kept in the history.');
+  return true;
+}
 async function deleteOrderRow(orderId) {
   const ok = await showConfirm('Delete this order? This can’t be undone.', 'Delete');
   if (!ok) return;
@@ -4891,7 +4909,7 @@ function openVendorDetail(vendorId) {
     }
     const o = r.order;
     const overdue = isOrderOverdue(o);
-    const statusBadge = o.status === 'delivered' ? '<span class="badge active">Delivered</span>'
+    const statusBadge = o.status === 'cancelled' ? '<span class="badge danger" title="' + escapeHtml(o.receiveNote || '') + '">Cancelled</span>' : o.status === 'delivered' ? '<span class="badge active">Delivered</span>'
       : o.status === 'not_sent' ? '<span class="badge inactive">Not sent</span>'
       : (overdue ? '<span class="badge danger">Overdue</span>' : '<span class="badge warn">Pending</span>');
     const secondDate = o.status === 'delivered' ? o.deliveredDate : o.expectedDelivery;
@@ -4931,7 +4949,7 @@ function renderOrderHistory() {
     const v = o.vendorId ? vendorsList.find(x => x.id === o.vendorId) : null;
     const name = v ? v.name : (o.vendorName || 'Unknown vendor');
     const overdue = isOrderOverdue(o);
-    const statusBadge = o.status === 'delivered' ? '<span class="badge active">Delivered</span>'
+    const statusBadge = o.status === 'cancelled' ? '<span class="badge danger" title="' + escapeHtml(o.receiveNote || '') + '">Cancelled</span>' : o.status === 'delivered' ? '<span class="badge active">Delivered</span>'
       : o.status === 'not_sent' ? '<span class="badge inactive">Not sent</span>'
       : (overdue ? '<span class="badge danger">Overdue</span>' : '<span class="badge warn">Pending</span>');
     const nameCell = v ? `<button type="button" class="vendor-link" data-role="open-vendor-detail">${escapeHtml(name)}</button>` : `<strong>${escapeHtml(name)}</strong>`;
