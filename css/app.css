@@ -2570,3 +2570,15 @@ td .lb-info{margin:0;}
 .fr-gbtn{width:calc(100% - 28px);margin-top:12px;margin-bottom:14px;padding:13px;font-size:15px;}
 .fr-stock{font-size:12.5px;font-weight:600;color:var(--ink-soft);} .fr-stock.out{color:var(--brick);} .fr-stock.low{color:#7a5412;}
 .fr-price .fr-stock{margin-top:2px;}
+
+/* vendor board: the border shows the state (owner, 2026-10-11) */
+.vb-card{border-width:2px;}
+.vb-card.st-draft{border-color:#e0b100;box-shadow:inset 4px 0 0 #e0b100;}
+.vb-card.st-sent{border-color:#1f9d55;box-shadow:inset 4px 0 0 #1f9d55;}
+.vb-card.st-noorder{border-color:#d64545;box-shadow:inset 4px 0 0 #d64545;}
+.vb-card.st-due{border-color:var(--gold);border-style:dashed;box-shadow:none;}
+.vb-card.st-received{border-color:var(--line);box-shadow:none;background:var(--paper);filter:grayscale(1);opacity:.62;}
+.vb-card.st-received:hover{opacity:.95;filter:none;}
+.vb-card.st-late{border-color:#d64545;box-shadow:inset 4px 0 0 #d64545;animation:vbBlink 1s ease-in-out infinite;}
+@keyframes vbBlink{0%,100%{border-color:#d64545;box-shadow:inset 4px 0 0 #d64545,0 0 0 0 rgba(214,69,69,0);}50%{border-color:rgba(214,69,69,.15);box-shadow:inset 4px 0 0 rgba(214,69,69,.15),0 0 0 4px rgba(214,69,69,.35);}}
+@media (prefers-reduced-motion:reduce){.vb-card.st-late{animation:none;}}
