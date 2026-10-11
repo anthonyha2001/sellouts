@@ -690,47 +690,62 @@ async function poSync() {
     }));
   }
 
-  // 3. received: a PU of the item on or after the PO's day; or the PO has nothing remaining. Looked at over 30 days: a
-  //    line not delivered stays on the "Not available" list until its item comes in (or 30 days)
+  // 3. received, recounted every run (so a wrong mark corrects itself): a line is received when ITS SUPPLIER delivered
+  //    that item (a PU of the item from the PO's supplier) on or after the PO's day, or when the PO has nothing remaining
+  //    (WMS receiving). Any supplier's PU used to count (owner, 2026-10-11): an item bought every day was "received" the
+  //    day it was ordered, and took its whole PO with it. Looked at over 30 days: a line not delivered stays on the
+  //    "Not available" list until its item comes in (or 30 days).
   const keep = plusDays(today, -30);
-  const done = rows.filter(r => r.requested_qty > 0 && r.remaining_qty <= 0).map(r => r.po);
-  if (done.length) await db.from('system_po_lines').update({ received_on: today }).in('po', done).is('received_on', null);
-  const open: { po: string; line: number; po_date: string; code: string }[] = [];
+  const sk = (c: unknown) => trimCode(c).replace(/^0+(?=\d)/, '').toUpperCase();
+  type L = { po: string; line: number; po_date: string; code: string; supplier_code: string | null; received_on: string | null; po_delivered_on: string | null };
+  type P = { po: string; requested_qty: number | null; remaining_qty: number | null; delivered_on: string | null };
+  const all: L[] = [];
   for (let from = 0; ; from += 1000) {
-    const { data, error } = await db.from('system_po_lines').select('po, line, po_date, code').is('received_on', null).gte('po_date', keep).range(from, from + 999);
+    const { data, error } = await db.from('system_po_lines').select('po, line, po_date, code, supplier_code, received_on, po_delivered_on').gte('po_date', keep)
+      .order('po').order('line').range(from, from + 999);
     if (error) throw error;
-    open.push(...(data || []) as typeof open);
+    all.push(...(data || []) as L[]);
     if ((data || []).length < 1000) break;
   }
-  let received = 0;
-  if (open.length && Date.now() - started < PO_BUDGET_MS + 30000) {
-    const first = open.reduce((m, l) => l.po_date < m ? l.po_date : m, today), codes = [...new Set(open.map(l => l.code))];
-    const days = new Map<string, string[]>();   // item -> its purchase days since the oldest open PO
+  const { data: posAll } = await db.from('system_pos').select('po, requested_qty, remaining_qty, delivered_on').gte('po_date', keep);
+  const poInfo = new Map(((posAll || []) as P[]).map(p => [p.po, p]));
+  let received = 0, recounted = false;
+  if (all.length && Date.now() - started < PO_BUDGET_MS + 20000) {
+    const first = all.reduce((m, l) => l.po_date < m ? l.po_date : m, today), codes = [...new Set(all.map(l => l.code))];
+    const days = new Map<string, string[]>();   // item|supplier -> its PU days since the oldest PO
+    let failed = false;
     for (let i = 0; i < codes.length; i += 150) {
       try {
-        (await report('purchases', first, today, { aggregation: 'Daily', group_by: ['item'], item: codes.slice(i, i + 150) })).forEach(r => {
-          const c = trimCode(r.item), d = String(r.period || '').slice(0, 10);
-          if (c && d && Number(r.total_quantity || 0) > 0) days.set(c, [...(days.get(c) || []), d]);
+        (await report('purchases', first, today, { aggregation: 'Daily', group_by: ['item', 'supplier'], item: codes.slice(i, i + 150) })).forEach(r => {
+          const k = sk(r.item) + '|' + sk(r.supplier), d = String(r.period || '').slice(0, 10);
+          if (d && Number(r.total_quantity || 0) > 0) days.set(k, [...(days.get(k) || []), d]);
         });
-      } catch (e) { console.warn('po received', e); }
+      } catch (e) { console.warn('po received', e); failed = true; }
     }
-    const hits = open.map(l => ({ l, on: (days.get(l.code) || []).filter(d => d >= l.po_date).sort()[0] })).filter(x => x.on);
-    for (const x of hits) { await db.from('system_po_lines').update({ received_on: x.on }).eq('po', x.l.po).eq('line', x.l.line); received++; }
+    if (!failed) {   // a failed read never un-receives anything
+      recounted = true;
+      for (const l of all) {
+        const p = poInfo.get(l.po), wmsDone = !!p && Number(p.requested_qty) > 0 && Number(p.remaining_qty) <= 0;
+        const on = (days.get(sk(l.code) + '|' + sk(l.supplier_code)) || []).filter(d => d >= l.po_date).sort()[0] || (wmsDone ? (l.received_on || today) : null);
+        if (on !== (l.received_on || null)) { await db.from('system_po_lines').update({ received_on: on }).eq('po', l.po).eq('line', l.line); l.received_on = on; }
+        if (on) received++;
+      }
+    }
   }
 
-  // 4. a PO is delivered once one of its items came in (the supplier came): its first PU day. Its lines with no PU of
-  //    their item since = NOT DELIVERED (po_delivered_on set, received_on null)
-  const { data: undelivered } = await db.from('system_pos').select('po').is('delivered_on', null).gte('po_date', keep);
-  const waiting = ((undelivered || []) as { po: string }[]).map(p => String(p.po));
-  for (let i = 0; i < waiting.length; i += 100) {
-    const { data: got } = await db.from('system_po_lines').select('po, received_on').in('po', waiting.slice(i, i + 100)).not('received_on', 'is', null);
+  // 4. a PO is delivered once its supplier brought one of its items (the first such day): its other lines (no PU of their
+  //    item from that supplier since) = NOT DELIVERED (po_delivered_on set, received_on null). Recounted with step 3.
+  if (recounted) {
     const firstOf = new Map<string, string>();
-    ((got || []) as { po: string; received_on: string }[]).forEach(g => { const d = String(g.received_on); if (!firstOf.has(g.po) || d < firstOf.get(g.po)!) firstOf.set(g.po, d); });
-    for (const [po, d] of firstOf) {
-      await db.from('system_pos').update({ delivered_on: d }).eq('po', po);
-      await db.from('system_po_lines').update({ po_delivered_on: d }).eq('po', po);
+    all.forEach(l => { if (l.received_on && (!firstOf.has(l.po) || l.received_on < firstOf.get(l.po)!)) firstOf.set(l.po, l.received_on); });
+    const byPo = new Map<string, L[]>(); all.forEach(l => { if (!byPo.has(l.po)) byPo.set(l.po, []); byPo.get(l.po)!.push(l); });
+    for (const [po, p] of poInfo) {
+      const d = firstOf.get(po) || null;
+      if ((p.delivered_on || null) !== d) await db.from('system_pos').update({ delivered_on: d }).eq('po', po);
+      if ((byPo.get(po) || []).some(l => (l.po_delivered_on || null) !== d)) await db.from('system_po_lines').update({ po_delivered_on: d }).eq('po', po);
     }
   }
+  const open = all.filter(l => !l.received_on && l.po_date >= cutoff);
 
   // 5. the stock now of the lines not delivered (read again every 2 hours): still out of stock = "Not available"
   let stockRead = 0;
