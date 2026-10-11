@@ -212,3 +212,10 @@
 #panel-delivery .status.muted{background:var(--soft);color:var(--muted)}
 #panel-delivery .cr-table .status{cursor:default}
 #panel-delivery .cr-table td{vertical-align:middle}
+/* Reports › Van deliveries (owner, 2026-10-11): driver by driver, what went by van and where */
+#panel-delivery .van-drv{padding:6px 14px 14px;}
+#panel-delivery .van-drv + .van-drv{border-top:1px solid var(--line);padding-top:12px;}
+#panel-delivery .van-drv h4{margin:6px 0 8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:15px;}
+#panel-delivery .van-drv h4 svg{width:18px;height:18px;}
+#panel-delivery .van-areas{display:flex;gap:4px;flex-wrap:wrap;font-weight:400;}
+@media print{#panel-delivery .van-report{break-inside:auto;}#panel-delivery .van-drv{break-inside:avoid;}}
