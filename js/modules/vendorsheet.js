@@ -307,11 +307,11 @@
     if (!list.length) return bar + `<div class="vs-note">No return (PT) to ${esc(v.name)} in the last ${days === 365 ? '12 months' : days + ' days'}.</div>`;
     const byCur = {}; list.forEach(x => { const c = x.currency || '$'; byCur[c] = (byCur[c] || 0) + n(x.withVat); });
     return bar + `<div class="vs-card vs-wide"><h4>${list.length} return${list.length === 1 ? '' : 's'} <span class="muted-note">· ${Object.entries(byCur).map(([c, t]) => cur(t, c)).join(' + ')} · ${qty(list.reduce((t, x) => t + n(x.qty), 0))} units</span></h4>
-      <div class="items-scroll vs-scroll"><table class="items vs-table"><thead><tr><th>PT</th><th>Date</th><th>Supplier in the system</th><th class="num">Lines</th><th class="num">Units</th><th class="num">Total</th></tr></thead>
-        <tbody>${list.map(x => `<tr data-pt="${esc(x.pt)}" data-year="${esc(x.year)}" tabindex="0" class="vs-pt" title="Double-click to see its lines"><td class="mono"><b>${esc(x.pt)}</b></td><td>${esc(dmy(x.date))}</td><td>${esc(x.partner)}</td>
+      <div class="items-scroll vs-scroll"><table class="items vs-table"><thead><tr><th>PT</th><th>Date</th><th>Supplier in the system</th><th>Reference</th><th class="num">Lines</th><th class="num">Units</th><th class="num">Total</th></tr></thead>
+        <tbody>${list.map(x => `<tr data-pt="${esc(x.pt)}" data-year="${esc(x.year)}" tabindex="0" class="vs-pt" title="Double-click to see its lines"><td class="mono"><b>${esc(x.pt)}</b></td><td>${esc(dmy(x.date))}</td><td>${esc(x.partner)}</td><td class="mono">${(x.refs || []).length ? esc(x.refs.length > 2 ? x.refs[0] + ' – ' + x.refs[x.refs.length - 1] : x.refs.join(', ')) : '<span class="muted-note">—</span>'}</td>
           <td class="num">${x.lines}</td><td class="num">${qty(x.qty)}</td><td class="num"><b>${cur(x.withVat, x.currency)}</b></td></tr>`).join('')}</tbody></table></div>
       ${p.data.truncated ? '<p class="vs-note vs-err" style="margin:8px 0 0;">Many return days: the oldest may be missing. Choose a shorter period.</p>' : ''}
-      <p class="muted-note" style="margin:8px 0 0;">The returns to this supplier, from the system. Double-click a PT (or Enter) to see its lines.</p></div>`;
+      <p class="muted-note" style="margin:8px 0 0;">The returns to this supplier, from the system: a PT is found from the item cards of the days it delivered or returned (also a return made on the delivery day). A PT holding only some items of a delivery, without that day's main item, can still be missed. Double-click a PT (or Enter) to see its lines.</p></div>`;
   }
   // one PT, as the system has it: its lines in their order
   async function openPt(pt, yr) {
@@ -327,10 +327,10 @@
     try {
       const d = await call({ action: 'pt_detail', pt, year: yr });
       dlg.innerHTML = head(`<span class="muted-note">${esc(dmy(d.date))} · ${esc(d.partner)}${d.supplierCode ? ' · ' + esc(d.supplierCode) : ''}</span>`) + `
-        <div class="items-scroll vs-scroll"><table class="items vs-table"><thead><tr><th class="num">#</th><th>Code</th><th>Item</th><th class="num">Qty</th><th class="num">Unit price</th><th class="num">Disc.</th><th class="num">Total incl. VAT</th><th class="num">VAT</th></tr></thead>
-          <tbody>${d.lines.map(l => `<tr data-today="${esc(l.today)}" ${l.today ? 'title="Double-click for the item details"' : ''}><td class="num muted-note">${l.line}</td><td class="mono">${esc(l.today || l.code)}</td><td>${esc(l.description)}${l.remarks ? `<div class="muted-note">${esc(l.remarks)}</div>` : ''}</td>
+        <div class="items-scroll vs-scroll"><table class="items vs-table"><thead><tr><th class="num">#</th><th>Code</th><th>Item</th><th>Reference</th><th class="num">Qty</th><th class="num">Unit price</th><th class="num">Disc.</th><th class="num">Total incl. VAT</th><th class="num">VAT</th></tr></thead>
+          <tbody>${d.lines.map(l => `<tr data-today="${esc(l.today)}" ${l.today ? 'title="Double-click for the item details"' : ''}><td class="num muted-note">${l.line}</td><td class="mono">${esc(l.today || l.code)}</td><td>${esc(l.description)}${l.remarks ? `<div class="muted-note">${esc(l.remarks)}</div>` : ''}</td><td class="mono">${esc(l.ref || '')}</td>
             <td class="num"><b>${qty(l.qty)}</b></td><td class="num">${cur(l.unit, d.currency)}</td><td class="num">${l.disc ? l.disc + '%' : ''}</td><td class="num">${cur(l.withVat, d.currency)}</td><td class="num">${l.vat ? cur(l.vat, d.currency) : ''}</td></tr>`).join('')}</tbody>
-          <tfoot><tr><td></td><td></td><td><b>Total</b></td><td class="num"><b>${qty(d.qty)}</b></td><td></td><td class="num">${d.discountPct ? d.discountPct + '%' : ''}</td><td class="num"><b>${cur(d.withVat, d.currency)}</b></td><td class="num">${d.vat ? cur(d.vat, d.currency) : ''}</td></tr></tfoot></table></div>
+          <tfoot><tr><td></td><td></td><td><b>Total</b></td><td></td><td class="num"><b>${qty(d.qty)}</b></td><td></td><td class="num">${d.discountPct ? d.discountPct + '%' : ''}</td><td class="num"><b>${cur(d.withVat, d.currency)}</b></td><td class="num">${d.vat ? cur(d.vat, d.currency) : ''}</td></tr></tfoot></table></div>
         <p class="muted-note" style="margin:8px 0 0;">${d.lines.length} line${d.lines.length === 1 ? '' : 's'}, in the system's order. Without VAT ${cur(d.withoutVat, d.currency)}. Double-click an item for its details.</p>`;
     } catch (e) { dlg.innerHTML = head('') + `<div class="vs-note vs-err">${esc(ptErr(e))}</div>`; }
   }

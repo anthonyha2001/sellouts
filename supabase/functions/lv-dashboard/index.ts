@@ -1295,43 +1295,49 @@ async function readPt(code: string, yr: string) {
 async function vendorPts(sups: string[], names: string[], from: string, to: string) {
   const want = new Set(sups.map(trimCode)), wantNames = new Set(names.map(supNameKey).filter(Boolean));
   const rows = await report('purchases', from, to, { aggregation: 'Daily', group_by: ['item'], supplier: sups });
-  const byDay = new Map<string, Set<string>>();   // day -> that year's item codes returned that day
-  rows.forEach(r => { if (Number(r.total_quantity || 0) >= 0) return; const d = String(r.period || '').slice(0, 10), c = trimCode(r._yrItem ?? r.item);
-    if (!d || !c) return; if (!byDay.has(d)) byDay.set(d, new Set()); byDay.get(d)!.add(c); });
+  // per day: the items whose quantity is negative or 0 (a PT for sure: more returned than delivered that day, or a delivery
+  // returned the same day - Junet PT0001243 / PU0004096 on 13-05 nets to 0), and the day's main delivered item (a PT of part
+  // of a delivery leaves a positive quantity: its item card is read in case the PT holds that item)
+  const days = new Map<string, { sure: string[]; main: string; mainQty: number }>();
+  rows.forEach(r => { const d = String(r.period || '').slice(0, 10), c = trimCode(r._yrItem ?? r.item), q = Number(r.total_quantity || 0);
+    if (!d || !c) return; const x = days.get(d) || { sure: [], main: '', mainQty: -1 };
+    if (q <= 0) x.sure.push(c); else if (q > x.mainQty) { x.main = c; x.mainQty = q; }
+    days.set(d, x); });
   const pts = new Map<string, Record<string, unknown>>(), seen = new Set<string>();
   let reads = 0, truncated = false;
-  for (const [day, items] of [...byDay.entries()].sort((a, b) => b[0].localeCompare(a[0]))) {
-    const left = new Set(items);
-    for (const c of items) {
-      if (!left.has(c)) continue;
-      if (reads >= 80) { truncated = true; break; }
-      reads++;
-      let docs: string[] = [];
-      try {
-        const cx = await dash(`/item-cardex?${new URLSearchParams({ branch: BRANCH, item_code: c, year: day.slice(0, 4), from_date: day, to_date: day })}`) as Record<string, unknown>;
-        docs = [...new Set(((((cx.data as Record<string, unknown>)?.rows || []) as Record<string, unknown>[])).filter(isReturn).map(r => String(r.document_no || '').trim()).filter(Boolean))];
-      } catch (e) { console.warn('pt cardex', c, e); }
-      left.delete(c);
-      for (const doc of docs) {
-        if (seen.has(doc + day.slice(0, 4))) continue;
-        seen.add(doc + day.slice(0, 4));
-        try {
-          const v = await readPt(doc, day.slice(0, 4));
-          if (!v) continue;
-          const lines = v.lines as Record<string, unknown>[];
-          lines.forEach(l => left.delete(trimCode(l.item_code)));
-          const code = trimCode(v.customer_code), partner = String(v.partner_name || '').trim();
-          const mine = day.slice(0, 4) === year() ? want.has(code) || wantNames.has(supNameKey(partner)) : wantNames.has(supNameKey(partner)) || want.has(code);
-          if (!mine) continue;
-          pts.set(doc + day.slice(0, 4), { pt: String(v.document_code || doc), year: day.slice(0, 4), date: String(v.document_date || day).slice(0, 10), partner, supplierCode: code,
-            currency: String(v.currency || ''), lines: lines.length, qty: lines.reduce((t, l) => t + Number(l.quantity || 0), 0),
-            withoutVat: Number(v.total_without_vat || 0), vat: Number(v.vat_amount || 0), withVat: Number(v.total_with_vat || 0) });
-        } catch (e) { console.warn('pt read', doc, e); }
-      }
-    }
-    if (truncated) break;
+  const cardexDocs = async (c: string, day: string) => {
+    reads++;
+    try {
+      const cx = await dash(`/item-cardex?${new URLSearchParams({ branch: BRANCH, item_code: c, year: day.slice(0, 4), from_date: day, to_date: day })}`) as Record<string, unknown>;
+      return [...new Set(((((cx.data as Record<string, unknown>)?.rows || []) as Record<string, unknown>[])).filter(isReturn).map(r => String(r.document_no || '').trim()).filter(Boolean))];
+    } catch (e) { console.warn('pt cardex', c, e); return [] as string[]; }
+  };
+  const readDoc = async (doc: string, day: string, left: Set<string>) => {
+    const k = doc + day.slice(0, 4); if (seen.has(k)) return; seen.add(k);
+    try {
+      const v = await readPt(doc, day.slice(0, 4)); if (!v) return;
+      const lines = v.lines as Record<string, unknown>[];
+      lines.forEach(l => left.delete(trimCode(l.item_code)));
+      const code = trimCode(v.customer_code), partner = String(v.partner_name || '').trim();
+      if (!want.has(code) && !wantNames.has(supNameKey(partner))) return;   // a PT to another supplier
+      pts.set(k, { pt: String(v.document_code || doc), year: day.slice(0, 4), date: String(v.document_date || day).slice(0, 10), partner, supplierCode: code,
+        currency: String(v.currency || ''), lines: lines.length, qty: lines.reduce((t, l) => t + Number(l.quantity || 0), 0),
+        refs: [...new Set(lines.map(l => String(l.reference_no || '').trim()).filter(Boolean))],
+        withoutVat: Number(v.total_without_vat || 0), vat: Number(v.vat_amount || 0), withVat: Number(v.total_with_vat || 0) });
+    } catch (e) { console.warn('pt read', doc, e); }
+  };
+  const doDay = async (day: string, x: { sure: string[]; main: string }) => {
+    const left = new Set(x.sure);
+    for (const c of x.sure) { if (!left.has(c)) continue; left.delete(c); for (const doc of await cardexDocs(c, day)) await readDoc(doc, day, left); }
+    if (x.main) for (const doc of await cardexDocs(x.main, day)) await readDoc(doc, day, new Set());
+  };
+  const list = [...days.entries()].sort((a, b) => b[0].localeCompare(a[0]));
+  const started = Date.now();
+  for (let i = 0; i < list.length; i += 6) {
+    if (reads >= 160 || Date.now() - started > 80000) { truncated = true; break; }   // the newest days first; the rest said to be missing
+    await Promise.all(list.slice(i, i + 6).map(([d, x]) => doDay(d, x)));
   }
-  return { from, to, pts: [...pts.values()].sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(b.pt).localeCompare(String(a.pt))), truncated };
+  return { from, to, pts: [...pts.values()].sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(b.pt).localeCompare(String(a.pt))), truncated, days: days.size };
 }
 // one PT, its lines in the system's order (codes of a past year turned into today's, for the item details)
 async function ptDetail(code: string, yr: string) {
@@ -1339,7 +1345,7 @@ async function ptDetail(code: string, yr: string) {
   if (!v) return null;
   const lines = (v.lines as Record<string, unknown>[]).map((l, i) => ({ line: Number(l.line_number) || i + 1, code: trimCode(l.item_code), description: String(l.item_description || '').trim(),
     qty: Number(l.quantity || 0), unit: Number(l.unit_price || 0), disc: Number(l.unit_discount_percent || 0), net: Number(l.net_unit_price || 0),
-    withoutVat: Number(l.total_without_vat || 0), vat: Number(l.vat_amount || 0), withVat: Number(l.total_with_vat || 0), remarks: String(l.remarks || '').trim(), today: '' }))
+    withoutVat: Number(l.total_without_vat || 0), vat: Number(l.vat_amount || 0), withVat: Number(l.total_with_vat || 0), remarks: String(l.remarks || '').trim(), ref: String(l.reference_no || '').trim(), today: '' }))
     .sort((a, b) => a.line - b.line);
   try { const m = await fromYear('item', lines.map(l => l.code), yr); lines.forEach(l => { l.today = m[l.code] || (yr === year() ? l.code : ''); }); } catch { lines.forEach(l => { l.today = yr === year() ? l.code : ''; }); }
   return { pt: String(v.document_code || code), year: yr, date: String(v.document_date || '').slice(0, 10), partner: String(v.partner_name || '').trim(), supplierCode: trimCode(v.customer_code),
