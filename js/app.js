@@ -1351,6 +1351,7 @@ const PAGES = {
   creditnotes: { eyebrow: 'Tracker', title: 'Credit notes', sub: 'Every credit note logged against your suppliers, issued or signed.' },
   promotions:  { eyebrow: 'Builder', title: 'Promotions', sub: 'Look up items by code, build a flyer, and export it when it’s ready.' },
   vendors:     { eyebrow: 'Suppliers', title: 'Vendors', sub: 'Salesmen, order days, deliveries and receiving.' },
+  toolcheck:   { eyebrow: 'Tools', title: 'Sell-out & promotion check', sub: 'The promotion list of the system against the sell-outs and promotions in the app: what is missing.' },
   pricecheck:  { eyebrow: 'Store floor', title: 'Price check', sub: 'Scan an item and see its price in the system; compare it with the shelf tag.' },
   warehouse:   { eyebrow: 'Receiving', title: 'Warehouse', sub: 'Who is coming to the receiving warehouse, and when it is open.' },
   stockcontrol: { eyebrow: 'Suppliers', title: 'Stock control', sub: 'What is running low, what sells more or less than it used to, what was bought big, and what is overstocked.' },
@@ -1376,7 +1377,7 @@ const PAGES = {
 const NAV_GROUPS = {
   cashgroup:  { label: 'Cash',  members: [['cash', 'Cash differences'], ['cashcount', 'Cash count']] },
   people:     { label: 'Staff', members: [['staff', 'Staff'], ['schedule', 'Staff schedule'], ['users', 'Users']] },
-  toolsgroup: { label: 'Tools', members: [['tools', 'PDF / photo to Excel'], ['labels', 'Shelf labels'], ['pricecheck', 'Price check']] },
+  toolsgroup: { label: 'Tools', members: [['tools', 'PDF / photo to Excel'], ['toolcheck', 'Sell-out & promotion check'], ['labels', 'Shelf labels'], ['pricecheck', 'Price check']] },
 };
 const groupLast = {};
 const groupOfTab = name => Object.keys(NAV_GROUPS).find(g => NAV_GROUPS[g].members.some(m => m[0] === name)) || null;
@@ -1415,6 +1416,7 @@ function switchTab(name, sub) {
   if (name === 'cashcount' && window.CashCount) CashCount.show();
   if (name === 'dashboard' && window.Dashboard) Dashboard.show();
   if (name === 'floorcheck' && window.FloorCheck) FloorCheck.show();
+  if (name === 'toolcheck' && window.Reconcile) { const box = document.getElementById('panel-toolcheck'); if (box && !box.dataset.mounted) { box.dataset.mounted = '1'; Reconcile.mount(box); } }
   if (name === 'pricecheck' && window.PriceCheck) PriceCheck.show();
   if (name === 'warehouse' && window.Warehouse) Warehouse.show();
   if (name === 'stockcontrol' && window.StockControl) StockControl.show();
