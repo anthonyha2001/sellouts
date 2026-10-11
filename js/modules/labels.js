@@ -330,39 +330,72 @@
     body.innerHTML = `
       <div class="lb-print-top">
         <span class="muted-note">${S.toPrint.length} list${S.toPrint.length === 1 ? '' : 's'} · ${total} label${total === 1 ? '' : 's'} to print</span>
-        ${S.toPrint.length > 1 ? '<button class="btn secondary small" id="lbExportAll">Export all together</button>' : ''}
+        ${S.toPrint.length > 1 ? '<button class="btn secondary small" data-export-all>Export all together</button>' : ''}
       </div>
-      ${S.toPrint.map(listCard).join('')}`;
-    el('lbExportAll')?.addEventListener('click', () => exportLists(S.toPrint));
+      ${S.toPrint.slice().sort((a, b) => Number(srcInfo(b).floor) - Number(srcInfo(a).floor)).map(listCard).join('')}
+      ${S.toPrint.length > 1 ? `<div class="lb-stick"><button class="btn lb-stick-btn" data-export-all>Export all ${S.toPrint.length} lists together · ${total} label${total === 1 ? '' : 's'}</button></div>` : ''}`;
+    body.querySelectorAll('[data-export-all]').forEach(b => b.addEventListener('click', () => exportLists(S.toPrint)));
     body.querySelectorAll('.sellout[data-list]').forEach(card => wireCard(card));
-    fetchInfo(S.toPrint.flatMap(l => l.items.map(i => i.barcode)));
+    fetchInfo(S.toPrint.filter(l => S.open.has(l.id) || S.editing === l.id).flatMap(l => pageItems(l).vis.map(i => i.barcode)));
+  }
+  // Where a list comes from: a floor check ("Name (floor check 11/10)", made by floor_check_send_labels, migration 047)
+  // or a shelf worker's own scan. Shown on the card and in the file name, so the accountant knows what she prints.
+  const srcInfo = l => {
+    const m = /^(.*?)\s*\(floor check\s*([\d/]+)\)\s*$/i.exec(String(l.created_by_name || ''));
+    return m ? { floor: true, name: m[1].trim() || 'Floor manager', date: m[2] } : { floor: false, name: String(l.created_by_name || 'Shelf worker'), date: '' };
+  };
+  const slug = s => String(s || '').normalize('NFKD').replace(/[^\w]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'list';
+  const PAGE = 40;                                   // rows shown at a time: 200+ items stay light on a phone
+  S.q = S.q || {}; S.kindf = S.kindf || {}; S.shown = S.shown || {};
+  // the items of one list as the page shows them: filtered by the search and the type, then the first `shown`
+  function pageItems(l) {
+    const editing = S.editing === l.id;
+    const items = (editing ? S.draftItems : l.items).slice().sort((x, y) => kindOf(x).localeCompare(kindOf(y)) || x.barcode.localeCompare(y.barcode));
+    const q = (S.q[l.id] || '').trim().toLowerCase(), kf = S.kindf[l.id] || '';
+    const all = items.filter(i => (!kf || kindOf(i) === kf) && (!q || i.barcode.toLowerCase().includes(q) || String((INFO.get(i.barcode) || {}).description || '').toLowerCase().includes(q)));
+    return { items, all, vis: all.slice(0, S.shown[l.id] || PAGE) };
   }
   function listCard(l) {
     const editing = S.editing === l.id;
-    const items = (editing ? S.draftItems : l.items).slice().sort((x, y) => kindOf(x).localeCompare(kindOf(y)) || x.barcode.localeCompare(y.barcode));
-    const infoCell = i => `<td><span class="lb-info" data-info="${esc(i.barcode)}">${infoHtml(i.barcode)}</span></td>`;
-    const kindCell = i => `<td><span class="lb-kind-chip lb-kind-${kindOf(i)}">${KINDS[kindOf(i)]}</span></td>`;
+    const open = editing || S.open.has(l.id), src = srcInfo(l);
     const labels = l.items.reduce((n, i) => n + i.qty, 0);
-    const open = editing || S.open.has(l.id);
-    const rows = items.map(i => editing
-      ? `<tr data-code="${esc(keyOf(i))}"><td style="font-family:var(--font-mono);">${esc(i.barcode)}</td>${infoCell(i)}${kindCell(i)}
-          <td class="num"><input type="text" inputmode="numeric" class="lb-edit-qty" value="${i.qty}" aria-label="Quantity for ${esc(i.barcode)}"></td>
-          <td class="num"><button type="button" class="icon-btn danger" data-act="remove" title="Remove" aria-label="Remove ${esc(i.barcode)}">${svg('<path d="M6 6l12 12M18 6L6 18"/>')}</button></td></tr>`
-      : `<tr><td style="font-family:var(--font-mono);">${esc(i.barcode)}</td>${infoCell(i)}${kindCell(i)}<td class="num" style="font-family:var(--font-mono);">${i.qty}</td></tr>`).join('');
-    return `<div class="sellout ${open ? 'open' : ''}" data-list="${esc(l.id)}">
-      <div class="sellout-head" data-toggle>
+    const head = `<div class="sellout-head" data-toggle>
         <span class="chev">${svg('<path d="M9 6l6 6-6 6"/>')}</span>
-        <div class="who"><div class="name">${esc(l.created_by_name || 'Shelf worker')}</div>
+        <div class="who"><div class="name"><span class="lb-src ${src.floor ? 'floor' : 'shelf'}">${src.floor ? 'Floor check' : 'Shelf scan'}</span> ${esc(src.name)}${src.floor && src.date ? ' <span class="muted-note">· ' + esc(src.date) + '</span>' : ''}</div>
           <div class="dates"><span>${esc(fmtTs(l.submitted_at))}</span><span>· ${l.items.length} item${l.items.length === 1 ? '' : 's'} · ${labels} label${labels === 1 ? '' : 's'}</span></div></div>
         <div class="icon-actions">
           <button class="icon-btn" data-act="edit" title="Edit this list" aria-label="Edit this list" ${editing ? 'disabled' : ''}>${svg('<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>')}</button>
           <button class="btn small lb-export-one" data-act="export" ${editing ? 'disabled' : ''}>${svg('<path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 19h14"/>')} Export</button>
         </div>
-      </div>
+      </div>`;
+    if (!open) return `<div class="sellout" data-list="${esc(l.id)}">${head}</div>`;      // closed: nothing else is drawn
+    const { items, all, vis } = pageItems(l);
+    const kf = S.kindf[l.id] || '';
+    const nKind = k => items.filter(i => kindOf(i) === k).length;
+    const toolbar = `<div class="lb-tools">
+        <input type="search" class="lb-find" data-q="${esc(l.id)}" placeholder="Find a barcode or an item…" value="${esc(S.q[l.id] || '')}" autocomplete="off">
+        <div class="filter-row" style="margin:0;">
+          <button type="button" data-act="kind" data-k="" class="${kf === '' ? 'active' : ''}">All <span class="muted-note">${items.length}</span></button>
+          ${Object.entries(KINDS).map(([k, t]) => nKind(k) ? `<button type="button" data-act="kind" data-k="${k}" class="${kf === k ? 'active' : ''}">${t} <span class="muted-note">${nKind(k)}</span></button>` : '').join('')}
+        </div></div>`;
+    const infoCell = i => `<td><span class="lb-info" data-info="${esc(i.barcode)}">${infoHtml(i.barcode)}</span></td>`;
+    const kindCell = i => `<td><span class="lb-kind-chip lb-kind-${kindOf(i)}">${KINDS[kindOf(i)]}</span></td>`;
+    const rows = editing
+      ? `<div class="items-scroll" style="margin:0;"><table class="items"><thead><tr><th>ItemCode</th><th>Item and price</th><th>Type</th><th class="num">Qty</th><th></th></tr></thead><tbody>${vis.map(i =>
+          `<tr data-code="${esc(keyOf(i))}"><td style="font-family:var(--font-mono);">${esc(i.barcode)}</td>${infoCell(i)}${kindCell(i)}
+          <td class="num"><input type="text" inputmode="numeric" class="lb-edit-qty" value="${i.qty}" aria-label="Quantity for ${esc(i.barcode)}"></td>
+          <td class="num"><button type="button" class="icon-btn danger" data-act="remove" title="Remove" aria-label="Remove ${esc(i.barcode)}">${svg('<path d="M6 6l12 12M18 6L6 18"/>')}</button></td></tr>`).join('')
+          || '<tr><td colspan="5" class="empty-note">No item matches.</td></tr>'}</tbody></table></div>`
+      : `<div class="lb-plist">${vis.map(i => `<div class="lb-prow"><span class="lb-pcode">${esc(i.barcode)}</span><span class="lb-pqty">× ${i.qty}</span>
+            <span class="lb-pinfo lb-info" data-info="${esc(i.barcode)}">${infoHtml(i.barcode)}</span><span class="lb-kind-chip lb-kind-${kindOf(i)}">${KINDS[kindOf(i)]}</span></div>`).join('')
+          || '<p class="empty-note" style="margin:8px 0;">No item matches.</p>'}</div>`;
+    const more = all.length > vis.length
+      ? `<button type="button" class="btn secondary lb-more" data-act="more">Show ${Math.min(PAGE, all.length - vis.length)} more <span class="muted-note">(${vis.length} of ${all.length})</span></button>` : '';
+    return `<div class="sellout open" data-list="${esc(l.id)}">${head}
       <div class="sellout-body">
-        <div class="items-scroll" style="margin:0;">
-          <table class="items"><thead><tr><th>ItemCode</th><th>Item and price</th><th>Type</th><th class="num">Qty</th>${editing ? '<th></th>' : ''}</tr></thead><tbody>${rows || '<tr><td colspan="4" class="empty-note">No items.</td></tr>'}</tbody></table>
-        </div>
+        ${toolbar}
+        ${rows}
+        ${more}
         ${editing ? `<form class="lb-edit-add" data-act="add-form"><input type="text" inputmode="numeric" placeholder="Add a barcode" aria-label="Add a barcode"><select aria-label="Type">${Object.entries(KINDS).map(([k, t]) => `<option value="${k}">${t}</option>`).join('')}</select><input type="text" inputmode="numeric" value="1" class="lb-edit-qty" aria-label="Quantity"><button class="btn secondary small" type="submit">Add</button></form>
           <div class="actions-row"><button type="button" class="btn ghost small" data-act="cancel">Cancel</button><button type="button" class="btn small" data-act="save">Save changes</button></div>` : ''}
       </div>
@@ -373,11 +406,21 @@
     card.querySelector('[data-toggle]').addEventListener('click', e => {
       if (e.target.closest('.icon-actions') || S.editing === l.id) return;
       S.open.has(l.id) ? S.open.delete(l.id) : S.open.add(l.id);
-      card.classList.toggle('open');
+      renderToPrint();   // an open list draws its rows (a closed one draws none: 200+ items stay light)
+    });
+    // search inside the list: the first rows that match, the caret stays where it was
+    card.querySelector('[data-q]')?.addEventListener('input', e => {
+      const pos = e.target.selectionStart;
+      S.q[l.id] = e.target.value; S.shown[l.id] = PAGE;
+      renderToPrint();
+      const inp = el('lbBody').querySelector(`[data-q="${CSS.escape(l.id)}"]`);
+      if (inp) { inp.focus(); inp.setSelectionRange(pos, pos); }
     });
     card.addEventListener('click', async e => {
       const b = e.target.closest('[data-act]'); if (!b || b.tagName === 'FORM') return;
       e.stopPropagation();
+      if (b.dataset.act === 'kind') { S.kindf[l.id] = b.dataset.k; S.shown[l.id] = PAGE; return renderToPrint(); }
+      if (b.dataset.act === 'more') { S.shown[l.id] = (S.shown[l.id] || PAGE) + PAGE; return renderToPrint(); }
       if (b.dataset.act === 'export') return exportLists([l]);
       if (b.dataset.act === 'edit') { S.editing = l.id; S.draftItems = l.items.map(i => ({ barcode: i.barcode, kind: kindOf(i), qty: i.qty })); return renderToPrint(); }
       if (b.dataset.act === 'cancel') { S.editing = null; return renderToPrint(); }
@@ -437,7 +480,14 @@
       XLSX.utils.book_append_sheet(wb, ws, name);
     });
     const stamp = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Beirut' }).slice(0, 16).replace(/[ :]/g, '-');
-    const who = lists.length === 1 ? '-' + String(lists[0].created_by_name || 'list').replace(/[^\w-]+/g, '-').toLowerCase() : '';
+    // the file says where it comes from: labels-floor-check-11-10-ahmad-2026-10-11-15-30.xlsx / labels-shelf-scan-rita-…
+    const fromOf = l => { const s = srcInfo(l); return s.floor ? `floor-check-${s.date.replace(/\D+/g, '-')}-${slug(s.name)}` : `shelf-scan-${slug(s.name)}`; };
+    const nFloor = lists.filter(l => srcInfo(l).floor).length;
+    const who = '-' + (lists.length === 1 ? fromOf(lists[0]) : nFloor === lists.length ? `floor-checks-${lists.length}-lists` : nFloor ? `mixed-${lists.length}-lists` : `shelf-scans-${lists.length}-lists`);
+    // a last sheet "From": who and when, one line per list (the first sheets keep the columns the printing import expects)
+    const fromRows = [['Source', 'Made by', 'Date', 'Sent', 'Items', 'Labels'],
+      ...lists.map(l => { const s = srcInfo(l); return [s.floor ? 'Floor check' : 'Shelf scan', s.name, s.date || '', fmtTs(l.submitted_at), l.items.length, l.items.reduce((n, i) => n + i.qty, 0)]; })];
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(fromRows), 'From');
     XLSX.writeFile(wb, `labels${who}-${stamp}.xlsx`);
     const ids = lists.map(l => l.id);
     const { error } = await sb.from('label_lists').update({ exported_at: new Date().toISOString() }).in('id', ids);

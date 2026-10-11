@@ -2524,3 +2524,23 @@ span.vw-chip{display:inline-block;cursor:default;}
 .lb-info-none{color:var(--brick);} .lb-info-wait{opacity:.5;}
 td .lb-info{margin:0;}
 .id-raw{margin:6px 0 10px;font-size:13px;} .id-raw summary{cursor:pointer;color:var(--ink-soft);} .id-raw table{margin-top:6px;} .id-raw td{padding:3px 8px;}
+
+/* shelf labels, the accountant's list on a phone: source, search, paging, sticky export (owner, 2026-10-11) */
+.lb-src{display:inline-block;font:700 11px var(--font-body);text-transform:uppercase;letter-spacing:.04em;border-radius:6px;padding:1px 7px;margin-right:4px;vertical-align:1px;}
+.lb-src.floor{background:var(--gold-tint);color:#7a5412;border:1px solid var(--gold);}
+.lb-src.shelf{background:var(--pine-tint);color:var(--pine);border:1px solid var(--pine-bright);}
+.lb-tools{display:flex;flex-direction:column;gap:8px;margin:8px 0 10px;}
+.lb-find{width:100%;font-size:16px;padding:10px 12px;}
+.lb-plist{display:flex;flex-direction:column;}
+.lb-prow{display:grid;grid-template-columns:1fr auto;gap:2px 10px;padding:10px 2px;border-bottom:1px solid var(--line);align-items:center;}
+.lb-pcode{font:600 15px var(--font-mono);}
+.lb-pqty{font:700 16px var(--font-mono);text-align:right;}
+.lb-pinfo{grid-column:1;font-size:13px;}
+.lb-prow .lb-kind-chip{grid-column:2;justify-self:end;}
+.lb-more{width:100%;margin:12px 0 4px;padding:12px;font-size:15px;}
+.lb-stick{position:sticky;bottom:0;z-index:5;padding:10px 0;background:linear-gradient(to top,var(--paper) 70%,transparent);}
+.lb-stick-btn{width:100%;padding:14px;font-size:16px;}
+@media (max-width:640px){
+  .lb-export-one{padding:8px 10px;}
+  .sellout-head .dates{font-size:12px;}
+}
