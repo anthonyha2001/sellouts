@@ -2626,3 +2626,8 @@ td .lb-info{margin:0;}
 .vb-actions > *{margin:0 !important;height:34px;padding:0 6px;font-size:12.5px;display:inline-flex;align-items:center;justify-content:center;overflow:hidden;text-overflow:ellipsis;}
 .vb-actions > :first-child{grid-column:1 / -1;height:38px;font-size:14px;}
 .vb-actions > [data-act="unskip"]{grid-column:1 / -1;}
+
+/* vendor board: the edit pencil sits top right, the whole card opens the vendor */
+.vb-edit{flex:none;width:30px;height:30px;margin:-4px -6px 0 0;border:0;border-radius:8px;background:transparent;color:var(--muted,#6b746e);display:grid;place-items:center;cursor:pointer;}
+.vb-edit:hover{background:var(--paper);color:var(--pine);}
+.vb-actions > :first-child{grid-column:1 / -1;}

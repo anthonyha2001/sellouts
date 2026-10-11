@@ -113,7 +113,8 @@
     return `<article class="vb-card ${state ? 'st-' + state : ''}" data-id="${esc(v.id)}">
       <div class="vb-top"><div class="vb-avatar" aria-hidden="true">${esc((v.name || '?').trim().charAt(0).toUpperCase())}</div>
         <div class="vb-id"><h4>${esc(v.name)}</h4><p class="muted-note">${[v.salesmanName ? esc(v.salesmanName) : '', v.phone ? `<span class="mono">${esc(v.phone)}</span>` : ''].filter(Boolean).join(' · ') || '&nbsp;'}</p></div>
-</div>
+        ${canManage() ? `<button type="button" class="vb-edit" data-act="edit" title="Edit vendor" aria-label="Edit vendor"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>` : ""}
+      </div>
       ${window.VendorContract && VendorContract.chip(v.contract) ? `<div class="vb-chips">${VendorContract.chip(v.contract)}</div>` : ''}
       <div class="vb-when">${when}</div>
       <div class="vb-meta">${sched ? esc(sched) : ''}${v.leadTimeDays !== null && v.leadTimeDays !== undefined ? ` · ${esc(v.leadTimeDays)}d lead` : ''}${(v.receivingDays || []).length ? ` · receives ${esc(v.receivingDays.map(d => DAYS[d]).join(', '))}` : ''}${i.last ? ` · last delivery ${esc(dmy(i.last.deliveredDate))}` : ''}</div>
@@ -126,8 +127,6 @@
         ${i.late ? '<button type="button" class="btn ghost small" data-act="order" title="The delivery is overdue: order again">Order again</button>' : ''}
         ${tel ? `<a class="btn ghost small" href="tel:${esc(tel)}" title="Call">Call</a>` : ''}
         ${wa ? `<a class="btn ghost small" href="${esc(wa)}" target="_blank" rel="noopener" title="WhatsApp">WA</a>` : ''}
-        <button type="button" class="btn ghost small" data-act="open">Open</button>
-        ${canManage() ? '<button type="button" class="btn ghost small" data-act="edit">Edit</button>' : ''}
       </div></article>`;
   }
 
