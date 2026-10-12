@@ -288,7 +288,11 @@
   const monthName = ym => new Date(ym + '-01T00:00:00').toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
 
   /* ---------------- drawing ---------------- */
-  const stat = (label, value, cls = '') => `<div class="db-stat ${cls}"><b>${value}</b><span>${label}</span></div>`;
+  // a figure: big and readable; large amounts are shortened (5.33M) with the full amount on hover (owner, 2026-10-12)
+  const stat = (label, value, cls = '', title = '') => `<div class="db-stat ${cls}"${title ? ` title="${esc(title)}"` : ''}><b>${value}</b><span>${label}</span></div>`;
+  const short = v => { const a = Math.abs(n(v)); return a >= 1e6 ? (a / 1e6).toFixed(a >= 1e8 ? 0 : a >= 1e7 ? 1 : 2) + 'M' : a >= 1e5 ? Math.round(a / 1e3) + 'K' : lbp(a); };
+  const sshort = v => Math.abs(n(v)) < 0.005 ? '0' : (n(v) < 0 ? '−' : '+') + short(v);
+  const money = v => '$' + (Math.abs(n(v)) >= 1000 ? Math.round(n(v)).toLocaleString('en-US') : usd(v));
   const line = (left, right = '', cls = '') => `<li class="${cls}"><span>${left}</span>${right !== '' && right != null ? `<b>${right}</b>` : ''}</li>`;
   const card = (key, tab, icon, title, body) => `<section class="card db-card" data-part="${key}">
       <header><span class="db-ic">${svg(icon)}</span><h3>${title}</h3>${tab && canSee(tab) ? `<button type="button" class="link-btn db-open" data-go="${tab}">Open ${svg('go', 'db-go')}</button>` : ''}</header>
@@ -315,7 +319,7 @@
 
       <div class="db-grid">
         ${card('cash', 'cash', 'cash', 'Cash differences', box('cash', c => `
-          <div class="db-stats">${stat('Yesterday', `<span class="${tone(c.yNet)}">${signed(c.yNet, lbp)}</span>`)}${stat('This month', `<span class="${tone(c.monthNet)}">${signed(c.monthNet, lbp)}</span>`)}${stat('Shorts this month', `<span class="neg">${lbp(-c.monthShort)}</span>`)}</div>
+          <div class="db-stats">${stat('Yesterday', `<span class="${tone(c.yNet)}">${sshort(c.yNet)}</span>`, '', signed(c.yNet, lbp) + ' LBP')}${stat('This month', `<span class="${tone(c.monthNet)}">${sshort(c.monthNet)}</span>`, '', signed(c.monthNet, lbp) + ' LBP')}${stat('Shorts this month', `<span class="neg">${short(-c.monthShort)}</span>`, '', lbp(-c.monthShort) + ' LBP')}</div>
           <p class="db-note">LBP, USD at ${lbp(c.rate)} · yesterday ${c.yEntries} cashier${c.yEntries === 1 ? '' : 's'} entered, ${c.yShortCount} short</p>
           ${c.worst.length ? `<h4>Most short this month</h4><ul class="db-list">${c.worst.map(w => line(esc(w.name), `<span class="neg">${signed(w.v, lbp)}</span>`)).join('')}</ul>` : ''}
           <p class="db-note">${esc(monthName(c.lastMonth))}: ${c.lastLocked ? 'locked' : 'not locked'}</p>`))}
@@ -345,7 +349,7 @@
           ${o.notSent.length ? `<p class="db-note">${o.notSent.length} order${o.notSent.length === 1 ? '' : 's'} not sent yet</p>` : ''}`))}
 
         ${card('delivery', 'delivery', 'bike', 'Delivery', box('delivery', d => `
-          <div class="db-stats">${stat('Orders today', d.today)}${stat('Today', '$' + usd(d.todayAmt))}${stat('Unpaid', d.unpaid, d.oldUnpaid ? 'bad' : '')}</div>
+          <div class="db-stats">${stat('Orders today', d.today)}${stat('Today', money(d.todayAmt), '', '$' + usd(d.todayAmt))}${stat('Unpaid', d.unpaid, d.oldUnpaid ? 'bad' : '')}</div>
           <ul class="db-list">${line('Yesterday', d.yesterday + ' orders')}${line('This month', `${d.month} orders · $${usd(d.monthAmt)}`)}${line('Unpaid amount', '$' + usd(d.unpaidAmt))}</ul>`))}
 
         ${card('rentals', 'rentals', 'map', 'Rentals', box('rentals', r => `
