@@ -3312,3 +3312,43 @@ tr:hover .so-note,.so-note:focus{border-color:var(--line-strong);background:var(
   body.wr-printing #wrPage{position:absolute;left:0;top:0;width:100%;}
   body.wr-printing .wr-card{break-inside:avoid;box-shadow:none;}
 }
+/* Expiries: one table (owner, 2026-10-12) */
+.ex-bar2{display:flex;flex-direction:column;gap:10px;margin:0 0 12px;}
+.ex-when{margin:0;flex-wrap:wrap;}
+.ex-when .ex-n{font-size:11px;opacity:.7;margin-left:2px;}
+.ex-when button.hot:not(.active){color:#b91c1c;}
+.ex-tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+.ex-tools input[type=search]{flex:1;min-width:200px;max-width:340px;}
+.ex-tools select{width:auto;max-width:220px;}
+.ex-tools .ex-sp{flex:1;}
+.ex-supbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px 12px;border:1px solid var(--line);border-radius:10px;background:var(--paper-raised);font-size:13px;}
+.ex-tcard{padding:0;overflow:hidden;}
+.ex-scroll{margin:0;max-height:calc(100vh - 330px);}
+.ex-tbl th{position:sticky;top:0;z-index:1;}
+.ex-tbl td{vertical-align:middle;padding:7px 10px;}
+.ex-tbl tr.sel td{background:var(--pine-tint);}
+.ex-tbl tr.u-done td{opacity:.65;}
+.ex-ck{width:28px;text-align:center;}
+.ex-c-date{white-space:nowrap;}
+.ex-c-date b{display:block;font-size:13px;}
+.ex-when-t{font-size:11.5px;color:var(--ink-soft);}
+.ex-when-t.u-past{color:#b91c1c;font-weight:700;}
+.ex-when-t.u-week{color:#b45309;font-weight:700;}
+.ex-done-t{font-size:11.5px;color:var(--ink-soft);}
+.ex-tbl tr.u-past td:first-child{box-shadow:inset 3px 0 0 #dc2626;}
+.ex-tbl tr.u-week td:first-child{box-shadow:inset 3px 0 0 #f59e0b;}
+.ex-c-item small{display:block;color:var(--ink-soft);font-size:11.5px;margin-top:1px;}
+.ex-c-sup{font-size:12.5px;max-width:200px;}
+.ex-tbl select{width:auto;max-width:160px;font-size:12.5px;padding:4px 6px;}
+.ex-c-stat{white-space:nowrap;}
+.ex-c-act{white-space:nowrap;text-align:right;}
+.ex-c-act select{margin-right:4px;}
+.ex-c-act > *{display:inline-flex !important;vertical-align:middle;}
+.ex-c-act .vb-ico{width:28px;height:28px;align-items:center;justify-content:center;}
+.ex-foot{margin:0;padding:8px 12px;border-top:1px solid var(--line);}
+.ex-bulk{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px 12px;margin:0 0 10px;border:1px solid var(--pine);border-radius:10px;background:var(--pine-tint);font-size:13px;}
+.ex-bulk select{width:auto;}
+.ex-tbl .ex-decsel{max-width:150px;}
+.ex-tbl .ex-outsel{max-width:92px;}
+.ex-tbl .ex-give{max-width:130px;}
+.ex-c-sup{max-width:170px;}
