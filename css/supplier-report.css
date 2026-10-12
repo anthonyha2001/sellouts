@@ -1,0 +1,24 @@
+/* The monthly supplier report (owner, 2026-10-12): the app's preview and report.html (the private link). */
+.sr{font-family:"IBM Plex Sans",system-ui,sans-serif;color:#1A2420;max-width:880px;margin:0 auto;}
+.sr-head{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:3px solid #1943AF;padding:0 0 12px;margin:0 0 16px;}
+.sr-brand{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#1943AF;font-weight:700;}
+.sr h1{margin:4px 0 2px;font-family:"Source Serif 4",Georgia,serif;font-size:28px;}
+.sr-sub{color:#69746C;font-size:14px;}
+.sr-tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:0 0 18px;}
+.sr-tile{border:1px solid #E1E3DA;border-radius:10px;padding:12px 14px;background:#fff;}
+.sr-tile span{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#69746C;}
+.sr-tile b{display:block;font-size:24px;margin:4px 0 2px;}
+.sr-tile small{font-size:12.5px;}
+.sr h2{font-size:15px;margin:18px 0 8px;font-family:"Source Serif 4",Georgia,serif;}
+.sr-t{width:100%;border-collapse:collapse;font-size:13px;}
+.sr-t th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#69746C;border-bottom:1px solid #CBCFC3;padding:6px 8px;}
+.sr-t td{border-bottom:1px solid #EEF0E8;padding:6px 8px;}
+.sr-n{text-align:right;white-space:nowrap;}
+.sr-up{color:#1943AF;font-weight:600;}
+.sr-down{color:#A23F2C;font-weight:600;}
+.sr-mute{color:#9AA39C;font-size:12.5px;}
+.sr-two{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+.sr-list{columns:2;font-size:13px;margin:0;padding-left:18px;}
+.sr-foot{margin:22px 0 0;padding:10px 0 0;border-top:1px solid #E1E3DA;color:#9AA39C;font-size:12px;}
+@media (max-width:640px){.sr-tiles{grid-template-columns:1fr;}.sr-two{grid-template-columns:1fr;}.sr-list{columns:1;}.sr h1{font-size:22px;}}
+@media print{.sr-tile,.sr-t{break-inside:avoid;}}

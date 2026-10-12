@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Supplier report · La Valeur</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600;700&family=Source+Serif+4:wght@600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/supplier-report.css">
+<style>
+  body{margin:0;background:#F7F7F3;padding:24px 16px 40px;}
+  .sr-page{background:#fff;border:1px solid #E1E3DA;border-radius:14px;padding:24px;max-width:900px;margin:0 auto;}
+  .sr-bar{max-width:900px;margin:0 auto 12px;display:flex;justify-content:flex-end;}
+  .sr-bar button{font:inherit;font-size:13px;border:1px solid #CBCFC3;background:#fff;border-radius:8px;padding:6px 12px;cursor:pointer;}
+  .sr-msg{font-family:system-ui,sans-serif;color:#69746C;text-align:center;padding:40px 0;}
+  @media print{body{background:#fff;padding:0;}.sr-bar{display:none;}.sr-page{border:0;padding:0;}}
+</style>
+</head>
+<body>
+<!-- The monthly supplier report by its private link (owner, 2026-10-12; migration 091): no sign-in, read only. -->
+<div class="sr-bar"><button type="button" onclick="window.print()">Print / save as PDF</button></div>
+<main class="sr-page" id="sr"><p class="sr-msg">Loading the report…</p></main>
+<script src="js/supplier-report-view.js"></script>
+<script>
+  (async function () {
+    const box = document.getElementById('sr');
+    const token = new URLSearchParams(location.search).get('t') || '';
+    try {
+      const r = await fetch('https://sezjqcbkiydckhirycjb.supabase.co/functions/v1/lv-dashboard', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'supplier_report_view', token }) });
+      const d = await r.json();
+      if (!r.ok || d.error) throw new Error(d.error || 'This report was not found.');
+      document.title = `${d.vendor_name || 'Supplier'} · report · La Valeur`;
+      box.innerHTML = SupplierReportView.html(d);
+    } catch (e) { box.innerHTML = '<p class="sr-msg"></p>'; box.firstChild.textContent = e.message || 'This report could not be opened.'; }
+  })();
+</script>
+</body>
+</html>

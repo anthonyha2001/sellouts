@@ -1133,6 +1133,35 @@ async function monthProfit(month: string) {
   return { ...row, to };
 }
 
+/* ---------------- the monthly supplier report (owner, 2026-10-12; migration 091) ----------------
+   A supplier's month against the month before, item by item (sales and units; no cost, no margin), and the items bought in the
+   3 months before that did not sell this month. The app adds the sell-outs and the rented spots and keeps the report. */
+async function supplierReportData(sups: string[], month: string) {
+  const from = month.slice(0, 7) + '-01', y = Number(from.slice(0, 4)), m = Number(from.slice(5, 7));
+  const last = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10), today = beirutToday(), to = last < today ? last : today;
+  const pFrom = new Date(Date.UTC(y, m - 2, 1)).toISOString().slice(0, 10), pTo = plusDays(from, -1);
+  const b3 = new Date(Date.UTC(y, m - 4, 1)).toISOString().slice(0, 10);
+  const [cur, prev, bought] = await Promise.all([
+    report('sales', from, to, { group_by: ['item'], supplier: sups }),
+    report('sales', pFrom, pTo, { group_by: ['item'], supplier: sups }),
+    report('purchases', b3, to, { group_by: ['item'], supplier: sups }),
+  ]);
+  const agg = (rows: Record<string, unknown>[]) => { const mm = new Map<string, { code: string; name: string; sales: number; qty: number }>();
+    rows.forEach(r => { const c = trimCode(r.item); if (!c || c.includes(':')) return; const x = mm.get(c) || { code: c, name: String(r.item_desc ?? '').trim(), sales: 0, qty: 0 };
+      x.sales += Number(r.total_sales || 0); x.qty += Number(r.total_quantity || 0); mm.set(c, x); }); return mm; };
+  const C = agg(cur), P = agg(prev);
+  const r2 = (v: number) => Math.round(v * 100) / 100;
+  const items = [...C.values()].map(x => ({ code: x.code, name: x.name, sales: r2(x.sales), qty: Math.round(x.qty * 1000) / 1000,
+    prevSales: r2(P.get(x.code)?.sales || 0), prevQty: Math.round((P.get(x.code)?.qty || 0) * 1000) / 1000 })).sort((a, b) => b.sales - a.sales);
+  const sold = new Set([...C.keys()].filter(c => (C.get(c)!.qty) > 0));
+  const notSold = new Map<string, string>();
+  bought.forEach(r => { const c = trimCode(r.item); if (c && !c.includes(':') && Number(r.total_quantity || 0) > 0 && !sold.has(c)) notSold.set(c, String(r.item_desc ?? '').trim()); });
+  return { from, to, prevFrom: pFrom, prevTo: pTo,
+    sales: r2(items.reduce((t, x) => t + x.sales, 0)), qty: Math.round(items.reduce((t, x) => t + x.qty, 0)),
+    prevSales: r2([...P.values()].reduce((t, x) => t + x.sales, 0)), prevQty: Math.round([...P.values()].reduce((t, x) => t + x.qty, 0)),
+    items, notSold: [...notSold.entries()].map(([code, name]) => ({ code, name })).slice(0, 60) };
+}
+
 /* ---------------- codes across years (owner, 2026-10-06; migration 069) ----------------
    The system numbers its items AND its suppliers per year: a year's sales and purchases only know that year's codes
    (Abboud trading 0768 in 2025 / 1134 in 2026; Taanayel labneh 400g 016580 / 128420), while the app uses today's.
@@ -1816,6 +1845,15 @@ Deno.serve(async req => {
     catch (e) { console.error(e); return json({ error: e instanceof Error ? e.message : 'failed' }, 502); }
   }
 
+  // A supplier report by its private link (migration 091): no sign-in, the token is the key; read only, nothing else is given.
+  if (body.action === 'supplier_report_view') {
+    const tk = String(body.token || '');
+    if (!/^[0-9a-f]{24,64}$/.test(tk)) return json({ error: 'This link is not valid.' }, 400);
+    const { data, error } = await db.from('supplier_reports').select('vendor_name, month, data, created_at').eq('token', tk).maybeSingle();
+    if (error || !data) return json({ error: 'This report was not found.' }, 404);
+    return json(data);
+  }
+
   // The stock watch (migration 066), from pg_cron or the server key.
   if (body.action === 'stock_watch') {
     const cron = req.headers.get('x-cron-secret') || '';
@@ -2067,7 +2105,7 @@ Deno.serve(async req => {
       }
       return json(await priceChangesSync(120));
     }
-    if (['perf_suppliers', 'perf_supplier', 'store_daily', 'sales_categories', 'vendor_pts', 'pt_detail', 'pricing_day', 'pricing_supplier', 'returns_range', 'pu_find', 'vendor_pos', 'pos_of_day', 'po_detail'].includes(String(body.action))) {
+    if (['perf_suppliers', 'perf_supplier', 'store_daily', 'sales_categories', 'vendor_pts', 'pt_detail', 'supplier_report', 'pricing_day', 'pricing_supplier', 'returns_range', 'pu_find', 'vendor_pos', 'pos_of_day', 'po_detail'].includes(String(body.action))) {
       if (!isServer && role !== 'admin') {
         const anon = Deno.env.get('SUPABASE_ANON_KEY') || '';
         const asUser = createClient(SUPABASE_URL, anon, { global: { headers: { Authorization: `Bearer ${bearer}` } }, auth: { persistSession: false, autoRefreshToken: false } });
@@ -2075,6 +2113,14 @@ Deno.serve(async req => {
         if (!okPerm) return json({ error: 'Not allowed.' }, 403);
       }
       // a supplier's last POs, live from the system (the vendor sheet's POs tab)
+      // the monthly supplier report (vendor sheet, owner 2026-10-12; migration 091)
+      if (body.action === 'supplier_report') {
+        const sups = (Array.isArray(body.suppliers) ? body.suppliers : []).map(String).filter(Boolean).slice(0, 10);
+        const mo = String(body.month || '');
+        if (!sups.length) return json({ error: 'This vendor is not linked to its supplier in the system.' }, 400);
+        if (!/^\d{4}-\d{2}/.test(mo)) return json({ error: 'Which month?' }, 400);
+        return json(await supplierReportData(sups, mo));
+      }
       // a supplier's returns (PTs) and one PT (vendor sheet › Returns, owner 2026-10-11)
       if (body.action === 'vendor_pts') {
         const sups = (Array.isArray(body.suppliers) ? body.suppliers : []).map(String).filter(Boolean).slice(0, 10);

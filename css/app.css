@@ -3368,3 +3368,9 @@ tr:hover .so-note,.so-note:focus{border-color:var(--line-strong);background:var(
 .sp-kv dd{margin:0;}
 .sp-list{list-style:none;padding:0;margin:0 0 6px;font-size:12.5px;}
 .sp-list li{display:flex;justify-content:space-between;gap:10px;padding:3px 0;border-bottom:1px dashed var(--line);}
+/* vendor sheet › monthly report (owner, 2026-10-12) */
+.vs-rep-dlg{width:min(960px,calc(100vw - 24px));}
+.vs-rep-bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 12px;}
+.vs-rep-bar select{width:auto;}
+.vs-rep-share{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 12px;}
+.vs-rep-prev{border:1px solid var(--line);border-radius:12px;padding:18px;background:#fff;max-height:60vh;overflow:auto;}

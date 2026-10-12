@@ -151,6 +151,7 @@
       return;
     }
     if (a === 'ordernow') { if (window.VendorOrder) VendorOrder.open(S.id); return; }
+    if (a === 'report') return openReport();
     if (a === 'noorder') { if (window.VendorOrder) VendorOrder.noOrder(S.id, todayStr()); return; }
     if (a === 'canceldraft') { if (window.VendorOrder) VendorOrder.cancelDraft(S.id); return; }
     if (a === 'delete') {
@@ -208,6 +209,7 @@
         ${/* owner, 2026-10-12: fewer buttons - Order now as the one text button, the rest as icons (no Call, like the vendor cards) */ ''}
         ${canData() ? '<button type="button" class="btn small" data-vs="ordernow">Order now</button>' : ''}
         ${wa ? `<a class="icon-btn vs-ic" href="${esc(wa)}" target="_blank" rel="noopener" title="WhatsApp" aria-label="WhatsApp"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 20.5l1.3-4.2A8.5 8.5 0 1 1 8 19.4z"/><path d="M9 8.5c0 3.2 3.3 6.5 6.5 6.5l1.2-1.4-2-1-1 .9a5 5 0 0 1-2.9-2.9l.9-1-1-2z"/></svg></a>` : ''}
+        ${canData() ? `<button type="button" class="icon-btn vs-ic" data-vs="report" title="Monthly report for the supplier" aria-label="Monthly report for the supplier"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><path d="M8 17v-3M12 17v-6M16 17v-4"/></svg></button>` : ''}
         ${canData() ? `<button type="button" class="icon-btn vs-ic" data-vs="noorder" title="No order today" aria-label="No order today"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/></svg></button>
         <button type="button" class="icon-btn vs-ic" data-vs="edit" title="Edit" aria-label="Edit"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></button>
         <button type="button" class="icon-btn vs-ic vs-ic-del" data-vs="delete" title="Delete" aria-label="Delete"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 11v6M14 11v6"/></svg></button>` : ''}
@@ -334,6 +336,71 @@
           <tfoot><tr><td></td><td></td><td><b>Total</b></td><td></td><td class="num"><b>${qty(d.qty)}</b></td><td></td><td class="num">${d.discountPct ? d.discountPct + '%' : ''}</td><td class="num"><b>${cur(d.withVat, d.currency)}</b></td><td class="num">${d.vat ? cur(d.vat, d.currency) : ''}</td></tr></tfoot></table></div>
         <p class="muted-note" style="margin:8px 0 0;">${d.lines.length} line${d.lines.length === 1 ? '' : 's'}, in the system's order. Without VAT ${cur(d.withoutVat, d.currency)}. Double-click an item for its details.</p>`;
     } catch (e) { dlg.innerHTML = head('') + `<div class="vs-note vs-err">${esc(ptErr(e))}</div>`; }
+  }
+
+  /* ---------------- the monthly supplier report (owner, 2026-10-12; migration 091) ----------------
+     Their month against the one before (lv-dashboard supplier_report: sales and units, no cost), their sell-outs (units sold of
+     their items that month), their rented spots; kept in supplier_reports with a private link (report.html?t=…, no sign-in). */
+  const SPOT_NAMES = { endcap: 'End cap', side_gondola: 'Side gondola', basket_side: 'Basket side', display: 'Display', display_side: 'Display side', freezer: 'Fridge / freezer',
+    fridge_door: 'Fridge door', wall_spot: 'Wall spot', pillar: 'Pillar', screen_wall: 'Screen', screen_island: 'Screen', promo_table: 'Promo table', promo_zone: 'Promo zone' };
+  const reportLink = token => location.origin + location.pathname.replace(/[^/]*$/, '') + 'report.html?t=' + token;
+  async function openReport() {
+    const v = vendor(); if (!v) return;
+    const sups = (v.systemSuppliers || []).map(s => String(s.code || '')).filter(Boolean);
+    if (!sups.length) return showToast(`${v.name} is not linked to its supplier in the system: Edit › Watch stock › Supplier in the system.`, true);
+    let dlg = el('vsRepDlg');
+    if (!dlg) { dlg = document.createElement('dialog'); dlg.id = 'vsRepDlg'; dlg.className = 'vs-pt-dlg vs-rep-dlg'; document.body.appendChild(dlg); dlg.addEventListener('click', e => { if (e.target === dlg || e.target.closest('[data-repclose]')) dlg.close(); }); }
+    const t = todayStr(), months = Array.from({ length: 6 }, (_, i) => { const d = new Date(Number(t.slice(0, 4)), Number(t.slice(5, 7)) - 1 - i, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; });
+    const MON = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    const mName = ym => `${MON[Number(ym.slice(5)) - 1]} ${ym.slice(0, 4)}${ym === t.slice(0, 7) ? ' (so far)' : ''}`;
+    const { data: past } = await sb.from('supplier_reports').select('token, month, created_at').eq('vendor_id', v.id).order('created_at', { ascending: false }).limit(12);
+    dlg.innerHTML = `<div class="vs-pt-head"><h3>Monthly report · ${esc(v.name)}</h3><button type="button" class="icon-btn" data-repclose title="Close" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+      <div class="vs-rep-bar"><select id="vsRepMonth">${months.map((m, i) => `<option value="${m}" ${i === 1 ? 'selected' : ''}>${mName(m)}</option>`).join('')}</select>
+        <button type="button" class="btn small" id="vsRepMake">Make the report</button>
+        ${(past || []).length ? `<select id="vsRepPast"><option value="">Made before…</option>${past.map(p => `<option value="${esc(p.token)}">${mName(String(p.month).slice(0, 7))} · made ${esc(new Date(p.created_at).toLocaleDateString('en-GB'))}</option>`).join('')}</select>` : ''}</div>
+      <div id="vsRepOut"><p class="muted-note">No cost and no margin in it: their sales and units against the month before, their best items, what did not sell, their sell-outs and their spots. It opens without signing in, by its private link.</p></div>`;
+    if (!dlg.open) dlg.showModal();
+    el('vsRepPast')?.addEventListener('change', e => { if (e.target.value) showLink(v, e.target.value, null); });
+    el('vsRepMake').onclick = async () => {
+      const ym = el('vsRepMonth').value, btn = el('vsRepMake');
+      btn.disabled = true; el('vsRepOut').innerHTML = '<p class="muted-note">Reading their month from the system…</p>';
+      try {
+        const data = await call({ action: 'supplier_report', suppliers: sups, month: ym });
+        const from = data.from, to = data.to, qty = new Map((data.items || []).map(x => [x.code, n(x.qty)]));
+        // their sell-outs that month: by the supplier's name in the system, the units sold of their items
+        const names = new Set((v.systemSuppliers || []).map(s => String(s.name || '').trim().toUpperCase()).concat([String(v.name).trim().toUpperCase()]));
+        const { data: sos } = await sb.from('sellouts').select('name, supplier, from, to, items, priced_items').lte('from', to).gte('to', from);
+        data.sellouts = (sos || []).filter(s => names.has(String(s.supplier || '').trim().toUpperCase())).map(s => {
+          const list = (Array.isArray(s.priced_items) && s.priced_items.length ? s.priced_items : Array.isArray(s.items) ? s.items : []).map(r => String(r.code ?? r.Code ?? r.CODE ?? '').trim()).filter(Boolean);
+          return { name: s.name, from: s.from, to: s.to, items: list.length, units: list.reduce((tt, c) => tt + (qty.get(c) || 0), 0) };
+        });
+        // their rented spots that month (no amount)
+        const { data: cs } = await sb.from('rental_contracts').select('supplier, spot_id, term, start_date, end_date').neq('term', 'temporary').lte('start_date', to).gte('end_date', from);
+        const mine = (cs || []).filter(c => String(c.supplier || '').trim().toLowerCase() === String(v.name).trim().toLowerCase());
+        const ids = [...new Set(mine.map(c => c.spot_id).filter(Boolean))];
+        const objs = ids.length ? ((await sb.from('store_map_objects').select('id, type, label').in('id', ids)).data || []) : [];
+        data.spots = mine.map(c => { const o = objs.find(x => x.id === c.spot_id); return { what: o ? [SPOT_NAMES[o.type] || o.type, o.label].filter(Boolean).join(' · ') : 'Spot', from: c.start_date, to: c.end_date }; });
+        data.vendor = v.name;
+        const { data: row, error } = await sb.from('supplier_reports').insert({ vendor_id: v.id, vendor_name: v.name, month: ym + '-01', data }).select('token, vendor_name, month, data, created_at').single();
+        if (error) throw new Error(/supplier_reports/.test(error.message) ? 'The supplier reports are not set up yet (migration 091).' : error.message);
+        showLink(v, row.token, row);
+        logActivity('vendors', 'report', { type: 'vendor', id: v.id }, `Monthly report for ${v.name} (${mName(ym)})`);
+      } catch (e) { el('vsRepOut').innerHTML = `<p class="vs-note vs-err">${esc(e.message === 'no answer' ? 'The system did not answer.' : e.message)}</p>`; }
+      finally { btn.disabled = false; }
+    };
+  }
+  async function showLink(v, token, row) {
+    if (!row) { const { data } = await sb.from('supplier_reports').select('token, vendor_name, month, data, created_at').eq('token', token).single(); row = data; }
+    if (!row) return;
+    const link = reportLink(token), wa = waLink(v.phone);
+    const text = `Hello, here is your monthly report from La Valeur Ajaltoun: ${link}`;
+    el('vsRepOut').innerHTML = `<div class="vs-rep-share">
+        <a class="btn small" href="${esc(link)}" target="_blank" rel="noopener">Open (print / PDF)</a>
+        <button type="button" class="btn ghost small" id="vsRepCopy">Copy link</button>
+        ${wa ? `<a class="btn ghost small" href="${esc(wa + '?text=' + encodeURIComponent(text))}" target="_blank" rel="noopener">WhatsApp to ${esc(v.name)}</a>` : `<a class="btn ghost small" href="${esc('https://wa.me/?text=' + encodeURIComponent(text))}" target="_blank" rel="noopener">WhatsApp</a>`}
+        <span class="muted-note">Anyone with the link can open it (read only).</span></div>
+      <div class="vs-rep-prev">${window.SupplierReportView ? SupplierReportView.html(row) : ''}</div>`;
+    el('vsRepCopy').onclick = async () => { try { await navigator.clipboard.writeText(link); showToast('Link copied.'); } catch (e) { showToast(link); } };
   }
 
   /* ---------------- tabs ---------------- */
