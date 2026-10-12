@@ -263,7 +263,8 @@ async function buildAlerts(today: string): Promise<Alert[]> {
   const { data: bigs } = await db.from('big_purchases').select('day, code, description, supplier, qty, usual_qty, weeks_cover, documents')
     .gte('day', new Date(new Date(today + 'T00:00:00Z').getTime() - 864e5).toISOString().slice(0, 10));
   const byDoc = new Map<string, Record<string, unknown>[]>();
-  (bigs ?? []).filter(b => b.weeks_cover === null || Number(b.weeks_cover) >= 6).forEach(b => {
+  // placeholder items ("MARCHANDISE AVEC TVA", "EXTRA ITEM /TVA") are not goods: left out (owner, 2026-10-12)
+  (bigs ?? []).filter(b => (b.weeks_cover === null || Number(b.weeks_cover) >= 6) && !/^\s*(MARCHANDISE\b|EXTRA ITEM\b)/i.test(String(b.description || ''))).forEach(b => {
     const k = String(b.documents || b.day + ' ' + b.code); const l = byDoc.get(k) || []; l.push(b); byDoc.set(k, l); });
   for (const [doc, list] of byDoc) {
     const n = (v: unknown) => Math.round(Number(v) * 10) / 10;

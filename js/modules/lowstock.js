@@ -121,7 +121,8 @@
   async function loadBig() {
     const from = new Date(Date.now() - 14 * 864e5).toLocaleDateString('en-CA', { timeZone: 'Asia/Beirut' });
     const { data, error } = await sb.from('big_purchases').select('*').gte('day', from).order('day', { ascending: false });
-    S.big = error ? null : (data || []).filter(b => b.weeks_cover === null || Number(b.weeks_cover) >= 6);
+    // placeholder items ("MARCHANDISE AVEC TVA", "EXTRA ITEM /TVA") are not goods: left out (owner, 2026-10-12)
+    S.big = error ? null : (data || []).filter(b => (b.weeks_cover === null || Number(b.weeks_cover) >= 6) && !/^\s*(MARCHANDISE\b|EXTRA ITEM\b)/i.test(b.description || ''));
   }
   async function renderTopPurchases() {
     const box = el('vendorTopPurchasesView'); if (!box) return;

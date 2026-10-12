@@ -304,6 +304,7 @@ async function lastPuSince(codes: string[], today: string) {
    before (at least 2 of them), the median quantity. Big = at least 3 times the usual quantity, worth $100 or more, and more
    than 6 weeks of sales (the last 90 days' rate; or no sale at all). For each: the PU number(s) and the supplier (cardex).
    The cardex's user_id is a line id, not the person who entered the PU: not kept. Saved in big_purchases; push-alerts notifies once per PU. */
+const GENERIC_ITEM = /^\s*(MARCHANDISE\b|EXTRA ITEM\b)/i;
 async function bigBuys() {
   const today = beirutToday(), yday = plusDays(today, -1);
   const buys = new Map<string, { code: string; day: string; qty: number; value: number; description: string; supplier: string }>();
@@ -313,7 +314,8 @@ async function bigBuys() {
     const k = c + '|' + d, x = buys.get(k) || { code: c, day: d, qty: 0, value: 0, description: String(r.item_desc ?? '').trim(), supplier: '' };
     x.qty += q; x.value += v; buys.set(k, x);
   });
-  const cand = [...buys.values()].filter(b => b.value >= 100);
+  // placeholder items of the system ("MARCHANDISE AVEC TVA", "EXTRA ITEM /TVA": a value booked, not goods) are left out (owner, 2026-10-12)
+  const cand = [...buys.values()].filter(b => b.value >= 100 && !GENERIC_ITEM.test(b.description));
   if (!cand.length) return { bought: buys.size, checked: 0, big: 0 };
   const codes = [...new Set(cand.map(b => b.code))], hist: Record<string, Record<string, number>> = {}, sold90: Record<string, number> = {};
   for (let i = 0; i < codes.length; i += 150) {
@@ -1033,7 +1035,7 @@ async function weeklyReport(weekStart?: string) {
   const bigBuysW = await part('big', async () => {
     const { data, error } = await db.from('big_purchases').select('day, code, description, supplier, qty, usual_qty, value, weeks_cover, documents').gte('day', start).lte('day', end);
     if (error) throw error;
-    const list = (data || []).filter(r => r.weeks_cover === null || Number(r.weeks_cover) >= 6);
+    const list = (data || []).filter(r => (r.weeks_cover === null || Number(r.weeks_cover) >= 6) && !GENERIC_ITEM.test(String(r.description || '')));
     return { count: list.length, top: list.sort((x, y) => Number(y.value) - Number(x.value)).slice(0, 6) };
   });
   const stock = await part('stock', async () => {
