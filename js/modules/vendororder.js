@@ -135,8 +135,26 @@
   async function noOrder(vendorId, date) {
     const v = vendorsList.find(x => x.id === vendorId); if (!v) return;
     const d = date || todayStr();
-    if (!(await showConfirm(`Log "no order" for "${v.name}" on ${d}?`, 'Log no order'))) return;
+    // a draft that was never sent stands in the way (the card keeps saying "Not sent"): cancel it with the no order
+    const ns = notSentOrderForVendor(vendorId);
+    if (ns) {
+      if (!(await showConfirm(`"${v.name}" has a draft order from ${ns.orderDate} that was never sent. Cancel it and log "no order" for ${d}?`, 'Cancel draft & log no order'))) return;
+      if (!(await cancelDraft(vendorId, true))) return;
+    } else if (!(await showConfirm(`Log "no order" for "${v.name}" on ${d}?`, 'Log no order'))) return;
     if (await createSkip(v, d)) { refresh(); showToast('Logged — no order for ' + v.name + '.'); }
+  }
+  // cancel a draft order that was never sent to the supplier (owner, 2026-10-12): kept in the history as cancelled
+  async function cancelDraft(vendorId, quiet) {
+    const v = vendorsList.find(x => x.id === vendorId), o = notSentOrderForVendor(vendorId); if (!v || !o) return false;
+    if (!quiet && !(await showConfirm(`Cancel the draft order for "${v.name}" (from ${o.orderDate}, never sent)? It stays in the history as cancelled.`, 'Cancel draft'))) return false;
+    const note = `Draft cancelled ${todayStr()} — never sent`;
+    const { error } = await sb.from('vendor_orders').update({ status: 'cancelled', receive_note: note }).eq('id', o.id);
+    if (error) { console.error(error); showToast('Could not cancel that draft — ' + sbErrText(error), true); return false; }
+    o.status = 'cancelled'; o.receiveNote = note;
+    refresh();
+    if (!quiet) showToast('Draft cancelled for ' + v.name + '.');
+    if (typeof logActivity === 'function') logActivity('vendors', 'order_cancel', { type: 'vendor_order', id: o.id }, `Draft order for ${v.name} cancelled (never sent)`, { date: o.orderDate });
+    return true;
   }
   // undo an order logged today by mistake (owner, 2026-10-11): the small undo icon next to the card's main button.
   // Only today's order (draft or sent today) can be undone; it is removed. An older one is cancelled instead.
@@ -162,5 +180,5 @@
     if (window.VendorSheet && el('vendorSheet')?.classList.contains('open')) VendorSheet.refreshLocal && VendorSheet.refreshLocal();
     if (window.Warehouse) Warehouse.refresh();
   }
-  window.VendorOrder = { open, noOrder, undo, undoable };
+  window.VendorOrder = { open, noOrder, undo, undoable, cancelDraft };
 })();

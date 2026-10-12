@@ -49,10 +49,12 @@
       if (!answered) r.missed.push(d);
     }));
 
+    // a draft cancelled before it was sent (VendorOrder.cancelDraft) was never sent
+    const wasSent = o => ['pending', 'delivered', 'cancelled'].includes(o.status) && !/^Draft cancelled/.test(o.receiveNote || '');
     ordersList.forEach(o => {
       const r = () => row(o.vendorId, vName(o.vendorId, o.vendorName));
       if (o.status === 'not_sent' && inW(o.orderDate)) r().drafts.push(o);
-      if (['pending', 'delivered', 'cancelled'].includes(o.status) && inW(o.orderDate)) r().sent.push(o);
+      if (wasSent(o) && inW(o.orderDate)) r().sent.push(o);
       if (o.status === 'delivered' && inW(o.deliveredDate)) {
         const took = o.orderDate ? Math.max(0, diff(day10(o.orderDate), day10(o.deliveredDate))) : null;
         const lateBy = o.expectedDelivery ? diff(day10(o.expectedDelivery), day10(o.deliveredDate)) : null;
@@ -72,7 +74,7 @@
     const took = dels.filter(x => x.took !== null);
     const perDay = days.map(d => ({
       d,
-      sent: ordersList.filter(o => ['pending', 'delivered', 'cancelled'].includes(o.status) && day10(o.orderDate) === d).length,
+      sent: ordersList.filter(o => wasSent(o) && day10(o.orderDate) === d).length,
       recv: ordersList.filter(o => o.status === 'delivered' && day10(o.deliveredDate) === d).length,
       no: skipsList.filter(s => s.skipDate === d).length,
       missed: list.filter(r => r.missed.includes(d)).length,

@@ -152,6 +152,7 @@
     }
     if (a === 'ordernow') { if (window.VendorOrder) VendorOrder.open(S.id); return; }
     if (a === 'noorder') { if (window.VendorOrder) VendorOrder.noOrder(S.id, todayStr()); return; }
+    if (a === 'canceldraft') { if (window.VendorOrder) VendorOrder.cancelDraft(S.id); return; }
     if (a === 'delete') {
       const v = vendor(); if (!v) return;
       showConfirm(`Delete "${v.name}"?`, 'Delete').then(async ok => {
@@ -190,7 +191,7 @@
     const freq = Number(v.frequencyWeeks || 1) === 1 ? 'every week' : `every ${v.frequencyWeeks} weeks`;
     const badges = [];
     if (dueToday) badges.push('<span class="badge warn">Order due today</span>');
-    if (notSent) badges.push(`<span class="badge inactive">Order not sent (${esc(dmy(notSent.orderDate))})</span>`);
+    if (notSent) badges.push(`<span class="badge inactive">Order not sent (${esc(dmy(notSent.orderDate))})</span>${canData() ? '<button type="button" class="vs-canceldraft" data-vs="canceldraft" title="This order was never sent: cancel the draft (kept in the history)">Cancel draft</button>' : ''}`);
     if (pend) badges.push(isOrderOverdue(pend) ? `<span class="badge danger">Delivery late · expected ${esc(dmy(pend.expectedDelivery))}</span>` : `<span class="badge active">Awaiting delivery${pend.expectedDelivery ? ' · ' + esc(dmy(pend.expectedDelivery)) : ''}</span>`);
     if (S.stock && S.stock.low.length) badges.push(`<span class="badge danger">${S.stock.low.length} item${S.stock.low.length === 1 ? '' : 's'} running low</span>`);
     if (S.stock && S.stock.top.some(x => x.attention)) badges.push(`<span class="badge danger">${S.stock.top.filter(x => x.attention).length} selling fast, may run out</span>`);

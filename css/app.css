@@ -3196,3 +3196,7 @@ tr:hover .so-note,.so-note:focus{border-color:var(--line-strong);background:var(
 @media (max-width:560px){
   .ex-r.ex-dr{grid-template-areas:"d i q" "l l l" "s s s" "n n n";}
 }
+
+/* Vendor sheet: cancel a draft order that was never sent (owner, 2026-10-12) */
+.vs-canceldraft{margin-left:2px;padding:2px 9px;border:1px solid color-mix(in srgb,#c8443f 40%,var(--line));border-radius:6px;background:transparent;color:#b42318;font:600 12px var(--font-body);cursor:pointer;vertical-align:middle;}
+.vs-canceldraft:hover{background:color-mix(in srgb,#c8443f 8%,transparent);border-color:#c8443f;}
