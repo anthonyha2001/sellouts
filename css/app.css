@@ -3352,3 +3352,19 @@ tr:hover .so-note,.so-note:focus{border-color:var(--line-strong);background:var(
 .ex-tbl .ex-outsel{max-width:92px;}
 .ex-tbl .ex-give{max-width:130px;}
 .ex-c-sup{max-width:170px;}
+/* Performance › Store profit (owner, 2026-10-12) */
+.sp-table td{white-space:nowrap;}
+.sp-warn{color:#b45309;font-weight:700;}
+.sp-detail td{background:var(--paper);white-space:normal;}
+.sp-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;padding:6px 2px;}
+@media (max-width:900px){.sp-grid{grid-template-columns:1fr;}}
+.sp-grid h4{margin:4px 0 8px;font-size:13px;}
+.sp-exp td,.sp-exp th{padding:5px 8px;font-size:12.5px;}
+.sp-exp input,.sp-exp select{font-size:12.5px;padding:4px 6px;width:auto;}
+.sp-act{white-space:nowrap;text-align:right;}
+.sp-act > *{display:inline-flex !important;vertical-align:middle;margin-left:4px;}
+.sp-kv{display:grid;grid-template-columns:max-content 1fr;gap:4px 12px;margin:0 0 8px;font-size:13px;}
+.sp-kv dt{color:var(--ink-soft);}
+.sp-kv dd{margin:0;}
+.sp-list{list-style:none;padding:0;margin:0 0 6px;font-size:12.5px;}
+.sp-list li{display:flex;justify-content:space-between;gap:10px;padding:3px 0;border-bottom:1px dashed var(--line);}

@@ -44,7 +44,7 @@
     if (!root.dataset.built) {
       root.dataset.built = '1';
       root.innerHTML = `
-        <div class="filter-row" id="pfView"><button type="button" data-v="suppliers" class="active">Suppliers</button><button type="button" data-v="cats">Categories</button><button type="button" data-v="daily">Daily sales</button><button type="button" data-v="hourly">By hour</button><button type="button" data-v="weekly">Weekly report</button>${can('rentals.view') ? '<button type="button" data-v="rents">Rental spots</button>' : ''}</div>
+        <div class="filter-row" id="pfView"><button type="button" data-v="suppliers" class="active">Suppliers</button><button type="button" data-v="cats">Categories</button><button type="button" data-v="daily">Daily sales</button><button type="button" data-v="hourly">By hour</button><button type="button" data-v="weekly">Weekly report</button>${isAdmin() ? '<button type="button" data-v="profit">Store profit</button>' : ''}${can('rentals.view') ? '<button type="button" data-v="rents">Rental spots</button>' : ''}</div>
         <div id="pfMain">
         <div class="card pf-controls">
           <label>From <input type="date" id="pfFrom"></label>
@@ -58,6 +58,7 @@
         <div id="pfDayBody" hidden></div>
         <div id="pfHourBody" hidden></div>
         <div id="pfWeekBody" hidden></div>
+        <div id="pfProfitBody" hidden></div>
         <div id="pfRentBody" hidden></div>`;
       if (el('pfView')) el('pfView').onclick = e => { const b = e.target.closest('[data-v]'); if (b) setView(b.dataset.v); };
       el('pfQuick').onclick = e => { const b = e.target.closest('[data-p]'); if (!b) return; const p = presets()[Number(b.dataset.p)]; el('pfFrom').value = p[1]; el('pfTo').value = p[2]; load(); };
@@ -442,14 +443,15 @@
   let view = 'suppliers';
   function setView(v) {
     // Categories and Daily sales (owner, 2026-10-11): js/modules/salesreports.js
-    view = v === 'rents' && can('rentals.view') ? 'rents' : (['cats', 'daily', 'hourly'].includes(v) && window.SalesReports) || (v === 'weekly' && window.WeeklyReport) ? v : 'suppliers';
+    view = v === 'rents' && can('rentals.view') ? 'rents' : (['cats', 'daily', 'hourly'].includes(v) && window.SalesReports) || (v === 'weekly' && window.WeeklyReport) || (v === 'profit' && window.StoreProfit && isAdmin()) ? v : 'suppliers';
     el('pfView')?.querySelectorAll('[data-v]').forEach(b => b.classList.toggle('active', b.dataset.v === view));
-    el('pfMain').hidden = view !== 'suppliers'; el('pfRentBody').hidden = view !== 'rents'; el('pfCatBody').hidden = view !== 'cats'; el('pfDayBody').hidden = view !== 'daily'; el('pfHourBody').hidden = view !== 'hourly'; el('pfWeekBody').hidden = view !== 'weekly'; hideTip();
+    el('pfMain').hidden = view !== 'suppliers'; el('pfRentBody').hidden = view !== 'rents'; el('pfCatBody').hidden = view !== 'cats'; el('pfDayBody').hidden = view !== 'daily'; el('pfHourBody').hidden = view !== 'hourly'; el('pfWeekBody').hidden = view !== 'weekly'; el('pfProfitBody').hidden = view !== 'profit'; hideTip();
     if (view === 'rents') loadRents();
     if (view === 'cats') SalesReports.showCategories(el('pfCatBody'));
     if (view === 'daily') SalesReports.showDaily(el('pfDayBody'));
     if (view === 'hourly') SalesReports.showHourly(el('pfHourBody'));
     if (view === 'weekly') WeeklyReport.show(el('pfWeekBody'));   // owner, 2026-10-12: js/modules/weeklyreport.js
+    if (view === 'profit') StoreProfit.show(el('pfProfitBody'));   // owner, 2026-10-12: js/modules/storeprofit.js (admin)
   }
   // from Rentals: this supplier's rent against its sales
   function openRentals(supplier) {

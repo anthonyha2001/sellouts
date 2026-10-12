@@ -1075,6 +1075,64 @@ async function weeklyReport(weekStart?: string) {
   return data;
 }
 
+/* ---------------- the store's profit of a month (owner, 2026-10-12; migration 090) ----------------
+   Gross profit, item by item, the way Performance does a supplier: each item sold x its unit cost (that month's purchases / units,
+   free units included; else its purchases of the 3 months before). Apart, never guessed:
+   - the butchery (section MEAT): its cuts are sold under codes that are never bought; the carcasses are bought as "VIANDE /KG"
+     in the transitory items (Ohanness, Skaff, Mabsout: $130,491 in September 2026). Its sales and the meat bought that month are
+     shown side by side, no margin claimed (in September 2026 the meat bought was twice its sales: stock, bulk, other uses);
+   - what is booked without items (the other transitory lines: fees, charges, or a whole invoice on one line - WaelFood $53,720
+     in August 2026): listed by supplier for the owner to say what it is, not counted;
+   - the other sales without a cost (items not bought in those 4 months).
+   Amounts in $ as the system reports them. */
+async function monthProfit(month: string) {
+  const from = month.slice(0, 7) + '-01', y = Number(from.slice(0, 4)), m = Number(from.slice(5, 7));
+  const last = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10), today = beirutToday(), to = last < today ? last : today;
+  const before = plusDays(from, -1), before3 = new Date(Date.UTC(y, m - 4, 1)).toISOString().slice(0, 10);
+  const isMeat = (sec: string) => /^MEAT$/i.test(sec), isTransit = (sec: string) => /TRANSIT/i.test(sec), isViande = (d: string) => /^\s*VIANDE\b/i.test(d);
+  type Agg = { v: number; q: number; sec: string; desc: string };
+  const byItem = (rows: Record<string, unknown>[], val: string) => {
+    const mm = new Map<string, Agg>();
+    rows.forEach(r => { const c = trimCode(r.item); if (!c) return; const x = mm.get(c) || { v: 0, q: 0, sec: String(r.section_desc ?? '').trim(), desc: String(r.item_desc ?? '').trim() };
+      x.v += Number(r[val] || 0); x.q += Number(r.total_quantity || 0); mm.set(c, x); });
+    return mm;
+  };
+  const [sl, pu, pu3] = await Promise.all([
+    report('sales', from, to, { group_by: ['section', 'item'] }),
+    report('purchases', from, to, { group_by: ['section', 'supplier', 'item'] }),
+    report('purchases', before3, before, { group_by: ['item'] }),
+  ]);
+  const S = byItem(sl, 'total_sales'), P = byItem(pu, 'total_purchases'), P3 = byItem(pu3, 'total_purchases');
+  let sales = 0, cogs = 0, costed = 0, uncosted = 0, nUncosted = 0, meatSales = 0;
+  S.forEach((x, c) => {
+    sales += x.v;
+    if (isMeat(x.sec)) { meatSales += x.v; return; }
+    const p = P.get(c), p3 = P3.get(c);
+    const unit = p && p.q > 0 && p.v > 0 ? p.v / p.q : p3 && p3.q > 0 && p3.v > 0 ? p3.v / p3.q : null;
+    if (unit === null) { uncosted += x.v; if (x.v > 0) nUncosted++; return; }
+    cogs += x.q * unit; costed += x.v;
+  });
+  // the purchases: the meat (section MEAT + "VIANDE" in the transitory items), and what is booked without items (the other
+  // transitory lines: a fee, a charge, or a whole invoice on one line - WaelFood $53,720 in August 2026 - by supplier, for the
+  // owner to say what it is; not counted in the profit)
+  let meatSection = 0, viande = 0, extras = 0, purchases = 0;
+  const extraBy = new Map<string, number>();
+  pu.forEach(r => {
+    const v = Number(r.total_purchases || 0), sec = String(r.section_desc ?? '').trim(), desc = String(r.item_desc ?? '').trim();
+    purchases += v;
+    if (isMeat(sec)) meatSection += v;
+    else if (isTransit(sec)) { if (isViande(desc)) viande += v; else { extras += v; const k = String(r.supplier_desc ?? '').trim() + ' · ' + desc; extraBy.set(k, (extraBy.get(k) || 0) + v); } }
+  });
+  const r2 = (v: number) => Math.round(v * 100) / 100;
+  const detail = { butchery: { sales: r2(meatSales), meatSection: r2(meatSection), viande: r2(viande), bought: r2(meatSection + viande) },
+    extras: r2(extras), extraBy: [...extraBy.entries()].filter(e => Math.abs(e[1]) >= 0.5).sort((a, b) => b[1] - a[1]).slice(0, 12).map(([label, amount]) => ({ label, amount: r2(amount) })) };
+  const row = { month: from, sales: r2(sales), cogs: r2(cogs), gross: r2(costed - cogs), costed_sales: r2(costed), uncosted_sales: r2(uncosted), uncosted_items: nUncosted,
+    purchases: r2(purchases), by_section: detail, computed_at: new Date().toISOString() };
+  const { error } = await db.from('store_months').upsert(row);
+  if (error) throw error;
+  return { ...row, to };
+}
+
 /* ---------------- codes across years (owner, 2026-10-06; migration 069) ----------------
    The system numbers its items AND its suppliers per year: a year's sales and purchases only know that year's codes
    (Abboud trading 0768 in 2025 / 1134 in 2026; Taanayel labneh 400g 016580 / 128420), while the app uses today's.
@@ -1881,6 +1939,13 @@ Deno.serve(async req => {
     if (body.action === 'po_sync_now') {
       if (!isServer && role !== 'admin') return json({ error: 'Admin only.' }, 403);
       return json(await poSync());
+    }
+    // The store's profit of a month (admin only; migration 090)
+    if (body.action === 'month_profit') {
+      if (!isServer && role !== 'admin') return json({ error: 'Admin only.' }, 403);
+      const mo = String(body.month || '');
+      if (!/^\d{4}-\d{2}/.test(mo)) return json({ error: 'Which month?' }, 400);
+      return json(await monthProfit(mo));
     }
     // The weekly report made again now (an admin, Performance › Weekly report: a week's Monday)
     if (body.action === 'weekly_report') {
