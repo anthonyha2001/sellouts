@@ -1001,6 +1001,78 @@ async function marginWatch(onlyDay?: string, budget = 60, since = '') {
   return { checked, flagged, closed, ms: Date.now() - started };
 }
 
+/* ---------------- the weekly report (owner, 2026-10-12; migration 089) ----------------
+   Last week (Monday to Sunday, Beirut) on one page, kept in weekly_reports. Each part is read on its own: a part that fails says
+   so ("could not be read") and the rest of the report is still made. */
+async function weeklyReport(weekStart?: string) {
+  const today = beirutToday();
+  const dow = (new Date(today + 'T00:00:00Z').getUTCDay() + 6) % 7;   // Monday = 0
+  const start = weekStart && isDay(weekStart) ? weekStart : plusDays(today, -dow - 7), end = plusDays(start, 6);
+  const pStart = plusDays(start, -7), pEnd = plusDays(start, -1);
+  const part = async <T>(name: string, fn: () => Promise<T>) => { try { return await fn(); } catch (e) { console.warn('weekly', name, e); return { failed: true } as unknown as T; } };
+  const r2 = (v: number) => Math.round(v * 100) / 100;
+  const sales = await part('sales', async () => {
+    const d = await storeDaily(pStart, end), days = [];
+    for (let i = 0; i < 7; i++) { const a = plusDays(start, i), b = plusDays(pStart, i); days.push({ day: a, sales: r2(d.days[a]?.sales || 0), prevDay: b, prev: r2(d.days[b]?.sales || 0) }); }
+    return { total: r2(days.reduce((t, x) => t + x.sales, 0)), prev: r2(days.reduce((t, x) => t + x.prev, 0)), days };
+  });
+  const sections = await part('sections', async () => {
+    const [a, b] = await Promise.all([salesCategories(start, end, 'section'), salesCategories(pStart, pEnd, 'section')]);
+    const pm = new Map(b.rows.map(r => [r.code, r.sales]));
+    const rows = a.rows.map(r => ({ name: r.name, sales: r2(r.sales), prev: r2(Number(pm.get(r.code) || 0)), diff: r2(r.sales - Number(pm.get(r.code) || 0)) }));
+    return { up: [...rows].sort((x, y) => y.diff - x.diff).filter(x => x.diff > 0).slice(0, 6), down: [...rows].sort((x, y) => x.diff - y.diff).filter(x => x.diff < 0).slice(0, 6) };
+  });
+  const margin = await part('margin', async () => {
+    const { data, error } = await db.from('margin_checks').select('day, code, description, supplier, doc, cost, prev_cost, cost_change, sale_price, margin, kind, resolved_at, currency')
+      .gte('day', start).lte('day', end).in('kind', ['cost_up', 'below_cost']);
+    if (error) throw error;
+    const open = (data || []).filter(r => !r.resolved_at);
+    return { costUp: (data || []).filter(r => r.kind === 'cost_up').length, below: (data || []).filter(r => r.kind === 'below_cost').length, closed: (data || []).filter(r => r.resolved_at).length,
+      open: open.length, worst: open.sort((x, y) => Number(x.margin) - Number(y.margin)).slice(0, 8) };
+  });
+  const bigBuysW = await part('big', async () => {
+    const { data, error } = await db.from('big_purchases').select('day, code, description, supplier, qty, usual_qty, value, weeks_cover, documents').gte('day', start).lte('day', end);
+    if (error) throw error;
+    const list = (data || []).filter(r => r.weeks_cover === null || Number(r.weeks_cover) >= 6);
+    return { count: list.length, top: list.sort((x, y) => Number(y.value) - Number(x.value)).slice(0, 6) };
+  });
+  const stock = await part('stock', async () => {
+    const { data, error } = await db.from('stock_alerts').select('doubtful, ghost').is('resolved_at', null);
+    if (error) throw error;
+    const l = data || [];
+    return { low: l.filter(r => !r.doubtful && !r.ghost).length, ghost: l.filter(r => r.ghost).length, wrongCount: l.filter(r => r.doubtful).length };
+  });
+  const pos = await part('pos', async () => {
+    const { data, error } = await db.from('system_pos').select('po, po_date, supplier_name, line_count, delivered_on').is('delivered_on', null).lte('po_date', plusDays(end, -3)).gte('po_date', plusDays(end, -30));
+    if (error) throw error;
+    const { data: vo } = await db.from('vendor_orders').select('vendor_name, expected_delivery, status').eq('status', 'pending').lt('expected_delivery', plusDays(end, 1));
+    return { notDelivered: (data || []).length, list: (data || []).sort((x, y) => String(x.po_date).localeCompare(String(y.po_date))).slice(0, 8), ordersLate: (vo || []).length };
+  });
+  const expiries = await part('expiries', async () => {
+    const { data, error } = await db.from('expiries').select('description, supplier, expiry_date, qty, status, decision').gte('expiry_date', plusDays(end, 1)).lte('expiry_date', plusDays(end, 7));
+    if (error) throw error;
+    const l = (data || []).filter(r => !['done', 'closed'].includes(String(r.status || '')));
+    return { count: l.length, list: l.sort((x, y) => String(x.expiry_date).localeCompare(String(y.expiry_date))).slice(0, 8) };
+  });
+  const cash = await part('cash', async () => {
+    const [{ data, error }, { data: cs }] = await Promise.all([db.from('cash_differences').select('cashier_id, amount, currency').gte('day', start).lte('day', end), db.from('cashiers').select('id, name')]);
+    if (error) throw error;
+    const nm = new Map((cs || []).map(c => [c.id, c.name])), by = new Map<string, { name: string; lbp: number; usd: number; n: number }>();
+    (data || []).forEach(r => { const x = by.get(r.cashier_id) || { name: String(nm.get(r.cashier_id) || '?'), lbp: 0, usd: 0, n: 0 }; if (String(r.currency) === 'USD' || r.currency === '$') x.usd += Number(r.amount); else x.lbp += Number(r.amount); x.n++; by.set(r.cashier_id, x); });
+    const list = [...by.values()].sort((a, b) => a.lbp - b.lbp);
+    return { list, lbp: list.reduce((t, x) => t + x.lbp, 0), usd: r2(list.reduce((t, x) => t + x.usd, 0)) };
+  });
+  const rentals = await part('rentals', async () => {
+    const { data, error } = await db.from('rental_contracts').select('supplier, spot_id, end_date, amount, term').neq('term', 'temporary').gte('end_date', plusDays(end, 1)).lte('end_date', plusDays(end, 30));
+    if (error) throw error;
+    return { ending: (data || []).sort((x, y) => String(x.end_date).localeCompare(String(y.end_date))) };
+  });
+  const data = { start, end, prevStart: pStart, prevEnd: pEnd, made: new Date().toISOString(), sales, sections, margin, bigBuys: bigBuysW, stock, pos, expiries, cash, rentals };
+  const { error } = await db.from('weekly_reports').upsert({ week_start: start, data, created_at: new Date().toISOString() });
+  if (error) throw error;
+  return data;
+}
+
 /* ---------------- codes across years (owner, 2026-10-06; migration 069) ----------------
    The system numbers its items AND its suppliers per year: a year's sales and purchases only know that year's codes
    (Abboud trading 0768 in 2025 / 1134 in 2026; Taanayel labneh 400g 016580 / 128420), while the app uses today's.
@@ -1694,6 +1766,16 @@ Deno.serve(async req => {
     catch (e) { console.error(e); return json({ error: e instanceof Error ? e.message : 'failed' }, 502); }
   }
 
+  // The weekly report (migration 089), from pg_cron or the server key (a given week: body.week, its Monday).
+  if (body.action === 'weekly_report' && (req.headers.get('x-cron-secret') || serverKeys().includes(req.headers.get('apikey') || ''))) {
+    const cron = req.headers.get('x-cron-secret') || '';
+    let ok = serverKeys().includes(req.headers.get('apikey') || '');
+    if (!ok && cron) { const { data } = await db.rpc('push_keys'); ok = !!data && cron === (data as Record<string, string>).push_cron_secret; }
+    if (!ok) return json({ error: 'Not allowed.' }, 403);
+    try { return json(await weeklyReport(String(body.week || '') || undefined)); }
+    catch (e) { console.error(e); return json({ error: e instanceof Error ? e.message : 'failed' }, 502); }
+  }
+
   // Margin watch (migration 087), from pg_cron or the server key.
   if (body.action === 'margin_watch') {
     const cron = req.headers.get('x-cron-secret') || '';
@@ -1797,6 +1879,11 @@ Deno.serve(async req => {
     if (body.action === 'po_sync_now') {
       if (!isServer && role !== 'admin') return json({ error: 'Admin only.' }, 403);
       return json(await poSync());
+    }
+    // The weekly report made again now (an admin, Performance › Weekly report: a week's Monday)
+    if (body.action === 'weekly_report') {
+      if (role !== 'admin') return json({ error: 'Admin only.' }, 403);
+      return json(await weeklyReport(String(body.week || '') || undefined));
     }
     // The store map's sales (owner, 2026-10-12; migration 088): who may open the map; amounts only for vendors.manage
     // (the floor manager gets each line's share of the period, no money).

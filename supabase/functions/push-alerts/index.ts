@@ -233,6 +233,19 @@ async function buildAlerts(today: string): Promise<Alert[]> {
       body: `Newly running low today: ${newLow.slice(0, 6).map(x => `${x.name} (${x.n})`).join(', ')}${newLow.length > 6 ? ` and ${newLow.length - 6} more` : ''}. See Stock control.` });
   }
 
+  // The weekly report (migration 089; owner, 2026-10-12): on Monday from 08:00, once, with last week's sales against the week before.
+  if (new Date(today + 'T00:00:00Z').getUTCDay() === 1 && beirutHour() >= 8) {
+    const lastMon = new Date(new Date(today + 'T00:00:00Z').getTime() - 7 * 864e5).toISOString().slice(0, 10);
+    const { data: wr } = await db.from('weekly_reports').select('week_start, data').eq('week_start', lastMon).maybeSingle();
+    if (wr) {
+      const s = (wr.data as Record<string, Record<string, number>>)?.sales;
+      const ok = s && !('failed' in s) && Number(s.prev) > 0;
+      const c = ok ? Math.round((Number(s.total) / Number(s.prev) - 1) * 1000) / 10 : null;
+      add({ key: `weekly:${lastMon}`, perms: ['vendors.manage'], title: 'Weekly report', url: '#performance',
+        body: ok ? `Last week: $${Math.round(Number(s.total)).toLocaleString('en-US')} of sales (${c! > 0 ? '+' : ''}${c}% against the week before). See Performance › Weekly report.` : 'Last week\u2019s report is ready: Performance › Weekly report.' });
+    }
+  }
+
   // Margin watch (migration 087; owner, 2026-10-12): at most two a day (morning, afternoon), the items newly flagged today -
   // the cost went up and the price did not follow, or the price is under the cost. Pricing › Margin watch has the list.
   const { data: mw } = await db.from('margin_checks').select('kind, checked_at').in('kind', ['cost_up', 'below_cost']).is('resolved_at', null)
