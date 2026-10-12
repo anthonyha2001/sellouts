@@ -3200,3 +3200,7 @@ tr:hover .so-note,.so-note:focus{border-color:var(--line-strong);background:var(
 /* Vendor sheet: cancel a draft order that was never sent (owner, 2026-10-12) */
 .vs-canceldraft{margin-left:2px;padding:2px 9px;border:1px solid color-mix(in srgb,#c8443f 40%,var(--line));border-radius:6px;background:transparent;color:#b42318;font:600 12px var(--font-body);cursor:pointer;vertical-align:middle;}
 .vs-canceldraft:hover{background:color-mix(in srgb,#c8443f 8%,transparent);border-color:#c8443f;}
+
+/* vendor card: Cancel as an icon next to the main button (owner, 2026-10-12) */
+.vb-cta > .vb-cxl{flex:none;width:38px;height:38px;border:1px solid var(--line-strong);border-radius:var(--radius-sm);background:var(--paper-raised);color:#b42318;}
+.vb-cta > .vb-cxl:hover{color:#fff;border-color:#c8443f;background:#c8443f;}

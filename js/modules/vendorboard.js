@@ -163,6 +163,12 @@
     });
   }
 
+  // cancel, as a small icon next to the main button (owner, 2026-10-12): a sent order the supplier will not deliver,
+  // or a draft that was never sent; both stay in the history as cancelled
+  const BAN = '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="m5.7 5.7 12.6 12.6"/></svg>';
+  const cancelIco = i => i.pend ? `<button type="button" class="vb-ico vb-cxl" data-act="cancel" aria-label="Cancel order" data-tip="Cancel order">${BAN}</button>`
+    : i.ns ? `<button type="button" class="vb-ico vb-cxl" data-act="canceldraft" aria-label="Cancel draft" data-tip="Cancel draft">${BAN}</button>` : '';
+
   function card(i, t) {
     const v = i.v, tel = v.phone ? String(v.phone).replace(/[^\d+]/g, '') : '';
     let wa = ''; if (tel) { let d = tel.replace(/\D/g, ''); if (d.startsWith('00')) d = d.slice(2); else if (d.startsWith('0')) d = '961' + d.slice(1); else if (!d.startsWith('961')) d = '961' + d; wa = 'https://wa.me/' + d; }
@@ -198,10 +204,8 @@
         <div class="vb-cta">${i.skipToday && !i.ns && !i.pend ? '<button type="button" class="btn small" data-act="unskip" title="No order was logged today: click to undo">Undo no order</button>'
           : i.ns ? '<button type="button" class="btn small" data-act="sent">Mark sent</button>'
           : i.pend ? '<button type="button" class="btn small" data-act="delivered">Delivered</button>'
-          : '<button type="button" class="btn small" data-act="order">Order now</button>'}${(i.ns || i.pend) && window.VendorOrder && VendorOrder.undoable && VendorOrder.undoable(v.id) ? '<button type="button" class="vb-ico vb-undo" data-act="undoorder" aria-label="Undo order" data-tip="Undo order"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg></button>' : ''}</div>
+          : '<button type="button" class="btn small" data-act="order">Order now</button>'}${(i.ns || i.pend) && window.VendorOrder && VendorOrder.undoable && VendorOrder.undoable(v.id) ? '<button type="button" class="vb-ico vb-undo" data-act="undoorder" aria-label="Undo order" data-tip="Undo order"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg></button>' : ''}${cancelIco(i)}</div>
         ${!(i.skipToday && !i.ns && !i.pend) ? `
-        ${i.pend ? '<button type="button" class="btn ghost small vb-cancel" data-act="cancel" title="The supplier will not deliver this order: cancel it (kept in the history)">Cancel</button>' : ''}
-        ${i.ns && !i.pend ? '<button type="button" class="btn ghost small vb-cancel" data-act="canceldraft" title="This order was never sent: cancel the draft (kept in the history)">Cancel draft</button>' : ''}
         ${i.late ? '<button type="button" class="btn ghost small" data-act="order" title="The delivery is overdue: order again">Order again</button>' : ''}` : ''}
       </div></article>`;
   }
