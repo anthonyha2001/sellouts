@@ -597,7 +597,12 @@
       if (e.key === 'Enter') {
         if (e.target.closest('button')) return;   // a focused button does its own thing
         e.preventDefault();
+        if ((e.ctrlKey || e.metaKey) && e.target !== item) return qSave();   // Ctrl+Enter: add now
         if (e.target === item) { if (Q.item) firstDate()?.focus(); else qFind(item.value); return; }
+        // Enter goes to the next field (month → day → qty → shelf → worker, like the delivery row); on the last one it adds
+        const fields = [...q.querySelectorAll('input, select')].filter(f => !f.disabled && f.offsetParent !== null);
+        const next = fields[fields.indexOf(e.target) + 1];
+        if (next) { next.focus(); if (next.select && next.tagName === 'INPUT') next.select(); return; }
         return qSave();
       }
       if (e.key === 'Escape') { e.preventDefault(); qClear(); item.focus(); return; }
