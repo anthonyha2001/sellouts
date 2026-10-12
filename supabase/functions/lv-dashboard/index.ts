@@ -895,6 +895,112 @@ async function poDetail(pick: PoHead) {
   return { ...pick, total: Number(v?.total_with_vat || 0), currency: String(v?.currency || '$'), lines, receivedRead };
 }
 
+/* ---------------- margin watch (owner, 2026-10-12; migration 087) ----------------
+   Each item bought today or yesterday is checked once: its PU of that day against its previous PU (item card, the last 200 days
+   of the year), its price now (price checker), the PU's VAT (document viewer). See the migration for the kinds. Then the open
+   flags are re-read (their price now, a new price sent from Pricing) and closed when the price followed. */
+// since (server key only): check a day again - every item not checked since that time
+async function marginWatch(onlyDay?: string, budget = 60, since = '') {
+  const started = Date.now(), today = beirutToday();
+  const days = onlyDay ? [onlyDay] : [plusDays(today, -1), today];
+  const key = (c: string) => c.replace(/^0+(?=\d)/, '').toUpperCase(), r4 = (v: number) => Math.round(v * 10000) / 10000;
+  const vatCache = new Map<string, Record<string, { vat: number }> | null>();
+  const docVat = async (doc: string, yr: string) => {
+    const k = doc + yr; if (!vatCache.has(k)) { try { const v = await viewDoc(doc, false, yr); vatCache.set(k, v ? v.items : null); } catch { vatCache.set(k, null); } }
+    return vatCache.get(k);
+  };
+  const priceNow = async (c: string) => {
+    const d = await dash(`/item-price-checker?${new URLSearchParams({ search: c, year: year(), branches: BRANCH })}`) as Record<string, unknown>;
+    const hit = (Object.values(((d.branches as Record<string, Record<string, unknown[]>>) || {})[BRANCH] || {}).flat() as Record<string, unknown>[]).find(x => key(String(x.ItemCode ?? '')) === key(c));
+    if (!hit) return null;
+    return { sale: unitSale(hit), currency: String(hit.CurrencyCode ?? '') === '01' ? 'LBP' : '$', promoted: !!Number(hit.isPromoted || 0), description: String(hit.Description ?? '').trim() };
+  };
+  const sentSince = async (codes: string[], day: string) => {
+    if (!codes.length) return new Set<string>();
+    const { data } = await db.from('price_changes').select('code, day, submitted_at').in('code', codes);
+    return new Set((data || []).filter(r => String(r.day || '') >= day || String(r.submitted_at || '').slice(0, 10) >= day).map(r => String(r.code)));
+  };
+  let checked = 0, flagged = 0;
+  for (const day of days) {
+    if (Date.now() - started > 70000 || checked >= budget) break;
+    const rows = await report('purchases', day, day, { aggregation: 'Daily', group_by: ['item'] });
+    const bought = [...new Set(rows.filter(r => Number(r.total_quantity || 0) > 0).map(r => trimCode(r.item)).filter(c => c && !c.includes(':')))];
+    if (!bought.length) continue;
+    const done = new Set<string>();
+    for (let i = 0; i < bought.length; i += 400) { const { data } = await db.from('margin_checks').select('code, checked_at').eq('day', day).in('code', bought.slice(i, i + 400)); (data || []).forEach(r => { if (!since || String(r.checked_at) >= since) done.add(String(r.code)); }); }
+    const todo = bought.filter(c => !done.has(c)).slice(0, budget - checked);
+    const sent = await sentSince(todo, day);
+    const from = day.slice(0, 4) === plusDays(day, -200).slice(0, 4) ? plusDays(day, -200) : day.slice(0, 4) + '-01-01';
+    const one = async (c: string) => {
+      const row: Record<string, unknown> = { day, code: c, checked_at: new Date().toISOString() };
+      try {
+        const cx = await dash(`/item-cardex?${new URLSearchParams({ branch: BRANCH, item_code: c, year: day.slice(0, 4), from_date: from, to_date: day })}`) as Record<string, unknown>;
+        const d = (cx.data as Record<string, unknown>) || {};
+        row.description = String(d.item_description || '').trim() || null;
+        const pu = ((d.rows || []) as Record<string, unknown>[]).filter(isPurchase);
+        const byDate = new Map<string, Record<string, unknown>[]>(); pu.forEach(r => { const k = String(r.date || '').slice(0, 10); if (!byDate.has(k)) byDate.set(k, []); byDate.get(k)!.push(r); });
+        const pick = (ls: Record<string, unknown>[]) => { const all = purchaseDocs(ls); return [...all].reverse().find(x => Number(x.paidQty) > 0) || null; };
+        const cur = byDate.has(day) ? pick(byDate.get(day)!) : null;
+        if (!cur || cur.realCost === null) { row.kind = 'failed'; return row; }
+        const prevDay = [...byDate.keys()].filter(k => k < day).sort().reverse().find(k => pick(byDate.get(k)!));
+        const prev = prevDay ? pick(byDate.get(prevDay)!) : null;
+        const items = await docVat(String(cur.doc), day.slice(0, 4));
+        const vat = !!items && Number(items[key(c)]?.vat || 0) > 0, f = vat ? 1.11 : 1;
+        // the previous PU only when in the same currency (white kidney beans: $1.70 then 550,000 LBP)
+        const curOf = (x: unknown) => /LBP|L\.?L/i.test(String(x)) ? 'LBP' : '$';
+        const curCur = curOf(cur.currency), prevCur = prev ? curOf(prev.currency) : '';
+        const cost = Number(cur.realCost) * f, pcost = prev && prev.realCost !== null && prevCur === curCur ? Number(prev.realCost) * f : null;
+        Object.assign(row, { supplier: supName(cur.supplier) || null, doc: cur.doc, currency: String(cur.currency || '$'), vat, cost: r4(cost),
+          prev_cost: pcost === null ? null : r4(pcost), prev_day: prevDay || null, prev_doc: prev ? prev.doc : null, cost_change: pcost ? r4(cost / pcost - 1) : null });
+        const p = await priceNow(c);
+        if (!p || p.sale === null || !(Number(p.sale) > 0)) { row.kind = 'failed'; return row; }
+        const sale = Number(p.sale);
+        Object.assign(row, { sale_price: r4(sale), sale_currency: p.currency, promoted: p.promoted, description: row.description || p.description || null });
+        if (curCur !== p.currency) { row.kind = 'other_currency'; return row; }
+        row.margin = r4((sale - cost) / sale); row.prev_margin = pcost === null ? null : r4((sale - pcost) / sale);
+        // thresholds: a cent and 1% under the price (VAT rounding of suppliers sold at cost: Al Rifai $0.5006 for $0.50), a cost up
+        // 3% and 2 cents (1,000 LBP); doubled or more since the last PU = a unit / pack change most likely (Alsohat tea +561%)
+        const cent = curCur === 'LBP' ? 1000 : 0.02;
+        if (cost > 2 * sale || (pcost !== null && cost >= 2 * pcost)) row.kind = 'check_unit';
+        else if (!p.promoted && cost - sale >= Math.max(cent / 2, sale * 0.01)) row.kind = 'below_cost';
+        else if (pcost !== null && cost >= pcost * 1.03 && cost - pcost >= cent) {
+          row.kind = 'cost_up';
+          if (sent.has(c)) { row.resolved_at = new Date().toISOString(); row.resolved_how = 'new price sent'; }
+        } else row.kind = pcost === null ? 'no_previous' : null;
+        return row;
+      } catch (e) { console.warn('margin', c, e); row.kind = 'failed'; return row; }
+    };
+    for (let i = 0; i < todo.length; i += 8) {
+      if (Date.now() - started > 80000) break;
+      const out = await Promise.all(todo.slice(i, i + 8).map(one));
+      const { error } = await db.from('margin_checks').upsert(out);
+      if (error) throw error;
+      checked += out.length; flagged += out.filter(r => ['cost_up', 'below_cost'].includes(String(r.kind)) && !r.resolved_at).length;
+    }
+  }
+  // the open flags: did the price follow? (a new price sent from Pricing, or the price raised enough)
+  let closed = 0;
+  if (Date.now() - started < 100000) {
+    const { data: open } = await db.from('margin_checks').select('day, code, cost, prev_cost, sale_price, kind, checked_at').in('kind', ['cost_up', 'below_cost']).is('resolved_at', null)
+      .lt('checked_at', new Date(Date.now() - 2 * 3600e3).toISOString()).order('checked_at').limit(20);
+    for (const r of open || []) {
+      try {
+        const sent = await sentSince([String(r.code)], String(r.day));
+        const p = await priceNow(String(r.code)), now = new Date().toISOString();
+        const sale = p && p.sale !== null ? Number(p.sale) : null, cost = Number(r.cost), pcost = r.prev_cost === null ? null : Number(r.prev_cost), was = Number(r.sale_price);
+        const upd: Record<string, unknown> = { checked_at: now };
+        if (sale !== null) { upd.sale_price = r4(sale); upd.margin = r4((sale - cost) / sale); if (pcost !== null) upd.prev_margin = r4((sale - pcost) / sale); }
+        const followed = sale !== null && (r.kind === 'below_cost' ? sale > cost : pcost !== null && sale >= was * (cost / pcost) - 0.005);
+        if (sent.size) Object.assign(upd, { resolved_at: now, resolved_how: 'new price sent' });
+        else if (followed) Object.assign(upd, { resolved_at: now, resolved_how: 'price raised' });
+        if (upd.resolved_at) closed++;
+        await db.from('margin_checks').update(upd).eq('day', r.day).eq('code', r.code);
+      } catch (e) { console.warn('margin recheck', r.code, e); }
+    }
+  }
+  return { checked, flagged, closed, ms: Date.now() - started };
+}
+
 /* ---------------- codes across years (owner, 2026-10-06; migration 069) ----------------
    The system numbers its items AND its suppliers per year: a year's sales and purchases only know that year's codes
    (Abboud trading 0768 in 2025 / 1134 in 2026; Taanayel labneh 400g 016580 / 128420), while the app uses today's.
@@ -1552,6 +1658,16 @@ Deno.serve(async req => {
     if (!ok && cron) { const { data } = await db.rpc('push_keys'); ok = !!data && cron === (data as Record<string, string>).push_cron_secret; }
     if (!ok) return json({ error: 'Not allowed.' }, 403);
     try { const sw = await stockWatch(body.vendor ? String(body.vendor) : undefined); let pc = null; try { pc = await priceChangesSync(60); } catch (e) { console.warn('price changes', e); } return json({ ...sw, priceChanges: pc }); }
+    catch (e) { console.error(e); return json({ error: e instanceof Error ? e.message : 'failed' }, 502); }
+  }
+
+  // Margin watch (migration 087), from pg_cron or the server key.
+  if (body.action === 'margin_watch') {
+    const cron = req.headers.get('x-cron-secret') || '';
+    let ok = serverKeys().includes(req.headers.get('apikey') || '');
+    if (!ok && cron) { const { data } = await db.rpc('push_keys'); ok = !!data && cron === (data as Record<string, string>).push_cron_secret; }
+    if (!ok) return json({ error: 'Not allowed.' }, 403);
+    try { return json(await marginWatch(isDay(String(body.day || '')) ? String(body.day) : undefined, Math.min(200, Number(body.budget) || 60), serverKeys().includes(req.headers.get('apikey') || '') && /^\d{4}-\d{2}-\d{2}T/.test(String(body.since || '')) ? String(body.since) : '')); }
     catch (e) { console.error(e); return json({ error: e instanceof Error ? e.message : 'failed' }, 502); }
   }
 

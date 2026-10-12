@@ -233,6 +233,18 @@ async function buildAlerts(today: string): Promise<Alert[]> {
       body: `Newly running low today: ${newLow.slice(0, 6).map(x => `${x.name} (${x.n})`).join(', ')}${newLow.length > 6 ? ` and ${newLow.length - 6} more` : ''}. See Stock control.` });
   }
 
+  // Margin watch (migration 087; owner, 2026-10-12): at most two a day (morning, afternoon), the items newly flagged today -
+  // the cost went up and the price did not follow, or the price is under the cost. Pricing › Margin watch has the list.
+  const { data: mw } = await db.from('margin_checks').select('kind, checked_at').in('kind', ['cost_up', 'below_cost']).is('resolved_at', null)
+    .gte('checked_at', new Date(Date.now() - 36 * 3600e3).toISOString());
+  const fresh = (mw ?? []).filter(r => new Date(String(r.checked_at)).toLocaleDateString('en-CA', { timeZone: 'Asia/Beirut' }) === today);
+  const nUp = fresh.filter(r => r.kind === 'cost_up').length, nBelow = fresh.filter(r => r.kind === 'below_cost').length;
+  if (nUp + nBelow) {
+    const slot = beirutHour() < 13 ? 'am' : 'pm';
+    add({ key: `margin:${today}:${slot}`, perms: ['vendors.manage'], title: 'Margin watch', url: '#pricing',
+      body: [nUp ? `${nUp} item${nUp === 1 ? '' : 's'} cost more and the price did not follow` : '', nBelow ? `${nBelow} sell${nBelow === 1 ? 's' : ''} below cost` : ''].filter(Boolean).join(', ') + '. See Pricing › Margin watch.' });
+  }
+
   // Big purchases (migration 071; owner, 2026-10-06): once per PU, the items bought far above their usual order
   // (at least 3 times, worth $100+, more than 6 weeks of sales). Today's and yesterday's.
   const { data: bigs } = await db.from('big_purchases').select('day, code, description, supplier, qty, usual_qty, weeks_cover, documents')

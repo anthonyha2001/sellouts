@@ -3248,3 +3248,6 @@ tr:hover .so-note,.so-note:focus{border-color:var(--line-strong);background:var(
 /* Performance › By hour (owner, 2026-10-12) */
 .sh-table .sh-cell{background:color-mix(in srgb, var(--pine) calc(var(--a,0) * 38%), transparent);white-space:nowrap;font-size:12px;}
 .sh-table th,.sh-table td{padding-left:8px;padding-right:8px;}
+/* Pricing › Margin watch (owner, 2026-10-12) */
+.mw-table td{vertical-align:top;}
+.mw-low{color:var(--gold);}
