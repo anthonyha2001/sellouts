@@ -52,7 +52,8 @@ type Alert = { key: string; perms: string[]; title: string; body: string; url: s
 // ---- the alerts (same rules as the app's bell)
 async function buildAlerts(today: string): Promise<Alert[]> {
   const out: Alert[] = [];
-  const add = (a: Alert) => out.push(a);
+  // Floor check removed (owner, 2026-10-12): the alerts that lead to it are not sent any more
+  const add = (a: Alert) => { if (a.url === '#floorcheck') return; out.push(a); };
 
   // Sell-outs (one query for every sell-out alert below).
   const { data: sosFull } = await db.from('sellouts').select('id, name, from, to, active, archived, online, log, items').eq('archived', false);

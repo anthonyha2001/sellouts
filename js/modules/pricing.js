@@ -55,7 +55,8 @@
   const npSave = () => { try { localStorage.setItem(npKey(), JSON.stringify([...S.np.values()])); } catch (e) { /* no storage */ } };
   const ICON_DL = '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>';
   const unsent = () => [...S.np.values()].filter(e => !e.sent).length;
-  const npSendBtn = () => can('vendors.manage') ? `<button type="button" class="btn small pr-np-send" data-np-send ${unsent() ? '' : 'hidden'} title="Send the new prices to the floor manager: ghost prices until the system has them">${ICON_SEND}Send ${unsent()} to the floor</button>` : '';
+  const npSendBtn = () => false && can('vendors.manage') ?   // Floor check removed (owner, 2026-10-12): no Send to floor
+    `<button type="button" class="btn small pr-np-send" data-np-send ${unsent() ? '' : 'hidden'} title="Send the new prices to the floor manager: ghost prices until the system has them">${ICON_SEND}Send ${unsent()} to the floor</button>` : '';
   const ICON_SEND = '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4Z"/></svg>';
   const npButton = () => npSendBtn() + `<button type="button" class="icon-btn pr-np-dl" data-np-dl title="Download the new sale prices (Excel) for the floor manager" aria-label="Download the new sale prices">${ICON_DL}${S.np.size ? `<span class="pr-np-count">${S.np.size}</span>` : ''}</button>`;
   // the suppliers the wizard goes through: the ones that delivered (a supplier that only returned goods is under Returns)

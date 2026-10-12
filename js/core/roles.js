@@ -26,9 +26,9 @@ const ROLES = {
   },
   floor_manager: {
     label: 'Floor manager',
-    sections: ['floorcheck', 'expiries', 'promoladies', 'rentals'],
+    sections: ['expiries', 'promoladies', 'rentals'],   // Floor check removed (owner, 2026-10-12)
     delivery: [],
-    home: 'floorcheck',
+    home: 'expiries',
   },
   // HR makes the weekly schedule of cashiers and supervisors (owner, 2026-09-30).
   hr: {

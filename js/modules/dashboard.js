@@ -269,8 +269,8 @@
     const d = D.delivery;
     if (d?.oldUnpaid) add('red', `${d.oldUnpaid} delivery order${d.oldUnpaid === 1 ? '' : 's'} unpaid for more than 2 days ($${usd(d.oldUnpaidAmt)})`, 'delivery');
     const f = D.floor;
-    if (f?.noLabel) add('amber', `${f.noLabel} wrong price${f.noLabel === 1 ? '' : 's'} on the floor without a label request`, 'floorcheck');
-    if (f && (!f.last || Date.now() - new Date(f.last.started_at).getTime() > 7 * 864e5)) add('amber', `No floor check in the last 7 days`, 'floorcheck');
+    if (false && f?.noLabel) add('amber', `${f.noLabel} wrong price${f.noLabel === 1 ? '' : 's'} on the floor without a label request`, 'floorcheck');
+    if (false && f && (!f.last || Date.now() - new Date(f.last.started_at).getTime() > 7 * 864e5)) add('amber', `No floor check in the last 7 days`, 'floorcheck');
     const l = D.labels;
     if (l?.lists && l.oldest && Date.now() - new Date(l.oldest).getTime() > 864e5) add('amber', `Shelf labels waiting more than a day to be printed (${l.labels})`, 'labels');
     const pl = D.ladies;
@@ -354,10 +354,6 @@
           <div class="db-stats">${stat('Active contracts', r.active)}${stat('Ending in 30 days', r.ending.length, r.ending.length ? 'warn' : '')}${stat('Billed, unpaid', r.notPaid.length, r.notPaid.length ? 'warn' : '')}</div>
           <p class="db-note">Yearly value of the active contracts: ${lbp(r.yearlyValue)}</p>
           ${r.ending.length ? `<h4>Ending soon</h4><ul class="db-list">${r.ending.slice(0, 4).map(x => line(esc(x.supplier || x.spot_id), esc(fmtDate(x.end_date)))).join('')}</ul>` : ''}`))}
-
-        ${card('floor', 'floorcheck', 'check', 'Floor check', box('floor', f => `
-          <div class="db-stats">${stat('Wrong prices open', f.wrong, f.wrong ? 'bad' : '')}${stat('Without label request', f.noLabel, f.noLabel ? 'warn' : '')}</div>
-          <p class="db-note">Last check: ${f.last ? esc(fmtTs(f.last.started_at)) + (f.last.completed_at ? ' · completed' : ' · not completed') : 'none yet'}</p>`))}
 
         ${card('labels', 'labels', 'label', 'Shelf labels', box('labels', l => `
           <div class="db-stats">${stat('Lists to print', l.lists, l.lists ? 'warn' : '')}${stat('Labels', l.labels)}</div>
