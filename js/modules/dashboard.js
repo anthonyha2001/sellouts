@@ -281,8 +281,6 @@
     const p = D.people;
     if (p?.noPin.length) add('amber', `${p.noPin.length} active cashier${p.noPin.length === 1 ? ' has' : 's have'} no PIN: ${p.noPin.slice(0, 4).map(x => x.name).join(', ')}`, 'staff');
     if (D.link && !D.link.ok) add('red', `The link to the system is not working (${D.link.error}): Promotions and stock are not live. If the dashboard password changed, update it in the app.`, null);
-    const c2 = D.credit;
-    if (c2?.old) add('amber', `${c2.old} credit note${c2.old === 1 ? '' : 's'} issued over 30 days ago, not signed`, 'creditnotes');
     return out.sort((a, b) => (a.level === 'red' ? 0 : 1) - (b.level === 'red' ? 0 : 1));
   }
   const monthName = ym => new Date(ym + '-01T00:00:00').toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
@@ -356,9 +354,6 @@
           <div class="db-stats">${stat('Active contracts', r.active)}${stat('Ending in 30 days', r.ending.length, r.ending.length ? 'warn' : '')}${stat('Billed, unpaid', r.notPaid.length, r.notPaid.length ? 'warn' : '')}</div>
           <p class="db-note">Yearly value of the active contracts: ${lbp(r.yearlyValue)}</p>
           ${r.ending.length ? `<h4>Ending soon</h4><ul class="db-list">${r.ending.slice(0, 4).map(x => line(esc(x.supplier || x.spot_id), esc(fmtDate(x.end_date)))).join('')}</ul>` : ''}`))}
-
-        ${card('credit', 'creditnotes', 'credit', 'Credit notes', box('credit', c => `
-          <div class="db-stats">${stat('Issued, not signed', c.issued, c.old ? 'warn' : '')}${stat('Signed', c.signed)}${stat('Older than 30 days', c.old, c.old ? 'warn' : '')}</div>`))}
 
         ${card('floor', 'floorcheck', 'check', 'Floor check', box('floor', f => `
           <div class="db-stats">${stat('Wrong prices open', f.wrong, f.wrong ? 'bad' : '')}${stat('Without label request', f.noLabel, f.noLabel ? 'warn' : '')}</div>

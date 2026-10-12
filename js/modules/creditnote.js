@@ -107,7 +107,6 @@
       ${lines.some(l => !l.qty) ? `<p class="muted-note" style="margin:8px 0 0;">${lines.filter(l => !l.qty).length} item${lines.filter(l => !l.qty).length === 1 ? '' : 's'} of the sell-out sold nothing (not in the credit note; listed in the Excel).</p>` : ''}
       <div class="cn-actions">
         <button type="button" class="btn secondary" id="cnExcel">Download Excel</button>
-        ${can('creditnotes.edit') ? '<button type="button" class="btn" id="cnAdd">Add to Credit notes</button>' : ''}
       </div>`;
     document.getElementById('cnExcel').onclick = () => exportExcel(so, from, to, lines, T);
     document.getElementById('cnAdd')?.addEventListener('click', () => addCreditNote(so, from, to, lines, T));
