@@ -1376,6 +1376,7 @@ const PAGES = {
   cashcount:   { eyebrow: 'Cashiers', title: 'Cash count', sub: 'Count a drawer, have the cashier sign, reconcile it with the system.' },
   cash:        { eyebrow: 'Cashiers', title: 'Cash differences', sub: 'Daily over and short amounts per cashier.' },
   floorcheck:  { eyebrow: 'Store floor', title: 'Floor check', sub: 'Check that every sell-out and promotion item on the floor has the right price.' },
+  expiries:    { eyebrow: 'Store floor', title: 'Expiries', sub: 'What expires on the shelves, month by month, and which shelf worker deals with it.' },
   labels:      { eyebrow: 'Shelves', title: 'Shelf labels', sub: 'Items that need a new shelf label: scanned on the floor, printed by the accountant.' },
   staff:       { eyebrow: 'People', title: 'Staff', sub: 'Everyone who works here: job, phone, start date, salary — and their app login.' },
   schedule:    { eyebrow: 'Staff', title: 'Staff schedule', sub: 'The weekly program of cashiers and supervisors: AM, PM, full day or off, front or back.' },
@@ -1430,6 +1431,7 @@ function switchTab(name, sub) {
   if (name === 'cashcount' && window.CashCount) CashCount.show();
   if (name === 'dashboard' && window.Dashboard) Dashboard.show();
   if (name === 'floorcheck' && window.FloorCheck) FloorCheck.show();
+  if (name === 'expiries' && window.Expiries) Expiries.show();
   if (name === 'toolcheck' && window.Reconcile) { const box = document.getElementById('panel-toolcheck'); if (box && !box.dataset.mounted) { box.dataset.mounted = '1'; Reconcile.mount(box); } }
   if (name === 'pricecheck' && window.PriceCheck) PriceCheck.show();
   if (name === 'warehouse' && window.Warehouse) Warehouse.show();
@@ -5140,6 +5142,7 @@ function startMainModules() {
   if (canSee('rentals') && typeof Rentals !== 'undefined') Rentals.start();          // contracts + renewal reminders (js/modules/rentals.js)
   if (canSee('cash') && window.Cash) Cash.start();
   if (canSee('floorcheck') && window.FloorCheck) FloorCheck.start();   // admin: finished-check notifications
+  if (canSee('expiries') && window.Expiries) Expiries.start();         // the menu badge: expired or within 7 days
   if (typeof Live !== 'undefined') Live.start();                        // changes by others show up without a reload
 }
 

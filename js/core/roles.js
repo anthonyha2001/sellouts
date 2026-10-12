@@ -8,7 +8,7 @@
 const ROLES = {
   admin: {
     label: 'Admin',
-    sections: ['dashboard', 'sellouts', 'onlinepromo', 'creditnotes', 'promotions', 'vendors', 'warehouse', 'stockcontrol', 'performance', 'pricing', 'rentals', 'delivery', 'cash', 'cashcount', 'floorcheck', 'pricecheck', 'promoladies', 'schedule', 'staff', 'labels', 'tools', 'users', 'activity'],
+    sections: ['dashboard', 'sellouts', 'onlinepromo', 'creditnotes', 'promotions', 'vendors', 'warehouse', 'stockcontrol', 'performance', 'pricing', 'rentals', 'delivery', 'cash', 'cashcount', 'floorcheck', 'expiries', 'pricecheck', 'promoladies', 'schedule', 'staff', 'labels', 'tools', 'users', 'activity'],
     delivery: ['orders', 'settle', 'reports', 'customers', 'drivers', 'settings'],
     home: 'dashboard',
   },
@@ -26,7 +26,7 @@ const ROLES = {
   },
   floor_manager: {
     label: 'Floor manager',
-    sections: ['floorcheck', 'promoladies', 'rentals'],
+    sections: ['floorcheck', 'expiries', 'promoladies', 'rentals'],
     delivery: [],
     home: 'floorcheck',
   },
@@ -40,7 +40,7 @@ const ROLES = {
   // Shelf workers scan items that need a new shelf label (Phase 7).
   shelf: {
     label: 'Shelf worker',
-    sections: ['labels'],
+    sections: ['labels', 'expiries'],
     delivery: [],
     home: 'labels',
   },
@@ -49,7 +49,7 @@ const ROLES = {
 // Set by auth.js once the profile is loaded.
 const Session = { user: null, profile: null, role: null, perms: null };
 
-const SECTION_ORDER = ['dashboard', 'sellouts', 'onlinepromo', 'creditnotes', 'promotions', 'vendors', 'warehouse', 'stockcontrol', 'performance', 'pricing', 'rentals', 'delivery', 'cash', 'cashcount', 'floorcheck', 'pricecheck', 'promoladies', 'schedule', 'staff', 'labels', 'tools', 'users', 'activity'];
+const SECTION_ORDER = ['dashboard', 'sellouts', 'onlinepromo', 'creditnotes', 'promotions', 'vendors', 'warehouse', 'stockcontrol', 'performance', 'pricing', 'rentals', 'delivery', 'cash', 'cashcount', 'floorcheck', 'expiries', 'pricecheck', 'promoladies', 'schedule', 'staff', 'labels', 'tools', 'users', 'activity'];
 function roleInfo() {
   const r = ROLES[Session.role] || { label: '', sections: [], delivery: [], home: null };
   // Landing page: the role's usual one, or the first section this user can open.
