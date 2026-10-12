@@ -18,8 +18,12 @@
   const el = id => document.getElementById(id);
   const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const MONTH = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-  const OUT = { removed: 'Removed', discount: 'On discount', returned: 'Returned', sold: 'Sold out' };
-  const OUT_LONG = { removed: 'Removed from the shelf', discount: 'Put on discount', returned: 'Returned to the supplier', sold: 'Sold before it expired', other: 'Done' };
+  // what was done on the shelf; a new price ("discount") only after the admin decided repricing (owner, 2026-10-12: the
+  // floor manager only sends the request, the admin decides)
+  const OUT = { removed: 'Removed', discount: 'Repriced', returned: 'Returned', sold: 'Sold out' };
+  const OUT_LONG = { removed: 'Removed from the shelf', discount: 'New price on the shelf', returned: 'Returned to the supplier', sold: 'Sold before it expired', other: 'Done' };
+  // the ways to close an item: what the admin decided first; "Repriced" only when the admin decided repricing
+  const outsFor = r => r.decision === 'reprice' ? ['discount', 'removed', 'sold'] : r.decision === 'return' ? ['returned', 'removed', 'sold'] : ['removed', 'returned', 'sold'];
   // the admin's decision on an expiry sent (migration 085)
   const DEC = { return: 'Return to supplier', reprice: 'Repricing', merchandiser: 'Merchandiser will handle', sales: 'Request to the sales' };
   const S = { rows: null, workers: [], loading: false, err: '', month: null, who: 'all', status: 'open', lastWorker: '', lastLoc: '', lastYm: '', folds: {}, flash: new Set(),
@@ -291,11 +295,13 @@
     const when = done ? '' : n < 0 ? `expired ${-n}d ago` : n === 0 ? 'today' : n === 1 ? 'tomorrow' : n <= 7 ? `in ${n} days` : '';
     return `<div class="ex-r u-${done ? 'done' : urg(r)}${S.flash.has(r.id) ? ' flash' : ''}" data-id="${r.id}">
       <span class="ex-r-date"><b>${r.day_known ? Number(r.expiry_date.slice(8)) : '–'}</b>${monShort(r.expiry_date)}</span>
-      <span class="ex-r-item"><b>${esc(r.description || r.code)}</b>${decChip(r) ? `<span class="ex-r-chips">${decChip(r)}</span>` : ""}<small><span class="mono">${esc(r.code)}</span>${r.location ? ' · ' + esc(r.location) : ''}${when ? ` · <em>${when}</em>` : ''}${r.note ? ' · ' + esc(r.note) : ''}</small></span>
+      <span class="ex-r-item"><b>${esc(r.description || r.code)}</b>${isDec() && decChip(r) ? `<span class="ex-r-chips">${decChip(r)}</span>` : ''}<small><span class="mono">${esc(r.code)}</span>${r.location ? ' · ' + esc(r.location) : ''}${when ? ` · <em>${when}</em>` : ''}${r.note ? ' · ' + esc(r.note) : ''}</small></span>
       <span class="ex-r-qty">${r.qty !== null && r.qty !== undefined ? `${fq(r.qty)}<small> pcs</small>` : '<small>—</small>'}</span>
       <select class="ex-give" data-ex-give="${r.id}" aria-label="Shelf worker" ${done ? 'disabled' : ''}>${workerOpts(rowKey(r), r)}</select>
-      ${done ? `<span class="ex-r-done">✓ ${esc(OUT[r.outcome] || 'Done')}<button type="button" class="ex-undo" data-ex-undo="${r.id}">Undo</button></span>`
-        : `<select class="ex-outsel" data-ex-out="${r.id}" aria-label="Mark done"><option value="">Mark done…</option>${Object.entries(OUT).map(([o, l]) => `<option value="${o}">${l}</option>`).join('')}</select>`}
+      ${done ? `<span class="ex-r-done">✓ ${esc(OUT[r.outcome] || 'Done')}${isDec() ? `<button type="button" class="ex-undo" data-ex-undo="${r.id}">Undo</button>` : ''}</span>`
+        // the floor manager only sends the request: where it stands with the admin; the admin can close it here
+        : !isDec() ? `<span class="ex-r-stat">${decChip(r) || '<span class="ex-dec k-none">Not sent yet</span>'}</span>`
+        : `<select class="ex-outsel" data-ex-out="${r.id}" aria-label="Mark done"><option value="">Mark done…</option>${outsFor(r).map(o => `<option value="${o}">${OUT[o]}</option>`).join('')}</select>`}
       <span class="ex-r-icons"><button type="button" class="vb-ico" data-ex-again="${r.id}" aria-label="Another date for this item" data-tip="Another date">${ICON.plus}</button><button type="button" class="vb-ico" data-ex-edit="${r.id}" aria-label="Edit" data-tip="Edit">${ICON.edit}</button><button type="button" class="vb-ico vb-x" data-ex-del="${r.id}" aria-label="Delete" data-tip="Delete">${ICON.del}</button></span>
     </div>`;
   }
@@ -316,7 +322,7 @@
         ${r.decision ? `<div class="ex-decline">${decChip(r)}${r.decision_note ? ` <span>${esc(r.decision_note)}</span>` : ''}</div>` : ''}
         <div class="ex-acts">${done
           ? `<div class="ex-doneline">✓ ${esc(OUT_LONG[r.outcome] || 'Done')}${r.done_at ? ' · ' + esc(shortDay(r.done_at)) : ''}<button type="button" class="ex-undo" data-ex-undo="${r.id}">Undo</button></div>`
-          : `<div class="ex-outs">${Object.entries(OUT).map(([o, l]) => `<button type="button" class="ex-out" data-ex-done="${r.id}" data-o="${o}">${l}</button>`).join('')}</div>`}</div>
+          : `<div class="ex-outs">${outsFor(r).map(o => `<button type="button" class="ex-out" data-ex-done="${r.id}" data-o="${o}">${OUT[o]}</button>`).join('')}</div>`}</div>
       </div>
     </article>`;
   }
