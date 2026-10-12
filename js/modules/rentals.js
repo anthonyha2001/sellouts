@@ -88,6 +88,8 @@ const Rentals = (function () {
       canEdit: can('rentals.layout'),
       canManageRentals: can('rentals.contracts'),
       hideMoney: mapOnly(),
+      // Sales mode (owner, 2026-10-12; js/modules/mapsales.js): the parts linked to the system's categories, coloured by their sales
+      sales: window.MapSales ? MapSales.hooks(() => S.map) : undefined,
       currency: '$',
       userName: Session.profile?.display_name || Session.profile?.username || '',   // signs the rent / inquiry email
       today,

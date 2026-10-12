@@ -478,8 +478,9 @@
         <div class="sm-top">
           <div class="sm-floors" role="tablist" aria-label="Floors"></div>
           <div class="sm-seg" data-role="mode">
-            <button data-mode="rentals" class="on">Rentals</button><button data-mode="categories">Categories</button>
+            <button data-mode="rentals" class="on">Rentals</button><button data-mode="categories">Categories</button>${this.opts.sales ? '<button data-mode="sales">Sales</button>' : ''}
           </div>
+          ${this.opts.sales ? '<div class="sm-salesbar" data-role="salesbar" hidden></div>' : ''}
           <input class="sm-search" type="search" placeholder="Search supplier or category…" aria-label="Search the map">
           <div class="sm-spacer"></div>
           <div class="sm-menu-wrap">
@@ -534,7 +535,10 @@
         const b = e.target.closest('[data-mode]'); if (!b) return;
         this.mode = b.dataset.mode;
         r.querySelectorAll('[data-mode]').forEach(x => x.classList.toggle('on', x === b));
-        this.renderBar(); this.renderSvg(); this.renderLegend();
+        // Sales (the host's live figures per linked part, owner 2026-10-12): its own bar, its own panel
+        const sb = r.querySelector('[data-role="salesbar"]');
+        if (sb) { sb.hidden = this.mode !== 'sales'; try { this.opts.sales.onMode(this.mode === 'sales', sb); } catch (err) { /* never block the map */ } }
+        this.renderBar(); this.renderSvg(); this.renderLegend(); this.renderPanel();
       });
       const search = r.querySelector('.sm-search');
       search.addEventListener('input', () => {
@@ -866,6 +870,10 @@
         bar.innerHTML = `<span class="sm-hint">Gondolas and shelves are coloured by department. Click any gondola to see its sections.</span>`;
         return;
       }
+      if (this.mode === 'sales') {   // owner, 2026-10-12: the rental filters belong to Rentals
+        bar.innerHTML = `<span class="sm-hint">Each linked part is coloured by its sales (grey = not linked). Click a shelf or a counter for its parts.</span>`;
+        return;
+      }
       const spots = this.objects.filter(o => this.isRentable(o));
       const counts = {}; spots.forEach(o => { const s = this.statusOf(o); counts[s] = (counts[s] || 0) + 1; });
       const spotTypes = [...new Set(spots.map(o => o.type))];
@@ -890,6 +898,10 @@
       L.classList.toggle('collapsed', this.legendCollapsed);
       if (!this.floor) { L.hidden = true; return; }
       L.hidden = false;
+      if (this.mode === 'sales' && this.opts.sales) {   // the host's scale (owner, 2026-10-12)
+        L.innerHTML = `<div class="sm-legend-head"><span>Sales</span><span>${this.legendCollapsed ? 'Show' : 'Hide'}</span></div><div class="sm-legend-items">${this.opts.sales.legend()}</div>`;
+        return;
+      }
       let items;
       if (this.mode === 'rentals') {
         items = Object.entries(STATUS).filter(([k]) => !(this.opts.hideMoney && k === 'unbilled')).map(([k, s]) => `<span><i style="background:var(--st-${k});border-color:var(--st-${k}-s)"></i>${esc(s.label)}</span>`).join('');
@@ -942,7 +954,10 @@
             const len = along * (Number(sec.size) || 1) / total, cat = esc(sec.cat || 'other');
             const R = (a, b, c, d) => horiz ? [a, b, c, d] : [b, a, d, c]; // (along, across) → (x, y)
             const [x, y, sw, sh] = R(pos, lane0, len, laneT);
-            inner += `<rect class="sm-sec" x="${f1(x)}" y="${f1(y)}" width="${f1(sw)}" height="${f1(sh)}" style="fill:var(--cat-${cat}, var(--cat-other))"/>`;
+            // Sales mode: the part's colour and figure from the host (null = not linked)
+            const hv = this.mode === 'sales' && this.opts.sales ? this.opts.sales.part(o, li === 0 ? 'A' : 'B', sec.label, len) : null;
+            const fill = this.mode === 'sales' ? (hv ? hv.fill : 'var(--sm-unlinked, #eceee8)') : `var(--cat-${cat}, var(--cat-other))`;
+            inner += `<rect class="sm-sec${this.mode === 'sales' && !hv ? ' sm-unlinked' : ''}" x="${f1(x)}" y="${f1(y)}" width="${f1(sw)}" height="${f1(sh)}" style="fill:${fill}">${hv && hv.title ? `<title>${esc(hv.title)}</title>` : ''}</rect>`;
             // department accent strip on the aisle side, like a shelf-edge label rail
             const [ax, ay, aw, ah] = R(pos, outerEdge, len, accentT);
             inner += `<rect class="sm-accent" x="${f1(ax)}" y="${f1(ay)}" width="${f1(aw)}" height="${f1(ah)}" style="fill:var(--catx-${cat}, var(--catx-other))"/>`;
@@ -955,7 +970,7 @@
             if (si > 0) { const [dx1, dy1] = R(pos, lane0, 0, 0), [dx2, dy2] = R(pos, lane0 + laneT, 0, 0); inner += `<line class="sm-secdiv" x1="${f1(dx1)}" y1="${f1(dy1)}" x2="${f1(dx2)}" y2="${f1(dy2)}"/>`; }
             const [tx, ty, tw, th] = R(pos, lane0 + (li === 0 ? accentT : 0), len, laneT - accentT);
             const catIcon = (this.cats[sec.cat] && this.cats[sec.cat].icon) || (ICONS[sec.cat] ? sec.cat : 'other');
-            inner += `<g class="sm-secgrp" style="--ic:var(--catx-${cat}, var(--catx-other))">${iconLabel(sec.label, catIcon, tx, ty, tw, th, { max: 21, flip, cls: 'sm-sectext', maxIcon: 26 })}</g>`;
+            inner += `<g class="sm-secgrp${hv && hv.dark ? ' sm-heat-dark' : ''}" style="--ic:var(--catx-${cat}, var(--catx-other))">${hv && hv.title ? `<title>${esc(hv.title)}</title>` : ''}${iconLabel(hv && hv.sub ? `${sec.label} · ${hv.sub}` : sec.label, catIcon, tx, ty, tw, th, { max: 21, flip, cls: 'sm-sectext', maxIcon: 26 })}</g>`;
             pos += len;
           });
         });
@@ -1030,6 +1045,9 @@
         }
         else if (look === 'entrance') inner += `<path class="sm-arrow" d="M ${f1(w / 2 - 28)} ${f1(h * 0.28)} L ${f1(w / 2)} ${f1(h * 0.1)} L ${f1(w / 2 + 28)} ${f1(h * 0.28)}"/>` + textSvg(o.label || t.name, 0, h * 0.3, w, h * 0.7, { max: 26, cls: 'sm-fixedtext' });
         else inner += textSvg(o.label || t.name, 0, 0, w, h, { max: 20, flip, cls: 'sm-fixedtext' });
+        // Sales mode: a counter / area linked as a whole gets its colour and figure on top
+        const hv = this.mode === 'sales' && this.opts.sales && look !== 'checkout' && look !== 'entrance' ? this.opts.sales.part(o, '', '', Math.max(w, h)) : null;
+        if (hv) inner += `<g class="sm-heatwhole${hv.dark ? ' sm-heat-dark' : ''}"><rect x="0" y="0" width="${f1(w)}" height="${f1(h)}" rx="${f1(rx)}" style="fill:${hv.fill}"/>${hv.title ? `<title>${esc(hv.title)}</title>` : ''}${textSvg(`${o.label || t.name}${hv.sub ? ' · ' + hv.sub : ''}`, 0, 0, w, h, { max: 22, flip, cls: 'sm-fixedtext' })}</g>`;
       }
       const rentLike = kind === 'spot' || (kind === 'fixture' && t.rentable);
       const focusable = !this.editing && rentLike;
@@ -1057,6 +1075,7 @@
       this.canvasEl.classList.toggle('editing', this.editing);
       this.svg.classList.toggle('sm-mode-rentals', this.mode === 'rentals');
       this.svg.classList.toggle('sm-mode-categories', this.mode === 'categories');
+      this.svg.classList.toggle('sm-mode-sales', this.mode === 'sales');
       if (!f) { this.vp.innerHTML = ''; return; }
       let html = this.defsSvg() + `<rect class="sm-floor-rect" x="0" y="0" width="${f.width}" height="${f.height}" rx="18"/>
         <rect x="0" y="0" width="${f.width}" height="${f.height}" rx="18" style="fill:url(#${this.pid}-tiles)" pointer-events="none"/>
@@ -1324,6 +1343,11 @@
       if (this.present) this.renderSpotlight();
       if (this.editing) return this.renderEditPanel();
       const o = this.sel ? this.objects.find(x => x.id === this.sel) : null;
+      // Sales mode: the host's panel (the parts' figures and their links), the overview when nothing is selected
+      if (this.mode === 'sales' && this.opts.sales) {
+        try { return this.opts.sales.panel(P, o, () => { this.sel = null; this.renderSvg(); this.renderPanel(); }); }
+        catch (e) { console.error(e); }
+      }
       if (!o) return this.renderOverview();
       const t = this.typeOf(o);
       if (!t.rentable || (t.kind !== 'spot' && t.kind !== 'fixture')) {

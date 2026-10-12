@@ -1248,6 +1248,39 @@ async function report(kind: 'sales' | 'purchases', from: string, to: string, ext
   }
   return rows;
 }
+/* ---------------- the store map's sales (owner, 2026-10-12; migration 088) ----------------
+   The system's tree as it sells (department > section > group > sub-group, the whole path: codes repeat across parents),
+   and the sales of a period per path. Today is asked around the dashboard's cache (from a rotating day before, today's rows
+   kept, like the hourly measures). */
+const CAT_BY = ['department', 'section', 'group', 'subgroup'];
+type CatRow = { dep: string; sec: string; grp: string; sub: string; sales: number; qty: number };
+function catRows(rows: Record<string, unknown>[], only?: (r: Record<string, unknown>) => boolean) {
+  const m = new Map<string, CatRow & { dep_desc: string; sec_desc: string; grp_desc: string; sub_desc: string }>();
+  rows.forEach(r => { if (only && !only(r)) return;
+    const p = { dep: trimCode(r.department), sec: trimCode(r.section), grp: trimCode(r.group), sub: trimCode(r.subgroup) }, k = [p.dep, p.sec, p.grp, p.sub].join('|');
+    const x = m.get(k) || { ...p, dep_desc: String(r.department_desc ?? '').trim(), sec_desc: String(r.section_desc ?? '').trim(), grp_desc: String(r.group_desc ?? '').trim(), sub_desc: String(r.subgroup_desc ?? '').trim(), sales: 0, qty: 0 };
+    x.sales += Number(r.total_sales || 0); x.qty += Number(r.total_quantity || 0); m.set(k, x); });
+  return [...m.values()];
+}
+async function catTree() {
+  const today = beirutToday(), from = plusDays(today, -364);
+  const list = catRows(await report('sales', from, today, { group_by: CAT_BY }));
+  const now = new Date().toISOString(), r2 = (v: number) => Math.round(v * 100) / 100;
+  const rows = list.map(x => ({ dep: x.dep, dep_desc: x.dep_desc, sec: x.sec, sec_desc: x.sec_desc, grp: x.grp, grp_desc: x.grp_desc, sub: x.sub, sub_desc: x.sub_desc, sales_12m: r2(x.sales), updated_at: now }));
+  for (let i = 0; i < rows.length; i += 500) { const { error } = await db.from('sys_categories').upsert(rows.slice(i, i + 500)); if (error) throw error; }
+  return { categories: rows.length, from, to: today };
+}
+async function mapSales(from: string, to: string) {
+  const today = beirutToday(), out: CatRow[] = [];
+  const add = (l: CatRow[]) => l.forEach(x => { const y = out.find(o => o.dep === x.dep && o.sec === x.sec && o.grp === x.grp && o.sub === x.sub); if (y) { y.sales += x.sales; y.qty += x.qty; } else out.push({ dep: x.dep, sec: x.sec, grp: x.grp, sub: x.sub, sales: x.sales, qty: x.qty }); });
+  const end = to >= today ? plusDays(today, -1) : to;
+  if (from <= end) add(catRows(await report('sales', from, end, { group_by: CAT_BY })));
+  if (to >= today && from <= today) {
+    const slot = Math.floor(Date.now() / 60000 / 5), day0 = plusDays(today, -(1 + slot % 12));
+    add(catRows(await report('sales', day0, today, { aggregation: 'Daily', group_by: CAT_BY }), r => String(r.period || '').slice(0, 10) === today));
+  }
+  return { from, to, rows: out.map(x => ({ ...x, sales: Math.round(x.sales * 100) / 100, qty: Math.round(x.qty * 1000) / 1000 })) };
+}
 // the store's sales day by day (owner, 2026-10-11: Performance › Daily sales)
 async function storeDaily(from: string, to: string) {
   const days: Record<string, { sales: number; qty: number }> = {};
@@ -1764,6 +1797,24 @@ Deno.serve(async req => {
     if (body.action === 'po_sync_now') {
       if (!isServer && role !== 'admin') return json({ error: 'Admin only.' }, 403);
       return json(await poSync());
+    }
+    // The store map's sales (owner, 2026-10-12; migration 088): who may open the map; amounts only for vendors.manage
+    // (the floor manager gets each line's share of the period, no money).
+    if (body.action === 'map_sales' || body.action === 'cat_tree') {
+      let money = isServer || role === 'admin', allowed = money;
+      if (!allowed) {
+        const asUser = createClient(SUPABASE_URL, Deno.env.get('SUPABASE_ANON_KEY') || '', { global: { headers: { Authorization: `Bearer ${bearer}` } }, auth: { persistSession: false, autoRefreshToken: false } });
+        const [{ data: m }, { data: a }] = await Promise.all([asUser.rpc('has_perm', { p_perms: ['vendors.manage'] }), asUser.rpc('has_perm', { p_perms: ['rentals.map', 'rentals.view', 'rentals.layout'] })]);
+        money = !!m; allowed = !!m || !!a;
+      }
+      if (!allowed) return json({ error: 'Not allowed.' }, 403);
+      if (body.action === 'cat_tree') { if (!money) return json({ error: 'Not allowed.' }, 403); return json(await catTree()); }
+      const f = String(body.from || ''), t = String(body.to || '');
+      if (!isDay(f) || !isDay(t) || f > t || Number(t.slice(0, 4)) - Number(f.slice(0, 4)) > 1) return json({ error: 'Choose dates within two years.' }, 400);
+      const d = await mapSales(f, t);
+      if (money) return json({ ...d, money: true });
+      const total = d.rows.reduce((x, r) => x + r.sales, 0) || 1;
+      return json({ from: d.from, to: d.to, money: false, rows: d.rows.map(r => ({ dep: r.dep, sec: r.sec, grp: r.grp, sub: r.sub, share: Math.round(r.sales / total * 1e6) / 1e6, qty: r.qty })) });
     }
     // Check one watched vendor's stock now (admin, the Vendors page's Check now).
     if (body.action === 'stock_check_now') {
