@@ -24,7 +24,7 @@
   const DEC = { return: 'Return to supplier', reprice: 'Repricing', merchandiser: 'Merchandiser will handle', sales: 'Request to the sales' };
   const S = { rows: null, workers: [], loading: false, err: '', month: null, who: 'all', status: 'open', lastWorker: '', lastLoc: '', lastYm: '', folds: {}, flash: new Set(),
     view: 'months', dStatus: 'todo', dGroup: 'supplier', lp: {}, lpBusy: false, justDecided: new Set(), decGroups: {} };
-  const Q = { item: null, choices: null, msg: '', sugg: '', busy: false, saving: false, dates: [], cam: false, picked: false, mounted: false };
+  const Q = { look: null, item: null, choices: null, msg: '', sugg: '', saving: false, dates: [], cam: false, picked: false, mounted: false };
   const isMgr = () => can('expiry.manage');
   const isDec = () => can('expiry.decide');
   const call = async body => { const { data, error } = await sb.functions.invoke('lv-dashboard', { body }); if (error) throw error; if (data?.error) throw new Error(data.error); return data; };
@@ -107,9 +107,11 @@
   }
   // an item from the system: a code / barcode, or a name (then the choices)
   const plainItem = c => ({ code: c, description: '', barcode: /^\d{8,}$/.test(c) ? c : '', supplier: '', group: '' });
+  // a name (to search, maybe several answers), not a code or a barcode
+  const looksLikeName = (q, byCode) => !byCode && !/^[\d\s.-]{4,}$/.test(q) && !/^[A-Za-z]{0,3}\d{3,}$/.test(q);
   async function lookupItem(raw, byCode) {
     const q = String(raw || '').trim();
-    const isName = !byCode && !/^[\d\s.-]{4,}$/.test(q) && !/^[A-Za-z]{0,3}\d{3,}$/.test(q);
+    const isName = looksLikeName(q, byCode);
     try {
       let token = q;
       if (isName) {
@@ -592,13 +594,17 @@
 
   function wireQuick() {
     const q = el('exQuick'), item = el('exQItem');
-    item.addEventListener('input', () => { Q.cam = false; if (Q.item || Q.choices || Q.msg) { Q.item = null; Q.choices = null; Q.msg = ''; Q.sugg = ''; paintFound(); } });
+    // typing another item drops the one looked up before
+    item.addEventListener('input', () => { Q.cam = false; if (Q.look || Q.item || Q.choices || Q.msg) { Q.look = null; Q.item = null; Q.choices = null; Q.msg = ''; Q.sugg = ''; paintFound(); } });
+    // leaving the field starts the look-up, in the background
+    item.addEventListener('change', () => { if (!Q.item) startLookup(item.value); });
     q.addEventListener('keydown', e => {
       if (e.key === 'Enter') {
         if (e.target.closest('button')) return;   // a focused button does its own thing
         e.preventDefault();
         if ((e.ctrlKey || e.metaKey) && e.target !== item) return qSave();   // Ctrl+Enter: add now
-        if (e.target === item) { if (Q.item) firstDate()?.focus(); else qFind(item.value); return; }
+        // the item: its look-up starts in the background and the cursor goes on to the month at once (no waiting)
+        if (e.target === item) { if (!item.value.trim()) return; if (!Q.item) startLookup(item.value); firstDate()?.focus(); return; }
         // Enter goes to the next field (month → day → qty → shelf → worker, like the delivery row); on the last one it adds
         const fields = [...q.querySelectorAll('input, select')].filter(f => !f.disabled && f.offsetParent !== null);
         const next = fields[fields.indexOf(e.target) + 1];
@@ -610,7 +616,7 @@
     });
     q.addEventListener('click', e => {
       const b = e.target.closest('[data-q], [data-pick]'); if (!b) return;
-      if (b.dataset.pick) return qFind(b.dataset.pick, true);
+      if (b.dataset.pick) { startLookup(b.dataset.pick, true); firstDate()?.focus(); return; }
       const a = b.dataset.q;
       if (a === 'scan') return qScan();
       if (a === 'add') return qSave();
@@ -630,13 +636,25 @@
 
   function qScan() {
     if (!window.Scanner) return el('exQItem')?.focus();
-    Scanner.open({ title: 'Scan the item', continuous: false, onCode: code => { Q.cam = true; el('exQItem').value = code; qFind(code, true); return code; } });
+    Scanner.open({ title: 'Scan the item', continuous: false, onCode: code => {
+      Q.cam = true; el('exQItem').value = code; startLookup(code, true);
+      setTimeout(() => firstDate()?.focus(), 0);   // on to the month while the item loads
+      return code;
+    } });
   }
-  async function qFind(raw, byCode) {
-    const text = String(raw || '').trim(); if (!text || Q.busy) return null;
-    Q.busy = true; Q.item = null; Q.choices = null; Q.msg = ''; Q.sugg = ''; paintFound('Looking for it…');
-    const r = await lookupItem(text, byCode);
-    Q.busy = false;
+  // the item is looked up in the background (owner, 2026-10-12: "don't make the floor manager wait"): the month, day,
+  // qty, shelf and worker can be filled meanwhile, and Add saves at once
+  function startLookup(raw, byCode) {
+    const text = String(raw || '').trim(); if (!text) return null;
+    if (Q.look && Q.look.text === text) return Q.look;
+    const look = { text, name: looksLikeName(text, byCode), done: false, result: null };
+    look.promise = lookupItem(text, byCode).then(r => { look.done = true; look.result = r; if (Q.look === look) applyLookup(look); return r; });
+    Q.look = look; Q.item = null; Q.choices = null; Q.msg = ''; Q.sugg = '';
+    paintFound(look.name ? 'Searching…' : 'Looking it up… keep filling, it saves anyway');
+    return look;
+  }
+  function applyLookup(look) {
+    const r = look.result || {};
     Q.item = r.item || null; Q.choices = r.choices || null; Q.msg = r.msg || '';
     if (Q.item) {
       el('exQItem').value = Q.item.description ? `${Q.item.description} · ${Q.item.code}` : Q.item.code;
@@ -644,11 +662,9 @@
       if (Q.sugg && !Q.picked) el('exQWho').value = Q.sugg;
     }
     paintFound();
-    if (Q.item) firstDate()?.focus();
-    return Q.item;
   }
   function qClear() {
-    Q.item = null; Q.choices = null; Q.msg = ''; Q.sugg = ''; Q.picked = false;
+    Q.look = null; Q.item = null; Q.choices = null; Q.msg = ''; Q.sugg = ''; Q.picked = false;
     el('exQItem').value = '';
     Q.dates = [{ ym: Q.dates[0]?.ym || defaultYm(), day: 0, qty: '' }];
     paintQDates(); paintFound();
@@ -656,6 +672,7 @@
   // "another date" on an item already entered: the entry row takes that item, its shelf and its worker
   function quickAgain(r) {
     if (!Q.mounted) return;
+    Q.look = null;
     Q.item = { code: r.code, description: r.description || '', barcode: r.barcode || '', supplier: r.supplier || '', group: r.item_group || '' };
     Q.choices = null; Q.msg = ''; Q.sugg = ''; Q.picked = true; Q.cam = false;
     el('exQItem').value = r.description ? `${r.description} · ${r.code}` : r.code;
@@ -666,14 +683,23 @@
     el('exQuick').scrollIntoView({ block: 'center', behavior: 'smooth' });
   }
   async function qSave() {
-    if (Q.saving || Q.busy) return;
+    if (Q.saving) return;
     const input = el('exQItem');
-    if (!Q.item) {
-      if (!input.value.trim()) return bad(input, 'Scan or type the item first.');
-      if (!(await qFind(input.value))) return;
+    let it = Q.item, later = null;
+    if (!it) {
+      const look = Q.look || startLookup(input.value);
+      if (!look) return bad(input, 'Scan or type the item first.');
+      // a name has to be found first (it can have several answers); a code or a barcode never waits
+      if (look.name && !look.done) { await look.promise; if (Q.look !== look) return; }
+      if (look.done) {
+        const r = look.result || {};
+        if (r.choices) return bad(input, 'Pick the item in the list first.');
+        if (!r.item) return bad(input, r.msg || 'Item not found.');
+        it = r.item;
+      } else { it = plainItem(look.text); later = look; }   // saved now with the code as typed; its name is filled when it arrives
     }
     if (!Q.dates.length) return showToast('Choose the month it expires in.', true);
-    const loc = el('exQLoc').value.trim(), who = el('exQWho').value, it = Q.item;
+    const loc = el('exQLoc').value.trim(), who = el('exQWho').value;
     const rows = Q.dates.map(d => rowFrom(it, d, loc, who));
     Q.saving = true; el('exQuick').classList.add('saving');
     const { data, error } = await sb.from('expiries').insert(rows).select();
@@ -682,12 +708,26 @@
     (data || []).forEach(replaceRow);
     S.lastWorker = who; S.lastLoc = loc; S.lastYm = Q.dates[0].ym;
     const ids = (data || []).map(r => r.id); flash(ids);
+    if (later) fillLater(later, ids);
     if (S.month) S.folds[`${S.month}|${who}`] = true;
     const name = data?.[0]?.assigned_name || '';
     showToast(`Added: ${it.description || it.code} · ${rows.length} date${rows.length === 1 ? '' : 's'}${name ? ' → ' + name : ''}`);
     logActivity('expiries', 'add', { type: 'expiry', id: ids[0] }, `Expiry: ${it.description || it.code} — ${rows.map(r => r.day_known ? r.expiry_date : r.expiry_date.slice(0, 7)).join(', ')}${name ? ' · given to ' + name : ''}`);
     qClear(); pill(); paint();
     if (Q.cam) qScan(); else if (pointerFine()) input.focus();
+  }
+  // an item saved before its look-up came back: its code, name, supplier and group are written on its rows when it does
+  function fillLater(look, ids) {
+    look.promise.then(async r => {
+      const it = r && r.item;
+      if (!it || (!it.description && it.code === look.text)) return;   // not found in the system: it stays as typed
+      const { data, error } = await sb.from('expiries').update({ code: it.code, description: it.description || null, barcode: it.barcode || null,
+        supplier: it.supplier || null, item_group: it.group || null }).in('id', ids).select();
+      if (error || !data) return;
+      data.forEach(replaceRow);
+      const a = document.activeElement;
+      if (!(a && el('exBody')?.contains(a))) paint();   // never under a field in use
+    });
   }
 
   /* ---------------- edit one item ---------------- */
