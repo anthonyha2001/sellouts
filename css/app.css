@@ -3245,3 +3245,6 @@ tr:hover .so-note,.so-note:focus{border-color:var(--line-strong);background:var(
 :root[data-theme="dark"] .db-stat.warn b{color:#fcd34d;} :root[data-theme="dark"] .db-stat.bad b,:root[data-theme="dark"] .db-stat .neg{color:#fca5a5;} :root[data-theme="dark"] .db-stat .pos{color:#86efac;}
 @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]) .db-stat.warn b{color:#fcd34d;} :root:not([data-theme="light"]) .db-stat.bad b,:root:not([data-theme="light"]) .db-stat .neg{color:#fca5a5;} :root:not([data-theme="light"]) .db-stat .pos{color:#86efac;} }
 @media (max-width:520px){ .db-stat b{font-size:19px;} .db-card,.db-alerts{padding:14px;} }
+/* Performance › By hour (owner, 2026-10-12) */
+.sh-table .sh-cell{background:color-mix(in srgb, var(--pine) calc(var(--a,0) * 38%), transparent);white-space:nowrap;font-size:12px;}
+.sh-table th,.sh-table td{padding-left:8px;padding-right:8px;}

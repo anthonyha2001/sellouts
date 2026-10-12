@@ -1165,6 +1165,38 @@ async function salesCategories(from: string, to: string, level: string, parentLe
   });
   return { from, to, level, rows: [...m.values()] };
 }
+// Sales by hour (owner, 2026-10-12; migration 086): today's running sales per section, kept when they changed since the last one.
+// The day after midnight the job still runs until 00:45 Beirut: yesterday's last sync lands on yesterday.
+async function salesSnapshot() {
+  const now = new Date(), today = beirutToday(), hour = Number(now.toLocaleString('en-GB', { timeZone: 'Asia/Beirut', hour: '2-digit', hour12: false }));
+  const day = hour < 2 ? plusDays(today, -1) : today;   // 00:00 - 01:59: the last sync of the day before
+  // The dashboard caches a report by its exact question for a while (12-10: by section still $21,339 at 20:46 while the store
+  // total was $21,490): each run asks from a different day before (rotating over 12 days) and keeps today's rows only, then
+  // checks the sections add up to the store's total (asked the same way) - else it asks again from another day, and keeps
+  // nothing rather than a stale figure.
+  const slot = Math.floor((now.getTime() / 60000) / 15);
+  let rows: Record<string, unknown>[] = [], fresh = 0, ok = false;
+  for (let tryNo = 0; tryNo < 3 && !ok; tryNo++) {
+    const from = plusDays(day, -(1 + (slot + tryNo * 5) % 12));
+    const [tot, sec] = await Promise.all([report('sales', from, day, { aggregation: 'Daily', group_by: [] }), report('sales', from, day, { aggregation: 'Daily', group_by: ['section'] })]);
+    const today = (r: Record<string, unknown>) => String(r.period || '').slice(0, 10) === day;
+    fresh = tot.filter(today).reduce((t, r) => t + Number(r.total_sales || 0), 0);
+    rows = sec.filter(today);
+    ok = Math.abs(rows.reduce((t, r) => t + Number(r.total_sales || 0), 0) - fresh) < 0.5;
+  }
+  if (!ok) return { day, changed: false, stale: true, total: Math.round(fresh * 100) / 100 };
+  const secs = new Map<string, { section: string; section_desc: string; sales: number; qty: number }>();
+  rows.forEach(r => { const c = String(r.section ?? '').trim() || '?'; const x = secs.get(c) || { section: c, section_desc: String(r.section_desc ?? '').trim() || (c === '?' ? 'Not classified' : c), sales: 0, qty: 0 };
+    x.sales += Number(r.total_sales || 0); x.qty += Number(r.total_quantity || 0); secs.set(c, x); });
+  const list = [...secs.values()], total = { section: '*', section_desc: 'Whole store', sales: list.reduce((t, x) => t + x.sales, 0), qty: list.reduce((t, x) => t + x.qty, 0) };
+  const r2 = (v: number) => Math.round(v * 100) / 100;
+  const { data: last } = await db.from('sales_snapshots').select('sales, qty').eq('day', day).eq('section', '*').order('taken_at', { ascending: false }).limit(1);
+  if (last?.length && Math.abs(Number(last[0].sales) - total.sales) < 0.005 && Math.abs(Number(last[0].qty) - total.qty) < 0.0005) return { day, changed: false, total: r2(total.sales) };
+  const taken_at = new Date(Math.floor(now.getTime() / 60000) * 60000).toISOString();
+  const { error } = await db.from('sales_snapshots').upsert([total, ...list].map(x => ({ day, taken_at, section: x.section, section_desc: x.section_desc, sales: r2(x.sales), qty: Math.round(x.qty * 1000) / 1000 })));
+  if (error) throw error;
+  return { day, changed: true, total: r2(total.sales), sections: list.length };
+}
 // every supplier: purchases vs sales in the period
 // months (owner, 2026-10-06, the rental spots' trend): each supplier's sales per month too, when asked
 async function perfSuppliers(from: string, to: string, months = false) {
@@ -1520,6 +1552,16 @@ Deno.serve(async req => {
     if (!ok && cron) { const { data } = await db.rpc('push_keys'); ok = !!data && cron === (data as Record<string, string>).push_cron_secret; }
     if (!ok) return json({ error: 'Not allowed.' }, 403);
     try { const sw = await stockWatch(body.vendor ? String(body.vendor) : undefined); let pc = null; try { pc = await priceChangesSync(60); } catch (e) { console.warn('price changes', e); } return json({ ...sw, priceChanges: pc }); }
+    catch (e) { console.error(e); return json({ error: e instanceof Error ? e.message : 'failed' }, 502); }
+  }
+
+  // Sales by hour (migration 086), from pg_cron or the server key.
+  if (body.action === 'sales_snapshot') {
+    const cron = req.headers.get('x-cron-secret') || '';
+    let ok = serverKeys().includes(req.headers.get('apikey') || '');
+    if (!ok && cron) { const { data } = await db.rpc('push_keys'); ok = !!data && cron === (data as Record<string, string>).push_cron_secret; }
+    if (!ok) return json({ error: 'Not allowed.' }, 403);
+    try { return json(await salesSnapshot()); }
     catch (e) { console.error(e); return json({ error: e instanceof Error ? e.message : 'failed' }, 502); }
   }
 

@@ -44,7 +44,7 @@
     if (!root.dataset.built) {
       root.dataset.built = '1';
       root.innerHTML = `
-        <div class="filter-row" id="pfView"><button type="button" data-v="suppliers" class="active">Suppliers</button><button type="button" data-v="cats">Categories</button><button type="button" data-v="daily">Daily sales</button>${can('rentals.view') ? '<button type="button" data-v="rents">Rental spots</button>' : ''}</div>
+        <div class="filter-row" id="pfView"><button type="button" data-v="suppliers" class="active">Suppliers</button><button type="button" data-v="cats">Categories</button><button type="button" data-v="daily">Daily sales</button><button type="button" data-v="hourly">By hour</button>${can('rentals.view') ? '<button type="button" data-v="rents">Rental spots</button>' : ''}</div>
         <div id="pfMain">
         <div class="card pf-controls">
           <label>From <input type="date" id="pfFrom"></label>
@@ -56,6 +56,7 @@
         </div>
         <div id="pfCatBody" hidden></div>
         <div id="pfDayBody" hidden></div>
+        <div id="pfHourBody" hidden></div>
         <div id="pfRentBody" hidden></div>`;
       if (el('pfView')) el('pfView').onclick = e => { const b = e.target.closest('[data-v]'); if (b) setView(b.dataset.v); };
       el('pfQuick').onclick = e => { const b = e.target.closest('[data-p]'); if (!b) return; const p = presets()[Number(b.dataset.p)]; el('pfFrom').value = p[1]; el('pfTo').value = p[2]; load(); };
@@ -440,12 +441,13 @@
   let view = 'suppliers';
   function setView(v) {
     // Categories and Daily sales (owner, 2026-10-11): js/modules/salesreports.js
-    view = v === 'rents' && can('rentals.view') ? 'rents' : ['cats', 'daily'].includes(v) && window.SalesReports ? v : 'suppliers';
+    view = v === 'rents' && can('rentals.view') ? 'rents' : ['cats', 'daily', 'hourly'].includes(v) && window.SalesReports ? v : 'suppliers';
     el('pfView')?.querySelectorAll('[data-v]').forEach(b => b.classList.toggle('active', b.dataset.v === view));
-    el('pfMain').hidden = view !== 'suppliers'; el('pfRentBody').hidden = view !== 'rents'; el('pfCatBody').hidden = view !== 'cats'; el('pfDayBody').hidden = view !== 'daily'; hideTip();
+    el('pfMain').hidden = view !== 'suppliers'; el('pfRentBody').hidden = view !== 'rents'; el('pfCatBody').hidden = view !== 'cats'; el('pfDayBody').hidden = view !== 'daily'; el('pfHourBody').hidden = view !== 'hourly'; hideTip();
     if (view === 'rents') loadRents();
     if (view === 'cats') SalesReports.showCategories(el('pfCatBody'));
     if (view === 'daily') SalesReports.showDaily(el('pfDayBody'));
+    if (view === 'hourly') SalesReports.showHourly(el('pfHourBody'));
   }
   // from Rentals: this supplier's rent against its sales
   function openRentals(supplier) {

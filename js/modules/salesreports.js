@@ -11,7 +11,8 @@
      to date against the same dates of last month. Today is shown
      apart ("so far"): a day in progress is never compared.
    Permission: as Performance (vendors.manage).
-   Public API: window.SalesReports = { showCategories, showDaily }.
+   - By hour (2026-10-12): measured every 15 minutes (sales_snapshots, migration 086).
+   Public API: window.SalesReports = { showCategories, showDaily, showHourly }.
    ============================================================ */
 (function () {
   const esc = escapeHtml;
@@ -243,5 +244,114 @@
       `Daily sales ${d.month}`);
   }
 
-  window.SalesReports = { showCategories, showDaily, _prevPeriod: prevPeriod };
+  /* ================= By hour (owner, 2026-10-12; migration 086) =================
+     The system has no hours: lv-dashboard keeps today's running sales per section every 15 minutes (sales_snapshots).
+     An hour's sales = the running total at its last snapshot - the running total at the last snapshot before it.
+     Sales land in the hour the system received them (its sync), said under the chart. Compared with the same weekday
+     one week before, when that day was measured. */
+  const H = { day: null, sec: '', q: '' };
+  const hourOf = iso => Number(new Date(iso).toLocaleString('en-GB', { timeZone: 'Asia/Beirut', hour: '2-digit', hour12: false })) % 24;
+  const hhmm = iso => new Date(iso).toLocaleTimeString('en-GB', { timeZone: 'Asia/Beirut', hour: '2-digit', minute: '2-digit' });
+  // { hours: {h: {section: sales}}, names, total, last, snaps }
+  function byHour(rows) {
+    const snaps = [...new Set(rows.map(r => r.taken_at))].sort();
+    const names = {}, cum = {}, hours = {};
+    const at = new Map(); rows.forEach(r => { names[r.section] = r.section_desc || r.section; if (!at.has(r.taken_at)) at.set(r.taken_at, []); at.get(r.taken_at).push(r); });
+    snaps.forEach(t => {
+      const h = hourOf(t) < 2 ? 24 + hourOf(t) : hourOf(t);   // after midnight: the day's last sync, shown as 24, 25
+      at.get(t).forEach(r => { const prev = n(cum[r.section]), v = n(r.sales); const d = v - prev; cum[r.section] = v;
+        if (Math.abs(d) < 0.005) return; (hours[h] = hours[h] || {})[r.section] = n(hours[h]?.[r.section]) + d; });
+    });
+    return { hours, names, total: n(cum['*']), last: snaps[snaps.length - 1] || null, snaps: snaps.length };
+  }
+  async function readDay(day) {
+    const { data, error } = await sb.from('sales_snapshots').select('taken_at, section, section_desc, sales').eq('day', day).order('taken_at').limit(20000);
+    if (error) throw new Error(error.message);
+    return data || [];
+  }
+  function showHourly(box) {
+    if (!box) return;
+    if (!H.day) H.day = todayStr();
+    if (!box.dataset.built) {
+      box.dataset.built = '1';
+      box.innerHTML = `
+        <div class="card pf-controls">
+          <button type="button" class="icon-btn" id="shPrev" title="Day before" aria-label="Day before"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+          <input type="date" id="shDay" aria-label="Day">
+          <button type="button" class="icon-btn" id="shNext" title="Day after" aria-label="Day after"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></button>
+          <button type="button" class="icon-btn" id="shReload" title="Read again" aria-label="Read again"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg></button>
+          <select id="shSec" aria-label="Section" style="width:auto;min-width:200px;"><option value="">Whole store</option></select>
+        </div>
+        <div id="shBody"></div>`;
+      const go = k => { const d = addDays(H.day, k); if (d > todayStr()) return; H.day = d; loadHourly(); };
+      el('shPrev').onclick = () => go(-1); el('shNext').onclick = () => go(1); el('shReload').onclick = () => loadHourly();
+      el('shDay').onchange = () => { if (el('shDay').value && el('shDay').value <= todayStr()) { H.day = el('shDay').value; loadHourly(); } };
+      el('shSec').onchange = () => { H.sec = el('shSec').value; paintHourly(); };
+    }
+    loadHourly();
+  }
+  async function loadHourly() {
+    el('shDay').value = H.day; el('shDay').max = todayStr();
+    el('shBody').innerHTML = '<div class="card"><p class="muted-note" style="margin:0;">Reading the day’s measures…</p></div>';
+    try {
+      const [cur, prev] = await Promise.all([readDay(H.day), readDay(addDays(H.day, -7))]);
+      H.data = { day: H.day, cur: byHour(cur), prev: prev.length ? byHour(prev) : null };
+      paintHourly();
+    } catch (e) { el('shBody').innerHTML = `<div class="card"><p class="login-err" style="margin:0;">${esc(/sales_snapshots/.test(e.message) ? 'The hours are not set up yet (migration 086).' : e.message)}</p></div>`; }
+  }
+  function paintHourly() {
+    const d = H.data, box = el('shBody'); if (!d || !box) return;
+    const c = d.cur, sec = H.sec || '*';
+    const opts = Object.entries(c.names).filter(([k]) => k !== '*').sort((a, b) => a[1].localeCompare(b[1]));
+    el('shSec').innerHTML = '<option value="">Whole store</option>' + opts.map(([k, v]) => `<option value="${esc(k)}" ${k === H.sec ? 'selected' : ''}>${esc(v)}</option>`).join('');
+    if (!c.snaps) { box.innerHTML = `<div class="card"><p class="muted-note" style="margin:0;">No measure for ${esc(dmy(d.day))}. The hours are measured from 12-10-2026 on (the system gives sales per day only): every 15 minutes from 07:00 to 00:45, whenever the system's sales change.</p></div>`; return; }
+    const hs = Object.keys(c.hours).map(Number), ph = d.prev ? Object.keys(d.prev.hours).map(Number) : [];
+    const lo = Math.min(7, ...hs, ...ph), hi = Math.max(22, ...hs, ...ph);
+    const val = (src, h) => n(src?.hours[h]?.[sec]);
+    const hours = []; for (let h = lo; h <= hi; h++) hours.push(h);
+    const vals = hours.map(h => val(c, h)), pv = hours.map(h => d.prev ? val(d.prev, h) : null);
+    const tot = vals.reduce((t, v) => t + v, 0), best = hours.reduce((b, h, i) => vals[i] > (b === null ? -1 : vals[hours.indexOf(b)]) ? h : b, null);
+    const lab = h => String(h % 24).padStart(2, '0') + ':00';
+    const max = Math.max(1, ...vals, ...pv.map(v => n(v)));
+    const W = 900, Hh = 210, L = 6, B = 26, top = 12, slot = (W - 2 * L) / hours.length, bw = Math.min(26, slot - 8);
+    const xc = i => L + (i + 0.5) * slot, yv = v => top + (1 - v / max) * (Hh - top - B);
+    const line = d.prev ? pv.map((v, i) => `${i ? 'L' : 'M'}${xc(i).toFixed(1)},${yv(n(v)).toFixed(1)}`).join(' ') : '';
+    const chart = `<div class="pf-chart"><div class="pf-legend"><span><i class="pf-k-s"></i>${esc(DAY[D(d.day).getUTCDay()])} ${esc(dmy(d.day))}</span>${d.prev ? `<span><i class="sd-k-cmp"></i>${esc(DAY[D(d.day).getUTCDay()])} a week before</span>` : ''}</div>
+      <svg viewBox="0 0 ${W} ${Hh}" preserveAspectRatio="xMinYMin meet" role="img" aria-label="Sales per hour">
+        <line class="pf-axis" x1="${L}" x2="${W - L}" y1="${Hh - B}" y2="${Hh - B}"/>
+        ${hours.map((h, i) => { const v = vals[i], tp = yv(v), hgt = Math.max(0, Hh - B - tp); return `<g><title>${lab(h)}–${lab(h + 1)}: ${money(v)}${d.prev ? ` · a week before: ${money(pv[i])}` : ''}</title>
+          ${hgt > 0 ? `<path class="pf-s" d="M${(xc(i) - bw / 2).toFixed(1)},${Hh - B} V${(tp + Math.min(3, hgt)).toFixed(1)} q0,-3 3,-3 h${(bw - 6).toFixed(1)} q3,0 3,3 V${Hh - B} Z"/>` : ''}
+          <rect x="${(xc(i) - slot / 2).toFixed(1)}" y="${top}" width="${slot.toFixed(1)}" height="${Hh - top - B}" fill="transparent"/>
+          <text x="${xc(i).toFixed(1)}" y="${Hh - 9}" text-anchor="middle" class="pf-lab">${String(h % 24).padStart(2, '0')}</text></g>`; }).join('')}
+        ${line ? `<path class="sd-cmp" d="${line}"/>` : ''}
+      </svg></div>`;
+    // sections x hours: the busiest sections, each cell shaded by its share of that section's day
+    const secTotals = Object.entries(c.names).filter(([k]) => k !== '*').map(([k, name]) => ({ k, name, t: hours.reduce((t, h) => t + n(c.hours[h]?.[k]), 0) }))
+      .filter(x => x.t > 0).sort((a, b) => b.t - a.t);
+    const q = H.q.trim().toLowerCase(), shown = secTotals.filter(x => !q || x.name.toLowerCase().includes(q));
+    const usedHours = hours.filter(h => Object.values(c.hours[h] || {}).some(v => Math.abs(v) > 0.005));
+    const cell = (k, h, rowMax) => { const v = n(c.hours[h]?.[k]); if (Math.abs(v) < 0.5) return '<td class="num sh-cell"></td>'; const a = rowMax > 0 ? Math.max(0.06, Math.min(1, v / rowMax)) : 0;
+      return `<td class="num sh-cell" style="--a:${a.toFixed(2)}" title="${esc(c.names[k])} ${lab(h)}–${lab(h + 1)}: ${money(v)}">${money(v)}</td>`; };
+    box.innerHTML = `
+      <div class="pf-tiles">
+        <div class="pf-tile"><span>${sec === '*' ? 'Sales' : esc(c.names[sec] || sec)}</span><b>${money(tot)}</b><small>${esc(dmy(d.day))}${d.day === todayStr() ? ' · so far' : ''}</small></div>
+        <div class="pf-tile"><span>Busiest hour</span><b>${best === null ? '—' : lab(best)}</b><small>${best === null ? '' : money(vals[hours.indexOf(best)])}</small></div>
+        ${d.prev ? `<div class="pf-tile"><span>A week before</span><b>${money(pv.reduce((t, v) => t + n(v), 0))}</b><small>${esc(DAY[D(d.day).getUTCDay()])} ${esc(dmy(addDays(d.day, -7)))}</small></div>` : ''}
+        <div class="pf-tile"><span>Last change seen</span><b>${c.last ? hhmm(c.last) : '—'}</b><small>${c.snaps} measure${c.snaps === 1 ? '' : 's'}</small></div>
+      </div>
+      <div class="card">${chart}<p class="muted-note" style="margin:6px 0 0;">The system gives sales per day only: they are measured here every 15 minutes, so an hour shows what reached the system in that hour.</p></div>
+      ${sec === '*' ? `<div class="card">
+        <div class="pf-head"><h3>Sections by hour</h3><input type="search" id="shQ" placeholder="Find a section" value="${esc(H.q)}" aria-label="Find a section"><span style="flex:1"></span>
+          <button type="button" class="icon-btn" id="shXls" title="Download (Excel)" aria-label="Download (Excel)">${xlsIcon}</button></div>
+        <div class="items-scroll pf-scroll"><table class="items pf-table sh-table"><thead><tr><th>Section</th><th class="num">Day</th>${usedHours.map(h => `<th class="num">${String(h % 24).padStart(2, '0')}h</th>`).join('')}</tr></thead>
+          <tbody>${shown.map(x => { const rowMax = Math.max(...usedHours.map(h => n(c.hours[h]?.[x.k])));
+            return `<tr data-sec="${esc(x.k)}" class="pf-row" title="Show ${esc(x.name)} hour by hour"><td><b>${esc(x.name)}</b></td><td class="num"><b>${money(x.t)}</b></td>${usedHours.map(h => cell(x.k, h, rowMax)).join('')}</tr>`; }).join('') || `<tr><td colspan="${usedHours.length + 2}" class="empty-note">No section.</td></tr>`}</tbody></table></div>
+        <p class="muted-note" style="margin:8px 0 0;">Each cell is darker when it is a bigger part of that section's day. Click a section to see it hour by hour.</p></div>` : ''}`;
+    if (el('shQ')) el('shQ').oninput = () => { H.q = el('shQ').value; const pos = el('shQ').selectionStart; paintHourly(); el('shQ').focus(); el('shQ').setSelectionRange(pos, pos); };
+    box.querySelectorAll('tr[data-sec]').forEach(tr => tr.onclick = () => { H.sec = tr.dataset.sec; paintHourly(); window.scrollTo({ top: 0, behavior: 'smooth' }); });
+    if (el('shXls')) el('shXls').onclick = () => xls([['Section', 'Day ($)', ...usedHours.map(h => lab(h))], ...shown.map(x => [x.name, Math.round(x.t * 100) / 100, ...usedHours.map(h => Math.round(n(c.hours[h]?.[x.k]) * 100) / 100)]),
+      [], ['Whole store', Math.round(tot * 100) / 100, ...usedHours.map(h => Math.round(n(c.hours[h]?.['*']) * 100) / 100)]], `Sales by hour ${d.day}`);
+  }
+
+  window.SalesReports = { showCategories, showDaily, showHourly, _prevPeriod: prevPeriod, _byHour: byHour };
 })();
