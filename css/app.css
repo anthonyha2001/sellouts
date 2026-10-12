@@ -3374,3 +3374,16 @@ tr:hover .so-note,.so-note:focus{border-color:var(--line-strong);background:var(
 .vs-rep-bar select{width:auto;}
 .vs-rep-share{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 12px;}
 .vs-rep-prev{border:1px solid var(--line);border-radius:12px;padding:18px;background:#fff;max-height:60vh;overflow:auto;}
+/* Pricing › Promotion ideas (owner, 2026-10-12) */
+.pi-bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+.pi-bar input[type=search]{max-width:240px;}
+.pi-bar select{width:auto;max-width:220px;}
+.pi-tag{display:inline-block;font-size:11px;font-weight:700;border-radius:999px;padding:1px 8px;margin:1px 0;background:var(--line);color:var(--ink-soft);white-space:nowrap;}
+.pi-tag.k-expiring{background:#fee2e2;color:#b91c1c;}
+.pi-tag.k-stopped{background:#ede9fe;color:#6d28d9;}
+.pi-tag.k-overstock{background:#fef3c7;color:#92400e;}
+.pi-tag.k-big{background:var(--pine-tint);color:var(--pine);}
+.pi-sub{display:block;font-size:11px;color:var(--ink-soft);}
+.pi-note{color:#b45309;font-style:normal;}
+.pi-price{width:76px;text-align:right;padding:4px 6px;font-size:12.5px;}
+.pi-tbl td{vertical-align:middle;}

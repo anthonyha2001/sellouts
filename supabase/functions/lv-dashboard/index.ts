@@ -1162,6 +1162,100 @@ async function supplierReportData(sups: string[], month: string) {
     items, notSold: [...notSold.entries()].map(([code, name]) => ({ code, name })).slice(0, 60) };
 }
 
+/* ---------------- promotion ideas (owner, 2026-10-12; migration 092) ----------------
+   Stock: the last full nightly snapshot (stock_snapshots). Sales: the last 30 days and the 60 before. Cost: the purchases of the
+   last 6 months (value / units, as Performance). Reasons: expiring within 30 days (Expiries), stopped (stock, no sale in 30 days,
+   sold in the 60 before), overstock (over 120 days of stock), big purchase (the last 30 days). Ranked by the money in stock; the
+   price now from the price checker (items already on promotion left out); a suggested price per reason, never under the cost
+   + 5% (the cost itself for an item about to expire). */
+async function promoIdeas() {
+  const today = beirutToday();
+  const { data: run } = await db.from('stock_snapshot_runs').select('day').not('finished_at', 'is', null).order('day', { ascending: false }).limit(1);
+  const day = run?.[0]?.day; if (!day) throw new Error('No full stock snapshot yet.');
+  const stock = new Map<string, { desc: string; sup: string; stock: number }>();
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await db.from('stock_snapshots').select('code, description, supplier, stock').eq('day', day).gt('stock', 0).range(from, from + 999);
+    if (error) throw error;
+    (data || []).forEach(r => stock.set(trimCode(r.code), { desc: String(r.description || ''), sup: String(r.supplier || ''), stock: Number(r.stock) }));
+    if (!data || data.length < 1000) break;
+  }
+  const qtyOf = (rows: Record<string, unknown>[]) => { const m = new Map<string, number>(); rows.forEach(r => { const c = trimCode(r.item); if (c) m.set(c, (m.get(c) || 0) + Number(r.total_quantity || 0)); }); return m; };
+  // one after the other: three big reports at once slow the dashboard past its time limit (2026-10-13)
+  const s30 = await report('sales', plusDays(today, -30), plusDays(today, -1), { group_by: ['item'] });
+  const s90 = await report('sales', plusDays(today, -90), plusDays(today, -31), { group_by: ['item'] });
+  const pu = await report('purchases', plusDays(today, -182), plusDays(today, -1), { group_by: ['item'] });
+  const Q30 = qtyOf(s30), Q90 = qtyOf(s90), cost = new Map<string, number>();
+  const supOf = new Map<string, string>();   // filled below for the items picked (the snapshot does not keep the supplier)
+  const pv = new Map<string, { v: number; q: number }>();
+  pu.forEach(r => { const c = trimCode(r.item); if (!c) return; const x = pv.get(c) || { v: 0, q: 0 }; x.v += Number(r.total_purchases || 0); x.q += Number(r.total_quantity || 0); pv.set(c, x); });
+  pv.forEach((x, c) => { if (x.q > 0 && x.v > 0) cost.set(c, x.v / x.q); });
+  const [{ data: exps }, { data: bigs }] = await Promise.all([
+    db.from('expiries').select('code, description, supplier, expiry_date, qty').eq('status', 'open').lte('expiry_date', plusDays(today, 30)).gte('expiry_date', today),
+    db.from('big_purchases').select('code, description, supplier, weeks_cover').gte('day', plusDays(today, -30)),
+  ]);
+  type Idea = { code: string; desc: string; sup: string; stock: number | null; sold30: number; sold90: number; days: number | null; cost: number | null; value: number | null; reasons: string[]; expires?: string };
+  const ideas = new Map<string, Idea>();
+  const get = (c: string, desc: string, sup: string) => { let x = ideas.get(c); if (!x) { const st = stock.get(c); const s30v = Q30.get(c) || 0, cst = cost.get(c) ?? null;
+    x = { code: c, desc: st?.desc || desc, sup: supOf.get(c) || st?.sup || sup, stock: st ? st.stock : null, sold30: s30v, sold90: Q90.get(c) || 0, days: st && s30v > 0 ? Math.round(st.stock / (s30v / 30)) : null,
+      cost: cst, value: st && cst !== null ? st.stock * cst : null, reasons: [] }; ideas.set(c, x); } return x; };
+  const GENERIC = /^s*(VIANDE|MARCHANDISE|EXTRA ITEM|CHARGE)/i;
+  stock.forEach((st, c) => {
+    if (GENERIC.test(st.desc)) return;
+    const a = Q30.get(c) || 0, b = Q90.get(c) || 0;
+    if (a <= 0 && b > 0) get(c, st.desc, st.sup).reasons.push('stopped');
+    else if (a > 0 && st.stock / (a / 30) > 120) get(c, st.desc, st.sup).reasons.push('overstock');
+  });
+  (exps || []).forEach(e => { const x = get(trimCode(e.code), String(e.description || ''), String(e.supplier || '')); if (!x.reasons.includes('expiring')) x.reasons.unshift('expiring'); if (!x.expires || e.expiry_date < x.expires) x.expires = e.expiry_date; });
+  (bigs || []).filter(b => b.weeks_cover === null || Number(b.weeks_cover) >= 8).forEach(b => { if (/^\s*(MARCHANDISE\b|EXTRA ITEM\b)/i.test(String(b.description || ''))) return; const x = get(trimCode(b.code), String(b.description || ''), String(b.supplier || '')); if (!x.reasons.includes('big')) x.reasons.push('big'); });
+  // the most money in stock first; the expiring ones always in
+  const list = [...ideas.values()].filter(x => x.reasons.length);
+  const exp = list.filter(x => x.reasons.includes('expiring')).slice(0, 60);
+  const rest = list.filter(x => !x.reasons.includes('expiring')).sort((a, b) => (b.value ?? -1) - (a.value ?? -1)).slice(0, 120 - exp.length);
+  const pick = [...exp, ...rest];
+  // the supplier of the items picked: their purchases of the last 6 months by supplier (a small read: these items only)
+  try {
+    const codes = pick.map(x => x.code);
+    for (let i = 0; i < codes.length; i += 150) {
+      (await report('purchases', plusDays(today, -182), plusDays(today, -1), { group_by: ['supplier', 'item'], item: codes.slice(i, i + 150) }))
+        .forEach(r => { const c = trimCode(r.item), sname = String(r.supplier_desc ?? '').trim(); if (c && sname && Number(r.total_quantity || 0) > 0) supOf.set(c, sname); });
+    }
+    pick.forEach(x => { if (supOf.get(x.code)) x.sup = supOf.get(x.code)!; });
+  } catch (e) { console.warn('idea suppliers', e); }
+  const key = (c: string) => c.replace(/^0+(?=\d)/, '').toUpperCase(), r2 = (v: number) => Math.round(v * 100) / 100;
+  const DISC: Record<string, number> = { expiring: 0.25, stopped: 0.2, overstock: 0.15, big: 0.1 };
+  const out: Record<string, unknown>[] = [];
+  for (let i = 0; i < pick.length; i += 12) {
+    await Promise.all(pick.slice(i, i + 12).map(async x => {
+      let price: number | null = null, promoted = false, cur = '$';
+      try {
+        const d = await dash(`/item-price-checker?${new URLSearchParams({ search: x.code, year: year(), branches: BRANCH })}`) as Record<string, unknown>;
+        const hit = (Object.values(((d.branches as Record<string, Record<string, unknown[]>>) || {})[BRANCH] || {}).flat() as Record<string, unknown>[]).find(h => key(String(h.ItemCode ?? '')) === key(x.code));
+        if (hit) { price = unitSale(hit); promoted = !!Number(hit.isPromoted || 0); cur = String(hit.CurrencyCode ?? '') === '01' ? 'LBP' : '$'; }
+      } catch (e) { console.warn('idea price', x.code, e); }
+      if (promoted) return;
+      if (price === null || !(price > 0)) return;   // no price in the system: nothing to promote
+      // a cost per case against a price per piece (Torabika sachets: $4.33 a box, $0.30 a sachet): the unit differs, left out
+      if (cur === '$' && x.cost !== null && (x.cost > 2 * price || price > 6 * x.cost)) return;
+      const d = Math.max(...x.reasons.map(r => DISC[r] || 0.1));
+      let sug: number | null = null, note = '';
+      if (price !== null && price > 0 && cur === '$') {
+        const floor = x.cost !== null ? x.cost * (x.reasons.includes('expiring') ? 1 : 1.05) : 0;
+        sug = Math.max(price * (1 - d), floor);
+        sug = Math.floor(sug * 20) / 20;   // to 5 cents
+        if (sug >= price - 0.001) { sug = null; note = 'already near its cost: no room for a discount'; }
+      } else if (cur === 'LBP') note = 'priced in LBP';
+      if (x.days !== null && x.days > 365) note = (note ? note + '; ' : '') + `${Math.round(x.days / 30)} months of stock: check the count first`;
+      if (x.cost !== null && cur === '$' && x.cost > price) note = (note ? note + '; ' : '') + 'sells below its cost now';
+      out.push({ code: x.code, desc: x.desc, sup: x.sup, stock: x.stock, sold30: r2(x.sold30), sold90: r2(x.sold90), days: x.days, cost: x.cost === null ? null : r2(x.cost), value: x.value === null ? null : r2(x.value),
+        reasons: x.reasons, expires: x.expires || null, price, currency: cur, suggested: sug, margin: sug !== null && x.cost !== null ? r2((sug - x.cost) / sug) : null, note });
+    }));
+  }
+  const data = { day, made: new Date().toISOString(), items: out.sort((a, b) => Number((b.reasons as string[]).includes('expiring')) - Number((a.reasons as string[]).includes('expiring')) || Number(b.value ?? -1) - Number(a.value ?? -1)) };
+  const { error } = await db.from('promo_ideas').upsert({ id: 1, data, made_at: data.made });
+  if (error) throw error;
+  return data;
+}
+
 /* ---------------- codes across years (owner, 2026-10-06; migration 069) ----------------
    The system numbers its items AND its suppliers per year: a year's sales and purchases only know that year's codes
    (Abboud trading 0768 in 2025 / 1134 in 2026; Taanayel labneh 400g 016580 / 128420), while the app uses today's.
@@ -2105,7 +2199,7 @@ Deno.serve(async req => {
       }
       return json(await priceChangesSync(120));
     }
-    if (['perf_suppliers', 'perf_supplier', 'store_daily', 'sales_categories', 'vendor_pts', 'pt_detail', 'supplier_report', 'pricing_day', 'pricing_supplier', 'returns_range', 'pu_find', 'vendor_pos', 'pos_of_day', 'po_detail'].includes(String(body.action))) {
+    if (['perf_suppliers', 'perf_supplier', 'store_daily', 'sales_categories', 'vendor_pts', 'pt_detail', 'supplier_report', 'promo_ideas', 'pricing_day', 'pricing_supplier', 'returns_range', 'pu_find', 'vendor_pos', 'pos_of_day', 'po_detail'].includes(String(body.action))) {
       if (!isServer && role !== 'admin') {
         const anon = Deno.env.get('SUPABASE_ANON_KEY') || '';
         const asUser = createClient(SUPABASE_URL, anon, { global: { headers: { Authorization: `Bearer ${bearer}` } }, auth: { persistSession: false, autoRefreshToken: false } });
@@ -2113,6 +2207,8 @@ Deno.serve(async req => {
         if (!okPerm) return json({ error: 'Not allowed.' }, 403);
       }
       // a supplier's last POs, live from the system (the vendor sheet's POs tab)
+      // promotion ideas (Pricing, owner 2026-10-12; migration 092): made again now
+      if (body.action === 'promo_ideas') return json(await promoIdeas());
       // the monthly supplier report (vendor sheet, owner 2026-10-12; migration 091)
       if (body.action === 'supplier_report') {
         const sups = (Array.isArray(body.suppliers) ? body.suppliers : []).map(String).filter(Boolean).slice(0, 10);

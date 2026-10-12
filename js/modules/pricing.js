@@ -67,14 +67,14 @@
     if (!S.day) S.day = todayStr();
     if (!root.dataset.built) {
       root.dataset.built = '1';
-      root.innerHTML = `<div class="pr-topbar"><div class="filter-row pr-tabs" id="prTabs"><button type="button" data-t="purchases" class="active">Purchases</button><button type="button" data-t="returns">Returns</button><button type="button" data-t="margin">Margin watch</button></div>
+      root.innerHTML = `<div class="pr-topbar"><div class="filter-row pr-tabs" id="prTabs"><button type="button" data-t="purchases" class="active">Purchases</button><button type="button" data-t="returns">Returns</button><button type="button" data-t="margin">Margin watch</button><button type="button" data-t="ideas">Promotion ideas</button></div>
         <form class="pr-find" id="prFind" autocomplete="off"><input type="search" id="prFindQ" placeholder="Find a PU (PU0010852 or 10852)" aria-label="Find a PU by its number">
           <button type="submit" class="icon-btn" title="Find the PU" aria-label="Find the PU"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></button></form></div>
-        <div id="prWiz"><div class="pr-steps" id="prSteps"></div><div id="prBody"></div></div><div id="prRet" hidden></div><div id="prMargin" hidden></div>`;
+        <div id="prWiz"><div class="pr-steps" id="prSteps"></div><div id="prBody"></div></div><div id="prRet" hidden></div><div id="prMargin" hidden></div><div id="prIdeas" hidden></div>`;
       el('prTabs').onclick = e => { const b = e.target.closest('[data-t]'); if (b) tab(b.dataset.t); };
       el('prFind').onsubmit = e => { e.preventDefault(); findPu(el('prFindQ').value); };
     }
-    if (S.tab === 'returns' || S.tab === 'margin') return tab(S.tab);
+    if (S.tab === 'returns' || S.tab === 'margin' || S.tab === 'ideas') return tab(S.tab);
     if (!S.wired) { S.wired = true; document.addEventListener('keydown', onKey); }
     if (S.list && S.pus.length) paintPu(); else if (S.list) paintSuppliers(); else paintDay();
   }
@@ -82,10 +82,11 @@
   function tab(t, opts) {
     S.tab = t;
     el('prTabs').querySelectorAll('[data-t]').forEach(b => b.classList.toggle('active', b.dataset.t === t));
-    el('prWiz').hidden = t !== 'purchases'; el('prRet').hidden = t !== 'returns'; el('prMargin').hidden = t !== 'margin';
+    el('prWiz').hidden = t !== 'purchases'; el('prRet').hidden = t !== 'returns'; el('prMargin').hidden = t !== 'margin'; el('prIdeas').hidden = t !== 'ideas';
     if (t === 'returns') Returns.show(opts);
     // Margin watch (owner, 2026-10-12; js/modules/marginwatch.js): a line opens its PU here to send the new price
     else if (t === 'margin') { if (window.MarginWatch) MarginWatch.show(el('prMargin'), { openPu: doc => findPu(doc) }); }
+    else if (t === 'ideas') { if (window.PromoIdeas) PromoIdeas.show(el('prIdeas')); }   // owner, 2026-10-12: js/modules/promoideas.js
     else if (S.list && S.pus.length) paintPu(); else if (S.list) paintSuppliers(); else paintDay();
   }
   function steps(k) {
