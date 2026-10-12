@@ -20,9 +20,13 @@
   const MONTH = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
   const OUT = { removed: 'Removed', discount: 'On discount', returned: 'Returned', sold: 'Sold out' };
   const OUT_LONG = { removed: 'Removed from the shelf', discount: 'Put on discount', returned: 'Returned to the supplier', sold: 'Sold before it expired', other: 'Done' };
-  const S = { rows: null, workers: [], loading: false, err: '', month: null, who: 'all', status: 'open', lastWorker: '', lastLoc: '', lastYm: '', folds: {}, flash: new Set() };
+  // the admin's decision on an expiry sent (migration 085)
+  const DEC = { return: 'Return to supplier', reprice: 'Repricing', merchandiser: 'Merchandiser will handle', sales: 'Request to the sales' };
+  const S = { rows: null, workers: [], loading: false, err: '', month: null, who: 'all', status: 'open', lastWorker: '', lastLoc: '', lastYm: '', folds: {}, flash: new Set(),
+    view: 'months', dStatus: 'todo', dGroup: 'supplier', lp: {}, lpBusy: false, justDecided: new Set(), decGroups: {} };
   const Q = { item: null, choices: null, msg: '', sugg: '', busy: false, saving: false, dates: [], cam: false, picked: false, mounted: false };
   const isMgr = () => can('expiry.manage');
+  const isDec = () => can('expiry.decide');
   const call = async body => { const { data, error } = await sb.functions.invoke('lv-dashboard', { body }); if (error) throw error; if (data?.error) throw new Error(data.error); return data; };
   const fq = v => (Math.round(Number(v) * 100) / 100).toLocaleString('en-US');
   const ymOf = d => String(d || '').slice(0, 7);
@@ -73,20 +77,28 @@
     S.loading = false;
     pill(); paint();
   }
-  // the menu badge: what is expired or expires within 7 days, still open
+  // the menu badge: for the admin, what was sent and waits for a decision; for the others, what is expired or
+  // expires within 7 days, still open
+  const toDecide = () => (S.rows || []).filter(r => r.submitted_at && !r.decision && r.status === 'open');
   function pill() {
     const p = el('expiriesPill'); if (!p) return;
-    const n = (S.rows || []).filter(r => r.status === 'open' && daysTo(r.expiry_date) <= 7).length;
+    const n = isDec() ? toDecide().length : (S.rows || []).filter(r => r.status === 'open' && daysTo(r.expiry_date) <= 7).length;
     p.textContent = n; p.hidden = !n;
+    p.title = isDec() ? 'Expiries sent to you, waiting for your decision' : 'Expired or expiring within 7 days';
   }
   const whoRows = () => (S.rows || []).filter(r => S.who === 'all' ? true : S.who === 'none' ? !rowKey(r) : rowKey(r) === S.who);
   const monthRows = k => whoRows().filter(r => k === 'past' ? ymOf(r.expiry_date) < curYm() && r.status === 'open' : ymOf(r.expiry_date) === k);
   function replaceRow(row) { const i = S.rows.findIndex(x => x.id === row.id); if (i >= 0) S.rows[i] = row; else S.rows.push(row); }
-  async function patch(ids, change) {
+  async function patch(ids, change, quiet) {
     const { data, error } = await sb.from('expiries').update(change).in('id', ids).select();
-    if (error) { showToast(friendlyError(error), true); load(); return null; }
+    if (error) {
+      const m = friendlyError(error);
+      showToast(/submitted_at|decision/i.test(m) && /column|schema/i.test(m) ? 'Run migration 085 in Supabase first.' : m, true);
+      load(); return null;
+    }
     (data || []).forEach(replaceRow);
-    pill(); paint();
+    pill();
+    if (quiet) paintTabs(); else paint();   // quiet: the admin is going down the list, nothing moves under the mouse
     return data;
   }
   function flash(ids) {
@@ -142,11 +154,24 @@
   /* ---------------- the page: the entry row (kept between repaints), then the months or one month ---------------- */
   function paint() {
     const box = el('panel-expiries'); if (!box) return;
-    if (!el('exBody')) { box.innerHTML = '<div id="exHead"></div><div id="exQuickBox"></div><div id="exBody"></div>'; Q.mounted = false; }
+    if (!el('exBody')) { box.innerHTML = '<div id="exTabs"></div><div id="exHead"></div><div id="exQuickBox"></div><div id="exBody"></div>'; Q.mounted = false; }
     const head = el('exHead'), body = el('exBody');
     if (!S.rows) { head.innerHTML = ''; body.innerHTML = `<div class="card"><p class="${S.err ? 'empty-note' : 'muted-note'}" style="margin:0;">${esc(S.err || 'Loading the expiries…')}</p></div>`; return; }
+    const deciding = isDec() && S.view === 'decide';
+    paintTabs();
     mountQuick();
-    if (S.month) paintMonth(head, body); else paintMonths(head, body);
+    el('exQuickBox').hidden = deciding;
+    if (deciding) paintDecide(head, body);
+    else if (S.month) paintMonth(head, body); else paintMonths(head, body);
+  }
+
+  // the admin: the months, or what was sent to decide
+  function paintTabs() {
+    const box = el('exTabs'); if (!box) return;
+    const deciding = isDec() && S.view === 'decide', n = toDecide().length;
+    box.innerHTML = isDec() ? `<div class="filter-row group-tabs ex-tabs">
+        <button type="button" data-ex-view="months" class="${deciding ? '' : 'active'}">Months</button>
+        <button type="button" data-ex-view="decide" class="${deciding ? 'active' : ''}">To decide <span class="sc-cnt ${n ? 'hot' : 'zero'}">${n}</span></button></div>` : '';
   }
 
   function whoSelect() {
@@ -154,6 +179,25 @@
     const opts = [['all', 'Everyone'], ['none', 'Not given yet'], ...S.workers.map(w => [wKey(w), w.name])];
     return `<select class="ex-who" data-ex="who" aria-label="Shelf worker">${opts.map(([v, l]) => `<option value="${esc(v)}" ${S.who === v ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
   }
+
+  // the floor manager sends what is not sent yet to the admin (who decides: return, repricing, merchandiser, sales)
+  function sendBtn(list) {
+    if (!isMgr()) return '';
+    const n = list.filter(r => r.status === 'open' && !r.submitted_at).length;
+    return n ? `<button type="button" class="btn ex-send" data-ex="send" title="The admin decides what happens to them">Send ${n} to the admin</button>` : '';
+  }
+  async function send(list) {
+    const ids = list.filter(r => r.status === 'open' && !r.submitted_at).map(r => r.id);
+    if (!ids.length) return;
+    const out = await patch(ids, { submitted_at: new Date().toISOString() });
+    if (!out) return;
+    flash(ids); paint();
+    showToast(`${out.length} expir${out.length === 1 ? 'y' : 'ies'} sent to the admin.`);
+    logActivity('expiries', 'send', { type: 'expiry', id: ids[0] }, `${out.length} expiries sent to the admin`);
+  }
+  // where an expiry stands with the admin: sent, then the decision
+  const decChip = r => r.decision ? `<span class="ex-dec k-${r.decision}" title="${esc((r.decided_by_name ? 'Decided by ' + r.decided_by_name : '') + (r.decision_note ? ' — ' + r.decision_note : ''))}">${esc(DEC[r.decision] || r.decision)}</span>`
+    : r.submitted_at ? '<span class="ex-dec k-sent">Sent to the admin</span>' : '';
 
   function paintMonths(head, body) {
     const rows = whoRows(), cur = curYm();
@@ -167,13 +211,15 @@
     rows.forEach(r => { const k = ymOf(r.expiry_date); if (k >= cur) keys.add(k); });
     if (!isMgr()) [...keys].forEach(k => { if (k !== cur && !rows.some(r => ymOf(r.expiry_date) === k)) keys.delete(k); });
     head.innerHTML = isMgr() ? '' : '<p class="muted-note ex-intro">The expiries given to you. Open a month and mark each item when it is done.</p>';
+    const waiting = open.filter(r => r.submitted_at && !r.decision).length;
     body.innerHTML = `<div class="ex-sum">
         <span><b>${open.length}</b> to deal with</span>
         ${expired ? `<span class="ex-s-past"><b>${expired}</b> expired</span>` : ''}
         ${week ? `<span class="ex-s-week"><b>${week}</b> within 7 days</span>` : ''}
         ${isMgr() && notGiven ? `<button type="button" class="ex-s-none" data-ex="filternone"><b>${notGiven}</b> not given yet</button>` : ''}
+        ${isMgr() && waiting ? `<span><b>${waiting}</b> waiting for the admin</span>` : ''}
         ${S.loading ? '<span class="muted-note ex-s-plain">updating…</span>' : ''}
-        <span class="ex-sp"></span>${whoSelect()}
+        <span class="ex-sp"></span>${whoSelect()}${sendBtn(open)}
       </div>
       <div class="ex-months">${earlier.length ? monthCard('past', earlier) : ''}${[...keys].sort().map(k => monthCard(k, rows.filter(r => ymOf(r.expiry_date) === k))).join('')}</div>`;
   }
@@ -209,7 +255,7 @@
     head.innerHTML = `<div class="ex-top"><button type="button" class="btn ghost small" data-ex="back">‹ All months</button>
       <h3 class="ex-title">${k === 'past' ? 'Expired' : `${monthName(k)} <span>${k.slice(0, 4)}</span>`}</h3><span class="ex-sp"></span>
       <div class="filter-row ex-seg">${[['open', `To do · ${nOpen}`], ['done', `Done · ${nDone}`], ['all', 'All']].map(([v, l]) => `<button type="button" data-ex-status="${v}" class="${S.status === v ? 'active' : ''}">${l}</button>`).join('')}</div>
-      ${whoSelect()}</div>`;
+      ${whoSelect()}${sendBtn(all)}</div>`;
     const shown = (S.status === 'all' ? all : all.filter(r => r.status === S.status)).sort(byDate);
     if (!shown.length) { body.innerHTML = `<p class="empty-note ex-empty">${S.status === 'done' ? 'Nothing done yet in this month.' : nOpen || nDone ? 'Everything here is done ✓' : 'Nothing expires in this month yet.'}</p>`; return; }
     if (!isMgr()) { body.innerHTML = `<div class="ex-list">${shown.map(cardHtml).join('')}</div>`; return; }
@@ -243,7 +289,7 @@
     const when = done ? '' : n < 0 ? `expired ${-n}d ago` : n === 0 ? 'today' : n === 1 ? 'tomorrow' : n <= 7 ? `in ${n} days` : '';
     return `<div class="ex-r u-${done ? 'done' : urg(r)}${S.flash.has(r.id) ? ' flash' : ''}" data-id="${r.id}">
       <span class="ex-r-date"><b>${r.day_known ? Number(r.expiry_date.slice(8)) : '–'}</b>${monShort(r.expiry_date)}</span>
-      <span class="ex-r-item"><b>${esc(r.description || r.code)}</b><small><span class="mono">${esc(r.code)}</span>${r.location ? ' · ' + esc(r.location) : ''}${when ? ` · <em>${when}</em>` : ''}${r.note ? ' · ' + esc(r.note) : ''}</small></span>
+      <span class="ex-r-item"><b>${esc(r.description || r.code)}</b>${decChip(r) ? `<span class="ex-r-chips">${decChip(r)}</span>` : ""}<small><span class="mono">${esc(r.code)}</span>${r.location ? ' · ' + esc(r.location) : ''}${when ? ` · <em>${when}</em>` : ''}${r.note ? ' · ' + esc(r.note) : ''}</small></span>
       <span class="ex-r-qty">${r.qty !== null && r.qty !== undefined ? `${fq(r.qty)}<small> pcs</small>` : '<small>—</small>'}</span>
       <select class="ex-give" data-ex-give="${r.id}" aria-label="Shelf worker" ${done ? 'disabled' : ''}>${workerOpts(rowKey(r), r)}</select>
       ${done ? `<span class="ex-r-done">✓ ${esc(OUT[r.outcome] || 'Done')}<button type="button" class="ex-undo" data-ex-undo="${r.id}">Undo</button></span>`
@@ -265,11 +311,130 @@
         <div class="ex-meta">${meta}</div>
         ${when ? `<div class="ex-when">${when}</div>` : ''}
         ${r.note ? `<div class="ex-note">${esc(r.note)}</div>` : ''}
+        ${r.decision ? `<div class="ex-decline">${decChip(r)}${r.decision_note ? ` <span>${esc(r.decision_note)}</span>` : ''}</div>` : ''}
         <div class="ex-acts">${done
           ? `<div class="ex-doneline">✓ ${esc(OUT_LONG[r.outcome] || 'Done')}${r.done_at ? ' · ' + esc(shortDay(r.done_at)) : ''}<button type="button" class="ex-undo" data-ex-undo="${r.id}">Undo</button></div>`
           : `<div class="ex-outs">${Object.entries(OUT).map(([o, l]) => `<button type="button" class="ex-out" data-ex-done="${r.id}" data-o="${o}">${l}</button>`).join('')}</div>`}</div>
       </div>
     </article>`;
+  }
+
+  /* ---------------- the admin: what was sent, with the supplier, the last purchase and the contract ---------------- */
+  const norm = s => String(s || '').toUpperCase().replace(/\s+\d+\s*$/, '').replace(/[^A-Z0-9؀-ۿ]/g, '');
+  const supName = s => String(s || '').replace(/\s+\d+\s*$/, '').trim();         // "G.VINCENTI &SONS S.A.L 132002" -> the name
+  const supCode = s => (/(\d{3,})\s*$/.exec(String(s || '')) || [])[1] || '';     // … and its account number
+  const lpSup = r => { const lp = S.lp[r.code]; return lp && typeof lp === 'object' ? (lp.docs || [])[0]?.supplier || '' : ''; };
+  const supplierOf = r => r.supplier || supName(lpSup(r));
+  // the vendor of the app: by the supplier's number on the last purchase, else by the name
+  function vendorFor(r) {
+    const list = typeof vendorsList !== 'undefined' ? vendorsList : [];
+    if (!list.length) return null;
+    const det = lpSup(r), code = supCode(det);
+    let v = code && window.VendorContract ? VendorContract.forSupplier(code) : null;
+    if (!v) {
+      const keys = [norm(r.supplier), norm(det)].filter(Boolean);
+      if (keys.length) v = list.find(x => keys.includes(norm(x.name)) || (x.systemSuppliers || []).some(s => keys.includes(norm(s.name)))) || null;
+    }
+    return v;
+  }
+  const decOpts = sel => Object.entries(DEC).map(([k, l]) => `<option value="${k}" ${sel === k ? 'selected' : ''}>${l}</option>`).join('');
+  const curSym = c => /lbp|l\.?l/i.test(String(c || '')) ? 'LBP ' : '$';
+  const lpDay = d => new Date(String(d).slice(0, 10) + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: '2-digit' });
+  function lpCell(code) {
+    const lp = S.lp[code];
+    if (lp === undefined || lp === 'loading') return '<span class="muted-note">reading…</span>';
+    if (!lp) return '<span class="muted-note">No purchase in 2 years</span>';
+    const d = (lp.docs || [])[0];
+    if (!d) return `<span class="muted-note">${lp.date ? esc(lpDay(lp.date)) + ' · ' : ''}could not be read</span>`;
+    return `<b>${esc(lpDay(lp.date))}</b> <span class="mono">${esc(d.doc)}</span><small>${fq(d.paidQty)}${d.freeQty ? ' + ' + fq(d.freeQty) + ' free' : ''} pcs${d.realCost !== null && d.realCost !== undefined ? ' · ' + curSym(d.currency) + fq(d.realCost) + ' each' : ''}</small>`;
+  }
+  // the last purchase of each item (lv-dashboard last_cost: the day, the PU, the quantity, the real cost, the supplier)
+  async function loadLp(codes) {
+    const need = [...new Set(codes)].filter(c => S.lp[c] === undefined);
+    if (!need.length || S.lpBusy) return;
+    S.lpBusy = true;
+    need.forEach(c => { S.lp[c] = 'loading'; });
+    for (let i = 0; i < need.length; i += 40) {
+      const part = need.slice(i, i + 40);
+      try { const r = await call({ action: 'last_cost', codes: part }); part.forEach(c => { S.lp[c] = (r.costs || {})[c] ?? null; }); }
+      catch (e) { part.forEach(c => { S.lp[c] = { failed: true, date: null, docs: [] }; }); }
+      refreshDecide();
+    }
+    S.lpBusy = false;
+    const more = (S.rows || []).filter(r => r.submitted_at && S.lp[r.code] === undefined).map(r => r.code);
+    if (more.length && isDec() && S.view === 'decide') loadLp(more);
+  }
+  // the last purchases arrive: a full repaint (the supplier groups may change), unless a field is in use
+  function refreshDecide() {
+    if (!(isDec() && S.view === 'decide')) return;
+    const a = document.activeElement, box = el('panel-expiries');
+    if (box && a && box.contains(a) && a.matches('input, select, textarea')) document.querySelectorAll('#exBody [data-lp]').forEach(x => { x.innerHTML = lpCell(x.dataset.lp); });
+    else paint();
+  }
+  function contractHtml(v) {
+    if (!v) return '<span class="ex-k">Not linked to a vendor: no contract to show</span>';
+    const c = window.VendorContract ? VendorContract.summary(v.contract) : null;
+    if (!c) return '';
+    const ret = c.expiredReturns === 'yes' ? '<span class="ex-k ok">Takes back expired goods</span>'
+      : c.expiredReturns === 'no' ? '<span class="ex-k bad">Does not take back expired goods</span>' : '<span class="ex-k">Expired goods: not in the contract</span>';
+    return [ret, VendorContract.chip(v.contract) || '<span class="ex-k">No back margin</span>',
+      c.paymentDays !== null && c.paymentDays !== '' ? `<span class="ex-k">Payment ${esc(c.paymentDays)} days</span>` : '',
+      c.to ? `<span class="ex-k ${c.expired ? 'bad' : ''}">Contract ${c.expired ? 'ended' : 'until'} ${esc(fmtDate(c.to))}</span>` : ''].filter(Boolean).join('');
+  }
+
+  function paintDecide(head, body) {
+    const sent = (S.rows || []).filter(r => r.submitted_at);
+    const todo = sent.filter(r => !r.decision && r.status === 'open'), decided = sent.filter(r => r.decision);
+    // what was decided a moment ago stays in the list until the view changes
+    const list = (S.dStatus === 'todo' ? sent.filter(r => (!r.decision && r.status === 'open') || S.justDecided.has(r.id)) : S.dStatus === 'decided' ? decided : sent).slice().sort(byDate);
+    head.innerHTML = `<div class="ex-top">
+      <div class="filter-row ex-seg">${[['todo', `To decide · ${todo.length}`], ['decided', `Decided · ${decided.length}`], ['all', 'All sent']].map(([v, l]) => `<button type="button" data-ex-dstatus="${v}" class="${S.dStatus === v ? 'active' : ''}">${l}</button>`).join('')}</div>
+      <span class="ex-sp"></span>
+      <div class="filter-row ex-seg">${[['supplier', 'By supplier'], ['date', 'By expiry date']].map(([v, l]) => `<button type="button" data-ex-dgroup="${v}" class="${S.dGroup === v ? 'active' : ''}">${l}</button>`).join('')}</div></div>`;
+    if (!list.length) {
+      body.innerHTML = `<p class="empty-note ex-empty">${S.dStatus === 'todo' ? (sent.length ? 'Everything sent is decided ✓' : 'Nothing was sent to you yet: the floor manager sends the expiries from the Months tab.') : 'Nothing here.'}</p>`;
+      return;
+    }
+    loadLp(list.map(r => r.code));
+    S.decGroups = {};
+    if (S.dGroup === 'date') { body.innerHTML = `<div class="ex-folds"><section class="ex-fold open"><div class="ex-fold-b">${list.map(r => decRowHtml(r, true)).join('')}</div></section></div>`; return; }
+    const groups = new Map();
+    list.forEach(r => {
+      const v = vendorFor(r), name = v ? v.name : supplierOf(r) || 'Supplier not known', key = v ? 'v:' + v.id : 's:' + (norm(name) || '?');
+      if (!groups.has(key)) groups.set(key, { key, name, v, rows: [] });
+      groups.get(key).rows.push(r);
+    });
+    const gl = [...groups.values()].sort((a, b) => a.rows[0].expiry_date.localeCompare(b.rows[0].expiry_date));   // the most urgent supplier first
+    gl.forEach(g => { S.decGroups[g.key] = g.rows.map(r => r.id); });
+    body.innerHTML = `<div class="ex-folds">${gl.map(supGroupHtml).join('')}</div>`;
+  }
+  function supGroupHtml(g) {
+    const fk = 'dec|' + g.key, open = S.folds[fk] ?? true;
+    const undecided = g.rows.filter(r => !r.decision).length;
+    const units = g.rows.reduce((s, r) => s + Number(r.qty || 0), 0);
+    return `<section class="ex-fold ex-sup ${open ? 'open' : ''}">
+      <div class="ex-fold-h">
+        <button type="button" class="ex-fold-t" data-fold="${esc(fk)}" aria-expanded="${open}">${ICON.chev}${ICON.folder}<b>${esc(g.name)}</b>
+          <span class="ex-fold-n"><b>${g.rows.length}</b> item${g.rows.length === 1 ? '' : 's'}${units ? ` · ${fq(units)} pcs` : ''}${undecided ? ` · <em>${undecided} to decide</em>` : ''}</span></button>
+        ${g.v ? `<button type="button" class="btn ghost small" data-ex-vendor="${esc(g.v.id)}">Vendor sheet</button>` : ''}
+        ${undecided ? `<select class="ex-giveall" data-ex-decall="${esc(g.key)}" aria-label="Decide for all of them"><option value="">Decide all ${undecided}…</option>${decOpts('')}</select>` : ''}
+      </div>
+      ${open ? `<div class="ex-sup-info">${contractHtml(g.v)}</div><div class="ex-fold-b">${g.rows.map(r => decRowHtml(r)).join('')}</div>` : ''}
+    </section>`;
+  }
+  function decRowHtml(r, showSup) {
+    const n = daysTo(r.expiry_date), done = r.status === 'done';
+    const when = done ? (OUT[r.outcome] || 'done') : n < 0 ? `expired ${-n}d ago` : n === 0 ? 'today' : n === 1 ? 'tomorrow' : n <= 31 ? `in ${n} days` : '';
+    const meta = [`<span class="mono">${esc(r.code)}</span>`, showSup && supplierOf(r) ? esc(supplierOf(r)) : '', r.location ? esc(r.location) : '', when ? `<em>${esc(when)}</em>` : '',
+      r.submitted_by_name ? 'sent by ' + esc(r.submitted_by_name) : '', r.assigned_name ? '→ ' + esc(r.assigned_name) : ''].filter(Boolean).join(' · ');
+    return `<div class="ex-r ex-dr u-${done ? 'done' : urg(r)}${S.flash.has(r.id) ? ' flash' : ''}${r.decision ? ' decided' : ''}" data-id="${r.id}">
+      <span class="ex-r-date"><b>${r.day_known ? Number(r.expiry_date.slice(8)) : '–'}</b>${monShort(r.expiry_date)}</span>
+      <span class="ex-r-item"><b>${esc(r.description || r.code)}</b><small>${meta}</small>${r.note ? `<small class="ex-r-note">${esc(r.note)}</small>` : ''}</span>
+      <span class="ex-r-qty">${r.qty !== null && r.qty !== undefined ? `${fq(r.qty)}<small> pcs</small>` : '<small>—</small>'}</span>
+      <span class="ex-r-lp" data-lp="${esc(r.code)}" title="The last purchase: day, PU, quantity, real cost">${lpCell(r.code)}</span>
+      <select class="ex-decsel${r.decision ? ' k-' + r.decision : ''}" data-ex-dec="${r.id}" aria-label="Decision"><option value="">Decide…</option>${decOpts(r.decision)}</select>
+      <input type="text" class="ex-decnote" data-ex-decnote="${r.id}" value="${esc(r.decision_note || '')}" placeholder="Note (optional)" aria-label="Note" autocomplete="off">
+    </div>`;
   }
 
   async function markDone(row, outcome) {
@@ -284,10 +449,15 @@
     box.dataset.wired = '1';
     box.addEventListener('click', async e => {
       if (e.target.closest('#exQuickBox')) return;   // the entry row has its own
-      const t = e.target.closest('[data-ex], [data-ex-month], [data-ex-status], [data-fold], [data-ex-done], [data-ex-undo], [data-ex-edit], [data-ex-del], [data-ex-again]'); if (!t) return;
+      const t = e.target.closest('[data-ex], [data-ex-month], [data-ex-status], [data-fold], [data-ex-done], [data-ex-undo], [data-ex-edit], [data-ex-del], [data-ex-again], [data-ex-view], [data-ex-dstatus], [data-ex-dgroup], [data-ex-vendor]'); if (!t) return;
       const a = t.dataset.ex;
       if (a === 'back') { S.month = null; quickMonth(); return paint(); }
       if (a === 'filternone') { S.who = 'none'; return paint(); }
+      if (a === 'send') return send(S.month ? monthRows(S.month) : whoRows());
+      if (t.dataset.exView) { S.view = t.dataset.exView; S.justDecided.clear(); return paint(); }
+      if (t.dataset.exDstatus) { S.dStatus = t.dataset.exDstatus; S.justDecided.clear(); return paint(); }
+      if (t.dataset.exDgroup) { S.dGroup = t.dataset.exDgroup; return paint(); }
+      if (t.dataset.exVendor) return typeof openVendorDetail === 'function' && openVendorDetail(t.dataset.exVendor);
       if (t.dataset.exMonth) { S.month = t.dataset.exMonth; S.status = 'open'; quickMonth(); paint(); return window.scrollTo({ top: 0 }); }
       if (t.dataset.exStatus) { S.status = t.dataset.exStatus; return paint(); }
       if (t.dataset.fold) { S.folds[t.dataset.fold] = !t.closest('.ex-fold').classList.contains('open'); return paint(); }
@@ -308,6 +478,32 @@
       const t = e.target;
       if (t.closest('#exQuickBox')) return;
       if (t.dataset.ex === 'who') { S.who = t.value; return paint(); }
+      // the admin's decision: one item, its note, or all the undecided of a supplier
+      if (t.dataset.exDec) {
+        const row = S.rows.find(x => x.id === t.dataset.exDec); if (!row) return;
+        S.justDecided.add(row.id);
+        const out = await patch([row.id], { decision: t.value || null }, true);
+        if (out && out[0]) {
+          t.className = 'ex-decsel' + (t.value ? ' k-' + t.value : '');
+          t.closest('.ex-dr')?.classList.toggle('decided', !!t.value);
+          logActivity('expiries', 'decide', { type: 'expiry', id: row.id }, `Expiry of ${row.description || row.code} (${row.expiry_date}): ${DEC[t.value] || 'no decision'}`);
+        }
+        return;
+      }
+      if (t.dataset.exDecnote) {
+        const row = S.rows.find(x => x.id === t.dataset.exDecnote); if (!row || (row.decision_note || '') === t.value.trim()) return;
+        S.justDecided.add(row.id);
+        await patch([row.id], { decision_note: t.value.trim() || null }, true);
+        return;
+      }
+      if (t.dataset.exDecall && t.value) {
+        const ids = (S.decGroups[t.dataset.exDecall] || []).filter(id => { const r = S.rows.find(x => x.id === id); return r && !r.decision; });
+        if (!ids.length) return;
+        ids.forEach(id => S.justDecided.add(id));
+        const out = await patch(ids, { decision: t.value });
+        if (out) { flash(ids); paint(); showToast(`${out.length} item${out.length === 1 ? '' : 's'}: ${DEC[t.value].toLowerCase()}.`); logActivity('expiries', 'decide', { type: 'expiry', id: ids[0] }, `${out.length} expiries: ${DEC[t.value]}`); }
+        return;
+      }
       if (t.dataset.exOut) { const row = S.rows.find(x => x.id === t.dataset.exOut); if (row && t.value) markDone(row, t.value); return; }
       if (t.dataset.exGive !== undefined) {
         const row = S.rows.find(x => x.id === t.dataset.exGive); if (!row) return;
