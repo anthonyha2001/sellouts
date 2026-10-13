@@ -265,9 +265,17 @@
     return { hours, names, total: n(cum['*']), last: snaps[snaps.length - 1] || null, snaps: snaps.length };
   }
   async function readDay(day) {
-    const { data, error } = await sb.from('sales_snapshots').select('taken_at, section, section_desc, sales').eq('day', day).order('taken_at').limit(20000);
-    if (error) throw new Error(error.message);
-    return data || [];
+    // the database gives 1000 rows per request at most (about 12 measures of 83 sections): read the day page by page
+    // (owner, 2026-10-13: the hours stopped at 12:45 while the measures went on)
+    const out = [];
+    for (let from = 0; from < 50000; from += 1000) {
+      const { data, error } = await sb.from('sales_snapshots').select('taken_at, section, section_desc, sales').eq('day', day)
+        .order('taken_at').order('section').range(from, from + 999);
+      if (error) throw new Error(error.message);
+      out.push(...(data || []));
+      if (!data || data.length < 1000) break;
+    }
+    return out;
   }
   function showHourly(box) {
     if (!box) return;
