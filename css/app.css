@@ -3422,3 +3422,17 @@ tr:hover .so-note,.so-note:focus{border-color:var(--line-strong);background:var(
 /* Vendor board: auto-received from a new PU (owner, 2026-10-13) */
 .vb-auto{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:6px 0 0;padding:6px 10px;border-radius:8px;background:color-mix(in srgb, var(--gold) 12%, transparent);font-size:12.5px;}
 .vb-auto-t{flex:1;min-width:120px;color:var(--ink);font-weight:600;}
+/* Import vendors from the system (owner, 2026-10-13) */
+.vi-box{width:min(900px,calc(100vw - 24px));max-height:calc(100vh - 40px);display:flex;flex-direction:column;}
+.vi-head{display:flex;align-items:center;gap:12px;margin:0 0 10px;}
+.vi-head h3{margin:0;flex:1;}
+#viBody{display:flex;flex-direction:column;min-height:0;}
+.vi-bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 10px;}
+.vi-bar input[type=search]{max-width:240px;}
+.vi-sel-all{font-size:12.5px;display:inline-flex;gap:6px;align-items:center;}
+.vi-scroll{flex:1;min-height:0;overflow:auto;margin:0;}
+.vi-tbl td{vertical-align:middle;}
+.vi-ck{width:30px;text-align:center;}
+.vi-linked td{opacity:.6;}
+.vi-new{color:var(--pine);font-weight:700;font-size:12px;}
+.vi-foot{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-top:12px;padding-top:10px;border-top:1px solid var(--line);}

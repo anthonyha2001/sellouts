@@ -4297,6 +4297,7 @@ document.getElementById('vendorSearchInput').addEventListener('input', (e) => {
   renderVendorsPage();
 });
 
+document.getElementById('importFromSystemBtn')?.addEventListener('click', () => { if (window.VendorImport) VendorImport.open(); });
 document.getElementById('importVendorsBtn').addEventListener('click', () => {
   document.getElementById('vendorFileInput').click();
 });

@@ -114,6 +114,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M8 9h8M8 12h5M8 15h3"/></svg>
       <span class="label">Price check</span>
     </button>
+    <button class="nav-btn" data-tab="competitors" title="Competitors" hidden>
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-6"/><circle cx="7" cy="14" r="1"/></svg>
+      <span class="label">Competitors</span>
+    </button>
     <!-- Floor check removed (owner, 2026-10-12): its records stay in the database -->
     <button class="nav-btn" data-tab="expiries" title="Expiries" hidden>
       <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 22h14M5 2h14"/><path d="M17 22v-4.2a2 2 0 0 0-.6-1.4L12 12l-4.4 4.4a2 2 0 0 0-.6 1.4V22"/><path d="M7 2v4.2a2 2 0 0 0 .6 1.4L12 12l4.4-4.4a2 2 0 0 0 .6-1.4V2"/></svg>
@@ -343,6 +347,7 @@
               <span class="muted-note" id="vendorCountNote">No vendors yet.</span>
             </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button class="btn secondary small" id="importFromSystemBtn">Import from the system</button>
               <button class="btn secondary small" id="importVendorsBtn">Import from Excel</button>
               <input type="file" id="vendorFileInput" accept=".xlsx,.xls,.csv" style="display:none;">
               <button class="btn small" id="addVendorBtn">+ Add vendor</button>
@@ -928,6 +933,8 @@
 
     <!-- PRICE CHECK: scan an item, see its price and stock (js/modules/pricecheck.js) -->
     <section class="panel" id="panel-pricecheck"></section>
+    <!-- COMPETITORS: scan an item in a rival store, compare prices (js/modules/competitors.js) -->
+    <section class="panel" id="panel-competitors"></section>
 
     <!-- EXPIRIES: items that expire soon, one card per month (js/modules/expiries.js) -->
     <section class="panel" id="panel-expiries"></section>
@@ -1124,6 +1131,7 @@
 <script src="js/modules/warehouse.js"></script>
 <script src="js/modules/expiries.js"></script>
 <script src="js/modules/pricecheck.js"></script>
+<script src="js/modules/competitors.js"></script>
 <script src="js/supplier-report-view.js"></script>
 <script src="js/modules/vendorsheet.js"></script>
 <script src="js/modules/vendororder.js"></script>
@@ -1137,6 +1145,7 @@
 <script src="js/modules/performance.js"></script>
 <script src="js/modules/marginwatch.js"></script>
 <script src="js/modules/promoideas.js"></script>
+<script src="js/modules/vendorimport.js"></script>
 <script src="js/modules/pricing.js"></script>
 <script src="js/modules/tools.js"></script>
 <script src="js/modules/promoladies.js"></script>

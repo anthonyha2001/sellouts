@@ -696,6 +696,24 @@ const PO_DAYS = 7, PO_BUDGET_MS = 80000;   // the POs of the week (owner, 2026-1
    flagged delivered by itself, stamped auto (received_by_name 'Auto · new PU', auto_received = true), fully reversible.
    Only vendors linked to a system supplier can match; the oldest open order of a supplier takes the earliest new PU; a PU
    day already matched to one order is not reused for another. push-alerts notifies the vendors managers (once per order). */
+// the system's suppliers, from their purchases of the last 12 months (owner, 2026-10-13: import vendors straight from the system)
+async function supplierCatalog() {
+  const today = beirutToday(), from = plusDays(today, -364);
+  const m = new Map<string, { code: string; name: string; purchases: number; units: number; months: Set<string> }>();
+  (await report('purchases', from, today, { group_by: ['supplier'] })).forEach(r => {
+    const c = trimCode(r.supplier); if (!c || c.includes(':')) return;
+    const x = m.get(c) || { code: c, name: String(r.supplier_desc ?? '').trim() || c, purchases: 0, units: 0, months: new Set<string>() };
+    x.purchases += Number(r.total_purchases || 0); x.units += Number(r.total_quantity || 0);
+    const mo = String(r.period || '').slice(0, 7); if (mo) x.months.add(mo);
+    if (!x.name && r.supplier_desc) x.name = String(r.supplier_desc).trim();
+    m.set(c, x);
+  });
+  const r2 = (v: number) => Math.round(v * 100) / 100;
+  const suppliers = [...m.values()].map(x => ({ code: x.code, name: x.name, purchases: r2(x.purchases), units: r2(x.units), active_months: x.months.size }))
+    .sort((a, b) => b.purchases - a.purchases);
+  return { from, to: today, suppliers };
+}
+
 async function autoReceive() {
   const today = beirutToday();
   // the orders still waiting, oldest first, with their vendor's system supplier codes
@@ -2171,6 +2189,16 @@ Deno.serve(async req => {
     if (body.action === 'stock_check_now') {
       if (!isServer && role !== 'admin') return json({ error: 'Admin only.' }, 403);
       return json(await stockWatch(String(body.vendor || '')));
+    }
+    // The system's supplier catalogue, to import vendors from it (owner, 2026-10-13)
+    if (body.action === 'supplier_catalog') {
+      if (!isServer && role !== 'admin') {
+        const anon = Deno.env.get('SUPABASE_ANON_KEY') || '';
+        const asUser = createClient(SUPABASE_URL, anon, { global: { headers: { Authorization: `Bearer ${bearer}` } }, auth: { persistSession: false, autoRefreshToken: false } });
+        const { data: ok } = await asUser.rpc('has_perm', { p_perms: ['vendors.manage'] });
+        if (!ok) return json({ error: 'Not allowed.' }, 403);
+      }
+      return json(await supplierCatalog());
     }
     // Prepare the codes of a past year (migration 069): part suppliers | items | items_search (offset)
     if (body.action === 'code_map_build') {
