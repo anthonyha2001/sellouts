@@ -44,7 +44,7 @@
     if (error || !data || data.error) throw new Error(data?.error || 'no answer');
     return data;
   }
-  const failMsg = e => e.message === 'no answer' ? 'The system did not answer. Check the "Link to the system" card on the Dashboard.' : e.message;
+  const failMsg = e => e.message === 'no answer' ? 'The system did not answer. Check the "Link to the system" card on the Dashboard.' : /Unknown level/i.test(e.message) ? 'Supplier and Items need the new lv-dashboard: redeploy it.' : e.message;
   const xlsIcon = '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>';
   function xls(aoa, name) {
     const ws = XLSX.utils.aoa_to_sheet(aoa);
@@ -55,9 +55,11 @@
   const cls = v => v === null ? '' : v < 0 ? 'pf-neg' : 'pf-up';
 
   /* ================= Categories ================= */
-  const LEVELS = [['department', 'Department'], ['section', 'Section'], ['group', 'Group'], ['brand', 'Brand']];
-  const CHILD = { department: 'section', section: 'group', group: 'subgroup' };
-  const LABEL = { department: 'Department', section: 'Section', group: 'Group', subgroup: 'Sub-group', brand: 'Brand' };
+  // owner, 2026-10-13: group by department, section, group, sub-group, brand, supplier or item; every level opens down to its items
+  const LEVELS = [['department', 'Department'], ['section', 'Section'], ['group', 'Group'], ['subgroup', 'Sub-group'], ['brand', 'Brand'], ['supplier', 'Supplier'], ['item', 'Items']];
+  const CHILD = { department: 'section', section: 'group', group: 'subgroup', subgroup: 'item', brand: 'item', supplier: 'item' };
+  const LABEL = { department: 'Department', section: 'Section', group: 'Group', subgroup: 'Sub-group', brand: 'Brand', supplier: 'Supplier', item: 'Item' };
+  const price = (s, q) => n(q) > 0 ? '$' + (Math.round(n(s) / n(q) * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 2 }) : '—';
   const C = { from: null, to: null, level: 'department', path: [], q: '', sort: 'sales', dir: -1, data: null, seq: 0 };
   function presets() {
     const t = todayStr(), y = addDays(t, -1), T = D(t), first = iso(new Date(Date.UTC(T.getUTCFullYear(), T.getUTCMonth(), 1)));
@@ -116,7 +118,8 @@
     const th = (key, label, num = true) => `<th class="${num ? 'num ' : ''}pf-sort" data-k="${key}">${label}${sortIc(key)}</th>`;
     const crumbs = [`<button type="button" data-crumb="-1">All ${esc(LEVELS.find(l => l[0] === C.level)?.[1].toLowerCase() || '')}s</button>`]
       .concat(C.path.map((p, i) => `<span class="muted-note">›</span><button type="button" data-crumb="${i}">${esc(p.name)}</button>`)).join(' ');
-    const canOpen = !!CHILD[d.level];
+    const canOpen = !!CHILD[d.level], isItem = d.level === 'item';
+    d.rows.forEach(r => { r.avg = n(r.qty) > 0 ? r.sales / r.qty : null; r.prevAvg = n(r.prevQty) > 0 ? r.prevSales / r.prevQty : null; });
     box.innerHTML = `
       <div class="filter-row sc-levels" style="margin:0 0 10px;">${C.path.length ? `<div class="sc-crumbs">${crumbs}</div>` : LEVELS.map(([v, l]) => `<button type="button" data-level="${v}" class="${v === C.level ? 'active' : ''}">${l}</button>`).join('')}</div>
       <div class="pf-tiles">
@@ -132,16 +135,17 @@
           <span style="flex:1"></span>
           <button type="button" class="icon-btn" id="scXls" title="Download (Excel)" aria-label="Download (Excel)">${xlsIcon}</button></div>
         <div class="items-scroll pf-scroll"><table class="items pf-table sc-table"><thead><tr>
-          ${th('name', LABEL[d.level], false)}${th('sales', 'Sales')}<th class="num">Share</th>${th('prevSales', 'Last month')}${th('diff', 'Difference')}${th('ch', 'Change')}${th('qty', 'Units')}${th('prevQty', 'Units last month')}</tr></thead>
-          <tbody>${rows.map(r => `<tr class="${canOpen ? 'pf-row' : ''}" data-code="${esc(r.code)}" ${canOpen ? `tabindex="0" title="Open the ${esc(LABEL[CHILD[d.level]].toLowerCase())}s of ${esc(r.name)}"` : ''}>
-            <td><b>${esc(r.name)}</b></td>
+          ${th('name', LABEL[d.level], false)}${th('sales', 'Sales')}<th class="num">Share</th>${th('prevSales', 'Last month')}${th('diff', 'Difference')}${th('ch', 'Change')}${th('qty', 'Units')}${th('prevQty', 'Units last month')}${th('avg', 'Avg price')}${th('prevAvg', 'Avg price last month')}</tr></thead>
+          <tbody>${rows.slice(0, 800).map(r => `<tr class="${canOpen || isItem ? 'pf-row' : ''}" data-code="${esc(r.code)}" ${canOpen ? `tabindex="0" title="Open the ${esc(LABEL[CHILD[d.level]].toLowerCase())}s of ${esc(r.name)}"` : ''}>
+            <td><b>${esc(r.name)}</b>${r.code && r.code !== '?' && r.code !== r.name ? ` <span class="muted-note mono">${esc(r.code)}</span>` : ''}</td>
             <td class="num">${money(r.sales)}</td>
             <td class="num"><span class="sc-share"><i style="width:${total > 0 ? Math.max(1, Math.round(r.sales / total * 100)) : 0}%"></i></span>${total > 0 ? (Math.round(r.sales / total * 1000) / 10) + '%' : ''}</td>
             <td class="num">${money(r.prevSales)}</td>
             <td class="num ${r.diff < 0 ? 'pf-neg' : ''}">${(r.diff >= 0 ? '+' : '-') + money(Math.abs(r.diff))}</td>
             <td class="num"><span class="${cls(r.ch)}">${r.prevSales > 0 ? pct(r.ch) : '<span class="muted-note">new</span>'}</span></td>
-            <td class="num">${qty(r.qty)}</td><td class="num">${qty(r.prevQty)}</td></tr>`).join('') || '<tr><td colspan="8" class="empty-note">No sales.</td></tr>'}</tbody></table></div>
-        <p class="muted-note" style="margin:8px 0 0;">Sales in $ as the system reports them, against the same dates one month before (a whole month against the whole month before). ${canOpen ? 'Click a line to open what is inside it.' : ''}</p>
+            <td class="num">${qty(r.qty)}</td><td class="num">${qty(r.prevQty)}</td><td class="num">${price(r.sales, r.qty)}</td><td class="num">${price(r.prevSales, r.prevQty)}</td></tr>`).join('') || '<tr><td colspan="10" class="empty-note">No sales.</td></tr>'}</tbody></table></div>
+        ${rows.length > 800 ? `<p class="muted-note" style="margin:8px 0 0;">The first 800 of ${rows.length.toLocaleString('en-US')} shown: search, or download the Excel for all of them.</p>` : ''}
+        <p class="muted-note" style="margin:8px 0 0;">Sales in $ as the system reports them, against the same dates one month before (a whole month against the whole month before). ${canOpen ? 'Click a line to open what is inside it, down to its items.' : isItem ? 'Click an item for its details (prices, stock in every branch, purchases).' : ''}</p>
       </div>`;
     box.querySelectorAll('[data-level]').forEach(b => b.onclick = () => { C.level = b.dataset.level; C.path = []; C.q = ''; loadCats(); });
     box.querySelectorAll('[data-crumb]').forEach(b => b.onclick = () => { C.path = C.path.slice(0, Number(b.dataset.crumb) + 1); C.q = ''; loadCats(); });
@@ -149,8 +153,9 @@
     el('scQ').oninput = () => { C.q = el('scQ').value; const pos = el('scQ').selectionStart; paintCats(); el('scQ').focus(); el('scQ').setSelectionRange(pos, pos); };
     if (canOpen) box.querySelectorAll('tr[data-code]').forEach(tr => { const go = () => { const r = d.rows.find(x => x.code === tr.dataset.code); C.path.push({ level: d.level, code: r.code, name: r.name }); C.q = ''; loadCats(); };
       tr.onclick = go; tr.onkeydown = e => { if (e.key === 'Enter') go(); }; });
-    el('scXls').onclick = () => xls([[LABEL[d.level], 'Code', 'Sales ($)', 'Share %', 'Last month ($)', 'Difference ($)', 'Change %', 'Units', 'Units last month'],
-      ...rows.map(r => [r.name, r.code, Math.round(r.sales * 100) / 100, total > 0 ? Math.round(r.sales / total * 1000) / 10 : '', Math.round(r.prevSales * 100) / 100, Math.round(r.diff * 100) / 100, r.ch === null ? '' : Math.round(r.ch * 1000) / 10, Math.round(r.qty), Math.round(r.prevQty)]),
+    if (isItem) box.querySelectorAll('tr[data-code]').forEach(tr => { const open = () => window.ItemDetail && ItemDetail.open(tr.dataset.code); tr.onclick = open; tr.onkeydown = e => { if (e.key === 'Enter') open(); }; });
+    el('scXls').onclick = () => xls([[LABEL[d.level], 'Code', 'Sales ($)', 'Share %', 'Last month ($)', 'Difference ($)', 'Change %', 'Units', 'Units last month', 'Avg price ($)', 'Avg price last month ($)'],
+      ...rows.map(r => [r.name, r.code, Math.round(r.sales * 100) / 100, total > 0 ? Math.round(r.sales / total * 1000) / 10 : '', Math.round(r.prevSales * 100) / 100, Math.round(r.diff * 100) / 100, r.ch === null ? '' : Math.round(r.ch * 1000) / 10, Math.round(r.qty), Math.round(r.prevQty), r.avg === null ? '' : Math.round(r.avg * 100) / 100, r.prevAvg === null ? '' : Math.round(r.prevAvg * 100) / 100]),
       [], ['Total', '', Math.round(total * 100) / 100, '', Math.round(ptotal * 100) / 100, Math.round((total - ptotal) * 100) / 100, ptotal > 0 ? Math.round((total / ptotal - 1) * 1000) / 10 : '']],
       `Sales by ${LABEL[d.level].toLowerCase()} ${d.from} ${d.to}`);
   }

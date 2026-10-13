@@ -1641,7 +1641,7 @@ async function storeDaily(from: string, to: string) {
 }
 // sales by category (owner, 2026-10-11: Performance › Categories): one level (department, section, group, subgroup, brand),
 // optionally inside one parent (e.g. the groups of one section)
-const CAT_LEVELS = ['department', 'section', 'group', 'subgroup', 'brand'];
+const CAT_LEVELS = ['department', 'section', 'group', 'subgroup', 'brand', 'supplier', 'item'];   // item, supplier: owner 2026-10-13
 async function salesCategories(from: string, to: string, level: string, parentLevel?: string, parentCode?: string) {
   const extra: Record<string, unknown> = { group_by: [level] };
   if (parentLevel && parentCode) extra[parentLevel] = [parentCode];
