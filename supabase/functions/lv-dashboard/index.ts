@@ -1672,7 +1672,18 @@ async function salesSnapshot() {
     rows = sec.filter(today);
     ok = Math.abs(rows.reduce((t, r) => t + Number(r.total_sales || 0), 0) - fresh) < 0.5;
   }
-  if (!ok) return { day, changed: false, stale: true, total: Math.round(fresh * 100) / 100 };
+  if (!ok) {
+    // the sections never added up (the dashboard kept serving old section figures): keep the store's total anyway when it
+    // moved, so the whole-store hours do not freeze for the rest of the day (owner, 2026-10-13: stuck at 12:45 at 20:36)
+    const { data: lastT } = await db.from('sales_snapshots').select('sales').eq('day', day).eq('section', '*').order('taken_at', { ascending: false }).limit(1);
+    const t2 = Math.round(fresh * 100) / 100;
+    if (fresh > 0 && (!lastT?.length || Math.abs(Number(lastT[0].sales) - t2) >= 0.005)) {
+      const taken_at = new Date(Math.floor(now.getTime() / 60000) * 60000).toISOString();
+      await db.from('sales_snapshots').upsert([{ day, taken_at, section: '*', section_desc: 'Whole store', sales: t2, qty: 0 }]);
+      return { day, changed: true, stale: true, totalOnly: true, total: t2 };
+    }
+    return { day, changed: false, stale: true, total: t2 };
+  }
   const secs = new Map<string, { section: string; section_desc: string; sales: number; qty: number }>();
   rows.forEach(r => { const c = String(r.section ?? '').trim() || '?'; const x = secs.get(c) || { section: c, section_desc: String(r.section_desc ?? '').trim() || (c === '?' ? 'Not classified' : c), sales: 0, qty: 0 };
     x.sales += Number(r.total_sales || 0); x.qty += Number(r.total_quantity || 0); secs.set(c, x); });
