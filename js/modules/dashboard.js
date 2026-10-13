@@ -134,12 +134,17 @@
 
   async function loadOrders() {
     const t = today();
-    const rows = await q(sb.from('vendor_orders').select('vendor_name, order_date, expected_delivery, status').neq('status', 'delivered'));
+    const [rows, rcv] = await Promise.all([
+      q(sb.from('vendor_orders').select('vendor_name, order_date, expected_delivery, status').neq('status', 'delivered')),
+      q(sb.from('vendor_orders').select('vendor_name, delivered_date, received_at, received_by_name, auto_received, auto_received_pu').eq('status', 'delivered').eq('delivered_date', t)),
+    ]);
     const pending = rows.filter(r => r.status === 'pending');
+    const received = (rcv || []).sort((a, b) => String(b.received_at || '').localeCompare(String(a.received_at || '')));
     return {
       pending: pending.length, notSent: rows.filter(r => r.status === 'not_sent'),
       dueToday: pending.filter(r => r.expected_delivery === t),
       late: pending.filter(r => r.expected_delivery && r.expected_delivery < t).sort((a, b) => a.expected_delivery.localeCompare(b.expected_delivery)),
+      received, receivedAuto: received.filter(r => r.auto_received),
     };
   }
 
@@ -345,6 +350,11 @@
           <div class="db-stats">${stat('Waiting delivery', o.pending)}${stat('Due today', o.dueToday.length)}${stat('Late', o.late.length, o.late.length ? 'bad' : '')}</div>
           ${o.late.length ? `<h4>Late</h4><ul class="db-list">${o.late.slice(0, 5).map(x => line(esc(x.vendor_name), 'expected ' + esc(fmtDate(x.expected_delivery)), 'neg')).join('')}</ul>` : ''}
           ${o.notSent.length ? `<p class="db-note">${o.notSent.length} order${o.notSent.length === 1 ? '' : 's'} not sent yet</p>` : ''}`))}
+
+        ${card('received', 'vendors', 'check', 'Received today', box('orders', o => `
+          <div class="db-stats">${stat('Received', o.received.length)}${stat('Auto-flagged', o.receivedAuto.length, o.receivedAuto.length ? 'warn' : '', 'Flagged by a new PU — confirm or undo on Vendors')}</div>
+          ${o.received.length ? `<ul class="db-list">${o.received.slice(0, 6).map(x => line(esc(x.vendor_name), x.auto_received ? esc(x.auto_received_pu || 'auto · new PU') : esc(x.received_by_name || 'received'), x.auto_received ? 'warn' : '')).join('')}${o.received.length > 6 ? line(`+${o.received.length - 6} more`, '', 'muted') : ''}</ul>`
+            : '<p class="db-note">Nothing received yet today.</p>'}`))}
 
         ${card('delivery', 'delivery', 'bike', 'Delivery', box('delivery', d => `
           <div class="db-stats">${stat('Orders today', d.today)}${stat('Today', money(d.todayAmt), '', '$' + usd(d.todayAmt))}${stat('Unpaid', d.unpaid, d.oldUnpaid ? 'bad' : '')}</div>
