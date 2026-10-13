@@ -691,6 +691,61 @@ async function stockSnapshot() {
    or after the PO's day (the daily purchases report), or when the PO has nothing remaining (WMS receiving).
    Saved in system_pos / system_po_lines; the app flags an item out of stock that is on an open PO. */
 const PO_DAYS = 7, PO_BUDGET_MS = 80000;   // the POs of the week (owner, 2026-10-11)
+/* ---------------- auto-receive from a new PU (owner, 2026-10-13; migration 094) ----------------
+   A sent order (status 'pending') whose supplier shows a new purchase (PU) in the system on/after the day it was sent is
+   flagged delivered by itself, stamped auto (received_by_name 'Auto · new PU', auto_received = true), fully reversible.
+   Only vendors linked to a system supplier can match; the oldest open order of a supplier takes the earliest new PU; a PU
+   day already matched to one order is not reused for another. push-alerts notifies the vendors managers (once per order). */
+async function autoReceive() {
+  const today = beirutToday();
+  // the orders still waiting, oldest first, with their vendor's system supplier codes
+  const { data: orders } = await db.from('vendor_orders')
+    .select('id, vendor_id, vendor_name, order_date, expected_delivery, vendors(system_suppliers)')
+    .eq('status', 'pending').order('order_date', { ascending: true });
+  const open = (orders || []).map(o => {
+    const vj = o.vendors as unknown as { system_suppliers?: { code?: string }[] } | { system_suppliers?: { code?: string }[] }[] | null;
+    const row = Array.isArray(vj) ? vj[0] : vj;
+    const sys = row?.system_suppliers;
+    const codes = Array.isArray(sys) ? sys.map(s => trimCode(s.code)).filter(Boolean) : [];
+    return { id: String(o.id), vendor_id: o.vendor_id, name: String(o.vendor_name || ''), from: String(o.order_date || '').slice(0, 10), codes };
+  }).filter(o => o.codes.length && isDay(o.from));
+  if (!open.length) return { pending: (orders || []).length, matched: 0, done: [] };
+
+  // the new PUs of these suppliers since the earliest open order: per supplier code, the days with a purchase (qty > 0)
+  const earliest = open.reduce((m, o) => o.from < m ? o.from : m, today);
+  const codes = [...new Set(open.flatMap(o => o.codes))];
+  const byCode = new Map<string, { day: string; value: number }[]>();
+  try {
+    const rows = await report('purchases', earliest, today, { aggregation: 'Daily', group_by: ['supplier'], supplier: codes });
+    rows.forEach(r => {
+      const c = trimCode(r.supplier), day = String(r.period || '').slice(0, 10), q = Number(r.total_quantity || 0), v = Number(r.total_purchases || 0);
+      if (!c || !day || q <= 0) return;
+      const l = byCode.get(c) || []; l.push({ day, value: v }); byCode.set(c, l);
+    });
+  } catch (e) { console.warn('auto-receive read', e); return { pending: open.length, matched: 0, done: [], failed: true }; }
+  byCode.forEach(l => l.sort((a, b) => a.day.localeCompare(b.day)));
+
+  const used = new Set<string>();                      // supplierCode|day already matched this run (one PU day → one order)
+  const done: Record<string, unknown>[] = [];
+  for (const o of open) {
+    let hit: { day: string; value: number } | null = null, hitCode = '';
+    for (const c of o.codes) {
+      const pu = (byCode.get(c) || []).find(p => p.day >= o.from && !used.has(c + '|' + p.day));
+      if (pu && (!hit || pu.day < hit.day)) { hit = pu; hitCode = c; }
+    }
+    if (!hit) continue;
+    used.add(hitCode + '|' + hit.day);
+    const d = hit.day; const info = `PU ${d.slice(8) + '-' + d.slice(5,7)} · $${Math.round(hit.value).toLocaleString('en-US')}`;
+    const { error } = await db.from('vendor_orders').update({
+      status: 'delivered', delivered_date: hit.day, received_at: new Date().toISOString(), received_by: null,
+      received_by_name: 'Auto · new PU', receive_status: 'complete', auto_received: true, auto_received_pu: info,
+    }).eq('id', o.id).eq('status', 'pending');
+    if (error) { console.warn('auto-receive save', o.id, error.message); continue; }
+    done.push({ id: o.id, vendor: o.name, day: hit.day, value: Math.round(hit.value), pu: info });
+  }
+  return { pending: open.length, matched: done.length, done };
+}
+
 async function poSync() {
   const started = Date.now(), today = beirutToday(), cutoff = plusDays(today, -PO_DAYS);
   // 1. the PO headers of the week (the last 7 days)
@@ -1946,6 +2001,16 @@ Deno.serve(async req => {
     const { data, error } = await db.from('supplier_reports').select('vendor_name, month, data, created_at').eq('token', tk).maybeSingle();
     if (error || !data) return json({ error: 'This report was not found.' }, 404);
     return json(data);
+  }
+
+  // Auto-receive from a new PU (migration 094), from pg_cron or the server key.
+  if (body.action === 'auto_receive') {
+    const cron = req.headers.get('x-cron-secret') || '';
+    let ok = serverKeys().includes(req.headers.get('apikey') || '');
+    if (!ok && cron) { const { data } = await db.rpc('push_keys'); ok = !!data && cron === (data as Record<string, string>).push_cron_secret; }
+    if (!ok) return json({ error: 'Not allowed.' }, 403);
+    try { return json(await autoReceive()); }
+    catch (e) { console.error(e); return json({ error: e instanceof Error ? e.message : 'failed' }, 502); }
   }
 
   // The stock watch (migration 066), from pg_cron or the server key.

@@ -1434,6 +1434,7 @@ function switchTab(name, sub) {
   if (name === 'expiries' && window.Expiries) Expiries.show();
   if (name === 'toolcheck' && window.Reconcile) { const box = document.getElementById('panel-toolcheck'); if (box && !box.dataset.mounted) { box.dataset.mounted = '1'; Reconcile.mount(box); } }
   if (name === 'pricecheck' && window.PriceCheck) PriceCheck.show();
+  if (name === 'competitors' && window.Competitors) Competitors.show();
   if (name === 'warehouse' && window.Warehouse) Warehouse.show();
   if (name === 'stockcontrol' && window.StockControl) StockControl.show();
   if (name === 'performance' && window.Performance) Performance.show();
@@ -4489,7 +4490,8 @@ async function loadOrdersData() {
     expectedDelivery: r.expected_delivery, status: r.status || 'pending', deliveredDate: r.delivered_date,
     // receiving (migration 062)
     receivedAt: r.received_at || null, receivedByName: r.received_by_name || null, receiveStatus: r.receive_status || null,
-    invoiceNo: r.invoice_no || null, receiveNote: r.receive_note || null
+    invoiceNo: r.invoice_no || null, receiveNote: r.receive_note || null,
+    autoReceived: !!r.auto_received, autoReceivedPu: r.auto_received_pu || null   // flagged by a new PU (migration 094)
   }));
 }
 async function saveOrderRemote(o) {

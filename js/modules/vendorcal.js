@@ -173,13 +173,26 @@
   async function undoReceived(id) {
     const o = ordersList.find(x => x.id === id); if (!o) return;
     if (!await showConfirm(`Undo the receiving of ${o.vendorName}? It goes back to awaiting delivery.`, 'Undo')) return;
-    const patch = { status: 'pending', delivered_date: null, received_at: null, received_by: null, received_by_name: null, receive_status: null, invoice_no: null, receive_note: null };
+    const patch = { status: 'pending', delivered_date: null, received_at: null, received_by: null, received_by_name: null, receive_status: null, invoice_no: null, receive_note: null, auto_received: false, auto_received_pu: null };
     const { error } = await sb.from('vendor_orders').update(patch).eq('id', id);
     if (error) return showToast('Not saved — ' + sbErrText(error), true);
-    Object.assign(o, { status: 'pending', deliveredDate: null, receivedAt: null, receivedByName: null, receiveStatus: null, invoiceNo: null, receiveNote: null });
-    logActivity('vendors', 'unreceive', { type: 'vendor_order', id }, `Undid the receiving of ${o.vendorName}`);
+    Object.assign(o, { status: 'pending', deliveredDate: null, receivedAt: null, receivedByName: null, receiveStatus: null, invoiceNo: null, receiveNote: null, autoReceived: false, autoReceivedPu: null });
+    logActivity('vendors', 'unreceive', { type: 'vendor_order', id }, `Undid the receiving of ${o.vendorName}${o.autoReceived ? ' (auto)' : ''}`);
     renderReceiving(); renderStats();
+    if (window.VendorBoard) VendorBoard.render();
+  }
+  // confirm an auto-received order: keep it delivered, drop the auto flag, stamp the confirmer
+  async function confirmAuto(id) {
+    const o = ordersList.find(x => x.id === id); if (!o || !o.autoReceived) return;
+    const me = Session.profile?.display_name || Session.profile?.username || '';
+    const { error } = await sb.from('vendor_orders').update({ auto_received: false, received_by: Session.user?.id || null, received_by_name: me }).eq('id', id);
+    if (error) return showToast('Not saved — ' + sbErrText(error), true);
+    Object.assign(o, { autoReceived: false, receivedByName: me });
+    logActivity('vendors', 'confirm_auto', { type: 'vendor_order', id }, `Confirmed the auto-received order of ${o.vendorName} (${o.autoReceivedPu || ''})`);
+    showToast(`${o.vendorName}: confirmed.`);
+    renderReceiving(); renderStats();
+    if (window.VendorBoard) VendorBoard.render();
   }
 
-  window.VendorCal = { renderReceiving, renderStats, openReceiving, receiveOrder };
+  window.VendorCal = { renderReceiving, renderStats, openReceiving, receiveOrder, confirmAuto, undoReceived };
 })();

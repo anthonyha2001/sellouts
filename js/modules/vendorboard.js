@@ -101,8 +101,9 @@
     let urgency = 9;
     if (late) urgency = 0; else if (dueNow) urgency = 1; else if (ns) urgency = 2; else if (st.low || st.fast) urgency = 3; else if (pend) urgency = 4; else if (days !== null && days <= 3 && !pend) urgency = 5; else if (days !== null) urgency = 6; else urgency = 8;
     const received = !!last && !pend && !ns && daysSince(last.deliveredDate) <= 7;   // delivered in the last week, nothing open
+    const autoRcv = last && last.autoReceived ? last : null;                          // flagged by a new PU, not confirmed yet
     const nos = noOrders(v.id);
-    return { v, pend, ns, next, days, dueNow, skipToday, received, late, last, st, urgency, nos, week: days !== null && days <= 6 && !pend && !ns };
+    return { v, pend, ns, next, days, dueNow, skipToday, received, autoRcv, late, last, st, urgency, nos, week: days !== null && days <= 6 && !pend && !ns };
   }
   const FILTERS = [
     ['all', 'All', () => true],
@@ -200,6 +201,9 @@
       <div class="vb-meta">${sched ? esc(sched) : ''}${v.leadTimeDays !== null && v.leadTimeDays !== undefined ? ` · ${esc(v.leadTimeDays)}d lead` : ''}${(v.receivingDays || []).length ? ` · receives ${esc(v.receivingDays.map(d => DAYS[d]).join(', '))}` : ''}</div>
       ${!i.pend && !i.ns ? lastHtml(delivery(v.id)) : ''}
       <div class="vb-badges">${badges.join('') || '<span class="muted-note">Nothing waiting</span>'}</div>
+      ${i.autoRcv && canManage() ? `<div class="vb-auto"><span class="vb-auto-t">Auto-received · ${esc(i.autoRcv.autoReceivedPu || 'new PU')}</span>
+        <button type="button" class="btn small" data-act="confirmauto">Confirm</button>
+        <button type="button" class="btn ghost small" data-act="undoauto">Undo</button></div>` : ''}
       <div class="vb-actions">
         <div class="vb-cta">${i.skipToday && !i.ns && !i.pend ? '<button type="button" class="btn small" data-act="unskip" title="No order was logged today: click to undo">Undo no order</button>'
           : i.ns ? '<button type="button" class="btn small" data-act="sent">Mark sent</button>'
@@ -222,6 +226,10 @@
     if (a === 'sent') { const o = notSentOrderForVendor(id); if (o) { await markOrderSent(o.id); render(); } return; }
     if (a === 'cancel') { const o = pendingOrderForVendor(id); if (o && await cancelOrder(o.id)) { render(); if (window.VendorCal) VendorCal.renderStats(); } return; }
     if (a === 'delivered') { const o = pendingOrderForVendor(id); if (o) { await markOrderDelivered(o.id); render(); if (window.VendorCal) VendorCal.renderStats(); } }
+    if (a === 'confirmauto' || a === 'undoauto') {
+      const o = ordersList.filter(x => x.vendorId === id && x.autoReceived).sort((x, y) => (y.deliveredDate || '').localeCompare(x.deliveredDate || ''))[0];
+      if (o && window.VendorCal) { await (a === 'confirmauto' ? VendorCal.confirmAuto(o.id) : VendorCal.undoReceived(o.id)); render(); }
+    }
   }
 
   function wire() {

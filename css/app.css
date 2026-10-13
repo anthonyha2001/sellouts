@@ -3387,3 +3387,38 @@ tr:hover .so-note,.so-note:focus{border-color:var(--line-strong);background:var(
 .pi-note{color:#b45309;font-style:normal;}
 .pi-price{width:76px;text-align:right;padding:4px 6px;font-size:12.5px;}
 .pi-tbl td{vertical-align:middle;}
+/* Competitors: scan a rival's item and compare (owner, 2026-10-13) */
+.co-comp{display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+.co-comp label{display:flex;align-items:center;gap:6px;font-size:13px;}
+.co-comp input{width:auto;min-width:160px;}
+.co-find{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+.co-find input[type=search]{flex:1;min-width:200px;}
+.co-find .btn.secondary{display:inline-flex;align-items:center;gap:6px;}
+.co-choices{display:flex;flex-direction:column;gap:4px;margin-top:8px;}
+.co-choices button{text-align:left;border:1px solid var(--line);background:var(--paper);border-radius:8px;padding:6px 10px;cursor:pointer;font:inherit;display:flex;justify-content:space-between;gap:10px;align-items:baseline;}
+.co-choices button:hover{background:var(--pine-tint);}
+.co-item{margin-top:10px;border:1px solid var(--line);border-radius:12px;padding:12px 14px;background:var(--paper-raised);}
+.co-it-head{display:flex;flex-direction:column;gap:2px;margin:0 0 10px;}
+.co-it-head b{font-size:15px;}
+.co-prices{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;}
+.co-p{display:flex;flex-direction:column;gap:3px;}
+.co-p span{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-soft);}
+.co-p b{font-size:20px;}
+.co-promo{font-size:10px;color:var(--brick);font-style:normal;font-weight:700;}
+.co-inrow{display:flex;gap:6px;}
+.co-inrow input{width:110px;font-size:16px;text-align:right;}
+.co-inrow select{width:auto;}
+.co-rec-foot{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;align-items:center;}
+.co-rec-foot input{flex:1;min-width:160px;}
+.co-bad{color:var(--brick);}
+.co-dear{color:var(--brick);font-weight:700;}
+.co-cheap{color:var(--pine);font-weight:700;}
+.co-mini td{padding:5px 8px;font-size:12.5px;}
+.co-tbl td{vertical-align:middle;}
+.co-sub{font-size:11px;color:var(--ink-soft);}
+.co-grp{font-size:12px;color:var(--ink-soft);max-width:160px;}
+.co-sort{cursor:pointer;user-select:none;}
+.co-act{text-align:right;}
+/* Vendor board: auto-received from a new PU (owner, 2026-10-13) */
+.vb-auto{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:6px 0 0;padding:6px 10px;border-radius:8px;background:color-mix(in srgb, var(--gold) 12%, transparent);font-size:12.5px;}
+.vb-auto-t{flex:1;min-width:120px;color:var(--ink);font-weight:600;}

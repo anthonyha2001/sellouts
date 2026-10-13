@@ -207,6 +207,12 @@ async function buildAlerts(today: string): Promise<Alert[]> {
       add({ key: `vo:${o.id}:notsent:${today}`, perms: ['vendors.manage'], title: 'Vendor order', body: `"${name}"'s order has been logged for ${age} days but still hasn't been marked sent to the supplier.`, url: '#vendors' });
   }
 
+  // Auto-received from a new PU (migration 094; owner, 2026-10-13): once per order, told to confirm or undo.
+  const { data: autos } = await db.from('vendor_orders').select('id, vendor_name, auto_received_pu').eq('auto_received', true).eq('status', 'delivered');
+  for (const o of autos ?? [])
+    add({ key: `autorecv:${o.id}`, perms: ['vendors.manage'], title: 'Order looks delivered', url: '#vendors',
+      body: `"${o.vendor_name || 'A vendor'}"'s order was flagged received by itself — a new ${o.auto_received_pu || 'PU'} appeared in the system. Open Vendors to confirm or undo.` });
+
   // Low stock (migration 066; owner, 2026-10-06: every active supplier watched): at most TWO notifications a day
   // (morning, afternoon), each naming the suppliers with an item newly running low today; the Low stock tab has the rest.
   // '*': the ghost column (migration 083) may not be there yet
