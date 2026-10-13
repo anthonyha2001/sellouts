@@ -3449,3 +3449,9 @@ tr:hover .so-note,.so-note:focus{border-color:var(--line-strong);background:var(
 .db-delta.up{color:#15803d;}
 .db-delta.down{color:#b91c1c;}
 .db-stat .db-delta{font-size:12px;}
+
+/* Performance › a supplier › What sells most (owner, 2026-10-13) */
+.pf-mix .pf-head{flex-wrap:wrap;gap:10px;}
+.pf-share{display:inline-block;width:120px;height:8px;border-radius:4px;background:var(--line);overflow:hidden;vertical-align:middle;margin-right:8px;}
+.pf-share i{display:block;height:100%;background:var(--pine);border-radius:4px;}
+.pf-share-n{font-variant-numeric:tabular-nums;}

@@ -1709,7 +1709,13 @@ async function perfSuppliers(from: string, to: string, months = false) {
 }
 // one supplier: per item and per month
 async function perfSupplier(sup: string, from: string, to: string) {
-  const [p, sl] = await Promise.all([report('purchases', from, to, { group_by: ['item'], supplier: [sup] }), report('sales', from, to, { group_by: ['item'], supplier: [sup] })]);
+  // cats (owner, 2026-10-13): the supplier's sales item by item with each item's department, section, group, sub-group and
+  // brand, so the page shows what sells most at every level and its share of the supplier's sales
+  const [p, sl, cr] = await Promise.all([report('purchases', from, to, { group_by: ['item'], supplier: [sup] }), report('sales', from, to, { group_by: ['item'], supplier: [sup] }),
+    report('sales', from, to, { group_by: ['item', 'department', 'section', 'group', 'subgroup', 'brand'], supplier: [sup] }).catch(e => { console.warn('perf cats', e); return null; })]);
+  const nm = (r: Record<string, unknown>, k: string) => String(r[k + '_desc'] ?? '').trim() || String(r[k] ?? '').trim() || 'Not classified';
+  const cats = cr ? cr.map(r => ({ code: String(r.item ?? '').trim(), description: String(r.item_desc ?? '').trim(), department: nm(r, 'department'), section: nm(r, 'section'),
+    group: nm(r, 'group'), subgroup: nm(r, 'subgroup'), brand: nm(r, 'brand'), sales: Number(r.total_sales || 0), qty: Number(r.total_quantity || 0) })).filter(x => x.code) : null;
   const items = new Map<string, { code: string; description: string; bought: number; boughtQty: number; sold: number; soldQty: number }>();
   const months: Record<string, { bought: number; sold: number }> = {};
   const get = (r: Record<string, unknown>) => { const c = String(r.item ?? '').trim(); let x = items.get(c); if (!x) { x = { code: c, description: String(r.item_desc ?? '').trim(), bought: 0, boughtQty: 0, sold: 0, soldQty: 0 }; items.set(c, x); } return x; };
@@ -1736,7 +1742,7 @@ async function perfSupplier(sup: string, from: string, to: string) {
     } catch (e) { console.warn('perf last cost', e); need.forEach(x => { x.costFrom = 'failed'; }); }
   }
   list.forEach(x => { if (typeof x.unitCost === 'number' && x.soldQty > 0) { x.cogs = x.soldQty * (x.unitCost as number); x.profit = x.sold - (x.cogs as number); } });
-  return { from, to, supplier: sup, items: list, months };
+  return { from, to, supplier: sup, items: list, months, cats };
 }
 // the purchase lines of a cardex, per document; a paid line + a 100% discount line = a trade deal
 function purchaseDocs(rows: Record<string, unknown>[]) {
