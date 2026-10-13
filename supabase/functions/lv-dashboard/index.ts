@@ -714,25 +714,25 @@ async function supplierCatalog() {
   return { from, to: today, suppliers };
 }
 
-// sales across all branches (owner, 2026-10-13: a dashboard card). The system gives sales and units per branch, not a
-// transaction count. Month to date and today, in one summary call around the cache; today may be a few minutes old.
+// sales across all branches (owner, 2026-10-13: a dashboard card; daily, not month to date). The system gives sales and
+// units per branch, not a transaction count. One day (today by default) and the day before it, in one summary call
+// each around the cache; today may be a few minutes old.
 const BRANCHES = ['Ajaltoun', 'Mazraat Yachouh', 'Beit El Kikko', 'Achrafieh', 'Zalka'];
-async function branchSales() {
-  const today = beirutToday(), first = today.slice(0, 7) + '-01';
-  const read = async (from: string, to: string) => {
-    const d = await dash('/items_sales/summary', postJson({ branches: BRANCHES, year: from.slice(0, 4), from_date: from, to_date: to })) as Record<string, unknown>;
-    const items = (((d.data as Record<string, unknown>)?.items || []) as Record<string, unknown>[]);
+async function branchSales(dayIn?: string) {
+  const today = beirutToday(), day = isDay(dayIn) && String(dayIn) <= today ? String(dayIn) : today, prev = plusDays(day, -1);
+  const read = async (d: string) => {
+    const r = await dash('/items_sales/summary', postJson({ branches: BRANCHES, year: d.slice(0, 4), from_date: d, to_date: d })) as Record<string, unknown>;
+    const items = (((r.data as Record<string, unknown>)?.items || []) as Record<string, unknown>[]);
     const m: Record<string, { sales: number; qty: number }> = {};
-    items.forEach(r => { const b = String(r.branch || '').trim(); if (!b) return; const x = m[b] = m[b] || { sales: 0, qty: 0 }; x.sales += Number(r.total_sales || 0); x.qty += Number(r.total_quantity || 0); });
+    items.forEach(x => { const b = String(x.branch || '').trim(); if (!b) return; const y = m[b] = m[b] || { sales: 0, qty: 0 }; y.sales += Number(x.total_sales || 0); y.qty += Number(x.total_quantity || 0); });
     return m;
   };
-  const [mtd, day] = await Promise.all([read(first, today), read(today, today)]);
+  const [cur, before] = await Promise.all([read(day), read(prev)]);
   const r0 = (v: number) => Math.round(v * 100) / 100;
-  const branches = BRANCHES.map(b => ({ branch: b, sales: r0((mtd[b]?.sales) || 0), qty: r0((mtd[b]?.qty) || 0), today: r0((day[b]?.sales) || 0), todayQty: r0((day[b]?.qty) || 0) }))
-    .sort((a, b) => b.sales - a.sales);
-  return { month: first, day: today, branches,
-    total: r0(branches.reduce((t, x) => t + x.sales, 0)), totalQty: r0(branches.reduce((t, x) => t + x.qty, 0)),
-    totalToday: r0(branches.reduce((t, x) => t + x.today, 0)) };
+  const branches = BRANCHES.map(b => ({ branch: b, today: r0((cur[b]?.sales) || 0), todayQty: r0((cur[b]?.qty) || 0), prev: r0((before[b]?.sales) || 0), prevQty: r0((before[b]?.qty) || 0) }))
+    .sort((a, b) => b.today - a.today);
+  const sum = (k: 'today' | 'todayQty' | 'prev') => r0(branches.reduce((t, x) => t + x[k], 0));
+  return { daily: true, day, prevDay: prev, isToday: day === today, branches, totalToday: sum('today'), totalQtyToday: sum('todayQty'), totalPrev: sum('prev') };
 }
 
 async function autoReceive() {
@@ -2219,7 +2219,7 @@ Deno.serve(async req => {
         const { data: ok } = await asUser.rpc('has_perm', { p_perms: ['vendors.manage'] });
         if (!ok) return json({ error: 'Not allowed.' }, 403);
       }
-      return json(await branchSales());
+      return json(await branchSales(String(body.day || '')));
     }
     // The system's supplier catalogue, to import vendors from it (owner, 2026-10-13)
     if (body.action === 'supplier_catalog') {
