@@ -714,6 +714,27 @@ async function supplierCatalog() {
   return { from, to: today, suppliers };
 }
 
+// sales across all branches (owner, 2026-10-13: a dashboard card). The system gives sales and units per branch, not a
+// transaction count. Month to date and today, in one summary call around the cache; today may be a few minutes old.
+const BRANCHES = ['Ajaltoun', 'Mazraat Yachouh', 'Beit El Kikko', 'Achrafieh', 'Zalka'];
+async function branchSales() {
+  const today = beirutToday(), first = today.slice(0, 7) + '-01';
+  const read = async (from: string, to: string) => {
+    const d = await dash('/items_sales/summary', postJson({ branches: BRANCHES, year: from.slice(0, 4), from_date: from, to_date: to })) as Record<string, unknown>;
+    const items = (((d.data as Record<string, unknown>)?.items || []) as Record<string, unknown>[]);
+    const m: Record<string, { sales: number; qty: number }> = {};
+    items.forEach(r => { const b = String(r.branch || '').trim(); if (!b) return; const x = m[b] = m[b] || { sales: 0, qty: 0 }; x.sales += Number(r.total_sales || 0); x.qty += Number(r.total_quantity || 0); });
+    return m;
+  };
+  const [mtd, day] = await Promise.all([read(first, today), read(today, today)]);
+  const r0 = (v: number) => Math.round(v * 100) / 100;
+  const branches = BRANCHES.map(b => ({ branch: b, sales: r0((mtd[b]?.sales) || 0), qty: r0((mtd[b]?.qty) || 0), today: r0((day[b]?.sales) || 0), todayQty: r0((day[b]?.qty) || 0) }))
+    .sort((a, b) => b.sales - a.sales);
+  return { month: first, day: today, branches,
+    total: r0(branches.reduce((t, x) => t + x.sales, 0)), totalQty: r0(branches.reduce((t, x) => t + x.qty, 0)),
+    totalToday: r0(branches.reduce((t, x) => t + x.today, 0)) };
+}
+
 async function autoReceive() {
   const today = beirutToday();
   // the orders still waiting, oldest first, with their vendor's system supplier codes
@@ -2190,6 +2211,16 @@ Deno.serve(async req => {
       if (!isServer && role !== 'admin') return json({ error: 'Admin only.' }, 403);
       return json(await stockWatch(String(body.vendor || '')));
     }
+    // Sales across all branches, admin / vendors.manage (owner, 2026-10-13)
+    if (body.action === 'branch_sales') {
+      if (!isServer && role !== 'admin') {
+        const anon = Deno.env.get('SUPABASE_ANON_KEY') || '';
+        const asUser = createClient(SUPABASE_URL, anon, { global: { headers: { Authorization: `Bearer ${bearer}` } }, auth: { persistSession: false, autoRefreshToken: false } });
+        const { data: ok } = await asUser.rpc('has_perm', { p_perms: ['vendors.manage'] });
+        if (!ok) return json({ error: 'Not allowed.' }, 403);
+      }
+      return json(await branchSales());
+    }
     // The system's supplier catalogue, to import vendors from it (owner, 2026-10-13)
     if (body.action === 'supplier_catalog') {
       if (!isServer && role !== 'admin') {
@@ -2218,7 +2249,7 @@ Deno.serve(async req => {
     if (body.action === 'probe') {
       if (!isServer && role !== 'admin') return json({ error: 'Admin only.' }, 403);
       const path = String(body.path || '');
-      const READ = /^\/(item-price-checker|item-cardex|items\/search|items\/filter-options\/[a-z]+|items_sales(\/grid|\/summary)?|items_purchases(\/grid)?|operations(\/[a-z_-]+)*|wms\/documents(\/\d+)?|wms\/purchase-orders)$/;
+      const READ = /^\/(item-price-checker|item-cardex|items\/search|items\/filter-options\/[a-z]+|items_sales(\/grid|\/summary)?|items_purchases(\/grid)?|meta\/[a-z-]+|operations(\/[a-z_-]+)*|wms\/documents(\/\d+)?|wms\/purchase-orders)$/;
       if (!READ.test(path)) return json({ error: 'Not a read-only report.' }, 400);
       if (body.post) return json(await dash(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body.post) }));
       return json(await dash(`${path}?${new URLSearchParams((body.query || {}) as Record<string, string>)}`));

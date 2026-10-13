@@ -34,6 +34,7 @@
     promo: '<path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/>',
     credit: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M9 14h6"/>',
     truck: '<path d="M3 7h11v9H3zM14 10h4l3 3v3h-7z"/><circle cx="7" cy="18" r="1.8"/><circle cx="17" cy="18" r="1.8"/>',
+    store: '<path d="M4 9l1-5h14l1 5M4 9v11h16V9M4 9h16M9 20v-6h6v6"/><path d="M4 9a2.5 2.5 0 0 0 5 0 2.5 2.5 0 0 0 5 0 2.5 2.5 0 0 0 5 0"/>',
     map: '<path d="M9 4L3 6v14l6-2 6 2 6-2V4l-6 2z"/><path d="M9 4v14M15 6v14"/>',
     bike: '<circle cx="6" cy="17" r="3"/><circle cx="18" cy="17" r="3"/><path d="M6 17l4-8h5l3 8M10 9l-1-3H7"/>',
     check: '<path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9"/>',
@@ -236,12 +237,20 @@
       return data?.ok ? data : { ok: false, error: data?.error || 'No answer' };
     } catch (e) { return { ok: false, error: e.message || 'No answer' }; }
   }
+  async function loadBranches() {
+    try {
+      const { data, error } = await sb.functions.invoke('lv-dashboard', { body: { action: 'branch_sales' } });
+      if (error) { let msg = error.message; try { msg = (await error.context.json()).error || msg; } catch (e) { /* keep */ } throw new Error(msg); }
+      if (!data || data.error) throw new Error(data?.error || 'No answer');
+      return data;
+    } catch (e) { throw e; }
+  }
   async function loadActivity() {
     return q(sb.from('activity_log').select('at, username, module, summary').order('at', { ascending: false }).limit(14));
   }
 
   const PARTS = { cash: loadCash, cashcount: loadCashCount, sellouts: loadSellouts, promotions: loadPromotions, credit: loadCredit, orders: loadOrders,
-    rentals: loadRentals, delivery: loadDelivery, floor: loadFloor, labels: loadLabels, ladies: loadLadies, schedule: loadSchedule, people: loadPeople, activity: loadActivity, link: loadLink };
+    rentals: loadRentals, delivery: loadDelivery, floor: loadFloor, labels: loadLabels, ladies: loadLadies, schedule: loadSchedule, people: loadPeople, activity: loadActivity, link: loadLink, branches: loadBranches };
 
   /* ---------------- what needs attention ---------------- */
   function alerts(D) {
@@ -321,6 +330,12 @@
       </section>
 
       <div class="db-grid">
+        ${card('branches', null, 'store', 'Branches', box('branches', d => `
+          <div class="db-stats">${stat('This month', money(d.total))}${stat('Today', money(d.totalToday))}${stat('Units', short(d.totalQty))}</div>
+          <h4>Top branches this month</h4>
+          <ul class="db-list db-branches">${d.branches.map((b, i) => line(`<span class="db-rank">${i + 1}</span> ${esc(b.branch)} <span class="muted-note">${Math.round(b.qty).toLocaleString('en-US')} units</span>`, money(b.sales))).join('')}</ul>
+          <p class="db-note">All 5 branches, from the system. Sales in $. Number of operations isn't in the sales data yet.</p>`))}
+
         ${card('cash', 'cash', 'cash', 'Cash differences', box('cash', c => `
           <div class="db-stats">${stat('Yesterday', `<span class="${tone(c.yNet)}">${sshort(c.yNet)}</span>`, '', signed(c.yNet, lbp) + ' LBP')}${stat('This month', `<span class="${tone(c.monthNet)}">${sshort(c.monthNet)}</span>`, '', signed(c.monthNet, lbp) + ' LBP')}${stat('Shorts this month', `<span class="neg">${short(-c.monthShort)}</span>`, '', lbp(-c.monthShort) + ' LBP')}</div>
           <p class="db-note">LBP, USD at ${lbp(c.rate)} · yesterday ${c.yEntries} cashier${c.yEntries === 1 ? '' : 's'} entered, ${c.yShortCount} short</p>
