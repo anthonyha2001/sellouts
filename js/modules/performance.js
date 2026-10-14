@@ -153,6 +153,34 @@
             + `<text x="${cx}" y="${H - 8}" text-anchor="middle" class="pf-lab">${lab}</text>`; }).join('')}
       </svg></div>`;
   }
+  // What sells most (owner, 2026-10-13): the supplier's sales by department, section, group, sub-group, brand or item, each
+  // with its share of the supplier's sales, units, how many items, and its best item
+  const MIX = [['department', 'Department'], ['section', 'Section'], ['group', 'Group'], ['subgroup', 'Sub-group'], ['brand', 'Brand'], ['item', 'Item']];
+  function mixHtml(d) {
+    if (!d.cats) return '<div class="card"><p class="muted-note" style="margin:0;">The sales by department, section and brand need the new lv-dashboard: redeploy it.</p></div>';
+    const lv = S.mix || 'section', total = d.cats.reduce((t, r) => t + r.sales, 0);
+    const m = new Map();
+    d.cats.forEach(r => {
+      const k = lv === 'item' ? r.code : r[lv];
+      const x = m.get(k) || { name: lv === 'item' ? (r.description || r.code) : k, code: lv === 'item' ? r.code : '', sales: 0, qty: 0, items: new Map(), sub: lv === 'item' ? r.section : '' };
+      x.sales += r.sales; x.qty += r.qty; x.items.set(r.code, (x.items.get(r.code) || 0) + r.sales); m.set(k, x);
+    });
+    const rows = [...m.values()].filter(x => x.sales !== 0 || x.qty !== 0).sort((a, b) => b.sales - a.sales);
+    const top = x => { let b = null; x.items.forEach((v, c) => { if (!b || v > b.v) b = { c, v }; }); const r = b && d.cats.find(y => y.code === b.c); return r ? (r.description || r.code) : ''; };
+    let cum = 0;
+    return `<div class="card pf-mix">
+      <div class="pf-head"><h3>What sells most</h3><div class="filter-row" style="margin:0;">${MIX.map(([v, l]) => `<button type="button" data-mix="${v}" class="${v === lv ? 'active' : ''}">${l}</button>`).join('')}</div>
+        <span style="flex:1"></span><span class="muted-note">${money(total)} of sales · ${rows.length} ${esc((MIX.find(x => x[0] === lv) || [])[1].toLowerCase())}${rows.length === 1 ? '' : 's'}</span></div>
+      <div class="items-scroll pf-scroll"><table class="items pf-table"><thead><tr><th>#</th><th>${esc((MIX.find(x => x[0] === lv) || [])[1])}</th><th class="num">Sales</th><th>Share of the supplier's sales</th><th class="num">Running share</th><th class="num">Units</th>${lv === 'item' ? '<th>Section</th>' : '<th class="num">Items</th><th>Best item</th>'}</tr></thead>
+      <tbody>${rows.map((x, i) => { const sh = total > 0 ? x.sales / total : 0; cum += sh; return `<tr${lv === 'item' ? ` data-code="${esc(x.code)}"` : ''}>
+        <td class="muted-note">${i + 1}</td><td><b>${esc(x.name)}</b>${x.code ? ` <span class="muted-note mono">${esc(x.code)}</span>` : ''}</td>
+        <td class="num">${money(x.sales)}</td>
+        <td><span class="pf-share"><i style="width:${Math.max(1, Math.round(sh * 100))}%"></i></span><b class="pf-share-n">${(Math.round(sh * 1000) / 10).toLocaleString('en-US')}%</b></td>
+        <td class="num muted-note">${Math.min(100, Math.round(cum * 1000) / 10)}%</td>
+        <td class="num">${qty(x.qty)}</td>
+        ${lv === 'item' ? `<td class="muted-note">${esc(x.sub)}</td>` : `<td class="num">${x.items.size}</td><td class="muted-note">${esc(top(x))}</td>`}</tr>`; }).join('') || '<tr><td colspan="8" class="empty-note">No sales in the period.</td></tr>'}</tbody></table></div>
+      <p class="muted-note" style="margin:8px 0 0;">Sales in $ as the system reports them, for the dates above. Running share: how much of the supplier's sales the lines down to this one make together.${lv === 'item' ? ' Double-click an item for its details.' : ''}</p></div>`;
+  }
   function paintDetail() {
     const d = S.detail, box = el('pfBody'); if (!d) return;
     const s = S.list?.suppliers.find(x => x.code === S.sup) || { name: S.sup, code: S.sup };
@@ -174,6 +202,7 @@
         <div class="pf-tile"><span>Items</span><b>${items.length}</b><small>${notSold} bought, not sold · ${notBought} sold, not bought</small></div>
       </div>
       <div class="card">${chart(d.months)}</div>
+      ${mixHtml(d)}
       <div class="card">
         <div class="pf-head"><h3>Items</h3><span style="flex:1"></span>
           <button type="button" class="icon-btn" id="pfXls" title="Download (Excel)" aria-label="Download (Excel)"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg></button></div>
@@ -189,6 +218,8 @@
         <p class="muted-note" style="margin:8px 0 0;">Profit = sales - units sold x unit cost. Unit cost = the purchases of the period / their units (free units included, so trade deals lower it); an item not bought in the period takes its last purchase day in the 12 months before. Amounts in $ with VAT, as the system reports both sales and purchases. Double-click an item for its details.</p>
       </div>`;
     el('pfBack').onclick = () => { S.sup = null; S.detail = null; paintList(); };
+    box.querySelectorAll('[data-mix]').forEach(b => b.onclick = () => { S.mix = b.dataset.mix; paintDetail(); });
+    box.querySelectorAll('.pf-mix tr[data-code]').forEach(tr => tr.ondblclick = () => window.ItemDetail && ItemDetail.open(tr.dataset.code));
     box.querySelectorAll('.pf-isort').forEach(h => h.onclick = () => { const key = h.dataset.k; if (S.isort === key) S.idir = -S.idir; else { S.isort = key; S.idir = key === 'description' ? 1 : -1; } paintDetail(); });
     box.querySelectorAll('tr[data-code]').forEach(tr => tr.ondblclick = () => window.ItemDetail && ItemDetail.open(tr.dataset.code));
     el('pfXls').onclick = () => xls([['Code', 'Description', 'Units bought', 'Purchases ($)', 'Units sold', 'Sales ($)', 'Difference ($)', 'Difference %', 'Units sold / bought', 'Unit cost ($)', 'Cost from', 'Profit ($)', 'Margin %'],

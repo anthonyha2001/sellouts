@@ -167,9 +167,9 @@
     if (a === 'perf') { close(); switchTab('performance'); return; }
     if (a === 'stockpage') { close(); switchTab('stockcontrol'); return; }
   }
-  function open(id) {
+  function open(id, tab) {
     const v = vendorsList.find(x => x.id === id); if (!v) return;
-    S.id = id; S.tab = 'overview'; S.q = ''; S.sort = 'sold'; S.dir = -1; S.perf = null; S.stock = null; S.pos = null; S.pts = null;
+    S.id = id; S.tab = tab || 'overview'; S.q = ''; S.sort = 'sold'; S.dir = -1; S.perf = null; S.stock = null; S.pos = null; S.pts = null;
     shell().classList.add('open');
     document.body.classList.add('vs-lock');
     paintHead(); paintTabs(); paintBody();

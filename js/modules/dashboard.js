@@ -25,7 +25,7 @@
     const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
     return m < 2 ? 'now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' d ago';
   };
-  const S = { loading: false, at: null };
+  const S = { loading: false, at: null, D: null, E: null, bDay: '' };   // bDay: the day shown on the Branches card ('' = today)
 
   const I = {
     cash: '<rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/>',
@@ -239,7 +239,7 @@
   }
   async function loadBranches() {
     try {
-      const { data, error } = await sb.functions.invoke('lv-dashboard', { body: { action: 'branch_sales' } });
+      const { data, error } = await sb.functions.invoke('lv-dashboard', { body: { action: 'branch_sales', ...(S.bDay ? { day: S.bDay } : {}) } });
       if (error) { let msg = error.message; try { msg = (await error.context.json()).error || msg; } catch (e) { /* keep */ } throw new Error(msg); }
       if (!data || data.error) throw new Error(data?.error || 'No answer');
       return data;
@@ -311,6 +311,33 @@
       ${body}</section>`;
   const failed = key => `<p class="muted-note">Could not load this part.</p>`;
 
+  // Branches: the sales of one day (owner, 2026-10-13: daily, not from the beginning of the month), each branch against
+  // the day before; ‹ › to go back day by day. An older lv-dashboard (no "daily") still gives today without the comparison.
+  const pct = (a, b) => b > 0 ? Math.round((a - b) / b * 100) : null;
+  const delta = (a, b) => { const p = pct(a, b); return p === null ? '' : `<em class="db-delta ${p > 0 ? 'up' : p < 0 ? 'down' : ''}" title="Against the day before">${p > 0 ? '▲' : p < 0 ? '▼' : ''}${Math.abs(p)}%</em>`; };
+  function branchesHtml(box) {
+    const day = S.bDay || today(), isToday = day === today();
+    const label = isToday ? 'Today' : new Date(day + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+    const nav = `<div class="db-daynav"><button type="button" class="db-dnav" data-bday="prev" aria-label="The day before" title="The day before">‹</button><b>${esc(label)}</b>
+      <button type="button" class="db-dnav" data-bday="next" aria-label="The day after" title="The day after" ${isToday ? 'disabled' : ''}>›</button>${isToday ? '' : '<button type="button" class="link-btn" data-bday="today">Today</button>'}</div>`;
+    return nav + box('branches', d => {
+      const daily = !!d.daily, list = d.branches.slice().sort((a, b) => b.today - a.today);
+      if (!daily && S.bDay) return '<p class="db-note">To see another day, redeploy lv-dashboard first.</p>';
+      return `<div class="db-stats">${stat('Sales', money(d.totalToday), '', '$' + usd(d.totalToday))}${stat('Units', short(daily ? d.totalQtyToday : list.reduce((t, b) => t + n(b.todayQty), 0)))}${daily ? stat('Day before', money(d.totalPrev) + ' ' + delta(d.totalToday, d.totalPrev), '', '$' + usd(d.totalPrev)) : ''}</div>
+        <ul class="db-list db-branches">${list.map((b, i) => line(`<span class="db-rank">${i + 1}</span> ${esc(b.branch)} <span class="muted-note">${Math.round(n(b.todayQty)).toLocaleString('en-US')} units</span>`, `${money(b.today)}${daily ? ' ' + delta(b.today, b.prev) : ''}`)).join('')}</ul>
+        <p class="db-note">All 5 branches, from the system, in $${isToday ? '; today may be a few minutes behind' : ''}.${daily ? '' : ' Redeploy lv-dashboard to compare with the day before and go back by day.'}</p>`;
+    });
+  }
+  async function branchDay(k) {
+    if (!S.D) return;
+    const t = today(), cur = S.bDay || t;
+    const next = k === 'today' ? '' : addDaysStr(cur, k === 'prev' ? -1 : 1);
+    S.bDay = !next || next >= t ? '' : next;
+    S.D.branches = undefined; delete S.E.branches; render(S.D, S.E);
+    try { S.D.branches = await loadBranches(); } catch (e) { S.E.branches = true; }
+    render(S.D, S.E);
+  }
+
   function render(D, E) {
     const box = (k, fn) => E[k] ? failed(k) : D[k] === undefined ? '<p class="muted-note">Loading…</p>' : D[k] === null ? '<p class="muted-note">Not available.</p>' : fn(D[k]);
     const A = alerts(D);
@@ -330,11 +357,7 @@
       </section>
 
       <div class="db-grid">
-        ${card('branches', null, 'store', 'Branches', box('branches', d => `
-          <div class="db-stats">${stat('This month', money(d.total))}${stat('Today', money(d.totalToday))}${stat('Units', short(d.totalQty))}</div>
-          <h4>Top branches this month</h4>
-          <ul class="db-list db-branches">${d.branches.map((b, i) => line(`<span class="db-rank">${i + 1}</span> ${esc(b.branch)} <span class="muted-note">${Math.round(b.qty).toLocaleString('en-US')} units</span>`, money(b.sales))).join('')}</ul>
-          <p class="db-note">All 5 branches, from the system. Sales in $. Number of operations isn't in the sales data yet.</p>`))}
+        ${card('branches', null, 'store', 'Branches', branchesHtml(box))}
 
         ${card('cash', 'cash', 'cash', 'Cash differences', box('cash', c => `
           <div class="db-stats">${stat('Yesterday', `<span class="${tone(c.yNet)}">${sshort(c.yNet)}</span>`, '', signed(c.yNet, lbp) + ' LBP')}${stat('This month', `<span class="${tone(c.monthNet)}">${sshort(c.monthNet)}</span>`, '', signed(c.monthNet, lbp) + ' LBP')}${stat('Shorts this month', `<span class="neg">${short(-c.monthShort)}</span>`, '', lbp(-c.monthShort) + ' LBP')}</div>
@@ -422,6 +445,7 @@
       </div>`;
     el('dbRefresh').onclick = () => load(true);
     panel.querySelectorAll('[data-go]').forEach(b => b.onclick = () => switchTab(b.dataset.go));
+    panel.querySelectorAll('[data-bday]').forEach(b => b.onclick = () => branchDay(b.dataset.bday));
   }
   const el = id => document.getElementById(id);
 
@@ -435,6 +459,7 @@
       try { D[k] = await fn(); } catch (e) { console.error('dashboard ' + k, e); E[k] = true; }
     }));
     S.at = new Date().toISOString(); S.loading = false;
+    S.D = D; S.E = E;
     render(D, E);
   }
   async function show() {

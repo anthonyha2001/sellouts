@@ -714,25 +714,25 @@ async function supplierCatalog() {
   return { from, to: today, suppliers };
 }
 
-// sales across all branches (owner, 2026-10-13: a dashboard card). The system gives sales and units per branch, not a
-// transaction count. Month to date and today, in one summary call around the cache; today may be a few minutes old.
+// sales across all branches (owner, 2026-10-13: a dashboard card; daily, not month to date). The system gives sales and
+// units per branch, not a transaction count. One day (today by default) and the day before it, in one summary call
+// each around the cache; today may be a few minutes old.
 const BRANCHES = ['Ajaltoun', 'Mazraat Yachouh', 'Beit El Kikko', 'Achrafieh', 'Zalka'];
-async function branchSales() {
-  const today = beirutToday(), first = today.slice(0, 7) + '-01';
-  const read = async (from: string, to: string) => {
-    const d = await dash('/items_sales/summary', postJson({ branches: BRANCHES, year: from.slice(0, 4), from_date: from, to_date: to })) as Record<string, unknown>;
-    const items = (((d.data as Record<string, unknown>)?.items || []) as Record<string, unknown>[]);
+async function branchSales(dayIn?: string) {
+  const today = beirutToday(), day = isDay(dayIn) && String(dayIn) <= today ? String(dayIn) : today, prev = plusDays(day, -1);
+  const read = async (d: string) => {
+    const r = await dash('/items_sales/summary', postJson({ branches: BRANCHES, year: d.slice(0, 4), from_date: d, to_date: d })) as Record<string, unknown>;
+    const items = (((r.data as Record<string, unknown>)?.items || []) as Record<string, unknown>[]);
     const m: Record<string, { sales: number; qty: number }> = {};
-    items.forEach(r => { const b = String(r.branch || '').trim(); if (!b) return; const x = m[b] = m[b] || { sales: 0, qty: 0 }; x.sales += Number(r.total_sales || 0); x.qty += Number(r.total_quantity || 0); });
+    items.forEach(x => { const b = String(x.branch || '').trim(); if (!b) return; const y = m[b] = m[b] || { sales: 0, qty: 0 }; y.sales += Number(x.total_sales || 0); y.qty += Number(x.total_quantity || 0); });
     return m;
   };
-  const [mtd, day] = await Promise.all([read(first, today), read(today, today)]);
+  const [cur, before] = await Promise.all([read(day), read(prev)]);
   const r0 = (v: number) => Math.round(v * 100) / 100;
-  const branches = BRANCHES.map(b => ({ branch: b, sales: r0((mtd[b]?.sales) || 0), qty: r0((mtd[b]?.qty) || 0), today: r0((day[b]?.sales) || 0), todayQty: r0((day[b]?.qty) || 0) }))
-    .sort((a, b) => b.sales - a.sales);
-  return { month: first, day: today, branches,
-    total: r0(branches.reduce((t, x) => t + x.sales, 0)), totalQty: r0(branches.reduce((t, x) => t + x.qty, 0)),
-    totalToday: r0(branches.reduce((t, x) => t + x.today, 0)) };
+  const branches = BRANCHES.map(b => ({ branch: b, today: r0((cur[b]?.sales) || 0), todayQty: r0((cur[b]?.qty) || 0), prev: r0((before[b]?.sales) || 0), prevQty: r0((before[b]?.qty) || 0) }))
+    .sort((a, b) => b.today - a.today);
+  const sum = (k: 'today' | 'todayQty' | 'prev') => r0(branches.reduce((t, x) => t + x[k], 0));
+  return { daily: true, day, prevDay: prev, isToday: day === today, branches, totalToday: sum('today'), totalQtyToday: sum('todayQty'), totalPrev: sum('prev') };
 }
 
 async function autoReceive() {
@@ -1672,7 +1672,18 @@ async function salesSnapshot() {
     rows = sec.filter(today);
     ok = Math.abs(rows.reduce((t, r) => t + Number(r.total_sales || 0), 0) - fresh) < 0.5;
   }
-  if (!ok) return { day, changed: false, stale: true, total: Math.round(fresh * 100) / 100 };
+  if (!ok) {
+    // the sections never added up (the dashboard kept serving old section figures): keep the store's total anyway when it
+    // moved, so the whole-store hours do not freeze for the rest of the day (owner, 2026-10-13: stuck at 12:45 at 20:36)
+    const { data: lastT } = await db.from('sales_snapshots').select('sales').eq('day', day).eq('section', '*').order('taken_at', { ascending: false }).limit(1);
+    const t2 = Math.round(fresh * 100) / 100;
+    if (fresh > 0 && (!lastT?.length || Math.abs(Number(lastT[0].sales) - t2) >= 0.005)) {
+      const taken_at = new Date(Math.floor(now.getTime() / 60000) * 60000).toISOString();
+      await db.from('sales_snapshots').upsert([{ day, taken_at, section: '*', section_desc: 'Whole store', sales: t2, qty: 0 }]);
+      return { day, changed: true, stale: true, totalOnly: true, total: t2 };
+    }
+    return { day, changed: false, stale: true, total: t2 };
+  }
   const secs = new Map<string, { section: string; section_desc: string; sales: number; qty: number }>();
   rows.forEach(r => { const c = String(r.section ?? '').trim() || '?'; const x = secs.get(c) || { section: c, section_desc: String(r.section_desc ?? '').trim() || (c === '?' ? 'Not classified' : c), sales: 0, qty: 0 };
     x.sales += Number(r.total_sales || 0); x.qty += Number(r.total_quantity || 0); secs.set(c, x); });
@@ -1698,7 +1709,13 @@ async function perfSuppliers(from: string, to: string, months = false) {
 }
 // one supplier: per item and per month
 async function perfSupplier(sup: string, from: string, to: string) {
-  const [p, sl] = await Promise.all([report('purchases', from, to, { group_by: ['item'], supplier: [sup] }), report('sales', from, to, { group_by: ['item'], supplier: [sup] })]);
+  // cats (owner, 2026-10-13): the supplier's sales item by item with each item's department, section, group, sub-group and
+  // brand, so the page shows what sells most at every level and its share of the supplier's sales
+  const [p, sl, cr] = await Promise.all([report('purchases', from, to, { group_by: ['item'], supplier: [sup] }), report('sales', from, to, { group_by: ['item'], supplier: [sup] }),
+    report('sales', from, to, { group_by: ['item', 'department', 'section', 'group', 'subgroup', 'brand'], supplier: [sup] }).catch(e => { console.warn('perf cats', e); return null; })]);
+  const nm = (r: Record<string, unknown>, k: string) => String(r[k + '_desc'] ?? '').trim() || String(r[k] ?? '').trim() || 'Not classified';
+  const cats = cr ? cr.map(r => ({ code: String(r.item ?? '').trim(), description: String(r.item_desc ?? '').trim(), department: nm(r, 'department'), section: nm(r, 'section'),
+    group: nm(r, 'group'), subgroup: nm(r, 'subgroup'), brand: nm(r, 'brand'), sales: Number(r.total_sales || 0), qty: Number(r.total_quantity || 0) })).filter(x => x.code) : null;
   const items = new Map<string, { code: string; description: string; bought: number; boughtQty: number; sold: number; soldQty: number }>();
   const months: Record<string, { bought: number; sold: number }> = {};
   const get = (r: Record<string, unknown>) => { const c = String(r.item ?? '').trim(); let x = items.get(c); if (!x) { x = { code: c, description: String(r.item_desc ?? '').trim(), bought: 0, boughtQty: 0, sold: 0, soldQty: 0 }; items.set(c, x); } return x; };
@@ -1725,7 +1742,7 @@ async function perfSupplier(sup: string, from: string, to: string) {
     } catch (e) { console.warn('perf last cost', e); need.forEach(x => { x.costFrom = 'failed'; }); }
   }
   list.forEach(x => { if (typeof x.unitCost === 'number' && x.soldQty > 0) { x.cogs = x.soldQty * (x.unitCost as number); x.profit = x.sold - (x.cogs as number); } });
-  return { from, to, supplier: sup, items: list, months };
+  return { from, to, supplier: sup, items: list, months, cats };
 }
 // the purchase lines of a cardex, per document; a paid line + a 100% discount line = a trade deal
 function purchaseDocs(rows: Record<string, unknown>[]) {
@@ -1761,6 +1778,25 @@ async function pricingDay(day: string) {
 }
 // one supplier's deliveries of a day, line by line: the PU, the prices, the previous purchase, the stock we had
 // the returns to suppliers (PT) between two days: every returned line, with the last purchase price before it
+// the suppliers with a return (PT) in the last days (owner, 2026-10-14: a badge on each vendor card), from one report:
+// an item returned on a day shows as a negative quantity (a return netted to 0 with a delivery the same day is not seen)
+async function recentReturns(days = 7) {
+  const to = beirutToday(), from = plusDays(to, -(days - 1));
+  const out: Record<string, { code: string; name: string; days: string[]; items: number; value: number }> = {};
+  for (const [f, t] of byYear(from, to)) {
+    const d = await dash('/items_purchases', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+      branches: [BRANCH], year: f.slice(0, 4), from_date: f, to_date: t, aggregation: 'Daily', group_by: ['item', 'supplier'] }) });
+    branchRows(d).forEach(r => {
+      if (Number(r.total_quantity || 0) >= 0) return;
+      const c = trimCode(r.supplier); if (!c) return;
+      const x = out[c] = out[c] || { code: c, name: String(r.supplier_desc ?? '').trim(), days: [], items: 0, value: 0 };
+      const day = String(r.period || '').slice(0, 10); if (day && !x.days.includes(day)) x.days.push(day);
+      x.items++; x.value += Math.abs(Number(r.total_purchases || 0));
+    });
+  }
+  Object.values(out).forEach(x => { x.days.sort().reverse(); x.value = Math.round(x.value * 100) / 100; });
+  return { from, to, suppliers: Object.values(out) };
+}
 async function returnsRange(from: string, to: string, withPrev = false) {
   const key = (c: string) => c.replace(/^0+(?=d)/, '').toUpperCase();
   const cand = new Map<string, { code: string; description: string; supplier: string; supplierName: string }>(), pairs = new Set<string>();
@@ -2219,7 +2255,7 @@ Deno.serve(async req => {
         const { data: ok } = await asUser.rpc('has_perm', { p_perms: ['vendors.manage'] });
         if (!ok) return json({ error: 'Not allowed.' }, 403);
       }
-      return json(await branchSales());
+      return json(await branchSales(String(body.day || '')));
     }
     // The system's supplier catalogue, to import vendors from it (owner, 2026-10-13)
     if (body.action === 'supplier_catalog') {
@@ -2323,7 +2359,7 @@ Deno.serve(async req => {
       }
       return json(await priceChangesSync(120));
     }
-    if (['perf_suppliers', 'perf_supplier', 'store_daily', 'sales_categories', 'vendor_pts', 'pt_detail', 'supplier_report', 'promo_ideas', 'pricing_day', 'pricing_supplier', 'returns_range', 'pu_find', 'vendor_pos', 'pos_of_day', 'po_detail'].includes(String(body.action))) {
+    if (['perf_suppliers', 'perf_supplier', 'store_daily', 'sales_categories', 'vendor_pts', 'pt_detail', 'supplier_report', 'promo_ideas', 'pricing_day', 'pricing_supplier', 'returns_range', 'recent_returns', 'pu_find', 'vendor_pos', 'pos_of_day', 'po_detail'].includes(String(body.action))) {
       if (!isServer && role !== 'admin') {
         const anon = Deno.env.get('SUPABASE_ANON_KEY') || '';
         const asUser = createClient(SUPABASE_URL, anon, { global: { headers: { Authorization: `Bearer ${bearer}` } }, auth: { persistSession: false, autoRefreshToken: false } });
@@ -2402,6 +2438,7 @@ Deno.serve(async req => {
         }
         return json({ found: false, doc: type + num });
       }
+      if (body.action === 'recent_returns') return json(await recentReturns(7));
       if (body.action === 'returns_range') {
         if (!isDay(from) || !isDay(to) || from > to || (new Date(to).getTime() - new Date(from).getTime()) / 864e5 > 62) return json({ error: 'Choose up to 2 months.' }, 400);
         return json(await returnsRange(from, to, !!body.withPrev));

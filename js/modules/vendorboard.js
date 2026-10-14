@@ -116,7 +116,26 @@
     ['none', 'Not scheduled', i => i.next === null],
   ];
 
+  // a return (PT) to the supplier in the last 7 days (owner, 2026-10-14): one read for every supplier, kept 10 minutes
+  const PT = { map: null, at: 0, busy: false };
+  const ptKey = c => String(c || '').trim().replace(/^0+(?=d)/, '');
+  async function loadPts() {
+    if (PT.busy || !canManage() || (PT.map && Date.now() - PT.at < 600000)) return;
+    PT.busy = true;
+    try {
+      const { data, error } = await sb.functions.invoke('lv-dashboard', { body: { action: 'recent_returns' } });
+      if (!error && data && !data.error) { PT.map = new Map((data.suppliers || []).map(x => [ptKey(x.code), x])); PT.at = Date.now(); PT.busy = false; render(); return; }
+    } catch (e) { /* the badge just does not show */ }
+    PT.busy = false; PT.at = Date.now(); PT.map = PT.map || new Map();
+  }
+  function ptOf(v) {
+    if (!PT.map) return null;
+    const hits = (v.systemSuppliers || []).map(s => PT.map.get(ptKey(s.code))).filter(Boolean);
+    if (!hits.length) return null;
+    return { days: [...new Set(hits.flatMap(h => h.days))].sort().reverse(), items: hits.reduce((t, h) => t + h.items, 0), value: hits.reduce((t, h) => t + h.value, 0) };
+  }
   function render() {
+    loadPts();
     const box = el('vendorBoard'); if (!box) return;
     const t = todayStr(), term = (typeof vendorSearchTerm === 'string' ? vendorSearchTerm : '').trim().toLowerCase();
     const all = vendorsList.map(v => info(v, t));
@@ -182,6 +201,8 @@
     if (i.dueNow) badges.push('<span class="badge due">Order today</span>');
     if (i.skipToday) badges.push('<span class="badge inactive">No order today</span>');
     if (S.filter === 'noorder' && i.nos.length) badges.push(`<span class="badge danger" title="${esc(i.nos.map(s => dmy(s.skipDate)).sort().join(', '))}">No order ×${i.nos.length}</span>`);
+    const pt = ptOf(v);
+    if (pt) badges.push(`<button type="button" class="badge vb-pt" data-act="pts" title="Returned to this supplier in the last 7 days: ${esc(pt.days.map(dmy).join(', '))} · ${pt.items} item${pt.items === 1 ? '' : 's'} · $${(Math.round(pt.value * 100) / 100).toLocaleString('en-US')}. Click for the returns.">PT · ${esc(dmy(pt.days[0]))}</button>`);
     if (i.st.low) badges.push(`<span class="badge danger" title="Items running low">${i.st.low} low</span>`);
     if (i.st.fast) badges.push(`<span class="badge danger" title="Selling fast, may run out">⚠ ${i.st.fast} fast</span>`);
     const sched = v.dayOfWeek !== null && v.dayOfWeek !== undefined ? `${DAYS[Number(v.dayOfWeek)]} · ${VENDOR_FREQ_LABELS[v.frequencyWeeks] ? VENDOR_FREQ_LABELS[v.frequencyWeeks].replace('Every ', 'every ').replace(' (monthly)', '') : ''}` : '';
@@ -217,6 +238,7 @@
   async function act(a, id) {
     const v = vendorsList.find(x => x.id === id); if (!v) return;
     if (a === 'open') return openVendorDetail(id);
+    if (a === 'pts') return window.VendorSheet ? VendorSheet.open(id, 'pts') : openVendorDetail(id);
     if (a === 'edit') return openVendorForm(id);
     if (a === 'order') return window.VendorOrder && VendorOrder.open(id);
     if (a === 'skip') return window.VendorOrder && VendorOrder.noOrder(id, todayStr());
