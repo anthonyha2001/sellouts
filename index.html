@@ -118,6 +118,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-6"/><circle cx="7" cy="14" r="1"/></svg>
       <span class="label">Competitors</span>
     </button>
+    <button class="nav-btn" data-tab="pts" title="Returns (PTs)" hidden>
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/></svg>
+      <span class="label">Returns (PTs)</span>
+    </button>
     <!-- Floor check removed (owner, 2026-10-12): its records stay in the database -->
     <button class="nav-btn" data-tab="expiries" title="Expiries" hidden>
       <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 22h14M5 2h14"/><path d="M17 22v-4.2a2 2 0 0 0-.6-1.4L12 12l-4.4 4.4a2 2 0 0 0-.6 1.4V22"/><path d="M7 2v4.2a2 2 0 0 0 .6 1.4L12 12l4.4-4.4a2 2 0 0 0 .6-1.4V2"/></svg>
@@ -937,6 +941,7 @@
     <section class="panel" id="panel-pricecheck"></section>
     <!-- COMPETITORS: scan an item in a rival store, compare prices (js/modules/competitors.js) -->
     <section class="panel" id="panel-competitors"></section>
+    <section class="panel" id="panel-pts"></section>
 
     <!-- EXPIRIES: items that expire soon, one card per month (js/modules/expiries.js) -->
     <section class="panel" id="panel-expiries"></section>
@@ -1134,6 +1139,7 @@
 <script src="js/modules/expiries.js"></script>
 <script src="js/modules/pricecheck.js"></script>
 <script src="js/modules/competitors.js"></script>
+<script src="js/modules/pts.js"></script>
 <script src="js/supplier-report-view.js"></script>
 <script src="js/modules/vendorsheet.js"></script>
 <script src="js/modules/vendororder.js"></script>

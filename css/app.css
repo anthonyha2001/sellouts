@@ -3469,3 +3469,17 @@ tr:hover .so-note,.so-note:focus{border-color:var(--line-strong);background:var(
 .vb-badges .badge.vb-pt:hover{background:color-mix(in srgb,#7c3aed 20%,transparent);}
 :root[data-theme="dark"] .vb-badges .badge.vb-pt{color:#c4b5fd;}
 @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]) .vb-badges .badge.vb-pt{color:#c4b5fd;} }
+/* Returns (PTs) tracker (owner, 2026-10-13) */
+.pts-bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
+.pts-bar input[type=search]{max-width:220px;}
+.pts-bar select{width:auto;max-width:220px;}
+.pts-status{flex-wrap:wrap;}
+.pts-tbl td{vertical-align:middle;}
+.pts-tbl tr.pts-done td{background:color-mix(in srgb, var(--pine) 4%, transparent);}
+.pts-sel{width:auto;font-size:12.5px;padding:3px 6px;border-radius:7px;}
+.pts-sel.k-taken{background:#fef3c7;}
+.pts-sel.k-compensated{background:#dcfce7;}
+.pts-sel.k-traded{background:#e0e7ff;}
+.pts-sel.k-owner{background:#f3e8ff;}
+.pts-sub{font-size:10.5px;color:var(--ink-faint);margin-top:2px;}
+.pts-note{width:100%;min-width:90px;font-size:12px;padding:3px 6px;}

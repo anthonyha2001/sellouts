@@ -735,6 +735,28 @@ async function branchSales(dayIn?: string) {
   return { daily: true, day, prevDay: prev, isToday: day === today, branches, totalToday: sum('today'), totalQtyToday: sum('todayQty'), totalPrev: sum('prev') };
 }
 
+// Returns tracker sync (owner, 2026-10-13; migration 095): the recent PTs into public.pts. A small rolling window (default the
+// last 4 days) so returns_range does not truncate; the owner's status and note are left alone by the trigger.
+async function ptsSync(fromIn?: string, toIn?: string) {
+  const today = beirutToday();
+  const to = isDay(toIn) ? String(toIn) : today, from = isDay(fromIn) ? String(fromIn) : plusDays(to, -1);
+  // day by day: a whole-range read truncates at 250 item-days on a busy store, so each day is read on its own
+  const lines: Record<string, unknown>[] = []; let truncated = false;
+  for (let d = to; d >= from; d = plusDays(d, -1)) { const r = await returnsRange(d, d); lines.push(...(r.lines as Record<string, unknown>[])); truncated = truncated || !!r.truncated; }
+  const m = new Map<string, Record<string, unknown>>();
+  (lines as Record<string, unknown>[]).forEach(x => {
+    const doc = String(x.doc || '').trim(), day = String(x.day || '').slice(0, 10); if (!doc || !day) return;
+    const year = day.slice(0, 4), k = doc + '|' + year;
+    const g = (m.get(k) || { pt: doc, year, pt_date: day, supplier_code: trimCode(x.supplier), supplier_name: supName(x.supplierName || x.supplier), lines: 0, qty: 0, value: 0, currency: String(x.currency || '$') }) as Record<string, number | string>;
+    (g.lines as number)++; (g.qty as number) += Math.abs(Number(x.paidQty || 0)) + Math.abs(Number(x.freeQty || 0)); (g.value as number) += Number(x.paid || 0);
+    if (day < String(g.pt_date)) g.pt_date = day;
+    m.set(k, g);
+  });
+  const now = new Date().toISOString(), rows = [...m.values()].map(g => ({ ...g, qty: Math.round(Number(g.qty) * 1000) / 1000, value: Math.round(Number(g.value) * 100) / 100, last_seen: now }));
+  for (let i = 0; i < rows.length; i += 200) { const { error } = await db.from('pts').upsert(rows.slice(i, i + 200), { onConflict: 'pt,year' }); if (error) throw error; }
+  return { from, to, pts: rows.length, truncated };
+}
+
 async function autoReceive() {
   const today = beirutToday();
   // the orders still waiting, oldest first, with their vendor's system supplier codes
@@ -2076,6 +2098,16 @@ Deno.serve(async req => {
     const { data, error } = await db.from('supplier_reports').select('vendor_name, month, data, created_at').eq('token', tk).maybeSingle();
     if (error || !data) return json({ error: 'This report was not found.' }, 404);
     return json(data);
+  }
+
+  // Returns tracker sync (migration 095), from pg_cron or the server key.
+  if (body.action === 'pts_sync') {
+    const cron = req.headers.get('x-cron-secret') || '';
+    let ok = serverKeys().includes(req.headers.get('apikey') || '');
+    if (!ok && cron) { const { data } = await db.rpc('push_keys'); ok = !!data && cron === (data as Record<string, string>).push_cron_secret; }
+    if (!ok) return json({ error: 'Not allowed.' }, 403);
+    try { return json(await ptsSync(String(body.from || '') || undefined, String(body.to || '') || undefined)); }
+    catch (e) { console.error(e); return json({ error: e instanceof Error ? e.message : 'failed' }, 502); }
   }
 
   // Auto-receive from a new PU (migration 094), from pg_cron or the server key.

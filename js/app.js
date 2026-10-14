@@ -1377,6 +1377,8 @@ const PAGES = {
   cash:        { eyebrow: 'Cashiers', title: 'Cash differences', sub: 'Daily over and short amounts per cashier.' },
   floorcheck:  { eyebrow: 'Store floor', title: 'Floor check', sub: 'Check that every sell-out and promotion item on the floor has the right price.' },
   expiries:    { eyebrow: 'Store floor', title: 'Expiries', sub: 'What expires on the shelves, month by month, and which shelf worker deals with it.' },
+  competitors: { eyebrow: 'Market', title: 'Competitors', sub: 'Scan an item in a competitor’s store and compare its price with ours.' },
+  pts:         { eyebrow: 'Suppliers', title: 'Returns (PTs)', sub: 'Every return to a supplier, with the status you set: Taken, Compensated, Traded or Owner.' },
   labels:      { eyebrow: 'Shelves', title: 'Shelf labels', sub: 'Items that need a new shelf label: scanned on the floor, printed by the accountant.' },
   staff:       { eyebrow: 'People', title: 'Staff', sub: 'Everyone who works here: job, phone, start date, salary — and their app login.' },
   schedule:    { eyebrow: 'Staff', title: 'Staff schedule', sub: 'The weekly program of cashiers and supervisors: AM, PM, full day or off, front or back.' },
@@ -1435,6 +1437,7 @@ function switchTab(name, sub) {
   if (name === 'toolcheck' && window.Reconcile) { const box = document.getElementById('panel-toolcheck'); if (box && !box.dataset.mounted) { box.dataset.mounted = '1'; Reconcile.mount(box); } }
   if (name === 'pricecheck' && window.PriceCheck) PriceCheck.show();
   if (name === 'competitors' && window.Competitors) Competitors.show();
+  if (name === 'pts' && window.PTs) PTs.show();
   if (name === 'warehouse' && window.Warehouse) Warehouse.show();
   if (name === 'stockcontrol' && window.StockControl) StockControl.show();
   if (name === 'performance' && window.Performance) Performance.show();
