@@ -1778,6 +1778,25 @@ async function pricingDay(day: string) {
 }
 // one supplier's deliveries of a day, line by line: the PU, the prices, the previous purchase, the stock we had
 // the returns to suppliers (PT) between two days: every returned line, with the last purchase price before it
+// the suppliers with a return (PT) in the last days (owner, 2026-10-14: a badge on each vendor card), from one report:
+// an item returned on a day shows as a negative quantity (a return netted to 0 with a delivery the same day is not seen)
+async function recentReturns(days = 7) {
+  const to = beirutToday(), from = plusDays(to, -(days - 1));
+  const out: Record<string, { code: string; name: string; days: string[]; items: number; value: number }> = {};
+  for (const [f, t] of byYear(from, to)) {
+    const d = await dash('/items_purchases', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+      branches: [BRANCH], year: f.slice(0, 4), from_date: f, to_date: t, aggregation: 'Daily', group_by: ['item', 'supplier'] }) });
+    branchRows(d).forEach(r => {
+      if (Number(r.total_quantity || 0) >= 0) return;
+      const c = trimCode(r.supplier); if (!c) return;
+      const x = out[c] = out[c] || { code: c, name: String(r.supplier_desc ?? '').trim(), days: [], items: 0, value: 0 };
+      const day = String(r.period || '').slice(0, 10); if (day && !x.days.includes(day)) x.days.push(day);
+      x.items++; x.value += Math.abs(Number(r.total_purchases || 0));
+    });
+  }
+  Object.values(out).forEach(x => { x.days.sort().reverse(); x.value = Math.round(x.value * 100) / 100; });
+  return { from, to, suppliers: Object.values(out) };
+}
 async function returnsRange(from: string, to: string, withPrev = false) {
   const key = (c: string) => c.replace(/^0+(?=d)/, '').toUpperCase();
   const cand = new Map<string, { code: string; description: string; supplier: string; supplierName: string }>(), pairs = new Set<string>();
@@ -2340,7 +2359,7 @@ Deno.serve(async req => {
       }
       return json(await priceChangesSync(120));
     }
-    if (['perf_suppliers', 'perf_supplier', 'store_daily', 'sales_categories', 'vendor_pts', 'pt_detail', 'supplier_report', 'promo_ideas', 'pricing_day', 'pricing_supplier', 'returns_range', 'pu_find', 'vendor_pos', 'pos_of_day', 'po_detail'].includes(String(body.action))) {
+    if (['perf_suppliers', 'perf_supplier', 'store_daily', 'sales_categories', 'vendor_pts', 'pt_detail', 'supplier_report', 'promo_ideas', 'pricing_day', 'pricing_supplier', 'returns_range', 'recent_returns', 'pu_find', 'vendor_pos', 'pos_of_day', 'po_detail'].includes(String(body.action))) {
       if (!isServer && role !== 'admin') {
         const anon = Deno.env.get('SUPABASE_ANON_KEY') || '';
         const asUser = createClient(SUPABASE_URL, anon, { global: { headers: { Authorization: `Bearer ${bearer}` } }, auth: { persistSession: false, autoRefreshToken: false } });
@@ -2419,6 +2438,7 @@ Deno.serve(async req => {
         }
         return json({ found: false, doc: type + num });
       }
+      if (body.action === 'recent_returns') return json(await recentReturns(7));
       if (body.action === 'returns_range') {
         if (!isDay(from) || !isDay(to) || from > to || (new Date(to).getTime() - new Date(from).getTime()) / 864e5 > 62) return json({ error: 'Choose up to 2 months.' }, 400);
         return json(await returnsRange(from, to, !!body.withPrev));

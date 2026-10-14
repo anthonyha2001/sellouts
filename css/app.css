@@ -3455,3 +3455,9 @@ tr:hover .so-note,.so-note:focus{border-color:var(--line-strong);background:var(
 .pf-share{display:inline-block;width:120px;height:8px;border-radius:4px;background:var(--line);overflow:hidden;vertical-align:middle;margin-right:8px;}
 .pf-share i{display:block;height:100%;background:var(--pine);border-radius:4px;}
 .pf-share-n{font-variant-numeric:tabular-nums;}
+
+/* vendor card: a return (PT) to the supplier in the last 7 days (owner, 2026-10-14) */
+.vb-badges .badge.vb-pt{border:0;cursor:pointer;background:color-mix(in srgb,#7c3aed 12%,transparent);color:#6d28d9;}
+.vb-badges .badge.vb-pt:hover{background:color-mix(in srgb,#7c3aed 20%,transparent);}
+:root[data-theme="dark"] .vb-badges .badge.vb-pt{color:#c4b5fd;}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]) .vb-badges .badge.vb-pt{color:#c4b5fd;} }
