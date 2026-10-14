@@ -4533,6 +4533,8 @@ document.querySelectorAll('#vendorSubTabs button').forEach(btn => {
     document.getElementById('vendorDirectoryView').style.display = vendorSubTab === 'directory' ? 'block' : 'none';
     document.getElementById('vendorPosView').style.display = vendorSubTab === 'pos' ? 'block' : 'none';
     if (vendorSubTab === 'pos' && window.VendorPos) VendorPos.show();
+    document.getElementById('vendorPoTrackView').style.display = vendorSubTab === 'potrack' ? 'block' : 'none';
+    if (vendorSubTab === 'potrack' && window.VendorPoTrack) VendorPoTrack.show();
     document.getElementById('vendorOrdersView').style.display = vendorSubTab === 'orders' ? 'block' : 'none';
     document.getElementById('vendorReceivingView').style.display = vendorSubTab === 'receiving' ? 'block' : 'none';
     if (vendorSubTab === 'directory' && window.VendorBoard) VendorBoard.show();

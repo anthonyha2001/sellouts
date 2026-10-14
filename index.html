@@ -331,12 +331,14 @@
         <button class="active" data-vsub="directory">Directory</button>
         <button data-vsub="orders">Weekly report</button>
         <button data-vsub="pos">POs</button>
+        <button data-vsub="potrack">PO tracking</button>
         <button data-vsub="receiving">Receiving</button>
       </div>
 
       <!-- Receiving (js/modules/vendorcal.js; migration 062) -->
       <div id="vendorReceivingView" style="display:none;"></div>
       <div id="vendorPosView" style="display:none;"></div><!-- the POs of a day, from the system: js/modules/vendorpos.js -->
+      <div id="vendorPoTrackView" style="display:none;"></div><!-- PO -> delivery tracking per supplier: js/modules/vendorpotrack.js -->
 
       <div id="vendorDirectoryView">
 
@@ -1138,6 +1140,7 @@
 <script src="js/modules/vendorboard.js"></script>
 <script src="js/modules/vendorreport.js"></script>
 <script src="js/modules/vendorpos.js"></script>
+<script src="js/modules/vendorpotrack.js"></script>
 <script src="js/modules/vendorcontract.js"></script>
 <script src="js/modules/salesreports.js"></script>
 <script src="js/modules/weeklyreport.js"></script>
