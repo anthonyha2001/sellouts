@@ -361,5 +361,69 @@
       [], ['Whole store', Math.round(tot * 100) / 100, ...usedHours.map(h => Math.round(n(c.hours[h]?.['*']) * 100) / 100)]], `Sales by hour ${d.day}`);
   }
 
-  window.SalesReports = { showCategories, showDaily, showHourly, _prevPeriod: prevPeriod, _byHour: byHour };
+  /* ================= Branches (owner, 2026-10-14; branch_compare) =================
+     Sales by category across all 5 branches, side by side. $ or Index (a branch's share of a category vs the chain average:
+     100 = average, >120 over-indexes, <80 under) to spot where each branch is strong or weak. Admin only. */
+  const B = { level: 'section', from: null, to: null, q: '', mode: 'money', sort: 'total', dir: -1, data: null, seq: 0 };
+  function showBranches(box) {
+    if (!box) return;
+    if (!B.from) { const p = presets()[0]; B.from = p[1]; B.to = p[2]; }
+    if (!box.dataset.built) {
+      box.dataset.built = '1';
+      box.innerHTML = `<div class="card pf-controls">
+          <label>From <input type="date" id="bcFrom"></label><label>to <input type="date" id="bcTo"></label>
+          <div class="filter-row" id="bcQuick" style="margin:0;"></div>
+          <div class="filter-row" id="bcLevel" style="margin:0;">${LEVELS.map(([v, l]) => `<button type="button" data-bc-level="${v}">${l}</button>`).join('')}</div>
+          <button type="button" class="btn small" id="bcLoad">Load</button></div>
+        <div id="bcBody"></div>`;
+      el('bcQuick').onclick = e => { const b = e.target.closest('[data-p]'); if (!b) return; const p = presets()[Number(b.dataset.p)]; B.from = p[1]; B.to = p[2]; loadBranchComp(); };
+      el('bcLevel').onclick = e => { const b = e.target.closest('[data-bc-level]'); if (!b) return; B.level = b.dataset.bcLevel; loadBranchComp(); };
+      el('bcLoad').onclick = () => { const f = el('bcFrom').value, t = el('bcTo').value; if (!f || !t || f > t) return showToast('Choose the dates.', true); B.from = f; B.to = t; loadBranchComp(); };
+    }
+    if (!B.data) loadBranchComp(); else paintBranchComp();
+  }
+  async function loadBranchComp() {
+    el('bcFrom').value = B.from; el('bcTo').value = B.to;
+    el('bcQuick').innerHTML = presets().map((p, i) => `<button type="button" data-p="${i}" class="${p[1] === B.from && p[2] === B.to ? 'active' : ''}">${p[0]}</button>`).join('');
+    el('bcLevel').querySelectorAll('[data-bc-level]').forEach(b => b.classList.toggle('active', b.dataset.bcLevel === B.level));
+    const my = ++B.seq;
+    el('bcBody').innerHTML = '<div class="card"><p class="muted-note" style="margin:0;">Reading every branch from the system…</p></div>';
+    try { const d = await call({ action: 'branch_compare', level: B.level, from: B.from, to: B.to }); if (my !== B.seq) return; B.data = d; paintBranchComp(); }
+    catch (e) { if (my === B.seq) el('bcBody').innerHTML = `<div class="card"><p class="login-err" style="margin:0;">${esc(failMsg(e))}</p></div>`; }
+  }
+  function paintBranchComp() {
+    const d = B.data, box = el('bcBody'); if (!d || !box) return;
+    const brs = d.branches, q = B.q.trim().toLowerCase();
+    const rows = d.categories.filter(c => !q || c.name.toLowerCase().includes(q));
+    const grand = d.grand || 1, bt = d.branchTotals;
+    const k = B.sort; rows.sort((a, b) => k === 'name' ? B.dir * a.name.localeCompare(b.name) : B.dir * ((k === 'total' ? a.total : n(a.by[k])) - (k === 'total' ? b.total : n(b.by[k]))));
+    // index = a branch's share of this category vs the category's share of the whole store, ×100
+    const idx = (c, b) => { const share = c.total > 0 ? n(c.by[b]) / c.total : 0, chain = grand > 0 ? bt[b] / grand : 0; return chain > 0 ? Math.round(share / chain * 100) : null; };
+    const cell = (c, b) => {
+      if (B.mode === 'money') { const strong = c.total > 0 && n(c.by[b]) === Math.max(...brs.map(x => n(c.by[x]))); return `<td class="num ${strong ? 'bc-strong' : ''}">${money(c.by[b])}</td>`; }
+      const v = idx(c, b); const cls2 = v === null ? '' : v >= 120 ? 'bc-over' : v <= 80 ? 'bc-under' : '';
+      return `<td class="num bc-idx ${cls2}" title="${esc(c.name)} · ${esc(b)}: ${money(c.by[b])}">${v === null ? '—' : v}</td>`;
+    };
+    const sortIc = key => key === B.sort ? (B.dir < 0 ? ' ▾' : ' ▴') : '';
+    box.innerHTML = `
+      <div class="pf-tiles bc-tiles">${brs.map(b => `<div class="pf-tile"><span>${esc(b)}</span><b>${money(bt[b])}</b><small>${grand > 0 ? Math.round(bt[b] / grand * 1000) / 10 : 0}% of chain</small></div>`).join('')}
+        <div class="pf-tile"><span>All branches</span><b>${money(grand)}</b><small>${esc(dmy(d.from))} → ${esc(dmy(d.to))}</small></div></div>
+      <div class="card">
+        <div class="pf-head"><h3>${esc(LABEL[d.level] || d.level)} by branch</h3>
+          <input type="search" id="bcQ" placeholder="Find a ${esc((LABEL[d.level] || d.level).toLowerCase())}" value="${esc(B.q)}" aria-label="Find">
+          <div class="filter-row" style="margin:0;"><button type="button" data-bc-mode="money" class="${B.mode === 'money' ? 'active' : ''}">$</button><button type="button" data-bc-mode="index" class="${B.mode === 'index' ? 'active' : ''}">Index</button></div>
+          <span style="flex:1"></span><button type="button" class="icon-btn" id="bcXls" title="Download (Excel)" aria-label="Download (Excel)">${xlsIcon}</button></div>
+        <div class="items-scroll pf-scroll"><table class="items pf-table bc-tbl"><thead><tr>
+          <th class="bc-sort" data-bc-sort="name">${esc(LABEL[d.level] || d.level)}${sortIc('name')}</th>${brs.map(b => `<th class="num bc-sort" data-bc-sort="${esc(b)}">${esc(b.split(' ')[0])}${sortIc(b)}</th>`).join('')}<th class="num bc-sort" data-bc-sort="total">Total${sortIc('total')}</th></tr></thead>
+          <tbody>${rows.map(c => `<tr><td><b>${esc(c.name)}</b></td>${brs.map(b => cell(c, b)).join('')}<td class="num"><b>${money(c.total)}</b></td></tr>`).join('') || `<tr><td colspan="${brs.length + 2}" class="empty-note">No sales.</td></tr>`}</tbody></table></div>
+        <p class="muted-note" style="margin:8px 0 0;">${B.mode === 'index' ? 'Index 100 = the chain average for that branch; green ≥120 (over-indexes), gold ≤80 (under). ' : 'The strongest branch for each line is marked. '}All 5 branches, from the system. Sales in $.</p>
+      </div>`;
+    el('bcQ').oninput = () => { B.q = el('bcQ').value; const p = el('bcQ').selectionStart; paintBranchComp(); el('bcQ').focus(); el('bcQ').setSelectionRange(p, p); };
+    box.querySelectorAll('[data-bc-mode]').forEach(b => b.onclick = () => { B.mode = b.dataset.bcMode; paintBranchComp(); });
+    box.querySelectorAll('.bc-sort').forEach(h => h.onclick = () => { const key = h.dataset.bcSort; if (B.sort === key) B.dir = -B.dir; else { B.sort = key; B.dir = key === 'name' ? 1 : -1; } paintBranchComp(); });
+    el('bcXls').onclick = () => xls([[LABEL[d.level] || d.level, ...brs, 'Total'], ...rows.map(c => [c.name, ...brs.map(b => Math.round(n(c.by[b]) * 100) / 100), Math.round(c.total * 100) / 100]),
+      [], ['Total', ...brs.map(b => Math.round(bt[b] * 100) / 100), Math.round(grand * 100) / 100]], `Branches by ${(LABEL[d.level] || d.level).toLowerCase()} ${d.from} ${d.to}`);
+  }
+
+  window.SalesReports = { showCategories, showDaily, showHourly, showBranches, _prevPeriod: prevPeriod, _byHour: byHour };
 })();

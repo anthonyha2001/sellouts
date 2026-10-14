@@ -3483,3 +3483,10 @@ tr:hover .so-note,.so-note:focus{border-color:var(--line-strong);background:var(
 .pts-sel.k-owner{background:#f3e8ff;}
 .pts-sub{font-size:10.5px;color:var(--ink-faint);margin-top:2px;}
 .pts-note{width:100%;min-width:90px;font-size:12px;padding:3px 6px;}
+/* Performance › Branches comparison (owner, 2026-10-14) */
+.bc-tiles .pf-tile{min-width:120px;}
+.bc-tbl td.bc-strong{background:color-mix(in srgb, var(--pine) 10%, transparent);font-weight:700;}
+.bc-tbl td.bc-idx{font-variant-numeric:tabular-nums;}
+.bc-tbl td.bc-over{background:color-mix(in srgb, #15803d 16%, transparent);color:#15803d;font-weight:700;}
+.bc-tbl td.bc-under{background:color-mix(in srgb, var(--gold) 16%, transparent);color:#8a6d1f;font-weight:700;}
+.bc-sort{cursor:pointer;user-select:none;}

@@ -757,6 +757,25 @@ async function ptsSync(fromIn?: string, toIn?: string) {
   return { from, to, pts: rows.length, truncated };
 }
 
+// Branch comparison (owner, 2026-10-14): sales by category across all 5 branches, in one summary call.
+async function branchCompare(level: string, from: string, to: string) {
+  const d = await dash('/items_sales/summary', postJson({ branches: BRANCHES, year: from.slice(0, 4), from_date: from, to_date: to, group_by: [level] })) as Record<string, unknown>;
+  const items = (((d.data as Record<string, unknown>)?.items || []) as Record<string, unknown>[]);
+  const cats = new Map<string, { code: string; name: string; by: Record<string, number>; total: number }>();
+  const branchTotals: Record<string, number> = {};
+  items.forEach(r => {
+    const b = String(r.branch || '').trim(); if (!b) return;
+    const code = String(r[level] ?? '').trim() || '?', name = String(r[level + '_desc'] ?? '').trim() || (code === '?' ? 'Not classified' : code);
+    const v = Number(r.total_sales || 0);
+    const x = cats.get(code) || { code, name, by: {}, total: 0 }; x.by[b] = (x.by[b] || 0) + v; x.total += v; cats.set(code, x);
+    branchTotals[b] = (branchTotals[b] || 0) + v;
+  });
+  const r0 = (v: number) => Math.round(v * 100) / 100;
+  const categories = [...cats.values()].map(c => ({ code: c.code, name: c.name, total: r0(c.total), by: Object.fromEntries(BRANCHES.map(b => [b, r0(c.by[b] || 0)])) }))
+    .sort((a, b) => b.total - a.total);
+  return { level, from, to, branches: BRANCHES, categories, branchTotals: Object.fromEntries(BRANCHES.map(b => [b, r0(branchTotals[b] || 0)])), grand: r0(Object.values(branchTotals).reduce((t, x) => t + x, 0)) };
+}
+
 async function autoReceive() {
   const today = beirutToday();
   // the orders still waiting, oldest first, with their vendor's system supplier codes
@@ -2288,6 +2307,17 @@ Deno.serve(async req => {
         if (!ok) return json({ error: 'Not allowed.' }, 403);
       }
       return json(await branchSales(String(body.day || '')));
+    }
+    if (body.action === 'branch_compare') {
+      if (!isServer && role !== 'admin') {
+        const anon = Deno.env.get('SUPABASE_ANON_KEY') || '';
+        const asUser = createClient(SUPABASE_URL, anon, { global: { headers: { Authorization: `Bearer ${bearer}` } }, auth: { persistSession: false, autoRefreshToken: false } });
+        const { data: okp } = await asUser.rpc('has_perm', { p_perms: ['vendors.manage'] });
+        if (!okp) return json({ error: 'Not allowed.' }, 403);
+      }
+      const lv = String(body.level || 'section'), f2 = String(body.from || ''), t2 = String(body.to || '');
+      if (!['department', 'section', 'group', 'brand'].includes(lv) || !isDay(f2) || !isDay(t2)) return json({ error: 'Choose a level and dates.' }, 400);
+      return json(await branchCompare(lv, f2, t2));
     }
     // The system's supplier catalogue, to import vendors from it (owner, 2026-10-13)
     if (body.action === 'supplier_catalog') {
