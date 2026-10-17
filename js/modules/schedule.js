@@ -118,7 +118,7 @@
     const { data, error } = await sb.rpc('schedule_staff');
     S.missing = !!error;
     S.staff = (data || []).map(r => ({ id: r.key, staffId: r.staff_id, cashierId: r.cashier_id, name: r.name, job: r.job, active: r.active,
-      sort_order: r.sort_order, position: r.pos || null, default_station: r.default_station, has_pin: r.has_pin,
+      sort_order: r.sort_order, position: r.pos || null, default_station: r.default_station, has_pin: r.has_pin, trainee: !!r.trainee,
       fixed: Array.isArray(r.fixed_days) ? r.fixed_days.slice(0, 7) : [], breakStart: r.break_start || '', breakMin: r.break_minutes || null }));
     S.staff.forEach(p => { p.dept = deptOf(p); });
   }
@@ -206,6 +206,7 @@
   function groupCount(list, a, day) {
     const c = { am: 0, pm: 0, front: 0, back: 0 };
     list.forEach(p => {
+      if (p.trainee) return;   // trainees are shown but not counted in the coverage (owner, 2026-10-18)
       const { shift, station } = parse((a[p.id] || [])[day]);
       if (!SHIFT[shift]) return;
       if (shift === 'am' || shift === 'full') c.am++;
@@ -251,7 +252,7 @@
       const hours = Math.round(days.reduce((t, c) => t + hoursOf(c), 0) * 100) / 100;
       const off = days.filter(c => c === 'off').length;
       return `<tr data-p="${p.id}" data-grp="${p.dept}">
-        <th class="sh-name">${RowDrag.handle()}${esc(p.name)}${p.active ? '' : ' <span class="muted-note">(inactive)</span>'}<small>${esc(p.job || '') + (hasStation(p) && p.default_station ? ' · ' + (p.default_station === 'front' ? 'Front' : 'Back') : '')}</small>${breakBtn(p)}</th>
+        <th class="sh-name">${RowDrag.handle()}${esc(p.name)}${p.active ? '' : ' <span class="muted-note">(inactive)</span>'}${p.trainee ? ' <span class="sh-trainee" title="Shown but not counted">trainee</span>' : ''}<small>${esc(p.job || '') + (hasStation(p) && p.default_station ? ' · ' + (p.default_station === 'front' ? 'Front' : 'Back') : '')}</small>${breakBtn(p)}</th>
         ${dates.map((d, i) => { const c = days[i] || '', { shift } = parse(c); const q = askOf(p.id, i); return `<td class="sh-cell sh-${shift || 'none'}${editableDay(i) ? '' : ' sh-ro'}"><button type="button" data-day="${i}" ${editableDay(i) ? '' : 'disabled'} aria-label="${esc(p.name)} ${DAYS[i]}" ${q ? `title="Asked for ${ASK_LABEL[q]}"` : ''}>${cellHtml(c)}${q ? `<i class="sh-ask-dot ${shift === q ? 'ok' : ''}">${ASK_LABEL[q]}</i>` : ''}</button></td>`; }).join('')}
         <td class="num sh-hours">${hours ? hours + 'h' : '—'}<small>${off} off</small></td></tr>`;
     };

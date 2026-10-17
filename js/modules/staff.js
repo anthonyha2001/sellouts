@@ -166,7 +166,7 @@
     return `<tr data-id="${esc(p.id)}" data-grp="${grp}" class="${p.active ? '' : 'st-left'}">
             <td class="st-drag">${canDrag() ? RowDrag.handle() : ''}</td>
             <td><b>${esc(p.name)}</b>${p.active ? '' : ' <span class="badge inactive">Left</span>'}${p.note ? `<small class="st-note">${esc(p.note)}</small>` : ''}</td>
-            <td>${esc(p.job)}${inCashList(p.job) ? ` <span class="muted-note" title="Also on the Cash page and the cashier page${String(p.job).toLowerCase() === 'picker' ? '' : ', and in the staff schedule'}">· cash</span>` : ''}${p.sections ? `<small class="st-note">Sections: ${esc(p.sections)}</small>` : ''}</td>
+            <td>${esc(p.job)}${p.trainee ? ' <span class="badge" title="Shown in the schedule but not counted">Trainee</span>' : ''}${inCashList(p.job) ? ` <span class="muted-note" title="Also on the Cash page and the cashier page${String(p.job).toLowerCase() === 'picker' ? '' : ', and in the staff schedule'}">· cash</span>` : ''}${p.sections ? `<small class="st-note">Sections: ${esc(p.sections)}</small>` : ''}</td>
             <td class="mono">${p.phone ? `<a href="tel:${esc(p.phone.replace(/[^\d+]/g, ''))}">${esc(p.phone)}</a>` : ''}</td>
             <td class="mono">${p.start_date ? esc(fmtDate(p.start_date)) : ''}</td>
             <td class="num mono">${esc(salaryText(p.salary))}</td>
@@ -223,6 +223,7 @@
               <div><label for="stSalary">Monthly salary <span style="opacity:.6;">(optional)</span></label><input type="text" id="stSalary" inputmode="decimal" placeholder="e.g. 600"></div>
               <div class="full"><label for="stNote">Note <span style="opacity:.6;">(optional)</span></label><textarea id="stNote"></textarea></div>
               <div id="stStationW" hidden><label for="stStation">Usual station</label><select id="stStation"><option value="">—</option><option value="front">Front</option><option value="back">Back</option></select></div>
+              <div id="stTraineeW" hidden><label class="chk" style="margin-top:22px;"><input type="checkbox" id="stTrainee"> Trainee <span style="opacity:.6;">(shown in the schedule, not counted)</span></label></div>
               <div class="full" id="stUserWrap" hidden><label for="stUser">App login</label><select id="stUser"></select></div>
             </div>
             <p class="muted-note" id="stHint" style="margin:10px 0 0;">Cashiers, cashier supervisors, pickers and delivery supervisors also appear on the Cash page and the cashier page (with a PIN).</p>
@@ -245,7 +246,8 @@
     el('stJob').innerHTML = '<option value="">Choose…</option>' + jobs.map(j => `<option ${j === p?.job ? 'selected' : ''}>${esc(j)}</option>`).join('');
     el('stSections').value = p?.sections || '';
     el('stStation').value = (p?.cashier_id && S.cash?.get(p.cashier_id)?.default_station) || '';
-    const syncSections = () => { el('stSectionsW').hidden = !isShelf(el('stJob').value); el('stStationW').hidden = !atTills(el('stJob').value); };
+    el('stTrainee').checked = !!p?.trainee;
+    const syncSections = () => { el('stSectionsW').hidden = !isShelf(el('stJob').value); el('stStationW').hidden = !atTills(el('stJob').value); el('stTraineeW').hidden = !atTills(el('stJob').value); };
     el('stJob').onchange = syncSections; syncSections();
     el('stPhone').value = p?.phone || ''; el('stStart').value = p?.start_date || '';
     el('stSalary').value = p?.salary ?? ''; el('stNote').value = p?.note || '';
@@ -269,6 +271,7 @@
       sections: isShelf(el('stJob').value) ? el('stSections').value.trim() || null : null,
       phone: el('stPhone').value.trim() || null, start_date: el('stStart').value || null,
       salary: salaryRaw ? Number(salaryRaw) : null, note: el('stNote').value.trim() || null,
+      trainee: atTills(el('stJob').value) && el('stTrainee').checked,
     };
     if (!row.name) return showToast('Type the name.', true);
     if (!row.job) return showToast('Choose the job.', true);
