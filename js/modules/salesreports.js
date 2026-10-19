@@ -58,7 +58,32 @@
   const LEVELS = [['department', 'Department'], ['section', 'Section'], ['group', 'Group'], ['brand', 'Brand']];
   const CHILD = { department: 'section', section: 'group', group: 'subgroup' };
   const LABEL = { department: 'Department', section: 'Section', group: 'Group', subgroup: 'Sub-group', brand: 'Brand' };
-  const C = { from: null, to: null, level: 'department', path: [], q: '', sort: 'sales', dir: -1, data: null, seq: 0 };
+  const C = { from: null, to: null, level: 'department', path: [], q: '', sort: 'sales', dir: -1, data: null, seq: 0, open: new Set(), det: {} };
+  // a category's details (owner, 2026-10-19): which suppliers lead it, its brands and its best items, each with its share
+  const detKey = (lv, code) => [lv, code, C.from, C.to].join('|');
+  async function loadDet(lv, code) {
+    const k = detKey(lv, code); if (C.det[k]) return;
+    C.det[k] = 'loading'; paintCats();
+    const one = level => call({ action: 'sales_categories', from: C.from, to: C.to, level, parentLevel: lv, parentCode: code }).then(x => x.rows).catch(() => null);
+    const [suppliers, brands, items] = await Promise.all([one('supplier'), lv === 'brand' ? Promise.resolve(null) : one('brand'), one('item')]);
+    C.det[k] = { suppliers, brands, items, skipBrands: lv === 'brand' };
+    paintCats();
+  }
+  function detHtml(lv, r) {
+    const x = C.det[detKey(lv, r.code)];
+    if (!x || x === 'loading') return '<p class="muted-note" style="margin:0;">Reading its suppliers, brands and items…</p>';
+    if (!x.suppliers && !x.items) return '<p class="login-err" style="margin:0;">Could not read the details. If it keeps saying so, redeploy lv-dashboard.</p>';
+    const list = (title, rows, max) => {
+      if (!rows) return `<div class="sc-dcol"><h4>${title}</h4><p class="muted-note">Not available.</p></div>`;
+      const tot = rows.reduce((t, y) => t + n(y.sales), 0), top = rows.filter(y => n(y.sales) > 0).sort((a, b) => b.sales - a.sales);
+      return `<div class="sc-dcol"><h4>${title} <span class="muted-note">${top.length}</span></h4><ol>${top.slice(0, max).map((y, i) => { const sh = tot > 0 ? y.sales / tot : 0;
+        return `<li class="${i === 0 ? 'lead' : ''}"><span class="sc-dn" title="${esc(y.name)}">${esc(y.name)}</span><span class="sc-share"><i style="width:${Math.max(1, Math.round(sh * 100))}%"></i></span><b>${(Math.round(sh * 1000) / 10).toLocaleString('en-US')}%</b><span class="sc-dv">${money(y.sales)}</span></li>`; }).join('') || '<li class="muted-note">No sales.</li>'}</ol>
+        ${top.length > max ? `<p class="muted-note" style="margin:4px 0 0;">+${top.length - max} more</p>` : ''}</div>`;
+    };
+    const lead = (x.suppliers || []).filter(y => n(y.sales) > 0).sort((a, b) => b.sales - a.sales)[0], ts = (x.suppliers || []).reduce((t, y) => t + n(y.sales), 0);
+    return `${lead && ts > 0 ? `<p class="sc-lead">Led by <b>${esc(lead.name)}</b> with <b>${(Math.round(lead.sales / ts * 1000) / 10).toLocaleString('en-US')}%</b> of ${esc(r.name)}'s sales</p>` : ''}
+      <div class="sc-dgrid">${list('Suppliers', x.suppliers, 8)}${x.skipBrands ? '' : list('Brands', x.brands, 8)}${list('Best items', x.items, 10)}</div>`;
+  }
   function presets() {
     const t = todayStr(), y = addDays(t, -1), T = D(t), first = iso(new Date(Date.UTC(T.getUTCFullYear(), T.getUTCMonth(), 1)));
     const lmFirst = shiftMonths(first, 1), lmLast = addDays(first, -1);
@@ -87,6 +112,7 @@
     if (!C.data) loadCats(); else paintCats();
   }
   async function loadCats() {
+    C.open.clear();   // another level or dates: nothing open
     el('scFrom').value = C.from; el('scTo').value = C.to;
     el('scQuick').innerHTML = presets().map((p, i) => `<button type="button" data-p="${i}" class="${p[1] === C.from && p[2] === C.to ? 'active' : ''}">${p[0]}</button>`).join('');
     const my = ++C.seq, [pf, pt] = prevPeriod(C.from, C.to), parent = C.path[C.path.length - 1];
@@ -134,19 +160,20 @@
         <div class="items-scroll pf-scroll"><table class="items pf-table sc-table"><thead><tr>
           ${th('name', LABEL[d.level], false)}${th('sales', 'Sales')}<th class="num">Share</th>${th('prevSales', 'Last month')}${th('diff', 'Difference')}${th('ch', 'Change')}${th('qty', 'Units')}${th('prevQty', 'Units last month')}</tr></thead>
           <tbody>${rows.map(r => `<tr class="${canOpen ? 'pf-row' : ''}" data-code="${esc(r.code)}" ${canOpen ? `tabindex="0" title="Open the ${esc(LABEL[CHILD[d.level]].toLowerCase())}s of ${esc(r.name)}"` : ''}>
-            <td><b>${esc(r.name)}</b></td>
+            <td><button type="button" class="sc-acc ${C.open.has(r.code) ? 'on' : ''}" data-acc="${esc(r.code)}" title="Suppliers, brands and best items" aria-label="Details" aria-expanded="${C.open.has(r.code)}">▸</button><b>${esc(r.name)}</b></td>
             <td class="num">${money(r.sales)}</td>
             <td class="num"><span class="sc-share"><i style="width:${total > 0 ? Math.max(1, Math.round(r.sales / total * 100)) : 0}%"></i></span>${total > 0 ? (Math.round(r.sales / total * 1000) / 10) + '%' : ''}</td>
             <td class="num">${money(r.prevSales)}</td>
             <td class="num ${r.diff < 0 ? 'pf-neg' : ''}">${(r.diff >= 0 ? '+' : '-') + money(Math.abs(r.diff))}</td>
             <td class="num"><span class="${cls(r.ch)}">${r.prevSales > 0 ? pct(r.ch) : '<span class="muted-note">new</span>'}</span></td>
-            <td class="num">${qty(r.qty)}</td><td class="num">${qty(r.prevQty)}</td></tr>`).join('') || '<tr><td colspan="8" class="empty-note">No sales.</td></tr>'}</tbody></table></div>
+            <td class="num">${qty(r.qty)}</td><td class="num">${qty(r.prevQty)}</td></tr>${C.open.has(r.code) ? `<tr class="sc-det"><td colspan="8">${detHtml(d.level, r)}</td></tr>` : ''}`).join('') || '<tr><td colspan="8" class="empty-note">No sales.</td></tr>'}</tbody></table></div>
         <p class="muted-note" style="margin:8px 0 0;">Sales in $ as the system reports them, against the same dates one month before (a whole month against the whole month before). ${canOpen ? 'Click a line to open what is inside it.' : ''}</p>
       </div>`;
     box.querySelectorAll('[data-level]').forEach(b => b.onclick = () => { C.level = b.dataset.level; C.path = []; C.q = ''; loadCats(); });
     box.querySelectorAll('[data-crumb]').forEach(b => b.onclick = () => { C.path = C.path.slice(0, Number(b.dataset.crumb) + 1); C.q = ''; loadCats(); });
     box.querySelectorAll('.pf-sort').forEach(h => h.onclick = () => { const key = h.dataset.k; if (C.sort === key) C.dir = -C.dir; else { C.sort = key; C.dir = key === 'name' ? 1 : -1; } paintCats(); });
     el('scQ').oninput = () => { C.q = el('scQ').value; const pos = el('scQ').selectionStart; paintCats(); el('scQ').focus(); el('scQ').setSelectionRange(pos, pos); };
+    box.querySelectorAll('[data-acc]').forEach(b => b.onclick = e => { e.stopPropagation(); const c = b.dataset.acc; if (C.open.has(c)) C.open.delete(c); else { C.open.add(c); loadDet(d.level, c); } paintCats(); });
     if (canOpen) box.querySelectorAll('tr[data-code]').forEach(tr => { const go = () => { const r = d.rows.find(x => x.code === tr.dataset.code); C.path.push({ level: d.level, code: r.code, name: r.name }); C.q = ''; loadCats(); };
       tr.onclick = go; tr.onkeydown = e => { if (e.key === 'Enter') go(); }; });
     el('scXls').onclick = () => xls([[LABEL[d.level], 'Code', 'Sales ($)', 'Share %', 'Last month ($)', 'Difference ($)', 'Change %', 'Units', 'Units last month'],

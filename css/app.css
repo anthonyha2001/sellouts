@@ -3492,3 +3492,21 @@ tr:hover .so-note,.so-note:focus{border-color:var(--line-strong);background:var(
 .bc-sort{cursor:pointer;user-select:none;}
 /* Schedule: trainee marker (owner, 2026-10-18) */
 .sh-trainee{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:#8a6d1f;background:color-mix(in srgb, var(--gold) 18%, transparent);border-radius:4px;padding:0 5px;vertical-align:middle;}
+
+/* Performance › Categories: a category's details - its suppliers (the leader), brands and best items (owner, 2026-10-19) */
+.sc-acc{width:22px;height:22px;margin:0 6px 0 -4px;border:0;border-radius:6px;background:transparent;color:var(--ink-soft);font-size:13px;cursor:pointer;transition:transform .15s,background .12s;vertical-align:middle;}
+.sc-acc:hover{background:var(--paper);color:var(--ink);}
+.sc-acc.on{transform:rotate(90deg);color:var(--pine);}
+tr.sc-det > td{background:var(--paper);padding:14px 16px !important;white-space:normal;}
+.sc-lead{margin:0 0 10px;font-size:13.5px;}
+.sc-dgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;}
+.sc-dcol{background:var(--paper-raised);border:1px solid var(--line);border-radius:10px;padding:10px 12px;min-width:0;}
+.sc-dcol h4{margin:0 0 8px;font:700 11px var(--font-body);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-soft);}
+.sc-dcol ol{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;}
+.sc-dcol li{display:grid;grid-template-columns:minmax(0,1fr) 70px 48px auto;gap:8px;align-items:center;font-size:13px;}
+.sc-dcol li.lead .sc-dn{font-weight:700;}
+.sc-dcol li.lead .sc-share i{background:var(--pine);}
+.sc-dn{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.sc-dcol .sc-share{width:70px;margin:0;}
+.sc-dcol li b{font-variant-numeric:tabular-nums;text-align:right;font-size:12.5px;}
+.sc-dv{color:var(--ink-soft);font-variant-numeric:tabular-nums;font-size:12.5px;text-align:right;}
