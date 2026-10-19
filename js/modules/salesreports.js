@@ -58,7 +58,7 @@
   const LEVELS = [['department', 'Department'], ['section', 'Section'], ['group', 'Group'], ['brand', 'Brand']];
   const CHILD = { department: 'section', section: 'group', group: 'subgroup' };
   const LABEL = { department: 'Department', section: 'Section', group: 'Group', subgroup: 'Sub-group', brand: 'Brand' };
-  const C = { from: null, to: null, level: 'department', path: [], q: '', sort: 'sales', dir: -1, data: null, seq: 0, open: new Set(), det: {} };
+  const C = { from: null, to: null, level: 'department', path: [], q: '', sort: 'sales', dir: -1, data: null, seq: 0, open: new Set(), det: {}, detBy: 'sales' };   // detBy: the details ranked by $ or by units (owner, 2026-10-19)
   // a category's details (owner, 2026-10-19): which suppliers lead it, its brands and its best items, each with its share
   const detKey = (lv, code) => [lv, code, C.from, C.to].join('|');
   async function loadDet(lv, code) {
@@ -75,13 +75,15 @@
     if (!x.suppliers && !x.items) return '<p class="login-err" style="margin:0;">Could not read the details. If it keeps saying so, redeploy lv-dashboard.</p>';
     const list = (title, rows, max) => {
       if (!rows) return `<div class="sc-dcol"><h4>${title}</h4><p class="muted-note">Not available.</p></div>`;
-      const tot = rows.reduce((t, y) => t + n(y.sales), 0), top = rows.filter(y => n(y.sales) > 0).sort((a, b) => b.sales - a.sales);
-      return `<div class="sc-dcol"><h4>${title} <span class="muted-note">${top.length}</span></h4><ol>${top.slice(0, max).map((y, i) => { const sh = tot > 0 ? y.sales / tot : 0;
-        return `<li class="${i === 0 ? 'lead' : ''}"><span class="sc-dn" title="${esc(y.name)}">${esc(y.name)}</span><span class="sc-share"><i style="width:${Math.max(1, Math.round(sh * 100))}%"></i></span><b>${(Math.round(sh * 1000) / 10).toLocaleString('en-US')}%</b><span class="sc-dv">${money(y.sales)}</span></li>`; }).join('') || '<li class="muted-note">No sales.</li>'}</ol>
+      const k = C.detBy === 'qty' ? 'qty' : 'sales', tot = rows.reduce((t, y) => t + n(y[k]), 0), top = rows.filter(y => n(y[k]) > 0).sort((a, b) => n(b[k]) - n(a[k]));
+      return `<div class="sc-dcol"><h4>${title} <span class="muted-note">${top.length}</span></h4><ol>${top.slice(0, max).map((y, i) => { const sh = tot > 0 ? n(y[k]) / tot : 0;
+        return `<li class="${i === 0 ? 'lead' : ''}"><span class="sc-dn" title="${esc(y.name)}">${esc(y.name)}</span><span class="sc-share"><i style="width:${Math.max(1, Math.round(sh * 100))}%"></i></span><b>${(Math.round(sh * 1000) / 10).toLocaleString('en-US')}%</b><span class="sc-dv">${k === 'qty' ? qty(y.qty) + ' u' : money(y.sales)}</span><span class="sc-dv sc-dv2">${k === 'qty' ? money(y.sales) : qty(y.qty) + ' u'}</span></li>`; }).join('') || '<li class="muted-note">No sales.</li>'}</ol>
         ${top.length > max ? `<p class="muted-note" style="margin:4px 0 0;">+${top.length - max} more</p>` : ''}</div>`;
     };
-    const lead = (x.suppliers || []).filter(y => n(y.sales) > 0).sort((a, b) => b.sales - a.sales)[0], ts = (x.suppliers || []).reduce((t, y) => t + n(y.sales), 0);
-    return `${lead && ts > 0 ? `<p class="sc-lead">Led by <b>${esc(lead.name)}</b> with <b>${(Math.round(lead.sales / ts * 1000) / 10).toLocaleString('en-US')}%</b> of ${esc(r.name)}'s sales</p>` : ''}
+    const k = C.detBy === 'qty' ? 'qty' : 'sales';
+    const lead = (x.suppliers || []).filter(y => n(y[k]) > 0).sort((a, b) => n(b[k]) - n(a[k]))[0], ts = (x.suppliers || []).reduce((t, y) => t + n(y[k]), 0);
+    const by = `<div class="filter-row sc-detby">${[['sales', 'By $'], ['qty', 'By units']].map(([v, l]) => `<button type="button" data-detby="${v}" class="${k === v ? 'active' : ''}">${l}</button>`).join('')}</div>`;
+    return `<div class="sc-dhead">${lead && ts > 0 ? `<p class="sc-lead">Led by <b>${esc(lead.name)}</b> with <b>${(Math.round(n(lead[k]) / ts * 1000) / 10).toLocaleString('en-US')}%</b> of ${esc(r.name)}'s ${k === 'qty' ? 'units' : 'sales'}</p>` : '<span></span>'}${by}</div>
       <div class="sc-dgrid">${list('Suppliers', x.suppliers, 8)}${x.skipBrands ? '' : list('Brands', x.brands, 8)}${list('Best items', x.items, 10)}</div>`;
   }
   function presets() {
@@ -173,6 +175,7 @@
     box.querySelectorAll('[data-crumb]').forEach(b => b.onclick = () => { C.path = C.path.slice(0, Number(b.dataset.crumb) + 1); C.q = ''; loadCats(); });
     box.querySelectorAll('.pf-sort').forEach(h => h.onclick = () => { const key = h.dataset.k; if (C.sort === key) C.dir = -C.dir; else { C.sort = key; C.dir = key === 'name' ? 1 : -1; } paintCats(); });
     el('scQ').oninput = () => { C.q = el('scQ').value; const pos = el('scQ').selectionStart; paintCats(); el('scQ').focus(); el('scQ').setSelectionRange(pos, pos); };
+    box.querySelectorAll('[data-detby]').forEach(b => b.onclick = e => { e.stopPropagation(); C.detBy = b.dataset.detby; paintCats(); });
     box.querySelectorAll('[data-acc]').forEach(b => b.onclick = e => { e.stopPropagation(); const c = b.dataset.acc; if (C.open.has(c)) C.open.delete(c); else { C.open.add(c); loadDet(d.level, c); } paintCats(); });
     if (canOpen) box.querySelectorAll('tr[data-code]').forEach(tr => { const go = () => { const r = d.rows.find(x => x.code === tr.dataset.code); C.path.push({ level: d.level, code: r.code, name: r.name }); C.q = ''; loadCats(); };
       tr.onclick = go; tr.onkeydown = e => { if (e.key === 'Enter') go(); }; });
