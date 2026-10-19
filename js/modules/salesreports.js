@@ -60,11 +60,14 @@
   const LABEL = { department: 'Department', section: 'Section', group: 'Group', subgroup: 'Sub-group', brand: 'Brand' };
   const C = { from: null, to: null, level: 'department', path: [], q: '', sort: 'sales', dir: -1, data: null, seq: 0, open: new Set(), det: {}, detBy: 'sales' };   // detBy: the details ranked by $ or by units (owner, 2026-10-19)
   // a category's details (owner, 2026-10-19): which suppliers lead it, its brands and its best items, each with its share
-  const detKey = (lv, code) => [lv, code, C.from, C.to].join('|');
+  // the whole path (department › section › group): the system reuses group and sub-group codes under other parents (owner,
+  // 2026-10-19: chips and chicken under Cigarettes), so a code alone is never enough
+  const pathFilters = extra => { const f = {}; C.path.forEach(p => { f[p.level] = p.code; }); return Object.assign(f, extra || {}); };
+  const detKey = (lv, code) => [JSON.stringify(pathFilters({ [lv]: code })), C.from, C.to].join('|');
   async function loadDet(lv, code) {
     const k = detKey(lv, code); if (C.det[k]) return;
     C.det[k] = 'loading'; paintCats();
-    const one = level => call({ action: 'sales_categories', from: C.from, to: C.to, level, parentLevel: lv, parentCode: code }).then(x => x.rows).catch(() => null);
+    const one = level => call({ action: 'sales_categories', from: C.from, to: C.to, level, parentLevel: lv, parentCode: code, filters: pathFilters({ [lv]: code }) }).then(x => x.rows).catch(() => null);
     const [suppliers, brands, items] = await Promise.all([one('supplier'), lv === 'brand' ? Promise.resolve(null) : one('brand'), one('item')]);
     C.det[k] = { suppliers, brands, items, skipBrands: lv === 'brand' };
     paintCats();
@@ -120,7 +123,7 @@
     const my = ++C.seq, [pf, pt] = prevPeriod(C.from, C.to), parent = C.path[C.path.length - 1];
     const level = parent ? CHILD[parent.level] : C.level;
     el('scBody').innerHTML = '<div class="card"><p class="muted-note" style="margin:0;">Reading the sales by ' + esc(LABEL[level].toLowerCase()) + ' from the system…</p></div>';
-    const body = (f, t) => ({ action: 'sales_categories', from: f, to: t, level, ...(parent ? { parentLevel: parent.level, parentCode: parent.code } : {}) });
+    const body = (f, t) => ({ action: 'sales_categories', from: f, to: t, level, ...(parent ? { parentLevel: parent.level, parentCode: parent.code, filters: pathFilters() } : {}) });
     try {
       const [now, prev] = await Promise.all([call(body(C.from, C.to)), call(body(pf, pt))]);
       if (my !== C.seq) return;

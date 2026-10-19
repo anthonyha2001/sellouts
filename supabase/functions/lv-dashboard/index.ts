@@ -1683,9 +1683,11 @@ async function storeDaily(from: string, to: string) {
 // sales by category (owner, 2026-10-11: Performance › Categories): one level (department, section, group, subgroup, brand),
 // optionally inside one parent (e.g. the groups of one section)
 const CAT_LEVELS = ['department', 'section', 'group', 'subgroup', 'brand', 'supplier', 'item'];   // supplier, item: a category's details (owner, 2026-10-19)
-async function salesCategories(from: string, to: string, level: string, parentLevel?: string, parentCode?: string) {
+async function salesCategories(from: string, to: string, level: string, parentLevel?: string, parentCode?: string, filters?: Record<string, string>) {
   const extra: Record<string, unknown> = { group_by: [level] };
   if (parentLevel && parentCode) extra[parentLevel] = [parentCode];
+  // every parent of the path (codes repeat under other parents): department, section, group, sub-group, brand
+  Object.entries(filters || {}).forEach(([k, v]) => { if (CAT_LEVELS.includes(k) && k !== level && v) extra[k] = [String(v)]; });
   const m = new Map<string, { code: string; name: string; sales: number; qty: number }>();
   (await report('sales', from, to, extra)).forEach(r => {
     const c = String(r[level] ?? '').trim() || '?';
@@ -2476,7 +2478,8 @@ Deno.serve(async req => {
         if (body.action === 'store_daily') return json(await storeDaily(from, to));
         const level = String(body.level || 'section'), pl = body.parentLevel ? String(body.parentLevel) : '';
         if (!CAT_LEVELS.includes(level) || (pl && !CAT_LEVELS.includes(pl))) return json({ error: 'Unknown level.' }, 400);
-        return json(await salesCategories(from, to, level, pl || undefined, body.parentCode ? String(body.parentCode) : undefined));
+        const filters = body.filters && typeof body.filters === 'object' ? Object.fromEntries(Object.entries(body.filters as Record<string, unknown>).map(([k, v]) => [k, String(v ?? '')])) : undefined;
+        return json(await salesCategories(from, to, level, pl || undefined, body.parentCode ? String(body.parentCode) : undefined, filters));
       }
       if (body.action === 'perf_suppliers' || body.action === 'perf_supplier') {
         if (!isDay(from) || !isDay(to) || from > to || Number(to.slice(0, 4)) - Number(from.slice(0, 4)) > 1) return json({ error: 'Choose dates within two years.' }, 400);
