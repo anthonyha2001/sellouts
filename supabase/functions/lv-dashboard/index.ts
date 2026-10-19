@@ -2561,6 +2561,16 @@ Deno.serve(async req => {
       const item = { code: t(main.ItemCode), description: t(main.Description), size: t(main.Description4), barcode: t(main.Barcode), supplier: t(main.Supplier),
         section: t(main.Section), group: t(main.Group), subgroup: t(main['Sub-Group']), brand: t(main.Brand), department: t(main.Department), pack: main.Pack ?? null,
         price: main.Price ?? null, salePrice: unitSale(main), packPrice: main.SalePrice ?? null, promoted: !!Number(main.isPromoted || 0) };
+      // the item's place in the tree from the sales report (owner, 2026-10-19: Smeds butter showed BUTTER › BARBECUE TONGS): the price
+      // checker names the sub-group by its code alone, and the system reuses sub-group codes under other groups
+      try {
+        const y0 = today.slice(0, 4) + '-01-01';
+        const pr = await report('sales', y0, today, { group_by: ['department', 'section', 'group', 'subgroup'], item: [item.code] });
+        const best = pr.sort((p, q) => Number(q.total_quantity || 0) - Number(p.total_quantity || 0))[0];
+        if (best) { const d = (k: string) => String(best[k + '_desc'] ?? '').trim();
+          if (d('department')) item.department = d('department'); if (d('section')) item.section = d('section');
+          if (d('group')) item.group = d('group'); item.subgroup = d('subgroup'); }
+      } catch (e) { console.warn('detail path', e); }
       let cardex: Record<string, unknown> = { rows: [], summary: null, from, to, kind };
       try {
         const pieces = from.slice(0, 4) === to.slice(0, 4) ? [[from, to]] : [[from, `${from.slice(0, 4)}-12-31`], [`${to.slice(0, 4)}-01-01`, to]];
