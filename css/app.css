@@ -3517,3 +3517,25 @@ tr.sc-det > td{background:var(--paper);padding:14px 16px !important;white-space:
 .sc-detby button{min-height:28px;padding:0 10px;font-size:12px;}
 .sc-dcol li{grid-template-columns:minmax(0,1fr) 60px 46px auto auto;}
 .sc-dcol .sc-dv2{opacity:.7;font-size:11.5px;}
+
+/* Returns: reference, by supplier, a supplier's page (owner, 2026-10-20) */
+.pts-ref{font:12px var(--font-mono);color:var(--ink-soft);}
+.pts-suplink{background:none;border:0;padding:0;font:inherit;color:var(--ink);cursor:pointer;text-align:left;}
+.pts-suplink:hover{color:var(--pine);text-decoration:underline;}
+.pts-suprow{cursor:pointer;}
+.pts-suprow:hover td{background:var(--pine-tint);}
+.pts-tot td{border-top:2px solid var(--line);background:var(--paper);}
+.pts-share{display:inline-block;width:46px;height:6px;border-radius:3px;background:var(--line);margin-right:6px;vertical-align:middle;overflow:hidden;}
+.pts-share.wide{width:100%;}
+.pts-share i{display:block;height:100%;background:var(--pine);border-radius:3px;}
+.pts-open{color:#b45309;font-weight:600;}
+.pts-dhead{display:flex;align-items:center;gap:10px;margin-bottom:12px;}
+.pts-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;}
+.pts-stats .pts-warn{border-color:#fcd34d;background:#fffbeb;}
+.pts-stchips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;}
+.pts-chip{font-size:12px;padding:3px 9px;border-radius:999px;background:var(--paper);border:1px solid var(--line);}
+.pts-chip.k-none{background:#fffbeb;border-color:#fcd34d;}
+.pts-chip.k-taken{background:#fef3c7;}
+.pts-chip.k-compensated{background:#dcfce7;}
+.pts-chip.k-traded{background:#e0e7ff;}
+.pts-chip.k-owner{background:#f3e8ff;}

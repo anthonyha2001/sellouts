@@ -754,7 +754,26 @@ async function ptsSync(fromIn?: string, toIn?: string) {
   });
   const now = new Date().toISOString(), rows = [...m.values()].map(g => ({ ...g, qty: Math.round(Number(g.qty) * 1000) / 1000, value: Math.round(Number(g.value) * 100) / 100, last_seen: now }));
   for (let i = 0; i < rows.length; i += 200) { const { error } = await db.from('pts').upsert(rows.slice(i, i + 200), { onConflict: 'pt,year' }); if (error) throw error; }
-  return { from, to, pts: rows.length, truncated };
+  let refs = null; try { refs = await ptsRefs(20); } catch (e) { console.warn('pt refs', e); }   // migration 097 not run: skipped
+  return { from, to, pts: rows.length, truncated, refs };
+}
+// the reference of the PTs not read yet (owner, 2026-10-20; migration 097): read from the PT document itself (its lines' reference_no)
+async function ptsRefs(limit = 20) {
+  const { data, error } = await db.from('pts').select('pt, year').is('refs', null).order('pt_date', { ascending: false }).limit(limit);
+  if (error) throw error;
+  const list = data || []; let read = 0;
+  for (let i = 0; i < list.length; i += 5) {
+    await Promise.all(list.slice(i, i + 5).map(async r => {
+      try {
+        const v = await readPt(String(r.pt), String(r.year));
+        const refs = v ? [...new Set([v.reference_no, ...(v.lines as Record<string, unknown>[]).map(l => l.reference_no)].map(x => String(x ?? '').trim()).filter(Boolean))].join(', ') : '';
+        const { error: e } = await db.from('pts').update({ refs }).eq('pt', r.pt).eq('year', r.year);
+        if (!e) read++;
+      } catch (e) { console.warn('pt ref', r.pt, e); }
+    }));
+  }
+  const { count } = await db.from('pts').select('pt', { count: 'exact', head: true }).is('refs', null);
+  return { read, left: count ?? null };
 }
 
 // Branch comparison (owner, 2026-10-14): sales by category across all 5 branches, in one summary call.
@@ -2423,7 +2442,7 @@ Deno.serve(async req => {
       }
       return json(await priceChangesSync(120));
     }
-    if (['perf_suppliers', 'perf_supplier', 'store_daily', 'sales_categories', 'vendor_pts', 'pt_detail', 'supplier_report', 'promo_ideas', 'pricing_day', 'pricing_supplier', 'returns_range', 'recent_returns', 'pu_find', 'vendor_pos', 'pos_of_day', 'po_detail'].includes(String(body.action))) {
+    if (['perf_suppliers', 'perf_supplier', 'store_daily', 'sales_categories', 'vendor_pts', 'pt_detail', 'supplier_report', 'promo_ideas', 'pricing_day', 'pricing_supplier', 'returns_range', 'recent_returns', 'pts_refs', 'pu_find', 'vendor_pos', 'pos_of_day', 'po_detail'].includes(String(body.action))) {
       if (!isServer && role !== 'admin') {
         const anon = Deno.env.get('SUPABASE_ANON_KEY') || '';
         const asUser = createClient(SUPABASE_URL, anon, { global: { headers: { Authorization: `Bearer ${bearer}` } }, auth: { persistSession: false, autoRefreshToken: false } });
@@ -2504,6 +2523,7 @@ Deno.serve(async req => {
         return json({ found: false, doc: type + num });
       }
       if (body.action === 'recent_returns') return json(await recentReturns(7));
+      if (body.action === 'pts_refs') return json(await ptsRefs(Math.min(60, Number(body.limit) || 40)));
       if (body.action === 'returns_range') {
         if (!isDay(from) || !isDay(to) || from > to || (new Date(to).getTime() - new Date(from).getTime()) / 864e5 > 62) return json({ error: 'Choose up to 2 months.' }, 400);
         return json(await returnsRange(from, to, !!body.withPrev));
