@@ -20,7 +20,8 @@
   const monthLabel = k => { const [y, m] = k.split('-'); return `${MONTHS[Number(m) - 1] || m} ${y}`; };
   const STATUS = [['taken', 'Taken'], ['compensated', 'Compensated'], ['traded', 'Traded'], ['owner', 'Owner']];
   const SLABEL = Object.fromEntries(STATUS);
-  const S = { rows: null, err: '', days: 30, q: '', status: 'all', newOnly: false, sup: '', sort: 'pt_date', dir: -1, view: 'pts', ssort: 'usd', sdir: -1, detail: '',
+  const onPhone = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(max-width: 640px)').matches;
+  const S = { rows: null, err: '', days: onPhone ? 7 : 30, q: '', status: 'all', newOnly: false, sup: '', sort: 'pt_date', dir: -1, view: 'pts', ssort: 'usd', sdir: -1, detail: '',
     refs: { busy: false, rounds: 0 }, lines: {}, items: { key: '', busy: false, done: 0, of: 0 } };
   const supOf = r => r.supplier_name || r.supplier_code || 'No supplier';
   // "New": came in from the system in the last 24 hours (the green badge)
@@ -69,7 +70,7 @@
     if (!S.rows) { box.innerHTML = '<div class="card"><p class="muted-note" style="margin:0;">Reading the returns…</p></div>'; await load(); }
     paint();
   }
-  const RANGES = [[30, '30 days'], [90, '90 days'], [365, '12 months'], [0, 'All']];
+  const RANGES = [[7, 'This week'], [30, '30 days'], [90, '90 days'], [365, '12 months'], [0, 'All']];
   const ICON = {
     reload: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>',
     xls: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>',
@@ -118,7 +119,7 @@
     const cols = withSupplier ? 9 : 8;
     return `<div class="card">
         <div class="pf-head"><h3>Returns ${S.sup && withSupplier ? '· ' + esc(S.sup) : ''}</h3><span class="muted-note">${list.length} PT${list.length === 1 ? '' : 's'} · ${both(usd, lbp)}</span></div>
-        <div class="items-scroll pf-scroll"><table class="items pf-table pts-tbl"><thead><tr>
+        <div class="items-scroll pf-scroll"><table class="items pf-table pts-tbl pts-cards"><thead><tr>
           ${th('pt', 'PT', false)}${th('pt_date', 'Date')}${withSupplier ? th('supplier_name', 'Supplier', false) : ''}${th('refs', 'Reference', false)}${th('lines', 'Lines')}${th('qty', 'Units')}${th('value', 'Value')}<th>Status</th><th>Note</th></tr></thead>
           <tbody>${list.map(r => rowHtml(r, withSupplier)).join('') || `<tr><td colspan="${cols}" class="empty-note">No PT in this period.</td></tr>`}</tbody>
           ${list.length > 1 ? `<tfoot><tr class="pts-tot"><td colspan="${withSupplier ? 4 : 3}"><b>Total</b></td><td class="num">${list.reduce((t, r) => t + n(r.lines), 0)}</td><td class="num">${qty(list.reduce((t, r) => t + Math.abs(n(r.qty)), 0))}</td><td class="num"><b>${both(usd, lbp)}</b></td><td colspan="2"></td></tr></tfoot>` : ''}</table></div>
@@ -129,11 +130,11 @@
     const ref = r.refs === null || r.refs === undefined ? `<span class="muted-note">${'refs' in r ? '…' : ''}</span>` : r.refs ? `<span class="pts-ref">${esc(r.refs)}</span>` : '<span class="muted-note">—</span>';
     return `<tr data-pt="${esc(r.pt)}" data-year="${esc(r.year)}" class="${r.status ? 'pts-done' : ''}" title="Double-click for its lines">
       <td class="mono"><b>${esc(r.pt)}</b>${isNew(r) ? ' <span class="pts-new" title="Came in from the system in the last 24 hours">New</span>' : ''}
-        <button type="button" class="pts-hist" data-pts-hist="${esc(r.pt)}" data-pts-year="${esc(r.year)}" title="Who changed this, and when"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></button></td><td>${esc(dmy(r.pt_date))}</td>
-      ${withSupplier ? `<td><button type="button" class="link-btn pts-suplink" data-pts-open="${esc(supOf(r))}">${esc(supOf(r))}</button></td>` : ''}
-      <td>${ref}</td><td class="num">${r.lines ?? ''}</td><td class="num">${qty(Math.abs(n(r.qty)))}</td><td class="num">${money(r.value, r.currency)}</td>
-      <td><select class="pts-sel k-${r.status || 'none'}" data-pts-set="${esc(r.pt)}" data-pts-year="${esc(r.year)}" aria-label="Status"><option value="">Not set</option>${STATUS.map(([k, l]) => `<option value="${k}" ${r.status === k ? 'selected' : ''}>${l}</option>`).join('')}</select>${r.status_by_name ? `<div class="pts-sub" title="Last changed${r.status_at ? ' on ' + esc(dmy(r.status_at)) + ' ' + new Date(r.status_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : ''}">${esc(r.status_by_name)}${r.status_at ? ' · ' + esc(dmy(r.status_at)) : ''}</div>` : ''}</td>
-      <td><input type="text" class="pts-note" data-pts-note="${esc(r.pt)}" data-pts-year="${esc(r.year)}" value="${esc(r.note || '')}" placeholder="…" aria-label="Note"></td></tr>`;
+        <button type="button" class="pts-hist" data-pts-hist="${esc(r.pt)}" data-pts-year="${esc(r.year)}" title="Who changed this, and when"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></button></td><td data-label="Date">${esc(dmy(r.pt_date))}</td>
+      ${withSupplier ? `<td data-label="Supplier"><button type="button" class="link-btn pts-suplink" data-pts-open="${esc(supOf(r))}">${esc(supOf(r))}</button></td>` : ''}
+      <td data-label="Reference">${ref}</td><td class="num" data-label="Lines">${r.lines ?? ''}</td><td class="num" data-label="Units">${qty(Math.abs(n(r.qty)))}</td><td class="num" data-label="Value"><b class="pts-cardval">${money(r.value, r.currency)}</b></td>
+      <td data-label="Status"><select class="pts-sel k-${r.status || 'none'}" data-pts-set="${esc(r.pt)}" data-pts-year="${esc(r.year)}" aria-label="Status"><option value="">Not set</option>${STATUS.map(([k, l]) => `<option value="${k}" ${r.status === k ? 'selected' : ''}>${l}</option>`).join('')}</select>${r.status_by_name ? `<div class="pts-sub" title="Last changed${r.status_at ? ' on ' + esc(dmy(r.status_at)) + ' ' + new Date(r.status_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : ''}">${esc(r.status_by_name)}${r.status_at ? ' · ' + esc(dmy(r.status_at)) : ''}</div>` : ''}</td>
+      <td data-label="Note"><input type="text" class="pts-note" data-pts-note="${esc(r.pt)}" data-pts-year="${esc(r.year)}" value="${esc(r.note || '')}" placeholder="Add a note…" aria-label="Note"></td></tr>`;
   }
 
   /* ---------- by supplier: each supplier's total returned ---------- */

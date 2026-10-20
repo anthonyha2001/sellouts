@@ -3546,3 +3546,22 @@ tr.sc-det > td{background:var(--paper);padding:14px 16px !important;white-space:
 .pts-hist svg{width:14px;height:14px;}
 .pts-hist:hover{color:var(--pine);}
 .pts-hist-dlg .pts-hist th,.pts-hist-dlg .pts-hist td{font-size:12.5px;}
+
+/* Returns on a phone: the PT list becomes cards (owner, 2026-10-20) */
+@media (max-width: 640px) {
+  .pts-bar input[type=search]{max-width:none;flex:1 1 100%;order:-1;}
+  .pts-cards, .pts-cards tbody, .pts-cards tr, .pts-cards td { display:block; width:auto; }
+  .pts-cards thead, .pts-cards tfoot { display:none; }
+  .pts-cards tr { border:1px solid var(--line); border-radius:12px; margin:0 0 10px; padding:10px 12px; background:var(--paper); }
+  .pts-cards tr.pts-done { background:color-mix(in srgb, var(--pine) 5%, var(--paper)); }
+  .pts-cards td { border:0 !important; padding:4px 0 !important; text-align:left !important; display:flex; align-items:center; gap:8px; min-height:26px; }
+  .pts-cards td::before { content:attr(data-label); flex:0 0 84px; color:var(--ink-faint); font-size:11.5px; text-transform:uppercase; letter-spacing:.03em; }
+  .pts-cards td:first-child { font-size:16px; padding-bottom:6px !important; border-bottom:1px solid var(--line) !important; margin-bottom:4px; }
+  .pts-cards td:first-child::before { content:none; }
+  .pts-cards .pts-hist { margin-left:auto; }
+  .pts-cards .pts-cardval { font-size:15px; }
+  .pts-cards td[data-label="Status"] { flex-wrap:wrap; }
+  .pts-cards .pts-sel, .pts-cards .pts-note { flex:1; }
+  .pts-cards .pts-suplink { font-weight:600; }
+  .pts-cards .pts-sub { flex:1 1 100%; margin-left:92px; }
+}
