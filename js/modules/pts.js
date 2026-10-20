@@ -123,7 +123,7 @@
   function rowHtml(r, withSupplier = true) {
     const ref = r.refs === null || r.refs === undefined ? `<span class="muted-note">${'refs' in r ? '…' : ''}</span>` : r.refs ? `<span class="pts-ref">${esc(r.refs)}</span>` : '<span class="muted-note">—</span>';
     return `<tr data-pt="${esc(r.pt)}" data-year="${esc(r.year)}" class="${r.status ? 'pts-done' : ''}" title="Double-click for its lines">
-      <td class="mono"><b>${esc(r.pt)}</b></td><td>${esc(dmy(r.pt_date))}</td>
+      <td class="mono"><b>${esc(r.pt)}</b>${r.first_seen && Date.now() - new Date(r.first_seen).getTime() < 864e5 ? ' <span class="pts-new" title="Came in from the system in the last 24 hours">New</span>' : ''}</td><td>${esc(dmy(r.pt_date))}</td>
       ${withSupplier ? `<td><button type="button" class="link-btn pts-suplink" data-pts-open="${esc(supOf(r))}">${esc(supOf(r))}</button></td>` : ''}
       <td>${ref}</td><td class="num">${r.lines ?? ''}</td><td class="num">${qty(Math.abs(n(r.qty)))}</td><td class="num">${money(r.value, r.currency)}</td>
       <td><select class="pts-sel k-${r.status || 'none'}" data-pts-set="${esc(r.pt)}" data-pts-year="${esc(r.year)}" aria-label="Status"><option value="">Not set</option>${STATUS.map(([k, l]) => `<option value="${k}" ${r.status === k ? 'selected' : ''}>${l}</option>`).join('')}</select>${r.status_by_name ? `<div class="pts-sub">${esc(r.status_by_name)}</div>` : ''}</td>
