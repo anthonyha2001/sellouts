@@ -217,15 +217,15 @@ async function buildAlerts(today: string): Promise<Alert[]> {
   // Only PTs first seen in the last 36 hours and dated in the last 3 days (a backfill does not flood); more than 8 at once:
   // the 8 biggest one by one, the rest in one summary.
   const { data: newPts } = await db.from('pts').select('*').gte('first_seen', new Date(Date.now() - 36 * 3600e3).toISOString()).gte('pt_date', addDays(today, -3));
-  const ptMoney = (v: unknown, c: unknown) => /LBP|L.?L/i.test(String(c || '')) ? Math.round(Math.abs(Number(v) || 0)).toLocaleString('en-US') + ' LBP'
+  const ptMoney = (v: unknown, c: unknown) => /LBP|L\.?L/i.test(String(c || '')) ? Math.round(Math.abs(Number(v) || 0)).toLocaleString('en-US') + ' LBP'
     : '$' + (Math.round(Math.abs(Number(v) || 0) * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const ptList = (newPts ?? []).sort((x, y) => Math.abs(Number(y.value) || 0) - Math.abs(Number(x.value) || 0));
+  const ptList = ((newPts ?? []) as Record<string, any>[]).sort((x, y) => Math.abs(Number(y.value) || 0) - Math.abs(Number(x.value) || 0));
   for (const p of ptList.slice(0, 8))
     add({ key: `pt:${p.pt}:${p.year}`, perms: ['vendors.manage'], title: `Return ${p.pt} — ${ptMoney(p.value, p.currency)}`, url: '#pts',
       body: `${p.supplier_name || p.supplier_code || 'A supplier'}: ${ptMoney(p.value, p.currency)} returned on ${fmt(String(p.pt_date || ''))}` +
         ` · ${p.lines ?? 0} line${p.lines === 1 ? '' : 's'}, ${Math.round(Math.abs(Number(p.qty) || 0) * 100) / 100} units${p.refs ? ' · Ref ' + p.refs : ''}.` });
   if (ptList.length > 8) {
-    const rest = ptList.slice(8), usd = rest.filter(p => !/LBP|L.?L/i.test(String(p.currency || ''))).reduce((t, p) => t + Math.abs(Number(p.value) || 0), 0);
+    const rest = ptList.slice(8), usd = rest.filter(p => !/LBP|L\.?L/i.test(String(p.currency || ''))).reduce((t: number, p) => t + Math.abs(Number(p.value) || 0), 0);
     add({ key: `pt:more:${rest.map(p => p.pt).sort().join(',').slice(-120)}`, perms: ['vendors.manage'], title: `${rest.length} more returns`, url: '#pts',
       body: `${[...new Set(rest.map(p => p.supplier_name || p.supplier_code))].slice(0, 6).join(', ')}${rest.length > 6 ? '…' : ''} — ${ptMoney(usd, '$')} in all. Open Returns for the details.` });
   }
