@@ -3540,3 +3540,5 @@ tr.sc-det > td{background:var(--paper);padding:14px 16px !important;white-space:
 .pts-chip.k-traded{background:#e0e7ff;}
 .pts-chip.k-owner{background:#f3e8ff;}
 .pts-new{font:600 10px var(--font-body,inherit);letter-spacing:.03em;text-transform:uppercase;color:#fff;background:var(--pine);padding:1px 6px;border-radius:999px;margin-left:4px;vertical-align:1px;}
+.pts-newbtn.active{background:var(--pine);border-color:var(--pine);color:#fff;}
+.pts-newbtn.active .muted-note{color:#e8f0ec;}

@@ -20,9 +20,11 @@
   const monthLabel = k => { const [y, m] = k.split('-'); return `${MONTHS[Number(m) - 1] || m} ${y}`; };
   const STATUS = [['taken', 'Taken'], ['compensated', 'Compensated'], ['traded', 'Traded'], ['owner', 'Owner']];
   const SLABEL = Object.fromEntries(STATUS);
-  const S = { rows: null, err: '', days: 30, q: '', status: 'all', sup: '', sort: 'pt_date', dir: -1, view: 'pts', ssort: 'usd', sdir: -1, detail: '',
+  const S = { rows: null, err: '', days: 30, q: '', status: 'all', newOnly: false, sup: '', sort: 'pt_date', dir: -1, view: 'pts', ssort: 'usd', sdir: -1, detail: '',
     refs: { busy: false, rounds: 0 }, lines: {}, items: { key: '', busy: false, done: 0, of: 0 } };
   const supOf = r => r.supplier_name || r.supplier_code || 'No supplier';
+  // "New": came in from the system in the last 24 hours (the green badge)
+  const isNew = r => r.first_seen && Date.now() - new Date(r.first_seen).getTime() < 864e5;
   // the two currencies apart: "$1,240.00 + 3,500,000 LBP"
   const both = (usd, lbp) => [usd || !lbp ? money(usd, '$') : '', lbp ? money(lbp, 'LBP') : ''].filter(Boolean).join(' + ');
 
@@ -57,6 +59,7 @@
   const matches = r => {
     const q = S.q.trim().toLowerCase();
     return (S.status === 'all' || (S.status === 'none' ? !r.status : r.status === S.status))
+      && (!S.newOnly || isNew(r))
       && (!q || [r.pt, r.supplier_name, r.refs, r.note].some(v => String(v || '').toLowerCase().includes(q)));
   };
   const shown = () => (S.rows || []).filter(r => matches(r) && (!S.sup || supOf(r) === S.sup));
@@ -93,6 +96,8 @@
         <button type="button" data-pts-status="all" class="${S.status === 'all' ? 'active' : ''}">All <span class="muted-note">${cnt('all')}</span></button>
         <button type="button" data-pts-status="none" class="${S.status === 'none' ? 'active' : ''}">Not set <span class="muted-note">${cnt('none')}</span></button>
         ${STATUS.map(([k2, l]) => `<button type="button" data-pts-status="${k2}" class="${S.status === k2 ? 'active' : ''}">${l} <span class="muted-note">${cnt(k2)}</span></button>`).join('')}
+        <span style="flex:1"></span>
+        <button type="button" id="ptsNew" class="pts-newbtn ${S.newOnly ? 'active' : ''}" title="Only the returns that came in the last 24 hours">New <span class="muted-note">${base.filter(isNew).length}</span></button>
       </div>
       ${S.detail ? detailHtml() : S.view === 'sups' ? supsHtml() : ptsHtml(shown(), true)}`;
     bind(box);
@@ -249,6 +254,7 @@
     box.querySelectorAll('[data-pts-view]').forEach(b => b.onclick = () => { S.view = b.dataset.ptsView; S.detail = ''; paint(); });
     box.querySelectorAll('[data-pts-days]').forEach(b => b.onclick = async () => { S.days = Number(b.dataset.ptsDays); S.rows = null; S.items.key = ''; await load(); paint(); });
     box.querySelectorAll('[data-pts-status]').forEach(b => b.onclick = () => { S.status = b.dataset.ptsStatus; paint(); });
+    if (el('ptsNew')) el('ptsNew').onclick = () => { S.newOnly = !S.newOnly; paint(); };
     box.querySelectorAll('[data-pts-sort]').forEach(h => h.onclick = () => { const key = h.dataset.ptsSort; if (S.sort === key) S.dir = -S.dir; else { S.sort = key; S.dir = ['supplier_name', 'pt', 'refs'].includes(key) ? 1 : -1; } paint(); });
     box.querySelectorAll('[data-pts-ssort]').forEach(h => h.onclick = () => { const key = h.dataset.ptsSsort; if (S.ssort === key) S.sdir = -S.sdir; else { S.ssort = key; S.sdir = key === 'name' ? 1 : -1; } paint(); });
     box.querySelectorAll('[data-pts-open]').forEach(b => b.onclick = e => { e.stopPropagation(); S.detail = b.dataset.ptsOpen; S.sort = 'pt_date'; S.dir = -1; paint(); window.scrollTo({ top: 0 }); });
