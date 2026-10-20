@@ -128,10 +128,11 @@
   function rowHtml(r, withSupplier = true) {
     const ref = r.refs === null || r.refs === undefined ? `<span class="muted-note">${'refs' in r ? '…' : ''}</span>` : r.refs ? `<span class="pts-ref">${esc(r.refs)}</span>` : '<span class="muted-note">—</span>';
     return `<tr data-pt="${esc(r.pt)}" data-year="${esc(r.year)}" class="${r.status ? 'pts-done' : ''}" title="Double-click for its lines">
-      <td class="mono"><b>${esc(r.pt)}</b>${r.first_seen && Date.now() - new Date(r.first_seen).getTime() < 864e5 ? ' <span class="pts-new" title="Came in from the system in the last 24 hours">New</span>' : ''}</td><td>${esc(dmy(r.pt_date))}</td>
+      <td class="mono"><b>${esc(r.pt)}</b>${isNew(r) ? ' <span class="pts-new" title="Came in from the system in the last 24 hours">New</span>' : ''}
+        <button type="button" class="pts-hist" data-pts-hist="${esc(r.pt)}" data-pts-year="${esc(r.year)}" title="Who changed this, and when"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></button></td><td>${esc(dmy(r.pt_date))}</td>
       ${withSupplier ? `<td><button type="button" class="link-btn pts-suplink" data-pts-open="${esc(supOf(r))}">${esc(supOf(r))}</button></td>` : ''}
       <td>${ref}</td><td class="num">${r.lines ?? ''}</td><td class="num">${qty(Math.abs(n(r.qty)))}</td><td class="num">${money(r.value, r.currency)}</td>
-      <td><select class="pts-sel k-${r.status || 'none'}" data-pts-set="${esc(r.pt)}" data-pts-year="${esc(r.year)}" aria-label="Status"><option value="">Not set</option>${STATUS.map(([k, l]) => `<option value="${k}" ${r.status === k ? 'selected' : ''}>${l}</option>`).join('')}</select>${r.status_by_name ? `<div class="pts-sub">${esc(r.status_by_name)}</div>` : ''}</td>
+      <td><select class="pts-sel k-${r.status || 'none'}" data-pts-set="${esc(r.pt)}" data-pts-year="${esc(r.year)}" aria-label="Status"><option value="">Not set</option>${STATUS.map(([k, l]) => `<option value="${k}" ${r.status === k ? 'selected' : ''}>${l}</option>`).join('')}</select>${r.status_by_name ? `<div class="pts-sub" title="Last changed${r.status_at ? ' on ' + esc(dmy(r.status_at)) + ' ' + new Date(r.status_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : ''}">${esc(r.status_by_name)}${r.status_at ? ' · ' + esc(dmy(r.status_at)) : ''}</div>` : ''}</td>
       <td><input type="text" class="pts-note" data-pts-note="${esc(r.pt)}" data-pts-year="${esc(r.year)}" value="${esc(r.note || '')}" placeholder="…" aria-label="Note"></td></tr>`;
   }
 
@@ -260,22 +261,44 @@
     box.querySelectorAll('[data-pts-open]').forEach(b => b.onclick = e => { e.stopPropagation(); S.detail = b.dataset.ptsOpen; S.sort = 'pt_date'; S.dir = -1; paint(); window.scrollTo({ top: 0 }); });
     box.querySelectorAll('[data-pts-set]').forEach(s => s.onchange = () => setStatus(s.dataset.ptsSet, s.dataset.ptsYear, s.value));
     box.querySelectorAll('[data-pts-note]').forEach(i => { i.onchange = () => setNote(i.dataset.ptsNote, i.dataset.ptsYear, i.value); i.onclick = e => e.stopPropagation(); });
+    box.querySelectorAll('[data-pts-hist]').forEach(b => b.onclick = e => { e.stopPropagation(); openHistory(b.dataset.ptsHist, b.dataset.ptsYear); });
     box.querySelectorAll('tr[data-pt]').forEach(tr => tr.ondblclick = () => openPt(tr.dataset.pt, tr.dataset.year));
     box.querySelectorAll('tr[data-item]').forEach(tr => tr.ondblclick = () => { if (window.ItemDetail && tr.dataset.item) ItemDetail.open(tr.dataset.item); });
   }
   async function setStatus(pt, year, status) {
     const r = (S.rows || []).find(x => x.pt === pt && x.year === year); if (!r) return;
+    const was = r.status;
     const { data, error } = await sb.from('pts').update({ status: status || null }).eq('pt', pt).eq('year', year).select().single();
     if (error) return showToast(friendlyError(error), true);
     Object.assign(r, data);
-    logActivity('vendors', 'pt_status', { type: 'pt', id: pt }, `${pt}: ${status ? SLABEL[status] : 'status cleared'}`);
-    paint();   // the totals per status / supplier follow
+    // who changed what, kept in the activity log (both people use the same form): from → to
+    logActivity('vendors', 'pt_status', { type: 'pt', id: pt }, `${pt} (${supOf(r)}): ${was ? SLABEL[was] : 'not set'} → ${status ? SLABEL[status] : 'not set'}`);
+    paint();   // the totals per status / supplier follow, and the "changed by" line
   }
   async function setNote(pt, year, note) {
     const r = (S.rows || []).find(x => x.pt === pt && x.year === year); if (!r || (r.note || '') === note.trim()) return;
     const { data, error } = await sb.from('pts').update({ note: note.trim() || null }).eq('pt', pt).eq('year', year).select().single();
     if (error) return showToast(friendlyError(error), true);
     Object.assign(r, data);
+    logActivity('vendors', 'pt_note', { type: 'pt', id: pt }, `${pt} (${supOf(r)}): note ${note.trim() ? '"' + note.trim() + '"' : 'cleared'}`);
+    paint();
+  }
+  // the whole history of a PT (every status / note change), from the activity log
+  async function openHistory(pt, year) {
+    let dlg = el('ptsHistDlg');
+    if (!dlg) { dlg = document.createElement('dialog'); dlg.id = 'ptsHistDlg'; dlg.className = 'vs-pt-dlg pts-hist-dlg'; document.body.appendChild(dlg);
+      dlg.addEventListener('click', e => { if (e.target === dlg || e.target.closest('[data-histclose]')) dlg.close(); }); }
+    const close = '<button type="button" class="icon-btn" data-histclose title="Close" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>';
+    dlg.innerHTML = `<div class="vs-pt-head"><h3>${esc(pt)} — history</h3><span style="flex:1"></span>${close}</div><div class="vs-note vs-loading">Reading the history…</div>`;
+    if (!dlg.open) dlg.showModal();
+    const { data, error } = await sb.from('activity_log').select('at, username, action, summary').eq('entity_type', 'pt').eq('entity_id', pt).order('at', { ascending: false }).limit(200);
+    const body = dlg.querySelector('.vs-note');
+    if (error) { body.className = 'vs-note vs-err'; body.textContent = friendlyError(error); return; }
+    const when = s => { const d = new Date(s); return isNaN(d) ? '' : `${dmy(d.toISOString())} ${d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`; };
+    dlg.innerHTML = `<div class="vs-pt-head"><h3>${esc(pt)} — history</h3><span style="flex:1"></span>${close}</div>` + (
+      (data || []).length ? `<div class="items-scroll vs-scroll"><table class="items vs-table pts-hist"><thead><tr><th>When</th><th>Who</th><th>Change</th></tr></thead>
+        <tbody>${data.map(r => `<tr><td class="muted-note" style="white-space:nowrap;">${esc(when(r.at))}</td><td>${esc(r.username || '—')}</td><td>${esc(String(r.summary || '').replace(new RegExp('^' + pt + '[^:]*:\\s*'), ''))}</td></tr>`).join('')}</tbody></table></div>`
+      : '<div class="vs-note">No change recorded yet.</div>');
   }
   async function openPt(pt, year) {
     let dlg = el('ptsDlg');
