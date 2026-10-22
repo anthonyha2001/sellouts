@@ -798,8 +798,8 @@ async function branchCompare(level: string, from: string, to: string) {
 // Delivery department (owner, 2026-10-22): online-order deliveries for ONE branch (a dropdown picks it; default Ajaltoun).
 // An order counts as a delivery by its fee line(s), items 158147 and 158146 "DELIVERY FEES" (one per order; ~850 a month at
 // Ajaltoun). Either item, or both, is still ONE order. The sales report gives the fee revenue; the count is the distinct
-// delivery invoices; the basket value is each delivery invoice's full total, read one by one (each fee item's cardex lists its
-// invoices, the viewer totals them), per currency. Each invoice's total is returned too.
+// delivery invoices. The basket value is each delivery invoice's full total, read one by one (slow on a busy month: ~850 reads),
+// so the invoices are read in PAGES (offset / limit) and the app adds them up with a progress bar — no single call times out.
 const DELIVERY_FEE_ITEMS = ['158147', '158146'];
 function monthWindows(from: string, to: string): string[][] {
   const out: string[][] = []; let cur = from.slice(0, 7) + '-01';
@@ -812,23 +812,19 @@ function monthWindows(from: string, to: string): string[][] {
   return out;
 }
 const rowsOfBranch = (d: unknown, b: string) => (((d as Record<string, unknown>)?.data as Record<string, unknown>)?.branches as Record<string, Record<string, unknown>[]>)?.[b] || [];
-async function deliverySales(from: string, to: string, branch = BRANCH, withBasket = true) {
-  type Day = { deliveries: number; fees: number; usd: number; lbp: number; read: number };
-  const days: Record<string, Day> = {};
-  const dget = (d: string): Day => (days[d] = days[d] || { deliveries: 0, fees: 0, usd: 0, lbp: 0, read: 0 });
+// the count (distinct invoices) + fee revenue per day, and the list of delivery invoices (cheap: the sales report + the fee
+// item's cardex). No invoice totals here.
+async function deliveryBase(from: string, to: string, branch: string) {
+  const days: Record<string, { deliveries: number; fees: number }> = {};
+  const dget = (d: string) => (days[d] = days[d] || { deliveries: 0, fees: 0 });
   const codesFor = async (yr: string): Promise<string[]> => { if (yr === year()) return DELIVERY_FEE_ITEMS; const m = await toYear('item', DELIVERY_FEE_ITEMS, yr); return DELIVERY_FEE_ITEMS.flatMap((c) => m[c] || []); };
-  // fee revenue day by day, for this branch (both delivery fee items); the count comes from the distinct invoices below
   for (const [f, t] of byYear(from, to)) {
     const yr = f.slice(0, 4), codes = await codesFor(yr); if (!codes.length) continue;
     try {
       const d = await dash('/items_sales', postJson({ branches: [branch], year: yr, from_date: f, to_date: t, aggregation: 'Daily', group_by: ['item'], item: codes }));
-      rowsOfBranch(d, branch).forEach((r: Record<string, unknown>) => {
-        const day = String(r.period || '').slice(0, 10); if (!day) return;
-        const x = dget(day); x.deliveries += Number(r.total_quantity || 0); x.fees += Number(r.total_sales || 0);
-      });
+      rowsOfBranch(d, branch).forEach((r: Record<string, unknown>) => { const day = String(r.period || '').slice(0, 10); if (!day) return; dget(day).fees += Number(r.total_sales || 0); });
     } catch (e) { console.warn('delivery fees', branch, f, e); }
   }
-  // the delivery invoices, from each fee item's cardex (month by month); an invoice with both fees is counted once
   const invs: { no: string; type: string; number: string; day: string; year: string; customer: string }[] = [], seen = new Set<string>();
   for (const [f, t] of monthWindows(from, to)) {
     const yr = f.slice(0, 4), codes = await codesFor(yr); if (!codes.length) continue;
@@ -846,33 +842,30 @@ async function deliverySales(from: string, to: string, branch = BRANCH, withBask
       } catch (e) { console.warn('delivery cardex', branch, code, f, e); }
     }
   }
-  let basketTruncated = false;
-  const invoices: { invoice: string; day: string; customer: string; total: number; currency: string }[] = [];
-  if (withBasket) {
-    const MAX = 1500, todo = invs.slice(0, MAX); basketTruncated = invs.length > MAX;
-    for (let i = 0; i < todo.length; i += 8) {
-      await Promise.all(todo.slice(i, i + 8).map(async (inv) => {
-        if (!inv.type || !inv.number) return;
-        try {
-          const d = await dash('/operations/viewer', postJson({ year: inv.year, branch, document_type: inv.type, document_number: inv.number, operation_code: '60' })) as Record<string, unknown>;
-          const v = d.data as Record<string, unknown> | undefined; if (!v) return;
-          const total = Number(v.total_with_vat || 0), cur = String(v.currency || '$'), isLbp = /LBP|L.?L/i.test(cur);
-          const x = dget(inv.day); x.read++;
-          if (isLbp) x.lbp += total; else x.usd += total;
-          invoices.push({ invoice: inv.no, day: inv.day, customer: inv.customer, total: Math.round(total * 100) / 100, currency: isLbp ? 'LBP' : '$' });
-        } catch (e) { console.warn('delivery invoice', branch, inv.number, e); }
-      }));
-    }
-  }
-  const r2 = (v: number) => Math.round(v * 100) / 100;
+  invs.sort((a, b) => a.day.localeCompare(b.day) || a.no.localeCompare(b.no));
   const invByDay: Record<string, number> = {}; invs.forEach((v) => { invByDay[v.day] = (invByDay[v.day] || 0) + 1; dget(v.day); });
-  const list = Object.keys(days).sort().map((day) => { const x = days[day];
-    return { day, deliveries: invByDay[day] ?? Math.round(x.deliveries), fees: r2(x.fees), basketUsd: r2(x.usd), basketLbp: Math.round(x.lbp), read: x.read }; });
-  const sum = (g: (x: typeof list[number]) => number) => list.reduce((t, x) => t + g(x), 0);
+  const r2 = (v: number) => Math.round(v * 100) / 100;
+  const dayList = Object.keys(days).sort().map((day) => ({ day, deliveries: invByDay[day] || 0, fees: r2(days[day].fees) }));
+  return { invs, dayList, deliveries: invs.length, feeRevenue: r2(dayList.reduce((t, x) => t + x.fees, 0)) };
+}
+async function deliverySales(from: string, to: string, branch = BRANCH, offset = 0, limit = 250) {
+  const base = await deliveryBase(from, to, branch);
+  const page = base.invs.slice(offset, offset + limit);
+  const invoices: { invoice: string; day: string; customer: string; total: number; currency: string }[] = [];
+  for (let i = 0; i < page.length; i += 10) {
+    await Promise.all(page.slice(i, i + 10).map(async (inv) => {
+      if (!inv.type || !inv.number) return;
+      try {
+        const d = await dash('/operations/viewer', postJson({ year: inv.year, branch, document_type: inv.type, document_number: inv.number, operation_code: '60' })) as Record<string, unknown>;
+        const v = d.data as Record<string, unknown> | undefined; if (!v) return;
+        const total = Number(v.total_with_vat || 0), cur = String(v.currency || '$'), isLbp = /LBP|L.?L/i.test(cur);
+        invoices.push({ invoice: inv.no, day: inv.day, customer: inv.customer, total: Math.round(total * 100) / 100, currency: isLbp ? 'LBP' : '$' });
+      } catch (e) { console.warn('delivery invoice', branch, inv.number, e); }
+    }));
+  }
   invoices.sort((a, b) => a.day.localeCompare(b.day) || a.invoice.localeCompare(b.invoice));
-  return { from, to, branch, deliveries: invs.length || Math.round(sum((x) => x.deliveries)), feeRevenue: r2(sum((x) => x.fees)),
-    basketUsd: r2(sum((x) => x.basketUsd)), basketLbp: Math.round(sum((x) => x.basketLbp)), invoicesRead: sum((x) => x.read),
-    withBasket, basketTruncated, feeItems: DELIVERY_FEE_ITEMS, days: list, invoices };
+  return { from, to, branch, deliveries: base.deliveries, feeRevenue: base.feeRevenue, days: base.dayList,
+    feeItems: DELIVERY_FEE_ITEMS, offset, limit, invoicesTotal: base.invs.length, more: offset + limit < base.invs.length, invoices };
 }
 async function autoReceive() {
   const today = beirutToday();
@@ -2418,7 +2411,8 @@ Deno.serve(async req => {
       const f = String(body.from || ''), t = String(body.to || '');
       if (!isDay(f) || !isDay(t) || f > t || Number(t.slice(0, 4)) - Number(f.slice(0, 4)) > 1) return json({ error: 'Choose dates within two years.' }, 400);
       const dbr = BRANCHES.includes(String(body.branch)) ? String(body.branch) : BRANCH;
-      return json(await deliverySales(f, t, dbr, body.basket !== false));
+      const doff = Math.max(0, Number(body.offset) || 0), dlim = Math.min(400, Math.max(1, Number(body.limit) || 250));
+      return json(await deliverySales(f, t, dbr, doff, dlim));
     }
     if (body.action === 'branch_compare') {
       if (!isServer && role !== 'admin') {

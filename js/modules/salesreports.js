@@ -484,19 +484,38 @@
     }
     if (!DV.data || DV.data._from !== DV.from || DV.data._to !== DV.to || DV.data.branch !== DV.branch) loadDelivery(); else paintDelivery();
   }
+  const dvNote = (msg) => { const b = el('dvBody'); if (b) b.innerHTML = `<div class="card"><p class="muted-note" style="margin:0;">${esc(msg)}</p></div>`; };
   async function loadDelivery() {
     el('dvFrom').value = DV.from; el('dvTo').value = DV.to; el('dvBranch').value = DV.branch;
     el('dvQuick').innerHTML = presets().map((p, i) => `<button type="button" data-p="${i}" class="${p[1] === DV.from && p[2] === DV.to ? 'active' : ''}">${p[0]}</button>`).join('');
     const my = ++DV.seq;
-    el('dvBody').innerHTML = `<div class="card"><p class="muted-note" style="margin:0;">Reading ${esc(DV.branch)}'s deliveries from the system — each delivery invoice is read for its total, this can take a moment.</p></div>`;
-    try { const d = await call({ action: 'delivery_sales', from: DV.from, to: DV.to, branch: DV.branch }); if (my !== DV.seq) return; d._from = DV.from; d._to = DV.to; DV.data = d; paintDelivery(); }
+    dvNote(`Reading ${DV.branch}'s deliveries from the system…`);
+    try {
+      // the invoice totals are read in pages (a busy month has hundreds of orders), so no single call times out
+      const invoices = []; let base = null, offset = 0;
+      for (let guard = 0; guard < 40; guard++) {
+        const d = await call({ action: 'delivery_sales', from: DV.from, to: DV.to, branch: DV.branch, offset, limit: 250 });
+        if (my !== DV.seq) return;
+        base = d; invoices.push(...(d.invoices || []));
+        if (d.invoicesTotal) dvNote(`Reading ${DV.branch}'s deliveries — ${invoices.length.toLocaleString('en-US')} of ${Number(d.invoicesTotal).toLocaleString('en-US')} invoices…`);
+        if (!d.more) break;
+        offset += 250;
+      }
+      base.invoices = invoices; base._from = DV.from; base._to = DV.to;
+      DV.data = base; paintDelivery();
+    }
     catch (e) { if (my === DV.seq) el('dvBody').innerHTML = `<div class="card"><p class="login-err" style="margin:0;">${esc(failMsg(e))}</p></div>`; }
   }
   function paintDelivery() {
     const d = DV.data, box = el('dvBody'); if (!d || !box) return;
+    // add the invoice totals up here (the function returned them page by page), per day and per currency
+    const inv = d.invoices || [], perDay = {};
+    let basketUsd = 0, basketLbp = 0;
+    inv.forEach(x => { const y = perDay[x.day] = perDay[x.day] || { usd: 0, lbp: 0 }; if (x.currency === 'LBP') { y.lbp += x.total; basketLbp += x.total; } else { y.usd += x.total; basketUsd += x.total; } });
+    d.basketUsd = Math.round(basketUsd * 100) / 100; d.basketLbp = Math.round(basketLbp);
     const basket = [d.basketUsd ? dvUsd(d.basketUsd) : '', d.basketLbp ? dvLbp(d.basketLbp) : ''].filter(Boolean).join(' + ') || '$0';
     const avg = d.deliveries && d.basketUsd ? d.basketUsd / d.deliveries : 0;
-    const rows = (d.days || []).filter(x => x.deliveries || x.read);
+    const rows = (d.days || []).filter(x => x.deliveries).map(x => ({ ...x, basketUsd: (perDay[x.day] || {}).usd || 0, basketLbp: (perDay[x.day] || {}).lbp || 0 }));
     box.innerHTML = `
       <div class="pf-tiles">
         <div class="pf-tile"><span>Deliveries</span><b>${n(d.deliveries).toLocaleString('en-US')}</b><small>${esc(d.branch || '')} · ${esc(dmy(d.from))} → ${esc(dmy(d.to))}</small></div>
@@ -509,7 +528,7 @@
         <div class="items-scroll pf-scroll"><table class="items pf-table"><thead><tr><th>Day</th><th class="num">Deliveries</th><th class="num">Fees</th><th class="num">Basket $</th><th class="num">Basket LBP</th></tr></thead>
           <tbody>${rows.map(x => `<tr><td>${esc(dmy(x.day))} <span class="muted-note">${DAY[D(x.day).getUTCDay()]}</span></td><td class="num">${x.deliveries}</td><td class="num">${dvUsd(x.fees)}</td><td class="num">${x.basketUsd ? dvUsd(x.basketUsd) : '—'}</td><td class="num">${x.basketLbp ? dvLbp(x.basketLbp) : '—'}</td></tr>`).join('') || `<tr><td colspan="5" class="empty-note">No deliveries in this period.</td></tr>`}</tbody>
           <tfoot><tr class="pts-tot"><td><b>Total</b></td><td class="num"><b>${n(d.deliveries).toLocaleString('en-US')}</b></td><td class="num"><b>${dvUsd(d.feeRevenue)}</b></td><td class="num"><b>${d.basketUsd ? dvUsd(d.basketUsd) : '—'}</b></td><td class="num"><b>${d.basketLbp ? dvLbp(d.basketLbp) : '—'}</b></td></tr></tfoot></table></div>
-        <p class="muted-note" style="margin:8px 0 0;">A delivery = an order carrying a delivery fee (item ${esc((d.feeItems || []).join(' or '))}) — this one, that one, or both counts as one order. ${d.invoices && d.invoices.length ? `${n(d.invoices.length).toLocaleString('en-US')} invoice${d.invoices.length === 1 ? '' : 's'} read — each one's total is in the Excel. ` : ''}Basket value = each delivery invoice's full total${d.basketTruncated ? `, from the first ${n(d.invoicesRead).toLocaleString('en-US')} invoices only — narrow the dates for the exact total` : ''}. Orders in $ and LBP are kept apart. ${esc(d.branch || '')}.</p>
+        <p class="muted-note" style="margin:8px 0 0;">A delivery = an order carrying a delivery fee (item ${esc((d.feeItems || []).join(' or '))}) — this one, that one, or both counts as one order. ${inv.length ? `${n(inv.length).toLocaleString('en-US')} of ${n(d.invoicesTotal || inv.length).toLocaleString('en-US')} invoice${d.invoicesTotal === 1 ? '' : 's'} read — each one's total is in the Excel. ` : ''}Basket value = each delivery invoice's full total. Orders in $ and LBP are kept apart. ${esc(d.branch || '')}.</p>
       </div>`;
     el('dvXls').onclick = () => {
       const ws1 = XLSX.utils.aoa_to_sheet([['Day', 'Deliveries', 'Fees $', 'Basket $', 'Basket LBP'],
