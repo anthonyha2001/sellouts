@@ -459,10 +459,12 @@
   }
 
   /* ================= Delivery (owner, 2026-10-22) =================
-     The online-order deliveries: an order counts as a delivery when it carries the delivery fee (item 159646). The count
-     and the fee revenue come from the sales report; the basket value is each delivery invoice's full total (lv-dashboard
-     delivery_sales reads them one by one), kept per currency. */
-  const DV = { from: null, to: null, data: null, seq: 0 };
+     The online-order deliveries of ONE branch (a dropdown picks it; default Ajaltoun). An order counts as a delivery when it
+     carries the delivery fee (item 158147). The count and the fee revenue come from the sales report; the basket value is each
+     delivery invoice's full total (lv-dashboard delivery_sales reads them one by one), kept per currency. Each invoice's total
+     is in the Excel. */
+  const DV_BRANCHES = ['Ajaltoun', 'Mazraat Yachouh', 'Beit El Kikko', 'Achrafieh', 'Zalka'];
+  const DV = { from: null, to: null, branch: 'Ajaltoun', data: null, seq: 0 };
   const dvUsd = v => '$' + Math.round(n(v)).toLocaleString('en-US');
   const dvLbp = v => Math.round(n(v)).toLocaleString('en-US') + ' LBP';
   function showDelivery(box) {
@@ -471,21 +473,23 @@
     if (!box.dataset.built) {
       box.dataset.built = '1';
       box.innerHTML = `<div class="card pf-controls">
+          <label>Branch <select id="dvBranch">${DV_BRANCHES.map(b => `<option value="${esc(b)}">${esc(b)}</option>`).join('')}</select></label>
           <label>From <input type="date" id="dvFrom"></label><label>to <input type="date" id="dvTo"></label>
           <div class="filter-row" id="dvQuick" style="margin:0;"></div>
           <button type="button" class="btn small" id="dvLoad">Load</button></div>
         <div id="dvBody"></div>`;
+      el('dvBranch').onchange = () => { DV.branch = el('dvBranch').value; loadDelivery(); };
       el('dvQuick').onclick = e => { const b = e.target.closest('[data-p]'); if (!b) return; const p = presets()[Number(b.dataset.p)]; DV.from = p[1]; DV.to = p[2]; loadDelivery(); };
       el('dvLoad').onclick = () => { const f = el('dvFrom').value, t = el('dvTo').value; if (!f || !t || f > t) return showToast('Choose the dates.', true); DV.from = f; DV.to = t; loadDelivery(); };
     }
-    if (!DV.data || DV.data._from !== DV.from || DV.data._to !== DV.to) loadDelivery(); else paintDelivery();
+    if (!DV.data || DV.data._from !== DV.from || DV.data._to !== DV.to || DV.data.branch !== DV.branch) loadDelivery(); else paintDelivery();
   }
   async function loadDelivery() {
-    el('dvFrom').value = DV.from; el('dvTo').value = DV.to;
+    el('dvFrom').value = DV.from; el('dvTo').value = DV.to; el('dvBranch').value = DV.branch;
     el('dvQuick').innerHTML = presets().map((p, i) => `<button type="button" data-p="${i}" class="${p[1] === DV.from && p[2] === DV.to ? 'active' : ''}">${p[0]}</button>`).join('');
     const my = ++DV.seq;
-    el('dvBody').innerHTML = '<div class="card"><p class="muted-note" style="margin:0;">Reading the deliveries from the system — each delivery invoice is read for its total, this can take a moment.</p></div>';
-    try { const d = await call({ action: 'delivery_sales', from: DV.from, to: DV.to }); if (my !== DV.seq) return; d._from = DV.from; d._to = DV.to; DV.data = d; paintDelivery(); }
+    el('dvBody').innerHTML = `<div class="card"><p class="muted-note" style="margin:0;">Reading ${esc(DV.branch)}'s deliveries from the system — each delivery invoice is read for its total, this can take a moment.</p></div>`;
+    try { const d = await call({ action: 'delivery_sales', from: DV.from, to: DV.to, branch: DV.branch }); if (my !== DV.seq) return; d._from = DV.from; d._to = DV.to; DV.data = d; paintDelivery(); }
     catch (e) { if (my === DV.seq) el('dvBody').innerHTML = `<div class="card"><p class="login-err" style="margin:0;">${esc(failMsg(e))}</p></div>`; }
   }
   function paintDelivery() {
@@ -495,7 +499,7 @@
     const rows = (d.days || []).filter(x => x.deliveries || x.read);
     box.innerHTML = `
       <div class="pf-tiles">
-        <div class="pf-tile"><span>Deliveries</span><b>${n(d.deliveries).toLocaleString('en-US')}</b><small>${esc(dmy(d.from))} → ${esc(dmy(d.to))}</small></div>
+        <div class="pf-tile"><span>Deliveries</span><b>${n(d.deliveries).toLocaleString('en-US')}</b><small>${esc(d.branch || '')} · ${esc(dmy(d.from))} → ${esc(dmy(d.to))}</small></div>
         <div class="pf-tile"><span>Basket value</span><b>${basket}</b><small>full order totals</small></div>
         <div class="pf-tile"><span>Delivery fees</span><b>${dvUsd(d.feeRevenue)}</b><small>charged to customers</small></div>
         <div class="pf-tile"><span>Average basket</span><b>${avg ? dvUsd(avg) : '—'}</b><small>per delivery ($ orders)</small></div>
@@ -505,11 +509,23 @@
         <div class="items-scroll pf-scroll"><table class="items pf-table"><thead><tr><th>Day</th><th class="num">Deliveries</th><th class="num">Fees</th><th class="num">Basket $</th><th class="num">Basket LBP</th></tr></thead>
           <tbody>${rows.map(x => `<tr><td>${esc(dmy(x.day))} <span class="muted-note">${DAY[D(x.day).getUTCDay()]}</span></td><td class="num">${x.deliveries}</td><td class="num">${dvUsd(x.fees)}</td><td class="num">${x.basketUsd ? dvUsd(x.basketUsd) : '—'}</td><td class="num">${x.basketLbp ? dvLbp(x.basketLbp) : '—'}</td></tr>`).join('') || `<tr><td colspan="5" class="empty-note">No deliveries in this period.</td></tr>`}</tbody>
           <tfoot><tr class="pts-tot"><td><b>Total</b></td><td class="num"><b>${n(d.deliveries).toLocaleString('en-US')}</b></td><td class="num"><b>${dvUsd(d.feeRevenue)}</b></td><td class="num"><b>${d.basketUsd ? dvUsd(d.basketUsd) : '—'}</b></td><td class="num"><b>${d.basketLbp ? dvLbp(d.basketLbp) : '—'}</b></td></tr></tfoot></table></div>
-        <p class="muted-note" style="margin:8px 0 0;">A delivery = an order carrying the online delivery fee (item ${esc(String(d.feeItem || ''))}). Basket value = each delivery invoice's full total${d.basketTruncated ? `, from the first ${n(d.invoicesRead).toLocaleString('en-US')} invoices only — narrow the dates for the exact total` : ''}. Orders in $ and LBP are kept apart. Ajaltoun.</p>
+        <p class="muted-note" style="margin:8px 0 0;">A delivery = an order carrying a delivery fee (item ${esc((d.feeItems || []).join(' or '))}) — this one, that one, or both counts as one order. ${d.invoices && d.invoices.length ? `${n(d.invoices.length).toLocaleString('en-US')} invoice${d.invoices.length === 1 ? '' : 's'} read — each one's total is in the Excel. ` : ''}Basket value = each delivery invoice's full total${d.basketTruncated ? `, from the first ${n(d.invoicesRead).toLocaleString('en-US')} invoices only — narrow the dates for the exact total` : ''}. Orders in $ and LBP are kept apart. ${esc(d.branch || '')}.</p>
       </div>`;
-    el('dvXls').onclick = () => xls([['Day', 'Deliveries', 'Fees $', 'Basket $', 'Basket LBP'],
-      ...rows.map(x => [dmy(x.day), x.deliveries, Math.round(x.fees * 100) / 100, Math.round(x.basketUsd * 100) / 100, Math.round(x.basketLbp)]),
-      [], ['Total', n(d.deliveries), Math.round(d.feeRevenue * 100) / 100, Math.round(d.basketUsd * 100) / 100, Math.round(d.basketLbp)]], `Deliveries ${d.from} ${d.to}`);
+    el('dvXls').onclick = () => {
+      const ws1 = XLSX.utils.aoa_to_sheet([['Day', 'Deliveries', 'Fees $', 'Basket $', 'Basket LBP'],
+        ...rows.map(x => [dmy(x.day), x.deliveries, Math.round(x.fees * 100) / 100, Math.round(x.basketUsd * 100) / 100, Math.round(x.basketLbp)]),
+        [], ['Total', n(d.deliveries), Math.round(d.feeRevenue * 100) / 100, Math.round(d.basketUsd * 100) / 100, Math.round(d.basketLbp)]]);
+      ws1['!cols'] = [{ wch: 12 }, { wch: 11 }, { wch: 11 }, { wch: 12 }, { wch: 14 }];
+      const inv = d.invoices || [];
+      const ws2 = XLSX.utils.aoa_to_sheet([['Invoice', 'Day', 'Customer', 'Total', 'Currency'],
+        ...inv.map(x => [String(x.invoice), dmy(x.day), x.customer || '', x.total, x.currency])]);
+      for (let i = 2; i <= inv.length + 1; i++) { const c = ws2['A' + i]; if (c) { c.t = 's'; c.v = String(c.v); } }
+      ws2['!cols'] = [{ wch: 14 }, { wch: 12 }, { wch: 26 }, { wch: 12 }, { wch: 9 }];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws1, 'By day');
+      XLSX.utils.book_append_sheet(wb, ws2, 'Invoices');
+      XLSX.writeFile(wb, `Deliveries ${d.branch || ''} ${d.from} ${d.to}`.replace(/[\\/:*?"<>|]+/g, ' ').trim() + '.xlsx');
+    };
   }
 
   window.SalesReports = { showCategories, showDaily, showHourly, showBranches, showDelivery, _prevPeriod: prevPeriod, _byHour: byHour };
