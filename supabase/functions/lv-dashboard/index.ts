@@ -795,6 +795,73 @@ async function branchCompare(level: string, from: string, to: string) {
   return { level, from, to, branches: BRANCHES, categories, branchTotals: Object.fromEntries(BRANCHES.map(b => [b, r0(branchTotals[b] || 0)])), grand: r0(Object.values(branchTotals).reduce((t, x) => t + x, 0)) };
 }
 
+// Delivery department (owner, 2026-10-22): online-order deliveries. The system marks an order as a delivery by its fee line,
+// item 159646 "LA VALEUR ONLINE ORDER TRANSACTION FEES" (one per order). The sales report gives the count and the fee
+// revenue; the basket value is each delivery invoice's full total, read one by one (the fee item's cardex lists the invoices,
+// the document viewer totals them), kept per currency. Ajaltoun (where the app's reports run).
+const DELIVERY_FEE_ITEM = '159646';
+function monthWindows(from: string, to: string): string[][] {
+  const out: string[][] = []; let cur = from.slice(0, 7) + '-01';
+  while (cur <= to) {
+    const y = Number(cur.slice(0, 4)), m = Number(cur.slice(5, 7));
+    const mEnd = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
+    out.push([cur < from ? from : cur, mEnd > to ? to : mEnd]);
+    cur = new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 10);
+  }
+  return out;
+}
+async function deliverySales(from: string, to: string, withBasket = true) {
+  const days: Record<string, { deliveries: number; fees: number; usd: number; lbp: number; read: number }> = {};
+  const dget = (d: string) => (days[d] = days[d] || { deliveries: 0, fees: 0, usd: 0, lbp: 0, read: 0 });
+  // count + fee revenue, per day (one fee line per delivery; the report gives $)
+  (await report('sales', from, to, { aggregation: 'Daily', group_by: ['item'], item: [DELIVERY_FEE_ITEM] })).forEach(r => {
+    const d = String(r.period || '').slice(0, 10); if (!d) return;
+    const x = dget(d); x.deliveries += Number(r.total_quantity || 0); x.fees += Number(r.total_sales || 0);
+  });
+  // the delivery invoices, from the fee item's cardex (month by month, so no single read is too big)
+  type Inv = { type: string; number: string; day: string; year: string };
+  const invs: Inv[] = [], seen = new Set<string>();
+  for (const [f, t] of monthWindows(from, to)) {
+    const yr = f.slice(0, 4);
+    const code = yr === year() ? DELIVERY_FEE_ITEM : ((await toYear('item', [DELIVERY_FEE_ITEM], yr))[DELIVERY_FEE_ITEM] || [])[0];
+    if (!code) continue;
+    try {
+      const d = await dash(`/item-cardex?${new URLSearchParams({ branch: BRANCH, item_code: code, year: yr, from_date: f, to_date: t })}`) as Record<string, unknown>;
+      ((((d.data as Record<string, unknown>)?.rows || []) as Record<string, unknown>[])).forEach(r => {
+        if (!(String(r.operation_code) === '60' || /invoice/i.test(String(r.operation_label || '')))) return;
+        if (Number(r.qty_out || 0) === 0) return;
+        const no = String(r.document_no || ''), day = String(r.date || '').slice(0, 10);
+        if (!no || day < from || day > to || seen.has(no)) return;
+        seen.add(no);
+        invs.push({ type: String(r.document_type || ''), number: String(r.document_number || ''), day, year: yr });
+      });
+    } catch (e) { console.warn('delivery cardex', f, e); }
+  }
+  let basketTruncated = false;
+  if (withBasket) {
+    const MAX = 1500, todo = invs.slice(0, MAX); basketTruncated = invs.length > MAX;
+    for (let i = 0; i < todo.length; i += 8) {
+      await Promise.all(todo.slice(i, i + 8).map(async inv => {
+        if (!inv.type || !inv.number) return;
+        try {
+          const d = await dash('/operations/viewer', postJson({ year: inv.year, branch: BRANCH, document_type: inv.type, document_number: inv.number, operation_code: '60' })) as Record<string, unknown>;
+          const v = d?.data as Record<string, unknown> | undefined; if (!v) return;
+          const total = Number(v.total_with_vat || 0), cur = String(v.currency || '$');
+          const x = dget(inv.day); x.read++;
+          if (/LBP|L.?L/i.test(cur)) x.lbp += total; else x.usd += total;
+        } catch (e) { console.warn('delivery invoice', inv.number, e); }
+      }));
+    }
+  }
+  const r2 = (v: number) => Math.round(v * 100) / 100;
+  const invByDay: Record<string, number> = {}; invs.forEach(v => { invByDay[v.day] = (invByDay[v.day] || 0) + 1; dget(v.day); });
+  const list = Object.keys(days).sort().map(day => { const x = days[day];
+    return { day, deliveries: invByDay[day] ?? Math.round(x.deliveries), fees: r2(x.fees), basketUsd: r2(x.usd), basketLbp: Math.round(x.lbp), read: x.read }; });
+  const sum = (g: (x: typeof list[number]) => number) => list.reduce((t, x) => t + g(x), 0);
+  return { from, to, deliveries: invs.length || Math.round(sum(x => x.deliveries)), feeRevenue: r2(sum(x => x.fees)),
+    basketUsd: r2(sum(x => x.basketUsd)), basketLbp: Math.round(sum(x => x.basketLbp)), invoicesRead: sum(x => x.read),
+    withBasket, basketTruncated, feeItem: DELIVERY_FEE_ITEM, days: list };
+}
 async function autoReceive() {
   const today = beirutToday();
   // the orders still waiting, oldest first, with their vendor's system supplier codes
@@ -2328,6 +2395,17 @@ Deno.serve(async req => {
         if (!ok) return json({ error: 'Not allowed.' }, 403);
       }
       return json(await branchSales(String(body.day || '')));
+    }
+    if (body.action === 'delivery_sales') {
+      if (!isServer && role !== 'admin') {
+        const anon = Deno.env.get('SUPABASE_ANON_KEY') || '';
+        const asUser = createClient(SUPABASE_URL, anon, { global: { headers: { Authorization: `Bearer ${bearer}` } }, auth: { persistSession: false, autoRefreshToken: false } });
+        const { data: ok } = await asUser.rpc('has_perm', { p_perms: ['vendors.manage'] });
+        if (!ok) return json({ error: 'Not allowed.' }, 403);
+      }
+      const f = String(body.from || ''), t = String(body.to || '');
+      if (!isDay(f) || !isDay(t) || f > t || Number(t.slice(0, 4)) - Number(f.slice(0, 4)) > 1) return json({ error: 'Choose dates within two years.' }, 400);
+      return json(await deliverySales(f, t, body.basket !== false));
     }
     if (body.action === 'branch_compare') {
       if (!isServer && role !== 'admin') {
