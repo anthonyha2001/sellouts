@@ -464,10 +464,10 @@
      basket in the background into public.delivery_orders (migration 099); THIS PAGE READS THAT TABLE — instant. A basket not
      read yet shows as pending ("X of Y read"); the next background runs fill it. Permission: vendors.manage. */
   const DV_BRANCHES = ['Ajaltoun', 'Mazraat Yachouh', 'Beit El Kikko', 'Achrafieh', 'Zalka'];
-  const DV = { from: null, to: null, branch: 'Ajaltoun', rows: null, seq: 0, err: '' };
-  const dvUsd = v => '$' + Math.round(n(v)).toLocaleString('en-US');
-  const dvLbp = v => Math.round(n(v)).toLocaleString('en-US') + ' LBP';
-  const dvBoth = (usd, lbp) => [usd ? dvUsd(usd) : '', lbp ? dvLbp(lbp) : ''].filter(Boolean).join(' + ') || '—';
+  const DV = { from: null, to: null, branch: 'Ajaltoun', rows: null, seq: 0, err: '', rate: 89500 };
+  const dvUsd = v => '$' + (Math.abs(n(v)) >= 1000 ? Math.round(n(v)).toLocaleString('en-US') : (Math.round(n(v) * 100) / 100).toLocaleString('en-US', { maximumFractionDigits: 2 }));
+  // everything shown in $ (owner, 2026-10-23): LBP converted at the store's rate (cash_settings.usd_rate)
+  const toUsd = (amount, currency) => /LBP|L\.?L/i.test(String(currency || '')) ? n(amount) / (DV.rate || 89500) : n(amount);
   function showDelivery(box) {
     if (!box) return;
     if (!DV.from) { const p = presets()[0]; DV.from = p[1]; DV.to = p[2]; }
@@ -490,6 +490,8 @@
     el('dvQuick').innerHTML = presets().map((p, i) => `<button type="button" data-p="${i}" class="${p[1] === DV.from && p[2] === DV.to ? 'active' : ''}">${p[0]}</button>`).join('');
     const my = ++DV.seq;
     DV.err = ''; el('dvBody').innerHTML = `<div class="card"><p class="muted-note" style="margin:0;">Reading ${esc(DV.branch)}'s deliveries…</p></div>`;
+    // the store's exchange rate, to show everything in $ (falls back to 89,500 if it can't be read)
+    try { const { data: s } = await sb.from('cash_settings').select('usd_rate').limit(1); if (s && s[0] && Number(s[0].usd_rate) > 0) DV.rate = Number(s[0].usd_rate); } catch (e) { /* keep the default */ }
     const { data, error } = await sb.from('delivery_orders').select('invoice, day, customer, fee, total, currency, read_at')
       .eq('branch', DV.branch).gte('day', DV.from).lte('day', DV.to).order('day').limit(20000);
     if (my !== DV.seq) return;
@@ -508,47 +510,45 @@
     const box = el('dvBody'); if (!box) return;
     if (DV.err) { box.innerHTML = `<div class="card"><p class="login-err" style="margin:0;">${esc(DV.err)}</p></div>`; return; }
     const rows = DV.rows || [];
-    const perDay = {}; let feeUsd = 0, feeLbp = 0, basketUsd = 0, basketLbp = 0, read = 0;
+    const perDay = {}; let fee = 0, basket = 0, read = 0, anyLbp = false;
     rows.forEach(x => {
-      const y = perDay[x.day] = perDay[x.day] || { deliveries: 0, feeUsd: 0, feeLbp: 0, basketUsd: 0, basketLbp: 0, read: 0 };
-      y.deliveries++; const lbp = x.currency === 'LBP';
-      if (lbp) { feeLbp += n(x.fee); y.feeLbp += n(x.fee); } else { feeUsd += n(x.fee); y.feeUsd += n(x.fee); }
-      if (x.total !== null && x.total !== undefined) {
-        read++; y.read++;
-        if (lbp) { basketLbp += n(x.total); y.basketLbp += n(x.total); } else { basketUsd += n(x.total); y.basketUsd += n(x.total); }
-      }
+      const y = perDay[x.day] = perDay[x.day] || { deliveries: 0, fee: 0, basket: 0, read: 0 };
+      y.deliveries++; if (/LBP|L\.?L/i.test(String(x.currency || ''))) anyLbp = true;
+      const f = toUsd(x.fee, x.currency); fee += f; y.fee += f;
+      if (x.total !== null && x.total !== undefined) { read++; y.read++; const b = toUsd(x.total, x.currency); basket += b; y.basket += b; }
     });
-    const deliveries = rows.length, avg = read && basketUsd ? basketUsd / read : 0, pending = deliveries - read;
+    const deliveries = rows.length, avg = read && basket ? basket / read : 0, pending = deliveries - read;
     const days = Object.keys(perDay).sort().map(day => ({ day, ...perDay[day] }));
     const isAdm = typeof isAdmin === 'function' && isAdmin();
     box.innerHTML = `
       <div class="pf-tiles">
         <div class="pf-tile"><span>Deliveries</span><b>${deliveries.toLocaleString('en-US')}</b><small>${esc(DV.branch)} · ${esc(dmy(DV.from))} → ${esc(dmy(DV.to))}</small></div>
-        <div class="pf-tile"><span>Basket value</span><b>${dvBoth(basketUsd, basketLbp)}</b><small>full order totals${pending ? ` · ${pending.toLocaleString('en-US')} pending` : ''}</small></div>
-        <div class="pf-tile"><span>Delivery fees</span><b>${dvBoth(feeUsd, feeLbp)}</b><small>charged to customers</small></div>
-        <div class="pf-tile"><span>Average basket</span><b>${avg ? dvUsd(avg) : '—'}</b><small>per delivery ($ orders)</small></div>
+        <div class="pf-tile"><span>Basket value</span><b>${dvUsd(basket)}</b><small>full order totals${pending ? ` · ${pending.toLocaleString('en-US')} pending` : ''}</small></div>
+        <div class="pf-tile"><span>Delivery fees</span><b>${dvUsd(fee)}</b><small>charged to customers</small></div>
+        <div class="pf-tile"><span>Average basket</span><b>${avg ? dvUsd(avg) : '—'}</b><small>per delivery</small></div>
       </div>
       <div class="card">
         <div class="pf-head"><h3>Deliveries day by day</h3><span class="muted-note">${read.toLocaleString('en-US')} of ${deliveries.toLocaleString('en-US')} baskets read</span><span style="flex:1"></span>
           <button type="button" class="icon-btn" id="dvReload" title="Refresh" aria-label="Refresh"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg></button>
           ${isAdm && pending ? '<button type="button" class="btn small" id="dvSync">Read now</button>' : ''}
           <button type="button" class="icon-btn" id="dvXls" title="Download (Excel)" aria-label="Download (Excel)">${xlsIcon}</button></div>
-        <div class="items-scroll pf-scroll"><table class="items pf-table"><thead><tr><th>Day</th><th class="num">Deliveries</th><th class="num">Fees</th><th class="num">Basket $</th><th class="num">Basket LBP</th></tr></thead>
-          <tbody>${days.map(x => `<tr><td>${esc(dmy(x.day))} <span class="muted-note">${DAY[D(x.day).getUTCDay()]}</span></td><td class="num">${x.deliveries}${x.read < x.deliveries ? ` <span class="muted-note">(${x.read})</span>` : ''}</td><td class="num">${dvBoth(x.feeUsd, x.feeLbp)}</td><td class="num">${x.basketUsd ? dvUsd(x.basketUsd) : '—'}</td><td class="num">${x.basketLbp ? dvLbp(x.basketLbp) : '—'}</td></tr>`).join('') || `<tr><td colspan="5" class="empty-note">No deliveries in this period yet.</td></tr>`}</tbody>
-          <tfoot><tr class="pts-tot"><td><b>Total</b></td><td class="num"><b>${deliveries.toLocaleString('en-US')}</b></td><td class="num"><b>${dvBoth(feeUsd, feeLbp)}</b></td><td class="num"><b>${basketUsd ? dvUsd(basketUsd) : '—'}</b></td><td class="num"><b>${basketLbp ? dvLbp(basketLbp) : '—'}</b></td></tr></tfoot></table></div>
-        <p class="muted-note" style="margin:8px 0 0;">A delivery = an order carrying a delivery fee (item 158147 or 158146) — this one, that one, or both counts as one order. The baskets are read in the background and updated every 10 minutes${pending ? `; ${pending.toLocaleString('en-US')} still to read (shown once ready)` : ''}. Orders in $ and LBP are kept apart. ${esc(DV.branch)}.</p>
+        <div class="items-scroll pf-scroll"><table class="items pf-table"><thead><tr><th>Day</th><th class="num">Deliveries</th><th class="num">Fees</th><th class="num">Basket value</th></tr></thead>
+          <tbody>${days.map(x => `<tr><td>${esc(dmy(x.day))} <span class="muted-note">${DAY[D(x.day).getUTCDay()]}</span></td><td class="num">${x.deliveries}${x.read < x.deliveries ? ` <span class="muted-note">(${x.read})</span>` : ''}</td><td class="num">${dvUsd(x.fee)}</td><td class="num">${x.read ? dvUsd(x.basket) : '—'}</td></tr>`).join('') || `<tr><td colspan="4" class="empty-note">No deliveries in this period yet.</td></tr>`}</tbody>
+          <tfoot><tr class="pts-tot"><td><b>Total</b></td><td class="num"><b>${deliveries.toLocaleString('en-US')}</b></td><td class="num"><b>${dvUsd(fee)}</b></td><td class="num"><b>${read ? dvUsd(basket) : '—'}</b></td></tr></tfoot></table></div>
+        <p class="muted-note" style="margin:8px 0 0;">A delivery = an order carrying a delivery fee (item 158147 or 158146) — this one, that one, or both counts as one order. The baskets are read in the background and updated every 10 minutes${pending ? `; ${pending.toLocaleString('en-US')} still to read (shown once ready)` : ''}. Everything in $${anyLbp ? `; LBP orders converted at ${Math.round(DV.rate).toLocaleString('en-US')} / $` : ''}. ${esc(DV.branch)}.</p>
       </div>`;
     el('dvReload').onclick = () => { DV.rows = null; loadDelivery(); };
     if (el('dvSync')) el('dvSync').onclick = e => syncDelivery(e.currentTarget);
     el('dvXls').onclick = () => {
-      const ws1 = XLSX.utils.aoa_to_sheet([['Day', 'Deliveries', 'Fees $', 'Fees LBP', 'Basket $', 'Basket LBP'],
-        ...days.map(x => [dmy(x.day), x.deliveries, Math.round(x.feeUsd * 100) / 100, Math.round(x.feeLbp), Math.round(x.basketUsd * 100) / 100, Math.round(x.basketLbp)]),
-        [], ['Total', deliveries, Math.round(feeUsd * 100) / 100, Math.round(feeLbp), Math.round(basketUsd * 100) / 100, Math.round(basketLbp)]]);
-      ws1['!cols'] = [{ wch: 12 }, { wch: 11 }, { wch: 11 }, { wch: 13 }, { wch: 12 }, { wch: 14 }];
-      const ws2 = XLSX.utils.aoa_to_sheet([['Invoice', 'Day', 'Customer', 'Fee', 'Basket total', 'Currency'],
-        ...rows.map(x => [String(x.invoice), dmy(x.day), x.customer || '', n(x.fee), x.total === null || x.total === undefined ? '' : n(x.total), x.currency || ''])]);
+      const ws1 = XLSX.utils.aoa_to_sheet([['Day', 'Deliveries', 'Fees $', 'Basket $'],
+        ...days.map(x => [dmy(x.day), x.deliveries, Math.round(x.fee * 100) / 100, Math.round(x.basket * 100) / 100]),
+        [], ['Total', deliveries, Math.round(fee * 100) / 100, Math.round(basket * 100) / 100]]);
+      ws1['!cols'] = [{ wch: 12 }, { wch: 11 }, { wch: 12 }, { wch: 14 }];
+      const ws2 = XLSX.utils.aoa_to_sheet([['Invoice', 'Day', 'Customer', 'Fee $', 'Basket $', 'Original', 'Currency'],
+        ...rows.map(x => [String(x.invoice), dmy(x.day), x.customer || '', Math.round(toUsd(x.fee, x.currency) * 100) / 100,
+          x.total === null || x.total === undefined ? '' : Math.round(toUsd(x.total, x.currency) * 100) / 100, x.total === null || x.total === undefined ? '' : n(x.total), x.currency || ''])]);
       for (let i = 2; i <= rows.length + 1; i++) { const c = ws2['A' + i]; if (c) { c.t = 's'; c.v = String(c.v); } }
-      ws2['!cols'] = [{ wch: 14 }, { wch: 12 }, { wch: 26 }, { wch: 11 }, { wch: 13 }, { wch: 9 }];
+      ws2['!cols'] = [{ wch: 14 }, { wch: 12 }, { wch: 26 }, { wch: 11 }, { wch: 13 }, { wch: 13 }, { wch: 9 }];
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws1, 'By day');
       XLSX.utils.book_append_sheet(wb, ws2, 'Invoices');

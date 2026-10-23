@@ -2386,7 +2386,7 @@ Deno.serve(async req => {
     let ok = serverKeys().includes(req.headers.get('apikey') || '');
     if (!ok && cron) { const { data } = await db.rpc('push_keys'); ok = !!data && cron === (data as Record<string, string>).push_cron_secret; }
     if (!ok) {
-      const bearer = (req.headers.get('Authorization') || '').replace(/^Bearers+/i, '');
+      const bearer = (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '');
       const { data: u } = await db.auth.getUser(bearer);
       if (u?.user) { const { data: prof } = await db.from('profiles').select('role, active').eq('id', u.user.id).maybeSingle(); ok = !!prof?.active && prof.role === 'admin'; }
     }
