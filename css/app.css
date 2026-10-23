@@ -3565,3 +3565,18 @@ tr.sc-det > td{background:var(--paper);padding:14px 16px !important;white-space:
   .pts-cards .pts-suplink { font-weight:600; }
   .pts-cards .pts-sub { flex:1 1 100%; margin-left:92px; }
 }
+
+/* Returns: summary + biggest (most critical) returns (owner, 2026-10-23) */
+.pts-summary .db-stat.pts-crit b{color:#b91c1c;}
+.pts-summary .db-stat.pts-ok{border-color:#86efac;background:#f0fdf4;}
+.pts-sm{font:11px var(--font-body,inherit);color:var(--ink-faint);font-weight:400;}
+.pts-top{list-style:none;margin:6px 0 0;padding:0;}
+.pts-top li{display:flex;align-items:center;gap:10px;padding:7px 4px;border-top:1px solid var(--line);cursor:pointer;}
+.pts-top li:first-child{border-top:0;}
+.pts-top li:hover{background:var(--pine-tint);}
+.pts-top-rank{flex:0 0 20px;height:20px;border-radius:999px;background:var(--line);color:var(--ink-soft);font:600 11px var(--font-mono);display:flex;align-items:center;justify-content:center;}
+.pts-top li:first-child .pts-top-rank{background:#fee2e2;color:#b91c1c;}
+.pts-top-sup{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;}
+.pts-top b{font:600 14px var(--font-mono);white-space:nowrap;}
+.pts-tbl tr.pts-biggest td{background:color-mix(in srgb, #ef4444 5%, transparent);}
+.pts-bigtag{color:#ef4444;font-size:9px;vertical-align:1px;}

@@ -70,7 +70,10 @@
     if (!S.rows) { box.innerHTML = '<div class="card"><p class="muted-note" style="margin:0;">Reading the returns…</p></div>'; await load(); }
     paint();
   }
-  const RANGES = [[7, 'This week'], [30, '30 days'], [90, '90 days'], [365, '12 months'], [0, 'All']];
+  const RANGES = [[1, 'Today'], [7, 'This week'], [30, '30 days'], [90, '90 days'], [365, '12 months'], [0, 'All']];
+  // for ranking "biggest" across currencies only (display always keeps the real value): LBP ≈ /89,500
+  const RATE = 89500, weight = r => isL(r.currency) ? Math.abs(n(r.value)) / RATE : Math.abs(n(r.value));
+  const bigKeys = (list, k = 3) => new Set([...list].sort((a, b) => weight(b) - weight(a)).slice(0, k).map(r => r.pt + '|' + r.year));
   const ICON = {
     reload: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>',
     xls: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>',
@@ -100,8 +103,28 @@
         <span style="flex:1"></span>
         <button type="button" id="ptsNew" class="pts-newbtn ${S.newOnly ? 'active' : ''}" title="Only the returns that came in the last 24 hours">New <span class="muted-note">${base.filter(isNew).length}</span></button>
       </div>
-      ${S.detail ? detailHtml() : S.view === 'sups' ? supsHtml() : ptsHtml(shown(), true)}`;
+      ${S.detail ? detailHtml() : S.view === 'sups' ? supsHtml() : summaryHtml(shown()) + ptsHtml(shown(), true)}`;
     bind(box);
+  }
+
+  /* ---------- summary + the biggest (most critical) returns ---------- */
+  const rangeLabel = () => S.days === 1 ? 'today' : S.days === 7 ? 'this week' : S.days === 0 ? 'all time' : `last ${S.days} days`;
+  function summaryHtml(list) {
+    const usd = list.filter(r => !isL(r.currency)).reduce((t, r) => t + Math.abs(n(r.value)), 0), lbp = list.filter(r => isL(r.currency)).reduce((t, r) => t + Math.abs(n(r.value)), 0);
+    const notSet = list.filter(r => !r.status);
+    const nsU = notSet.filter(r => !isL(r.currency)).reduce((t, r) => t + Math.abs(n(r.value)), 0), nsL = notSet.filter(r => isL(r.currency)).reduce((t, r) => t + Math.abs(n(r.value)), 0);
+    const biggest = [...list].sort((a, b) => weight(b) - weight(a)).slice(0, 5), top = biggest[0];
+    const stat = (label, value, cls = '') => `<div class="db-stat ${cls}"><b>${value}</b><span>${esc(label)}</span></div>`;
+    return `<div class="card pts-summary">
+      <div class="pts-stats">
+        ${stat(S.sup ? S.sup : 'Returns', list.length.toLocaleString('en-US') + ` <span class="pts-sm">${rangeLabel()}</span>`)}
+        ${stat('Value returned', both(usd, lbp) || '$0')}
+        ${stat(notSet.length ? 'Not set yet' : 'All decided', notSet.length ? notSet.length + ' · ' + (both(nsU, nsL) || '0') : '✓', notSet.length ? 'pts-warn' : 'pts-ok')}
+        ${stat('Biggest return', top ? money(top.value, top.currency) : '—', top ? 'pts-crit' : '')}
+      </div>
+      ${biggest.length ? `<div class="pf-head" style="margin:12px 0 2px;"><h3>Most critical — biggest returns</h3><span class="muted-note">${esc(rangeLabel())}</span></div>
+        <ul class="pts-top">${biggest.map((r, i) => `<li data-pt="${esc(r.pt)}" data-year="${esc(r.year)}" title="Open its lines"><span class="pts-top-rank">${i + 1}</span><span class="pts-top-sup">${esc(supOf(r))}<span class="muted-note"> · ${esc(dmy(r.pt_date))} · ${esc(r.pt)}</span></span>${r.status ? `<span class="pts-chip k-${r.status}">${esc(SLABEL[r.status])}</span>` : '<span class="pts-chip k-none">Not set</span>'}<b>${money(r.value, r.currency)}</b></li>`).join('')}</ul>` : ''}
+    </div>`;
   }
 
   /* ---------- the PTs list ---------- */
@@ -112,6 +135,7 @@
       : S.dir * (Math.abs(n(a[k])) - Math.abs(n(b[k])))) || String(b.pt_date).localeCompare(String(a.pt_date)));
   }
   function ptsHtml(list, withSupplier) {
+    const big = bigKeys(list);
     sortPts(list);
     const usd = list.filter(r => !isL(r.currency)).reduce((t, r) => t + Math.abs(n(r.value)), 0), lbp = list.filter(r => isL(r.currency)).reduce((t, r) => t + Math.abs(n(r.value)), 0);
     const sortIc = key => key === S.sort ? (S.dir < 0 ? ' ▾' : ' ▴') : '';
@@ -121,18 +145,19 @@
         <div class="pf-head"><h3>Returns ${S.sup && withSupplier ? '· ' + esc(S.sup) : ''}</h3><span class="muted-note">${list.length} PT${list.length === 1 ? '' : 's'} · ${both(usd, lbp)}</span></div>
         <div class="items-scroll pf-scroll"><table class="items pf-table pts-tbl pts-cards"><thead><tr>
           ${th('pt', 'PT', false)}${th('pt_date', 'Date')}${withSupplier ? th('supplier_name', 'Supplier', false) : ''}${th('refs', 'Reference', false)}${th('lines', 'Lines')}${th('qty', 'Units')}${th('value', 'Value')}<th>Status</th><th>Note</th></tr></thead>
-          <tbody>${list.map(r => rowHtml(r, withSupplier)).join('') || `<tr><td colspan="${cols}" class="empty-note">No PT in this period.</td></tr>`}</tbody>
+          <tbody>${list.map(r => rowHtml(r, withSupplier, big)).join('') || `<tr><td colspan="${cols}" class="empty-note">No PT in this period.</td></tr>`}</tbody>
           ${list.length > 1 ? `<tfoot><tr class="pts-tot"><td colspan="${withSupplier ? 4 : 3}"><b>Total</b></td><td class="num">${list.reduce((t, r) => t + n(r.lines), 0)}</td><td class="num">${qty(list.reduce((t, r) => t + Math.abs(n(r.qty)), 0))}</td><td class="num"><b>${both(usd, lbp)}</b></td><td colspan="2"></td></tr></tfoot>` : ''}</table></div>
         <p class="muted-note" style="margin:8px 0 0;">Every return to a supplier, synced from the system every 30 minutes. Set each one's status; double-click a PT for its lines${withSupplier ? ', click a supplier for its returns page' : ''}. Value is the money returned.</p>
       </div>`;
   }
-  function rowHtml(r, withSupplier = true) {
+  function rowHtml(r, withSupplier = true, big = null) {
     const ref = r.refs === null || r.refs === undefined ? `<span class="muted-note">${'refs' in r ? '…' : ''}</span>` : r.refs ? `<span class="pts-ref">${esc(r.refs)}</span>` : '<span class="muted-note">—</span>';
-    return `<tr data-pt="${esc(r.pt)}" data-year="${esc(r.year)}" class="${r.status ? 'pts-done' : ''}" title="Double-click for its lines">
+    const isBig = big && big.has(r.pt + '|' + r.year);
+    return `<tr data-pt="${esc(r.pt)}" data-year="${esc(r.year)}" class="${r.status ? 'pts-done' : ''}${isBig ? ' pts-biggest' : ''}" title="Double-click for its lines">
       <td class="mono"><b>${esc(r.pt)}</b>${isNew(r) ? ' <span class="pts-new" title="Came in from the system in the last 24 hours">New</span>' : ''}
         <button type="button" class="pts-hist" data-pts-hist="${esc(r.pt)}" data-pts-year="${esc(r.year)}" title="Who changed this, and when"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></button></td><td data-label="Date">${esc(dmy(r.pt_date))}</td>
       ${withSupplier ? `<td data-label="Supplier"><button type="button" class="link-btn pts-suplink" data-pts-open="${esc(supOf(r))}">${esc(supOf(r))}</button></td>` : ''}
-      <td data-label="Reference">${ref}</td><td class="num" data-label="Lines">${r.lines ?? ''}</td><td class="num" data-label="Units">${qty(Math.abs(n(r.qty)))}</td><td class="num" data-label="Value"><b class="pts-cardval">${money(r.value, r.currency)}</b></td>
+      <td data-label="Reference">${ref}</td><td class="num" data-label="Lines">${r.lines ?? ''}</td><td class="num" data-label="Units">${qty(Math.abs(n(r.qty)))}</td><td class="num" data-label="Value">${isBig ? '<span class="pts-bigtag" title="One of the biggest returns">●</span> ' : ''}<b class="pts-cardval">${money(r.value, r.currency)}</b></td>
       <td data-label="Status"><select class="pts-sel k-${r.status || 'none'}" data-pts-set="${esc(r.pt)}" data-pts-year="${esc(r.year)}" aria-label="Status"><option value="">Not set</option>${STATUS.map(([k, l]) => `<option value="${k}" ${r.status === k ? 'selected' : ''}>${l}</option>`).join('')}</select>${r.status_by_name ? `<div class="pts-sub" title="Last changed${r.status_at ? ' on ' + esc(dmy(r.status_at)) + ' ' + new Date(r.status_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : ''}">${esc(r.status_by_name)}${r.status_at ? ' · ' + esc(dmy(r.status_at)) : ''}</div>` : ''}</td>
       <td data-label="Note"><input type="text" class="pts-note" data-pts-note="${esc(r.pt)}" data-pts-year="${esc(r.year)}" value="${esc(r.note || '')}" placeholder="Add a note…" aria-label="Note"></td></tr>`;
   }
@@ -264,6 +289,7 @@
     box.querySelectorAll('[data-pts-note]').forEach(i => { i.onchange = () => setNote(i.dataset.ptsNote, i.dataset.ptsYear, i.value); i.onclick = e => e.stopPropagation(); });
     box.querySelectorAll('[data-pts-hist]').forEach(b => b.onclick = e => { e.stopPropagation(); openHistory(b.dataset.ptsHist, b.dataset.ptsYear); });
     box.querySelectorAll('tr[data-pt]').forEach(tr => tr.ondblclick = () => openPt(tr.dataset.pt, tr.dataset.year));
+    box.querySelectorAll('li[data-pt]').forEach(li => li.onclick = () => openPt(li.dataset.pt, li.dataset.year));
     box.querySelectorAll('tr[data-item]').forEach(tr => tr.ondblclick = () => { if (window.ItemDetail && tr.dataset.item) ItemDetail.open(tr.dataset.item); });
   }
   async function setStatus(pt, year, status) {
