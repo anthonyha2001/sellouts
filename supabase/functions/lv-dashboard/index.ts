@@ -867,6 +867,74 @@ async function deliverySales(from: string, to: string, branch = BRANCH, offset =
   return { from, to, branch, deliveries: base.deliveries, feeRevenue: base.feeRevenue, days: base.dayList,
     feeItems: DELIVERY_FEE_ITEMS, offset, limit, invoicesTotal: base.invs.length, more: offset + limit < base.invs.length, invoices };
 }
+// Delivery sync (owner, 2026-10-23; migration 099): the background job that fills public.delivery_orders so the Delivery page
+// is instant. Each run lists every branch's delivery invoices (the fee items' cardex), adds the new ones as rows, drops the
+// ones older than the window, and reads a batch of baskets (the invoice total) within a time budget. A row's total stays null
+// until its basket is read; the next runs catch up.
+const DELIVERY_WINDOW_DAYS = 62;
+async function deliverySync(budgetMs = 90000) {
+  const started = Date.now(), today = beirutToday(), from = plusDays(today, -(DELIVERY_WINDOW_DAYS - 1));
+  const codesFor = async (yr: string): Promise<string[]> => { if (yr === year()) return DELIVERY_FEE_ITEMS; const m = await toYear('item', DELIVERY_FEE_ITEMS, yr); return DELIVERY_FEE_ITEMS.flatMap((c) => m[c] || []); };
+  const curOf = (c: unknown) => /LBP|L.?L/i.test(String(c || '')) ? 'LBP' : '$';
+  const r2 = (v: number) => Math.round(v * 100) / 100;
+  let listed = 0;
+  // 1. list each branch's delivery invoices and add the new ones (the baskets already read are kept)
+  for (const branch of BRANCHES) {
+    type Inv = { year: string; docType: string; docNum: string; day: string; customer: string; fee: number; currency: string };
+    const invs = new Map<string, Inv>();
+    for (const [f, t] of monthWindows(from, today)) {
+      const yr = f.slice(0, 4), codes = await codesFor(yr); if (!codes.length) continue;
+      for (const code of codes) {
+        try {
+          const d = await dash('/item-cardex?' + new URLSearchParams({ branch, item_code: code, year: yr, from_date: f, to_date: t })) as Record<string, unknown>;
+          (((d.data as Record<string, unknown>)?.rows as Record<string, unknown>[]) || []).forEach((r) => {
+            if (!(String(r.operation_code) === '60' || /invoice/i.test(String(r.operation_label || '')))) return;
+            if (Number(r.qty_out || 0) === 0) return;
+            const no = String(r.document_no || ''), day = String(r.date || '').slice(0, 10);
+            if (!no || day < from || day > today) return;
+            const x = invs.get(no) || { year: yr, docType: String(r.document_type || ''), docNum: String(r.document_number || ''), day, customer: String(r.details || '').trim(), fee: 0, currency: curOf(r.currency) };
+            x.fee += Math.abs(Number(r.line_total || 0)); invs.set(no, x);
+          });
+        } catch (e) { console.warn('delivery sync cardex', branch, code, f, e); }
+      }
+    }
+    const now = new Date().toISOString();
+    const rows = [...invs.entries()].map(([invoice, x]) => ({ branch, year: x.year, invoice, doc_type: x.docType || null, doc_num: x.docNum || null, day: x.day, customer: x.customer || null, fee: r2(x.fee), currency: x.currency, seen_at: now }));
+    for (let i = 0; i < rows.length; i += 500) {
+      const { error } = await db.from('delivery_orders').upsert(rows.slice(i, i + 500), { onConflict: 'branch,year,invoice', ignoreDuplicates: true });   // new invoices only
+      if (error) throw error;
+    }
+    listed += rows.length;
+  }
+  await db.from('delivery_orders').delete().lt('day', from);   // drop anything older than the window
+  // 2. read the baskets not read yet (oldest first), within the time budget
+  let read = 0;
+  while (Date.now() - started < budgetMs) {
+    const { data: todo } = await db.from('delivery_orders').select('branch, year, invoice, doc_type, doc_num').is('read_at', null).order('day', { ascending: true }).limit(150);
+    if (!todo?.length) break;
+    const out: Record<string, unknown>[] = [];
+    for (let i = 0; i < todo.length && Date.now() - started < budgetMs + 15000; i += 10) {
+      await Promise.all(todo.slice(i, i + 10).map(async (o: Record<string, unknown>) => {
+        const type = String(o.doc_type || ''), num = String(o.doc_num || '');
+        if (!type || !num) { out.push({ ...o, total: null, currency: null, read_at: new Date().toISOString() }); return; }
+        try {
+          const d = await dash('/operations/viewer', postJson({ year: o.year, branch: o.branch, document_type: type, document_number: num, operation_code: '60' })) as Record<string, unknown>;
+          const v = d.data as Record<string, unknown> | undefined;
+          const total = v ? Math.round(Number(v.total_with_vat || 0) * 100) / 100 : null, cur = v ? curOf(v.currency) : null;
+          out.push({ branch: o.branch, year: o.year, invoice: o.invoice, total, currency: cur, read_at: new Date().toISOString() });
+        } catch (e) { console.warn('delivery sync basket', o.invoice, e); }
+      }));
+    }
+    for (let i = 0; i < out.length; i += 200) {
+      const { error } = await db.from('delivery_orders').upsert(out.slice(i, i + 200), { onConflict: 'branch,year,invoice' });
+      if (error) throw error;
+    }
+    read += out.length;
+    if (!out.length) break;
+  }
+  const { count: left } = await db.from('delivery_orders').select('invoice', { count: 'exact', head: true }).is('read_at', null);
+  return { listed, read, left: left ?? null, window: from + '..' + today };
+}
 async function autoReceive() {
   const today = beirutToday();
   // the orders still waiting, oldest first, with their vendor's system supplier codes
@@ -2309,6 +2377,21 @@ Deno.serve(async req => {
     if (!ok && cron) { const { data } = await db.rpc('push_keys'); ok = !!data && cron === (data as Record<string, string>).push_cron_secret; }
     if (!ok) return json({ error: 'Not allowed.' }, 403);
     try { return json(await poSync()); }
+    catch (e) { console.error(e); return json({ error: e instanceof Error ? e.message : 'failed' }, 502); }
+  }
+
+  // Delivery sync (migration 099), from pg_cron (every 10 min) or the server key, or an admin ("Refresh now").
+  if (body.action === 'delivery_sync') {
+    const cron = req.headers.get('x-cron-secret') || '';
+    let ok = serverKeys().includes(req.headers.get('apikey') || '');
+    if (!ok && cron) { const { data } = await db.rpc('push_keys'); ok = !!data && cron === (data as Record<string, string>).push_cron_secret; }
+    if (!ok) {
+      const bearer = (req.headers.get('Authorization') || '').replace(/^Bearers+/i, '');
+      const { data: u } = await db.auth.getUser(bearer);
+      if (u?.user) { const { data: prof } = await db.from('profiles').select('role, active').eq('id', u.user.id).maybeSingle(); ok = !!prof?.active && prof.role === 'admin'; }
+    }
+    if (!ok) return json({ error: 'Not allowed.' }, 403);
+    try { return json(await deliverySync(Number(body.budgetMs) || 90000)); }
     catch (e) { console.error(e); return json({ error: e instanceof Error ? e.message : 'failed' }, 502); }
   }
 

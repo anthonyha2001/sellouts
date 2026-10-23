@@ -458,15 +458,16 @@
       [], ['Total', ...brs.map(b => Math.round(bt[b] * 100) / 100), Math.round(grand * 100) / 100]], `Branches by ${(LABEL[d.level] || d.level).toLowerCase()} ${d.from} ${d.to}`);
   }
 
-  /* ================= Delivery (owner, 2026-10-22) =================
-     The online-order deliveries of ONE branch (a dropdown picks it; default Ajaltoun). An order counts as a delivery when it
-     carries the delivery fee (item 158147). The count and the fee revenue come from the sales report; the basket value is each
-     delivery invoice's full total (lv-dashboard delivery_sales reads them one by one), kept per currency. Each invoice's total
-     is in the Excel. */
+  /* ================= Delivery (owner, 2026-10-22; pre-computed in the background, 2026-10-23) =================
+     The online-order deliveries of ONE branch (a dropdown; default Ajaltoun). An order is a delivery when it carries a delivery
+     fee (item 158147 or 158146) — either, or both, is one order. Like Sales by hour, a cron reads every delivery invoice's full
+     basket in the background into public.delivery_orders (migration 099); THIS PAGE READS THAT TABLE — instant. A basket not
+     read yet shows as pending ("X of Y read"); the next background runs fill it. Permission: vendors.manage. */
   const DV_BRANCHES = ['Ajaltoun', 'Mazraat Yachouh', 'Beit El Kikko', 'Achrafieh', 'Zalka'];
-  const DV = { from: null, to: null, branch: 'Ajaltoun', data: null, seq: 0 };
+  const DV = { from: null, to: null, branch: 'Ajaltoun', rows: null, seq: 0, err: '' };
   const dvUsd = v => '$' + Math.round(n(v)).toLocaleString('en-US');
   const dvLbp = v => Math.round(n(v)).toLocaleString('en-US') + ' LBP';
+  const dvBoth = (usd, lbp) => [usd ? dvUsd(usd) : '', lbp ? dvLbp(lbp) : ''].filter(Boolean).join(' + ') || '—';
   function showDelivery(box) {
     if (!box) return;
     if (!DV.from) { const p = presets()[0]; DV.from = p[1]; DV.to = p[2]; }
@@ -482,68 +483,76 @@
       el('dvQuick').onclick = e => { const b = e.target.closest('[data-p]'); if (!b) return; const p = presets()[Number(b.dataset.p)]; DV.from = p[1]; DV.to = p[2]; loadDelivery(); };
       el('dvLoad').onclick = () => { const f = el('dvFrom').value, t = el('dvTo').value; if (!f || !t || f > t) return showToast('Choose the dates.', true); DV.from = f; DV.to = t; loadDelivery(); };
     }
-    if (!DV.data || DV.data._from !== DV.from || DV.data._to !== DV.to || DV.data.branch !== DV.branch) loadDelivery(); else paintDelivery();
+    if (!DV.rows || DV._from !== DV.from || DV._to !== DV.to || DV._branch !== DV.branch) loadDelivery(); else paintDelivery();
   }
-  const dvNote = (msg) => { const b = el('dvBody'); if (b) b.innerHTML = `<div class="card"><p class="muted-note" style="margin:0;">${esc(msg)}</p></div>`; };
   async function loadDelivery() {
     el('dvFrom').value = DV.from; el('dvTo').value = DV.to; el('dvBranch').value = DV.branch;
     el('dvQuick').innerHTML = presets().map((p, i) => `<button type="button" data-p="${i}" class="${p[1] === DV.from && p[2] === DV.to ? 'active' : ''}">${p[0]}</button>`).join('');
     const my = ++DV.seq;
-    dvNote(`Reading ${DV.branch}'s deliveries from the system…`);
-    try {
-      // the invoice totals are read in pages (a busy month has hundreds of orders), so no single call times out
-      const invoices = []; let base = null, offset = 0;
-      for (let guard = 0; guard < 40; guard++) {
-        const d = await call({ action: 'delivery_sales', from: DV.from, to: DV.to, branch: DV.branch, offset, limit: 250 });
-        if (my !== DV.seq) return;
-        base = d; invoices.push(...(d.invoices || []));
-        if (d.invoicesTotal) dvNote(`Reading ${DV.branch}'s deliveries — ${invoices.length.toLocaleString('en-US')} of ${Number(d.invoicesTotal).toLocaleString('en-US')} invoices…`);
-        if (!d.more) break;
-        offset += 250;
-      }
-      base.invoices = invoices; base._from = DV.from; base._to = DV.to;
-      DV.data = base; paintDelivery();
-    }
-    catch (e) { if (my === DV.seq) el('dvBody').innerHTML = `<div class="card"><p class="login-err" style="margin:0;">${esc(failMsg(e))}</p></div>`; }
+    DV.err = ''; el('dvBody').innerHTML = `<div class="card"><p class="muted-note" style="margin:0;">Reading ${esc(DV.branch)}'s deliveries…</p></div>`;
+    const { data, error } = await sb.from('delivery_orders').select('invoice, day, customer, fee, total, currency, read_at')
+      .eq('branch', DV.branch).gte('day', DV.from).lte('day', DV.to).order('day').limit(20000);
+    if (my !== DV.seq) return;
+    if (error) { DV.err = /delivery_orders|relation/.test(error.message) ? 'Delivery is not set up yet (migration 099 + redeploy, then it fills in the background).' : (error.message || 'Could not read the deliveries.'); DV.rows = []; }
+    else { DV.rows = data || []; }
+    DV._from = DV.from; DV._to = DV.to; DV._branch = DV.branch;
+    paintDelivery();
+  }
+  async function syncDelivery(btn) {
+    if (btn) { btn.disabled = true; btn.textContent = 'Reading…'; }
+    try { await call({ action: 'delivery_sync', budgetMs: 55000 }); } catch (e) { showToast(failMsg(e), true); }
+    if (btn) { btn.disabled = false; btn.textContent = 'Read now'; }
+    loadDelivery();
   }
   function paintDelivery() {
-    const d = DV.data, box = el('dvBody'); if (!d || !box) return;
-    // add the invoice totals up here (the function returned them page by page), per day and per currency
-    const inv = d.invoices || [], perDay = {};
-    let basketUsd = 0, basketLbp = 0;
-    inv.forEach(x => { const y = perDay[x.day] = perDay[x.day] || { usd: 0, lbp: 0 }; if (x.currency === 'LBP') { y.lbp += x.total; basketLbp += x.total; } else { y.usd += x.total; basketUsd += x.total; } });
-    d.basketUsd = Math.round(basketUsd * 100) / 100; d.basketLbp = Math.round(basketLbp);
-    const basket = [d.basketUsd ? dvUsd(d.basketUsd) : '', d.basketLbp ? dvLbp(d.basketLbp) : ''].filter(Boolean).join(' + ') || '$0';
-    const avg = d.deliveries && d.basketUsd ? d.basketUsd / d.deliveries : 0;
-    const rows = (d.days || []).filter(x => x.deliveries).map(x => ({ ...x, basketUsd: (perDay[x.day] || {}).usd || 0, basketLbp: (perDay[x.day] || {}).lbp || 0 }));
+    const box = el('dvBody'); if (!box) return;
+    if (DV.err) { box.innerHTML = `<div class="card"><p class="login-err" style="margin:0;">${esc(DV.err)}</p></div>`; return; }
+    const rows = DV.rows || [];
+    const perDay = {}; let feeUsd = 0, feeLbp = 0, basketUsd = 0, basketLbp = 0, read = 0;
+    rows.forEach(x => {
+      const y = perDay[x.day] = perDay[x.day] || { deliveries: 0, feeUsd: 0, feeLbp: 0, basketUsd: 0, basketLbp: 0, read: 0 };
+      y.deliveries++; const lbp = x.currency === 'LBP';
+      if (lbp) { feeLbp += n(x.fee); y.feeLbp += n(x.fee); } else { feeUsd += n(x.fee); y.feeUsd += n(x.fee); }
+      if (x.total !== null && x.total !== undefined) {
+        read++; y.read++;
+        if (lbp) { basketLbp += n(x.total); y.basketLbp += n(x.total); } else { basketUsd += n(x.total); y.basketUsd += n(x.total); }
+      }
+    });
+    const deliveries = rows.length, avg = read && basketUsd ? basketUsd / read : 0, pending = deliveries - read;
+    const days = Object.keys(perDay).sort().map(day => ({ day, ...perDay[day] }));
+    const isAdm = typeof isAdmin === 'function' && isAdmin();
     box.innerHTML = `
       <div class="pf-tiles">
-        <div class="pf-tile"><span>Deliveries</span><b>${n(d.deliveries).toLocaleString('en-US')}</b><small>${esc(d.branch || '')} · ${esc(dmy(d.from))} → ${esc(dmy(d.to))}</small></div>
-        <div class="pf-tile"><span>Basket value</span><b>${basket}</b><small>full order totals</small></div>
-        <div class="pf-tile"><span>Delivery fees</span><b>${dvUsd(d.feeRevenue)}</b><small>charged to customers</small></div>
+        <div class="pf-tile"><span>Deliveries</span><b>${deliveries.toLocaleString('en-US')}</b><small>${esc(DV.branch)} · ${esc(dmy(DV.from))} → ${esc(dmy(DV.to))}</small></div>
+        <div class="pf-tile"><span>Basket value</span><b>${dvBoth(basketUsd, basketLbp)}</b><small>full order totals${pending ? ` · ${pending.toLocaleString('en-US')} pending` : ''}</small></div>
+        <div class="pf-tile"><span>Delivery fees</span><b>${dvBoth(feeUsd, feeLbp)}</b><small>charged to customers</small></div>
         <div class="pf-tile"><span>Average basket</span><b>${avg ? dvUsd(avg) : '—'}</b><small>per delivery ($ orders)</small></div>
       </div>
       <div class="card">
-        <div class="pf-head"><h3>Deliveries day by day</h3><span style="flex:1"></span><button type="button" class="icon-btn" id="dvXls" title="Download (Excel)" aria-label="Download (Excel)">${xlsIcon}</button></div>
+        <div class="pf-head"><h3>Deliveries day by day</h3><span class="muted-note">${read.toLocaleString('en-US')} of ${deliveries.toLocaleString('en-US')} baskets read</span><span style="flex:1"></span>
+          <button type="button" class="icon-btn" id="dvReload" title="Refresh" aria-label="Refresh"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg></button>
+          ${isAdm && pending ? '<button type="button" class="btn small" id="dvSync">Read now</button>' : ''}
+          <button type="button" class="icon-btn" id="dvXls" title="Download (Excel)" aria-label="Download (Excel)">${xlsIcon}</button></div>
         <div class="items-scroll pf-scroll"><table class="items pf-table"><thead><tr><th>Day</th><th class="num">Deliveries</th><th class="num">Fees</th><th class="num">Basket $</th><th class="num">Basket LBP</th></tr></thead>
-          <tbody>${rows.map(x => `<tr><td>${esc(dmy(x.day))} <span class="muted-note">${DAY[D(x.day).getUTCDay()]}</span></td><td class="num">${x.deliveries}</td><td class="num">${dvUsd(x.fees)}</td><td class="num">${x.basketUsd ? dvUsd(x.basketUsd) : '—'}</td><td class="num">${x.basketLbp ? dvLbp(x.basketLbp) : '—'}</td></tr>`).join('') || `<tr><td colspan="5" class="empty-note">No deliveries in this period.</td></tr>`}</tbody>
-          <tfoot><tr class="pts-tot"><td><b>Total</b></td><td class="num"><b>${n(d.deliveries).toLocaleString('en-US')}</b></td><td class="num"><b>${dvUsd(d.feeRevenue)}</b></td><td class="num"><b>${d.basketUsd ? dvUsd(d.basketUsd) : '—'}</b></td><td class="num"><b>${d.basketLbp ? dvLbp(d.basketLbp) : '—'}</b></td></tr></tfoot></table></div>
-        <p class="muted-note" style="margin:8px 0 0;">A delivery = an order carrying a delivery fee (item ${esc((d.feeItems || []).join(' or '))}) — this one, that one, or both counts as one order. ${inv.length ? `${n(inv.length).toLocaleString('en-US')} of ${n(d.invoicesTotal || inv.length).toLocaleString('en-US')} invoice${d.invoicesTotal === 1 ? '' : 's'} read — each one's total is in the Excel. ` : ''}Basket value = each delivery invoice's full total. Orders in $ and LBP are kept apart. ${esc(d.branch || '')}.</p>
+          <tbody>${days.map(x => `<tr><td>${esc(dmy(x.day))} <span class="muted-note">${DAY[D(x.day).getUTCDay()]}</span></td><td class="num">${x.deliveries}${x.read < x.deliveries ? ` <span class="muted-note">(${x.read})</span>` : ''}</td><td class="num">${dvBoth(x.feeUsd, x.feeLbp)}</td><td class="num">${x.basketUsd ? dvUsd(x.basketUsd) : '—'}</td><td class="num">${x.basketLbp ? dvLbp(x.basketLbp) : '—'}</td></tr>`).join('') || `<tr><td colspan="5" class="empty-note">No deliveries in this period yet.</td></tr>`}</tbody>
+          <tfoot><tr class="pts-tot"><td><b>Total</b></td><td class="num"><b>${deliveries.toLocaleString('en-US')}</b></td><td class="num"><b>${dvBoth(feeUsd, feeLbp)}</b></td><td class="num"><b>${basketUsd ? dvUsd(basketUsd) : '—'}</b></td><td class="num"><b>${basketLbp ? dvLbp(basketLbp) : '—'}</b></td></tr></tfoot></table></div>
+        <p class="muted-note" style="margin:8px 0 0;">A delivery = an order carrying a delivery fee (item 158147 or 158146) — this one, that one, or both counts as one order. The baskets are read in the background and updated every 10 minutes${pending ? `; ${pending.toLocaleString('en-US')} still to read (shown once ready)` : ''}. Orders in $ and LBP are kept apart. ${esc(DV.branch)}.</p>
       </div>`;
+    el('dvReload').onclick = () => { DV.rows = null; loadDelivery(); };
+    if (el('dvSync')) el('dvSync').onclick = e => syncDelivery(e.currentTarget);
     el('dvXls').onclick = () => {
-      const ws1 = XLSX.utils.aoa_to_sheet([['Day', 'Deliveries', 'Fees $', 'Basket $', 'Basket LBP'],
-        ...rows.map(x => [dmy(x.day), x.deliveries, Math.round(x.fees * 100) / 100, Math.round(x.basketUsd * 100) / 100, Math.round(x.basketLbp)]),
-        [], ['Total', n(d.deliveries), Math.round(d.feeRevenue * 100) / 100, Math.round(d.basketUsd * 100) / 100, Math.round(d.basketLbp)]]);
-      ws1['!cols'] = [{ wch: 12 }, { wch: 11 }, { wch: 11 }, { wch: 12 }, { wch: 14 }];
-      const inv = d.invoices || [];
-      const ws2 = XLSX.utils.aoa_to_sheet([['Invoice', 'Day', 'Customer', 'Total', 'Currency'],
-        ...inv.map(x => [String(x.invoice), dmy(x.day), x.customer || '', x.total, x.currency])]);
-      for (let i = 2; i <= inv.length + 1; i++) { const c = ws2['A' + i]; if (c) { c.t = 's'; c.v = String(c.v); } }
-      ws2['!cols'] = [{ wch: 14 }, { wch: 12 }, { wch: 26 }, { wch: 12 }, { wch: 9 }];
+      const ws1 = XLSX.utils.aoa_to_sheet([['Day', 'Deliveries', 'Fees $', 'Fees LBP', 'Basket $', 'Basket LBP'],
+        ...days.map(x => [dmy(x.day), x.deliveries, Math.round(x.feeUsd * 100) / 100, Math.round(x.feeLbp), Math.round(x.basketUsd * 100) / 100, Math.round(x.basketLbp)]),
+        [], ['Total', deliveries, Math.round(feeUsd * 100) / 100, Math.round(feeLbp), Math.round(basketUsd * 100) / 100, Math.round(basketLbp)]]);
+      ws1['!cols'] = [{ wch: 12 }, { wch: 11 }, { wch: 11 }, { wch: 13 }, { wch: 12 }, { wch: 14 }];
+      const ws2 = XLSX.utils.aoa_to_sheet([['Invoice', 'Day', 'Customer', 'Fee', 'Basket total', 'Currency'],
+        ...rows.map(x => [String(x.invoice), dmy(x.day), x.customer || '', n(x.fee), x.total === null || x.total === undefined ? '' : n(x.total), x.currency || ''])]);
+      for (let i = 2; i <= rows.length + 1; i++) { const c = ws2['A' + i]; if (c) { c.t = 's'; c.v = String(c.v); } }
+      ws2['!cols'] = [{ wch: 14 }, { wch: 12 }, { wch: 26 }, { wch: 11 }, { wch: 13 }, { wch: 9 }];
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws1, 'By day');
       XLSX.utils.book_append_sheet(wb, ws2, 'Invoices');
-      XLSX.writeFile(wb, `Deliveries ${d.branch || ''} ${d.from} ${d.to}`.replace(/[\\/:*?"<>|]+/g, ' ').trim() + '.xlsx');
+      XLSX.writeFile(wb, `Deliveries ${DV.branch} ${DV.from} ${DV.to}`.replace(/[\\/:*?"<>|]+/g, ' ').trim() + '.xlsx');
     };
   }
 
