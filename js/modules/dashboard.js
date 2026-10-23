@@ -360,7 +360,7 @@
     const nav = `<div class="db-daynav"><button type="button" class="db-dnav" data-rday="prev" aria-label="The day before" title="The day before">‹</button><b>${esc(label)}</b>
       <button type="button" class="db-dnav" data-rday="next" aria-label="The day after" title="The day after" ${isToday ? 'disabled' : ''}>›</button>${isToday ? '' : '<button type="button" class="link-btn" data-rday="today">Today</button>'}</div>`;
     return nav + box('returns', d => `
-      <div class="db-stats">${stat('Returns', d.count, d.count ? 'warn' : '')}${stat('Value', retBoth(d.usd, d.lbp), '', '$' + usd(d.usd) + (d.lbp ? ' + ' + lbp(d.lbp) + ' LBP' : ''))}${stat('Day before', `${d.prevCount} · ${retBoth(d.prevUsd, d.prevLbp)}`)}</div>
+      <div class="db-stats">${stat(`Returns <span class="muted-note">· ${d.prevCount} before</span>`, d.count)}${stat('Value', retBoth(d.usd, d.lbp), '', '$' + usd(d.usd) + (d.lbp ? ' + ' + lbp(d.lbp) + ' LBP' : ''))}${stat('Day before', retBoth(d.prevUsd, d.prevLbp), '', `${d.prevCount} PT${d.prevCount === 1 ? '' : 's'} · $${usd(d.prevUsd)}${d.prevLbp ? ' + ' + lbp(d.prevLbp) + ' LBP' : ''}`)}</div>
       ${d.suppliers.length ? `<ul class="db-list">${d.suppliers.map(s => line(`${esc(s.name)} <span class="muted-note">${s.count} PT${s.count === 1 ? '' : 's'}</span>`, retBoth(s.usd, s.lbp))).join('')}</ul>`
         : `<p class="db-note">No returns ${isToday ? 'today' : 'that day'}.</p>`}
       <p class="db-note">Returns to suppliers (PTs) entered in the system${isToday ? '; today keeps updating' : ''}. Open Returns for the full list and to set each one.</p>`);
