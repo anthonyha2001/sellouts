@@ -523,7 +523,7 @@
     box.innerHTML = `
       <div class="pf-tiles">
         <div class="pf-tile"><span>Deliveries</span><b>${deliveries.toLocaleString('en-US')}</b><small>${esc(DV.branch)} · ${esc(dmy(DV.from))} → ${esc(dmy(DV.to))}</small></div>
-        <div class="pf-tile"><span>Basket value</span><b>${dvUsd(basket)}</b><small>full order totals${pending ? ` · ${pending.toLocaleString('en-US')} pending` : ''}</small></div>
+        <div class="pf-tile"><span>Basket value</span><b>${read ? dvUsd(basket) : '—'}</b><small>${read ? `full order totals${pending ? ` · ${pending.toLocaleString('en-US')} pending` : ''}` : 'reading baskets in the background…'}</small></div>
         <div class="pf-tile"><span>Delivery fees</span><b>${dvUsd(fee)}</b><small>charged to customers</small></div>
         <div class="pf-tile"><span>Average basket</span><b>${avg ? dvUsd(avg) : '—'}</b><small>per delivery</small></div>
       </div>
