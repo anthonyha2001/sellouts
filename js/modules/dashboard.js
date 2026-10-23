@@ -25,7 +25,8 @@
     const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
     return m < 2 ? 'now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' d ago';
   };
-  const S = { loading: false, at: null, D: null, E: null, bDay: '' };   // bDay: the day shown on the Branches card ('' = today)
+  const S = { loading: false, at: null, D: null, E: null, bDay: '', rDay: '' };   // bDay / rDay: the day shown on the Branches / Returns card ('' = today)
+  const isL = c => /LBP|L\.?L/i.test(String(c || ''));
 
   const I = {
     cash: '<rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/>',
@@ -46,6 +47,7 @@
     clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
     alert: '<path d="M12 3l9.5 17h-19z"/><path d="M12 10v4M12 17.5v.5"/>',
     refresh: '<path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/>',
+    return: '<path d="M9 15l-4-4 4-4"/><path d="M5 11h9a5 5 0 0 1 5 5v2"/>',
     go: '<path d="M9 6l6 6-6 6"/>',
   };
   const svg = (k, cls = '') => `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${I[k]}</svg>`;
@@ -245,12 +247,24 @@
       return data;
     } catch (e) { throw e; }
   }
+  // Returns (PTs) of one day, and the day before it to compare (migration 095): count and value per currency, top suppliers.
+  async function loadReturns() {
+    const day = S.rDay || today(), prev = addDaysStr(day, -1);
+    const rows = await q(sb.from('pts').select('pt, supplier_name, supplier_code, value, currency, pt_date').gte('pt_date', prev).lte('pt_date', day));
+    const agg = d => { const r = rows.filter(x => x.pt_date === d);
+      return { count: r.length, usd: r.filter(x => !isL(x.currency)).reduce((t, x) => t + Math.abs(n(x.value)), 0), lbp: r.filter(x => isL(x.currency)).reduce((t, x) => t + Math.abs(n(x.value)), 0), rows: r }; };
+    const cur = agg(day), bef = agg(prev);
+    const bySup = new Map();
+    cur.rows.forEach(x => { const k = x.supplier_name || x.supplier_code || 'No supplier'; const s = bySup.get(k) || { name: k, count: 0, usd: 0, lbp: 0 }; s.count++; if (isL(x.currency)) s.lbp += Math.abs(n(x.value)); else s.usd += Math.abs(n(x.value)); bySup.set(k, s); });
+    return { day, count: cur.count, usd: cur.usd, lbp: cur.lbp, prevCount: bef.count, prevUsd: bef.usd, prevLbp: bef.lbp,
+      suppliers: [...bySup.values()].sort((a, b) => (b.usd - a.usd) || (b.lbp - a.lbp)).slice(0, 5) };
+  }
   async function loadActivity() {
     return q(sb.from('activity_log').select('at, username, module, summary').order('at', { ascending: false }).limit(14));
   }
 
   const PARTS = { cash: loadCash, cashcount: loadCashCount, sellouts: loadSellouts, promotions: loadPromotions, credit: loadCredit, orders: loadOrders,
-    rentals: loadRentals, delivery: loadDelivery, floor: loadFloor, labels: loadLabels, ladies: loadLadies, schedule: loadSchedule, people: loadPeople, activity: loadActivity, link: loadLink, branches: loadBranches };
+    rentals: loadRentals, delivery: loadDelivery, floor: loadFloor, labels: loadLabels, ladies: loadLadies, schedule: loadSchedule, people: loadPeople, activity: loadActivity, link: loadLink, branches: loadBranches, returns: loadReturns };
 
   /* ---------------- what needs attention ---------------- */
   function alerts(D) {
@@ -338,6 +352,28 @@
     render(S.D, S.E);
   }
 
+  // Returns (PTs) of a day, with ‹ › to go back day by day (owner, 2026-10-23): a quick overview on the dashboard.
+  const retBoth = (u, l) => [u ? money(u) : '', l ? lbp(l) + ' LBP' : ''].filter(Boolean).join(' + ') || '0';
+  function returnsHtml(box) {
+    const day = S.rDay || today(), isToday = day === today();
+    const label = isToday ? 'Today' : new Date(day + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+    const nav = `<div class="db-daynav"><button type="button" class="db-dnav" data-rday="prev" aria-label="The day before" title="The day before">‹</button><b>${esc(label)}</b>
+      <button type="button" class="db-dnav" data-rday="next" aria-label="The day after" title="The day after" ${isToday ? 'disabled' : ''}>›</button>${isToday ? '' : '<button type="button" class="link-btn" data-rday="today">Today</button>'}</div>`;
+    return nav + box('returns', d => `
+      <div class="db-stats">${stat('Returns', d.count, d.count ? 'warn' : '')}${stat('Value', retBoth(d.usd, d.lbp), '', '$' + usd(d.usd) + (d.lbp ? ' + ' + lbp(d.lbp) + ' LBP' : ''))}${stat('Day before', `${d.prevCount} · ${retBoth(d.prevUsd, d.prevLbp)}`)}</div>
+      ${d.suppliers.length ? `<ul class="db-list">${d.suppliers.map(s => line(`${esc(s.name)} <span class="muted-note">${s.count} PT${s.count === 1 ? '' : 's'}</span>`, retBoth(s.usd, s.lbp))).join('')}</ul>`
+        : `<p class="db-note">No returns ${isToday ? 'today' : 'that day'}.</p>`}
+      <p class="db-note">Returns to suppliers (PTs) entered in the system${isToday ? '; today keeps updating' : ''}. Open Returns for the full list and to set each one.</p>`);
+  }
+  async function returnsDay(k) {
+    if (!S.D) return;
+    const t = today(), cur = S.rDay || t, next = k === 'today' ? '' : addDaysStr(cur, k === 'prev' ? -1 : 1);
+    S.rDay = !next || next >= t ? '' : next;
+    S.D.returns = undefined; delete S.E.returns; render(S.D, S.E);
+    try { S.D.returns = await loadReturns(); } catch (e) { S.E.returns = true; }
+    render(S.D, S.E);
+  }
+
   function render(D, E) {
     const box = (k, fn) => E[k] ? failed(k) : D[k] === undefined ? '<p class="muted-note">Loading…</p>' : D[k] === null ? '<p class="muted-note">Not available.</p>' : fn(D[k]);
     const A = alerts(D);
@@ -388,6 +424,8 @@
           <div class="db-stats">${stat('Waiting delivery', o.pending)}${stat('Due today', o.dueToday.length)}${stat('Late', o.late.length, o.late.length ? 'bad' : '')}</div>
           ${o.late.length ? `<h4>Late</h4><ul class="db-list">${o.late.slice(0, 5).map(x => line(esc(x.vendor_name), 'expected ' + esc(fmtDate(x.expected_delivery)), 'neg')).join('')}</ul>` : ''}
           ${o.notSent.length ? `<p class="db-note">${o.notSent.length} order${o.notSent.length === 1 ? '' : 's'} not sent yet</p>` : ''}`))}
+
+        ${card('returns', 'pts', 'return', 'Returns', returnsHtml(box))}
 
         ${card('received', 'vendors', 'check', 'Received today', box('orders', o => `
           <div class="db-stats">${stat('Received', o.received.length)}${stat('Auto-flagged', o.receivedAuto.length, o.receivedAuto.length ? 'warn' : '', 'Flagged by a new PU — confirm or undo on Vendors')}</div>
@@ -446,6 +484,7 @@
     el('dbRefresh').onclick = () => load(true);
     panel.querySelectorAll('[data-go]').forEach(b => b.onclick = () => switchTab(b.dataset.go));
     panel.querySelectorAll('[data-bday]').forEach(b => b.onclick = () => branchDay(b.dataset.bday));
+    panel.querySelectorAll('[data-rday]').forEach(b => b.onclick = () => returnsDay(b.dataset.rday));
   }
   const el = id => document.getElementById(id);
 
