@@ -59,9 +59,10 @@
     S.busy = true; S.err = '';
     body.innerHTML = `<div class="card"><p class="muted-note" style="margin:0;">Loading…</p></div>`;
     try {
-      const [push, bio] = await Promise.all([sb.rpc('cashier_push_status'), sb.rpc('cashier_biometric_status').catch(() => ({ data: null }))]);
+      const push = await sb.rpc('cashier_push_status');
       if (push.error) throw new Error(/cashier_push_status|function/.test(push.error.message) ? 'Not set up yet (run migration 100).' : push.error.message);
-      const bmap = {}; ((bio && bio.data) || []).forEach(x => { bmap[x.cashier_id] = x.passkeys; });
+      const bio = await sb.rpc('cashier_biometric_status');   // migration 101; ignored if not set up yet
+      const bmap = {}; if (!bio.error) (bio.data || []).forEach(x => { bmap[x.cashier_id] = x.passkeys; });
       (push.data.cashiers || []).forEach(c => { c.passkeys = bmap[c.id] || 0; });
       S.data = push.data;
     } catch (e) { S.err = e.message; S.data = null; }
