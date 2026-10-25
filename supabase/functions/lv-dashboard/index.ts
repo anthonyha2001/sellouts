@@ -795,6 +795,68 @@ async function branchCompare(level: string, from: string, to: string) {
   return { level, from, to, branches: BRANCHES, categories, branchTotals: Object.fromEntries(BRANCHES.map(b => [b, r0(branchTotals[b] || 0)])), grand: r0(Object.values(branchTotals).reduce((t, x) => t + x, 0)) };
 }
 
+// Performance by scan (owner, 2026-10-25): scan ONE item and see its whole standing — its sales in the period (against the
+// same period before), its share of its group and its rank among the group's items, its BRAND's share and rank inside the
+// group, and the group's share of its section. All live from the sales reports (Ajaltoun). The group is "the category":
+// item > sub-group > group > section > department. vendors.manage. Ranges are kept in the current year (group/section codes
+// are this year's); the previous-period read may reach last year and its item code is translated (migration 069).
+async function scanPerf(code: string, from: string, to: string) {
+  const key = (c: string) => trimCode(c).replace(/^0+(?=\d)/, '').toUpperCase();
+  const today = beirutToday();
+  const nm = (r: Record<string, unknown>, k: string) => String(r[k + '_desc'] ?? '').trim();
+  // the group / section / brand codes are a given year's; keep every read in ONE year so the shares and ranks line up
+  // (a range reaching into last year would compare against codes that do not exist there). The item's own previous-period
+  // read may still cross the year — its item code IS translated (migration 069).
+  const yearStart = to.slice(0, 4) + '-01-01';
+  if (from < yearStart) from = yearStart;
+  // 1. the item's row with its full category path and brand; if it did not sell in the period, widen to this year just
+  //    for the path (so the category is still known and the page can say "nothing sold in this period").
+  const pathRead = (f: string, t: string) => report('sales', f, t, { group_by: ['item', 'department', 'section', 'group', 'subgroup', 'brand'], item: [code] });
+  const periodRows = await pathRead(from, to);
+  let pathRows = periodRows;
+  if (!pathRows.length) pathRows = await pathRead(today.slice(0, 4) + '-01-01', today);
+  if (!pathRows.length) return { found: false, code };
+  const best = pathRows.sort((a, b) => Number(b.total_quantity || 0) - Number(a.total_quantity || 0))[0];
+  const sec = trimCode(best.section), grp = trimCode(best.group), brandCode = trimCode(best.brand);
+  let myQty = 0, mySales = 0;
+  periodRows.forEach(r => { myQty += Number(r.total_quantity || 0); mySales += Number(r.total_sales || 0); });
+  // the equal period just before (for "selling more / less than it used to")
+  const span = Math.round((Date.parse(to + 'T00:00:00Z') - Date.parse(from + 'T00:00:00Z')) / 864e5);
+  const prevTo = plusDays(from, -1), prevFrom = plusDays(prevTo, -span);
+  // 2. the GROUP's items and brands this period, the SECTION's groups, and the item's own previous-period sales
+  const agg = (rows: Record<string, unknown>[], lvl: string) => {
+    const m = new Map<string, { code: string; name: string; sales: number; qty: number }>();
+    rows.forEach(r => { const c = String(r[lvl] ?? '').trim() || '?'; const x = m.get(c) || { code: c, name: nm(r, lvl) || (c === '?' ? 'Not classified' : c), sales: 0, qty: 0 };
+      x.sales += Number(r.total_sales || 0); x.qty += Number(r.total_quantity || 0); m.set(c, x); });
+    return [...m.values()].sort((a, b) => b.sales - a.sales);
+  };
+  const [giRows, gbRows, sgRows, prevRows] = await Promise.all([
+    grp ? report('sales', from, to, { group_by: ['item'], group: [grp] }) : Promise.resolve([] as Record<string, unknown>[]),
+    grp ? report('sales', from, to, { group_by: ['brand'], group: [grp] }) : Promise.resolve([] as Record<string, unknown>[]),
+    sec ? report('sales', from, to, { group_by: ['group'], section: [sec] }) : Promise.resolve([] as Record<string, unknown>[]),
+    report('sales', prevFrom, prevTo, { group_by: [], item: [code] }),
+  ]);
+  const items = agg(giRows, 'item'), brands = agg(gbRows, 'brand'), groups = agg(sgRows, 'group');
+  const groupSales = items.reduce((t, x) => t + x.sales, 0), groupQty = items.reduce((t, x) => t + x.qty, 0);
+  const sectionSales = groups.reduce((t, x) => t + x.sales, 0);
+  const myItemIdx = items.findIndex(x => key(x.code) === key(code));
+  const brandIdx = brands.findIndex(x => trimCode(x.code) === brandCode);
+  const groupIdx = groups.findIndex(x => trimCode(x.code) === grp);
+  const myBrand = brandIdx >= 0 ? brands[brandIdx] : null, myGroup = groupIdx >= 0 ? groups[groupIdx] : { sales: groupSales };
+  let prevSales = 0, prevQty = 0; prevRows.forEach(r => { prevSales += Number(r.total_sales || 0); prevQty += Number(r.total_quantity || 0); });
+  const r2 = (v: number) => Math.round(v * 100) / 100, sh = (v: number, t: number) => t > 0 ? Math.round(v / t * 1e5) / 1e5 : null;
+  return {
+    found: true, code, from, to, prevFrom, prevTo,
+    item: { code, description: String(best.item_desc ?? '').trim(), department: nm(best, 'department'), section: nm(best, 'section'), group: nm(best, 'group'), subgroup: nm(best, 'subgroup'), brand: nm(best, 'brand') },
+    sales: r2(mySales), qty: r2(myQty), prevSales: r2(prevSales), prevQty: r2(prevQty),
+    group: { sales: r2(groupSales), qty: r2(groupQty), itemCount: items.length, rank: myItemIdx >= 0 ? myItemIdx + 1 : null, share: sh(mySales, groupSales),
+      topItems: items.slice(0, 8).map(x => ({ code: x.code, name: x.name, sales: r2(x.sales), qty: r2(x.qty), share: sh(x.sales, groupSales), me: key(x.code) === key(code) })) },
+    brand: { name: nm(best, 'brand'), sales: myBrand ? r2(myBrand.sales) : 0, qty: myBrand ? r2(myBrand.qty) : 0, count: brands.length, rank: brandIdx >= 0 ? brandIdx + 1 : null, share: myBrand ? sh(myBrand.sales, groupSales) : null,
+      top: brands.slice(0, 8).map(x => ({ name: x.name, sales: r2(x.sales), share: sh(x.sales, groupSales), me: trimCode(x.code) === brandCode })) },
+    section: { sales: r2(sectionSales), groupCount: groups.length, groupRank: groupIdx >= 0 ? groupIdx + 1 : null, groupShare: sh(myGroup.sales, sectionSales) },
+  };
+}
+
 // Delivery department (owner, 2026-10-22): online-order deliveries for ONE branch (a dropdown picks it; default Ajaltoun).
 // An order counts as a delivery by its fee line(s), items 158147 and 158146 "DELIVERY FEES" (one per order; ~850 a month at
 // Ajaltoun). Either item, or both, is still ONE order. The sales report gives the fee revenue; the count is the distinct
@@ -2507,6 +2569,20 @@ Deno.serve(async req => {
       const lv = String(body.level || 'section'), f2 = String(body.from || ''), t2 = String(body.to || '');
       if (!['department', 'section', 'group', 'brand'].includes(lv) || !isDay(f2) || !isDay(t2)) return json({ error: 'Choose a level and dates.' }, 400);
       return json(await branchCompare(lv, f2, t2));
+    }
+    // Performance by scan (owner, 2026-10-25): one item's standing in its category, admin / vendors.manage
+    if (body.action === 'scan_perf') {
+      if (!isServer && role !== 'admin') {
+        const anon = Deno.env.get('SUPABASE_ANON_KEY') || '';
+        const asUser = createClient(SUPABASE_URL, anon, { global: { headers: { Authorization: `Bearer ${bearer}` } }, auth: { persistSession: false, autoRefreshToken: false } });
+        const { data: ok } = await asUser.rpc('has_perm', { p_perms: ['vendors.manage'] });
+        if (!ok) return json({ error: 'Not allowed.' }, 403);
+      }
+      const sc = String(body.code || '').trim();
+      const f3 = String(body.from || ''), t3 = String(body.to || '');
+      if (!sc) return json({ error: 'No item code.' }, 400);
+      if (!isDay(f3) || !isDay(t3) || f3 > t3 || Number(t3.slice(0, 4)) - Number(f3.slice(0, 4)) > 1) return json({ error: 'Choose a period within two years.' }, 400);
+      return json(await scanPerf(sc, f3, t3));
     }
     // The system's supplier catalogue, to import vendors from it (owner, 2026-10-13)
     if (body.action === 'supplier_catalog') {

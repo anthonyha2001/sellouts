@@ -1384,6 +1384,7 @@ const PAGES = {
   schedule:    { eyebrow: 'Staff', title: 'Staff schedule', sub: 'The weekly program of cashiers and supervisors: AM, PM, full day or off, front or back.' },
   promoladies: { eyebrow: 'In store', title: 'Promo ladies', sub: 'Promoters booked by suppliers: who, which item, which days, paid or free.' },
   tools:       { eyebrow: 'Tools', title: 'PDF / photo to Excel', sub: 'Turn a table in a PDF or a photo into an Excel file, right on this device.' },
+  scanperf:    { eyebrow: 'Tools', title: 'Performance by scan', sub: 'Scan an item to see how much it sells, its share and rank in its category, and its brand’s standing.' },
   users:       { eyebrow: 'Settings', title: 'Users', sub: 'Who can sign in, and what each person can do.' },
   activity:    { eyebrow: 'Settings', title: 'Activity log', sub: 'Everything that was changed, by whom and when.' }
 };
@@ -1394,7 +1395,7 @@ const PAGES = {
 const NAV_GROUPS = {
   cashgroup:  { label: 'Cash',  members: [['cash', 'Cash differences'], ['cashcount', 'Cash count']] },
   people:     { label: 'Staff', members: [['staff', 'Staff'], ['schedule', 'Staff schedule'], ['users', 'Users']] },
-  toolsgroup: { label: 'Tools', members: [['tools', 'PDF / photo to Excel'], ['toolcheck', 'Sell-out & promotion check'], ['labels', 'Shelf labels'], ['pricecheck', 'Price check']] },
+  toolsgroup: { label: 'Tools', members: [['tools', 'PDF / photo to Excel'], ['toolcheck', 'Sell-out & promotion check'], ['labels', 'Shelf labels'], ['pricecheck', 'Price check'], ['scanperf', 'Performance by scan']] },
 };
 const groupLast = {};
 const groupOfTab = name => Object.keys(NAV_GROUPS).find(g => NAV_GROUPS[g].members.some(m => m[0] === name)) || null;
@@ -1445,11 +1446,12 @@ function switchTab(name, sub) {
   if (name === 'labels' && window.Labels) Labels.show();
   if (name === 'onlinepromo' && window.OnlinePromo) OnlinePromo.show();
   if (name === 'tools' && window.Tools) Tools.show();
+  if (name === 'scanperf' && window.ScanPerf) ScanPerf.show();
   if (name === 'promoladies' && window.PromoLadies) PromoLadies.show();
   if (name === 'schedule' && window.Schedule) Schedule.show();
   if (name === 'staff' && window.Staff) Staff.show();
   if (name === 'rentals' && typeof Rentals !== 'undefined') Rentals.show();
-  if (name !== 'floorcheck' && name !== 'labels' && name !== 'pricecheck' && window.Scanner) Scanner.close();
+  if (name !== 'floorcheck' && name !== 'labels' && name !== 'pricecheck' && name !== 'scanperf' && window.Scanner) Scanner.close();
   if (name === 'activity' && window.ActivityPage) ActivityPage.show();
   if (typeof Live !== 'undefined') Live.shown(name);   // changed while closed: reload now
 }
