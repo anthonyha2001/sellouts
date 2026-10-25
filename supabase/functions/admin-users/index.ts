@@ -45,7 +45,21 @@ async function setBanned(id: string, banned: boolean) {
   if (error) throw error;
 }
 
-Deno.serve(async req => {
+const ALLOW_ORIGINS = ['https://valeur.anthonyhasrouny.com', 'https://anthonyha2001.github.io'];
+function secure(req: Request, res: Response): Response {
+  const h = new Headers(res.headers);
+  const o = req.headers.get('Origin') || '';
+  h.set('Access-Control-Allow-Origin', ALLOW_ORIGINS.includes(o) ? o : ALLOW_ORIGINS[0]);
+  h.set('Vary', 'Origin');
+  h.set('X-Content-Type-Options', 'nosniff');
+  h.set('Referrer-Policy', 'no-referrer');
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers: h });
+}
+Deno.serve(async (req: Request) => {
+  try { return secure(req, await handle(req)); }
+  catch (e) { console.error(e); return secure(req, new Response(JSON.stringify({ error: 'Server error' }), { status: 500, headers: { 'Content-Type': 'application/json' } })); }
+});
+const handle = async (req: Request): Promise<Response> => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
   if (req.method !== 'POST') return fail('Method not allowed', 405);
 
@@ -140,4 +154,4 @@ Deno.serve(async req => {
     console.error(action, e);
     return fail((e as Error)?.message ?? 'Server error', 500);
   }
-});
+};

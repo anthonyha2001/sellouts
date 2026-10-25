@@ -523,7 +523,21 @@ async function runCashiers(today: string) {
   return { devices: subs.length, pushed };
 }
 
-Deno.serve(async req => {
+const ALLOW_ORIGINS = ['https://valeur.anthonyhasrouny.com', 'https://anthonyha2001.github.io'];
+function secure(req: Request, res: Response): Response {
+  const h = new Headers(res.headers);
+  const o = req.headers.get('Origin') || '';
+  h.set('Access-Control-Allow-Origin', ALLOW_ORIGINS.includes(o) ? o : ALLOW_ORIGINS[0]);
+  h.set('Vary', 'Origin');
+  h.set('X-Content-Type-Options', 'nosniff');
+  h.set('Referrer-Policy', 'no-referrer');
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers: h });
+}
+Deno.serve(async (req: Request) => {
+  try { return secure(req, await handle(req)); }
+  catch (e) { console.error(e); return secure(req, json({ error: 'Server error' }, 500)); }
+});
+const handle = async (req: Request): Promise<Response> => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
   try { await loadKeys(); } catch (e) { return json({ error: (e as Error).message }, 500); }
@@ -545,4 +559,4 @@ Deno.serve(async req => {
     console.error(e);
     return json({ error: (e as Error).message ?? 'Server error' }, 500);
   }
-});
+};

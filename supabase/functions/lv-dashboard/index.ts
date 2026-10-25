@@ -2317,7 +2317,23 @@ async function priceChangesSync(limit = 80) {
   return { pending: list.length, checked, synced };
 }
 
-Deno.serve(async req => {
+// Only the app's own origins may call this function from a browser (owner, 2026-10-25). This is not the security wall —
+// the Bearer-session + permission checks below are — but it stops another website from using a signed-in user's browser.
+const ALLOW_ORIGINS = ['https://valeur.anthonyhasrouny.com', 'https://anthonyha2001.github.io'];
+function secure(req: Request, res: Response): Response {
+  const h = new Headers(res.headers);
+  const o = req.headers.get('Origin') || '';
+  h.set('Access-Control-Allow-Origin', ALLOW_ORIGINS.includes(o) ? o : ALLOW_ORIGINS[0]);
+  h.set('Vary', 'Origin');
+  h.set('X-Content-Type-Options', 'nosniff');
+  h.set('Referrer-Policy', 'no-referrer');
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers: h });
+}
+Deno.serve(async (req: Request) => {
+  try { return secure(req, await handle(req)); }
+  catch (e) { console.error(e); return secure(req, json({ error: 'Server error' }, 500)); }
+});
+const handle = async (req: Request): Promise<Response> => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
   let body: Record<string, unknown>;
@@ -2947,4 +2963,4 @@ Deno.serve(async req => {
     console.error(e);
     return json({ error: e instanceof Error ? e.message : 'Something went wrong' }, 502);
   }
-});
+};
