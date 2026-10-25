@@ -19,7 +19,7 @@
   const pct = v => v === null || v === undefined ? '—' : (Math.round(Number(v) * 1000) / 10).toLocaleString('en-US', { maximumFractionDigits: 1 }) + '%';
   const nth = n => n === null || n === undefined ? '—' : '#' + n;
 
-  const DAYS = [['30 days', 30], ['90 days', 90], ['This year', 'ytd']];
+  const DAYS = [['Week', 7], ['30 days', 30], ['90 days', 90], ['This year', 'ytd']];
   function range() {
     const today = todayStr();
     if (S.days === 'ytd') return [today.slice(0, 4) + '-01-01', today];
@@ -145,7 +145,7 @@
         </div>
         <div class="sp-top">
           <div class="sp-toptitle">Top sellers in this group</div>
-          ${g.topItems.map((x, i) => `<div class="sp-toprow ${x.me ? 'me' : ''}"><span class="sp-rk">${i + 1}</span><span class="sp-nm">${esc(x.name || x.code)}${x.me ? ' <span class="sp-youtag">this item</span>' : ''}</span><span class="sp-sh">${pct(x.share)}</span><span class="sp-val">${usd(x.sales)}</span></div>`).join('') || '<p class="muted-note" style="margin:0;">No items.</p>'}
+          ${g.topItems.map((x, i) => `<div class="sp-toprow ${x.me ? 'me' : ''}"><span class="sp-rk">${i + 1}</span><span class="sp-nm">${esc(x.name || x.code)}${x.me ? ' <span class="sp-youtag">this item</span>' : ''}</span><span class="sp-fig"><b class="sp-sh">${pct(x.share)}</b><small class="sp-val">${usd(x.sales)}</small></span></div>`).join('') || '<p class="muted-note" style="margin:0;">No items.</p>'}
         </div>
       </div>
 
@@ -158,7 +158,7 @@
         </div>` : '<p class="muted-note" style="margin:0;">This item has no brand set in the system.</p>'}
         <div class="sp-top">
           <div class="sp-toptitle">Brands in this group</div>
-          ${br.top.map((x, i) => `<div class="sp-toprow ${x.me ? 'me' : ''}"><span class="sp-rk">${i + 1}</span><span class="sp-nm">${esc(x.name || '—')}${x.me ? ' <span class="sp-youtag">this brand</span>' : ''}</span><span class="sp-sh">${pct(x.share)}</span><span class="sp-val">${usd(x.sales)}</span></div>`).join('') || '<p class="muted-note" style="margin:0;">No brands.</p>'}
+          ${br.top.map((x, i) => `<div class="sp-toprow ${x.me ? 'me' : ''}"><span class="sp-rk">${i + 1}</span><span class="sp-nm">${esc(x.name || '—')}${x.me ? ' <span class="sp-youtag">this brand</span>' : ''}</span><span class="sp-fig"><b class="sp-sh">${pct(x.share)}</b><small class="sp-val">${usd(x.sales)}</small></span></div>`).join('') || '<p class="muted-note" style="margin:0;">No brands.</p>'}
         </div>
       </div>
 
