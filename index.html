@@ -117,6 +117,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 10v4M18 10v4"/></svg>
       <span class="label">Cash count</span>
     </button>
+    <button class="nav-btn" data-tab="cashnotify" title="Notifications" hidden>
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+      <span class="label">Notifications</span>
+    </button>
     <button class="nav-btn" data-tab="pricecheck" title="Price check" hidden>
       <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M8 9h8M8 12h5M8 15h3"/></svg>
       <span class="label">Price check</span>
@@ -996,6 +1000,9 @@
     <!-- CASH COUNT: the drawer count sheet and its reconciliation (js/modules/cashcount.js) -->
     <section class="panel" id="panel-cashcount"></section>
 
+    <!-- NOTIFICATIONS: monitor cashier push delivery (js/modules/cashnotify.js) -->
+    <section class="panel" id="panel-cashnotify"></section>
+
     <!-- STAFF: every employee, job, phone, salary, app login (js/modules/staff.js) -->
     <section class="panel" id="panel-staff"></section>
 
@@ -1178,6 +1185,7 @@
 <script src="js/modules/users.js"></script>
 <script src="js/modules/staff.js"></script>
 <script src="js/modules/cashcount.js"></script>
+<script src="js/modules/cashnotify.js"></script>
 <script src="js/modules/vendorcal.js"></script>
 <script src="js/modules/dashboard.js"></script>
 <script src="js/core/live.js"></script>

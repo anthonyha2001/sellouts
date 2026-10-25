@@ -1566,6 +1566,9 @@ td .lb-kind-chip{margin-left:0;cursor:default;}
 
 
 /* Cash count (owner, 2026-10-04) */
+/* Blind count (owner, 2026-10-25): whoever may count but not reconcile (e.g. supervisors) never sees the
+   System & reconciliation part — only the accountant with cashcount.reconcile does. */
+body.no-cashcount-reconcile .cc-part2{display:none;}
 .cc-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;}
 .cc-rate{font-size:13px;color:var(--ink-soft);}
 .cc-rate b{font-family:var(--font-mono);color:var(--ink);}
@@ -3621,3 +3624,11 @@ tr.sc-det > td{background:var(--paper);padding:14px 16px !important;white-space:
 .pts-top b{font:600 14px var(--font-mono);white-space:nowrap;}
 .pts-tbl tr.pts-biggest td{background:color-mix(in srgb, #ef4444 5%, transparent);}
 .pts-bigtag{color:#ef4444;font-size:9px;vertical-align:1px;}
+
+/* ================= Notification monitor (owner, 2026-10-25; js/modules/cashnotify.js) ================= */
+.nt-bar{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;}
+.nt-tiles{margin-bottom:14px;grid-template-columns:repeat(auto-fit,minmax(min(100%,150px),1fr));}
+.nt-red{color:var(--brick);} .nt-amber{color:#7a5412;}
+.nt-table{width:100%;} .nt-table th,.nt-table td{white-space:nowrap;}
+.nt-dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:7px;vertical-align:0;background:var(--ink-faint);}
+.nt-dot.ok{background:#1a9d5a;} .nt-dot.warn{background:var(--gold);} .nt-dot.bad{background:var(--brick);}

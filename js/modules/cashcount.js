@@ -315,7 +315,7 @@
         <div id="ccSignArea">${signHtml(c)}</div>
         ${adm ? `<div class="cc-delete"><button type="button" class="link-btn danger" id="ccDelete">${svgTrash} Delete this count</button></div>` : ''}
       </section>
-      <section class="card cc-part">
+      <section class="card cc-part cc-part2">
         <div class="cc-part-head"><span class="cc-step">2</span><div><h3>System and reconciliation</h3>
           <p class="muted-note">The figures of the system, for the accountant. USD rate ${r.rate ? lbp(r.rate) : '(not set)'}.</p></div></div>
         <table class="cc-bills cc-sys"><thead><tr><th></th><th class="num">System LBP</th><th class="num">System USD</th><th>Slips</th></tr></thead><tbody>

@@ -1375,6 +1375,7 @@ const PAGES = {
   delivery:    { eyebrow: 'Deliveries', title: 'Delivery', sub: 'Home-delivery orders, driver payments and customers.' },
   cashcount:   { eyebrow: 'Cashiers', title: 'Cash count', sub: 'Count a drawer, have the cashier sign, reconcile it with the system.' },
   cash:        { eyebrow: 'Cashiers', title: 'Cash differences', sub: 'Daily over and short amounts per cashier.' },
+  cashnotify:  { eyebrow: 'Cashiers', title: 'Notifications', sub: 'Who can receive push notifications, what was sent, and why a cashier might not be getting them.' },
   floorcheck:  { eyebrow: 'Store floor', title: 'Floor check', sub: 'Check that every sell-out and promotion item on the floor has the right price.' },
   expiries:    { eyebrow: 'Store floor', title: 'Expiries', sub: 'What expires on the shelves, month by month, and which shelf worker deals with it.' },
   competitors: { eyebrow: 'Market', title: 'Competitors', sub: 'Scan an item in a competitor’s store and compare its price with ours.' },
@@ -1393,7 +1394,7 @@ const PAGES = {
 /* Menu groups (owner, 2026-10-06): fewer entries in the menu; inside a group, tabs under the page title.
    A group shows when one of its pages can be opened; its button opens the page last used in it. */
 const NAV_GROUPS = {
-  cashgroup:  { label: 'Cash',  members: [['cash', 'Cash differences'], ['cashcount', 'Cash count']] },
+  cashgroup:  { label: 'Cash',  members: [['cash', 'Cash differences'], ['cashcount', 'Cash count'], ['cashnotify', 'Notifications']] },
   people:     { label: 'Staff', members: [['staff', 'Staff'], ['schedule', 'Staff schedule'], ['users', 'Users']] },
   toolsgroup: { label: 'Tools', members: [['tools', 'PDF / photo to Excel'], ['toolcheck', 'Sell-out & promotion check'], ['labels', 'Shelf labels'], ['pricecheck', 'Price check'], ['scanperf', 'Performance by scan']] },
 };
@@ -1431,6 +1432,7 @@ function switchTab(name, sub) {
   else if (location.hash !== '#' + name) history.replaceState(null, '', '#' + name);
   if (name === 'users' && window.UsersPage) UsersPage.show();
   if (name === 'cash' && window.Cash) Cash.show();
+  if (name === 'cashnotify' && window.CashNotify) CashNotify.show();
   if (name === 'cashcount' && window.CashCount) CashCount.show();
   if (name === 'dashboard' && window.Dashboard) Dashboard.show();
   if (name === 'floorcheck' && window.FloorCheck) FloorCheck.show();
