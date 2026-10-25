@@ -274,6 +274,41 @@ const handle = async (req: Request): Promise<Response> => {
       return json({ ok: true, token: await mintToken(cashierId) });
     }
 
+    // Cash-count confirmation (migration 102): the counts awaiting THIS cashier's signature.
+    if (body.action === 'count_pending') {
+      const bad = await pinError(body); if (bad) return bad;
+      const { data, error } = await db.from('cash_counts').select('id, count_date, pos, shift, cashier_name, sign_requested_at')
+        .eq('cashier_id', String(body.cashier_id)).is('signed_at', null).not('sign_requested_at', 'is', null)
+        .order('sign_requested_at', { ascending: false }).limit(20);
+      if (error) throw error;
+      return json({ counts: data || [] });
+    }
+    // One count's amounts, to review before confirming (view-once: amounts stop once it is signed).
+    if (body.action === 'count_view') {
+      const bad = await pinError(body); if (bad) return bad;
+      const cashierId = String(body.cashier_id), id = String(body.count_id || '');
+      const { data: c } = await db.from('cash_counts').select('id, cashier_id, cashier_name, count_date, pos, shift, lbp, usd, card_items, expense_items, signed_at')
+        .eq('id', id).maybeSingle();
+      if (!c || c.cashier_id !== cashierId) return json({ error: 'That count is not yours.' }, 404);
+      if (c.signed_at) return json({ signed: true });
+      await db.rpc('cash_count_mark_viewed', { p_count: id, p_cashier: cashierId });
+      return json({ count: { id: c.id, cashier_name: c.cashier_name, count_date: c.count_date, pos: c.pos, shift: c.shift, lbp: c.lbp, usd: c.usd, card_items: c.card_items, expense_items: c.expense_items } });
+    }
+    // Confirm (sign) a count. The gate (pinError) already forces the biometric token when the cashier is enrolled; the
+    // client sends a FRESH assertion token so Face ID is prompted at this moment. PIN works for a not-enrolled cashier.
+    if (body.action === 'count_confirm') {
+      const bad = await pinError(body); if (bad) return bad;
+      const cashierId = String(body.cashier_id), id = String(body.count_id || '');
+      const { data: c } = await db.from('cash_counts').select('id, cashier_id, signed_at').eq('id', id).maybeSingle();
+      if (!c || c.cashier_id !== cashierId) return json({ error: 'That count is not yours.' }, 404);
+      const method = body.token && (await tokenCashier(body.token)) === cashierId ? 'biometric' : 'pin';
+      const { data: st, error } = await db.rpc('cash_count_sign_cashier', { p_count: id, p_cashier: cashierId, p_method: method });
+      if (error) throw error;
+      if (st !== 'ok') return json({ error: st === 'mismatch' ? 'That count is not yours.' : 'Could not confirm — try again.' }, 400);
+      await logAs(cashierId, 'cash_count_sign', `confirmed a cash count on their phone (${method === 'biometric' ? 'Face ID' : 'PIN'})`);
+      return json({ ok: true, method });
+    }
+
     if (body.action === 'view') {
       const cashierId = String(body.cashier_id ?? '');
       const bad = await pinError(body);

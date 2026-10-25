@@ -92,6 +92,103 @@
     }
   }
 
+  /* ---------------- confirm a cash count on the cashier's phone (migration 102) ----------------
+     Reached by push or by scanning the QR shown on the counting device (#sign=<id>). The cashier reviews what was
+     counted ONCE (blanked when the app loses focus, with their name/time watermarked), then confirms with Face ID
+     (PIN as a fallback for a not-yet-protected cashier). */
+  let pendingSignRoute = (location.hash.match(/^#sign=([0-9a-f-]{36})$/i) || [])[1] || null;
+  const sgDate = d => { try { return new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }); } catch (e) { return d; } };
+  const sgNum = n => Number(n || 0).toLocaleString('en-US');
+  // a fresh biometric (enrol on this phone the first time), returns a token
+  async function bioToken() {
+    try { return await biometricUnlock(session.cashier_id, session.pin); }
+    catch (e) { if (e && e.no_passkey) { await enrollBiometric(session.cashier_id, session.pin); return await biometricUnlock(session.cashier_id, session.pin); } throw e; }
+  }
+  async function checkPending() {
+    if (!session) return;
+    try { const r = await call({ action: 'count_pending', cashier_id: session.cashier_id, pin: session.pin }); renderPendingBanner(r.counts || []); }
+    catch (e) { /* ignore */ }
+  }
+  function renderPendingBanner(counts) {
+    let b = $('cpSignBanner');
+    if (!counts.length) { if (b) b.remove(); return; }
+    if (!b) { b = document.createElement('div'); b.id = 'cpSignBanner'; b.className = 'cp-signbanner'; const v = $('cpView'); if (v && v.parentNode) v.parentNode.insertBefore(b, v); else document.body.appendChild(b); }
+    b.innerHTML = `<b>You have ${counts.length} cash count${counts.length > 1 ? 's' : ''} to confirm</b>`
+      + counts.map(c => `<button type="button" data-cc="${esc(c.id)}">${esc(sgDate(c.count_date))} · POS ${esc(c.pos)} · ${esc(String(c.shift).toUpperCase())}</button>`).join('');
+    b.querySelectorAll('[data-cc]').forEach(x => x.onclick = () => openConfirm(x.dataset.cc));
+  }
+  async function openConfirm(id) {
+    if (!session) return;
+    let data;
+    try { data = await call({ action: 'count_view', cashier_id: session.cashier_id, pin: session.pin, count_id: id }); }
+    catch (e) { alert(e.need_biometric ? 'Unlock your account with Face ID first.' : (e.message || 'Could not open the count.')); return; }
+    if (data.signed) { alert('This count is already confirmed.'); checkPending(); return; }
+    showConfirm(id, data.count);
+  }
+  function ccStyles() {
+    if ($('ccOvStyle')) return;
+    const s = document.createElement('style'); s.id = 'ccOvStyle';
+    s.textContent = `.cc-ov{position:fixed;inset:0;background:rgba(15,23,42,.92);z-index:9999;display:flex;align-items:flex-start;justify-content:center;overflow:auto;padding:18px;}
+      .cc-ovcard{background:#fff;color:#14223b;border-radius:16px;max-width:460px;width:100%;padding:20px;position:relative;overflow:hidden;}
+      .cc-ovcard h2{margin:0 0 2px;font:700 20px/1.2 system-ui,sans-serif;} .cc-ovsub{margin:0 0 12px;color:#64748b;font-size:13px;}
+      .cc-ovamt{position:relative;transition:filter .15s,opacity .15s;}
+      .cc-ov.cc-hide .cc-ovamt{filter:blur(22px);opacity:.15;}
+      .cc-ovwm{position:absolute;inset:0;pointer-events:none;display:flex;align-items:center;justify-content:center;transform:rotate(-24deg);font:700 15px system-ui;color:rgba(20,34,59,.10);white-space:nowrap;letter-spacing:1px;}
+      .cc-ovt{width:100%;border-collapse:collapse;margin:8px 0;font-size:14px;} .cc-ovt th{text-align:left;color:#64748b;font-weight:600;font-size:12px;} .cc-ovt td,.cc-ovt th{padding:4px 6px;border-bottom:1px solid #eef2f7;} .cc-ovt .num{text-align:right;font-variant-numeric:tabular-nums;}
+      .cc-ovh{font:700 13px system-ui;margin:12px 0 2px;color:#334155;}
+      .cc-ovact{display:flex;flex-direction:column;gap:8px;margin-top:16px;}
+      .cc-ovbtn{padding:14px;border-radius:12px;border:1px solid #cbd5e1;background:#f8fafc;font:600 16px system-ui;cursor:pointer;}
+      .cc-ovbtn.primary{background:#1943AF;border-color:#1943AF;color:#fff;}
+      .cc-ovbtn:disabled{opacity:.5;}
+      .cc-ovx{background:none;border:0;color:#64748b;padding:8px;font-size:14px;cursor:pointer;}
+      .cc-overr{color:#b4232a;font-size:13px;margin:8px 0 0;min-height:16px;text-align:center;}
+      .cp-signbanner{background:#fff7e6;border:1px solid #e9c46a;border-radius:12px;padding:12px;margin:0 0 12px;display:flex;flex-direction:column;gap:8px;}
+      .cp-signbanner button{padding:12px;border-radius:10px;border:1px solid #1943AF;background:#1943AF;color:#fff;font:600 15px system-ui;cursor:pointer;}`;
+    document.head.appendChild(s);
+  }
+  function showConfirm(id, c) {
+    ccStyles();
+    const wm = `${session.name || ''} · ${new Date().toLocaleString('en-GB')}`;
+    const lbp = Object.entries(c.lbp || {}).filter(([, n]) => +n > 0).sort((a, b) => +b[0] - +a[0]);
+    const usd = Object.entries(c.usd || {}).filter(([, n]) => +n > 0).sort((a, b) => +b[0] - +a[0]);
+    const cards = (c.card_items || []), exps = (c.expense_items || []);
+    const tbl = (rows, unit) => rows.length ? `<table class="cc-ovt"><thead><tr><th>Note</th><th class="num">How many</th><th class="num">Amount</th></tr></thead><tbody>${rows.map(([d, n]) => `<tr><td>${sgNum(d)} ${unit}</td><td class="num">${n}</td><td class="num">${sgNum(d * n)}</td></tr>`).join('')}</tbody></table>` : '';
+    const list = (arr, label) => arr && arr.length ? `<div class="cc-ovh">${label}</div><table class="cc-ovt"><tbody>${arr.map(x => `<tr><td>${esc(x.label || x.type || x.note || '')}</td><td class="num">${sgNum(x.amount)} ${esc(x.currency === 'usd' ? 'USD' : 'LBP')}</td></tr>`).join('')}</tbody></table>` : '';
+    const o = document.createElement('div'); o.className = 'cc-ov'; o.id = 'ccOv';
+    o.innerHTML = `<div class="cc-ovcard"><h2>Confirm your cash count</h2>
+      <p class="cc-ovsub">POS ${esc(c.pos)} · ${esc(String(c.shift).toUpperCase())} · ${esc(sgDate(c.count_date))}</p>
+      <div class="cc-ovamt">
+        ${lbp.length ? '<div class="cc-ovh">Cash LBP</div>' + tbl(lbp, 'LBP') : ''}
+        ${usd.length ? '<div class="cc-ovh">Cash USD</div>' + tbl(usd, 'USD') : ''}
+        ${list(cards, 'Cards / slips')}${list(exps, 'Expenses')}
+        ${!lbp.length && !usd.length && !cards.length && !exps.length ? '<p class="cc-ovsub">No cash or slips recorded.</p>' : ''}
+        <div class="cc-ovwm">${esc(wm)}</div>
+      </div>
+      <div class="cc-ovact">
+        <button type="button" class="cc-ovbtn primary" id="ccOvBio">I counted this — confirm</button>
+        <button type="button" class="cc-ovbtn" id="ccOvPin">Confirm with my PIN</button>
+        <button type="button" class="cc-ovx" id="ccOvCancel">Cancel</button>
+      </div>
+      <p class="cc-overr" id="ccOvErr"></p></div>`;
+    document.body.appendChild(o);
+    const vis = () => o.classList.toggle('cc-hide', document.visibilityState === 'hidden');
+    const blur = () => o.classList.add('cc-hide'), focus = () => o.classList.remove('cc-hide');
+    document.addEventListener('visibilitychange', vis); window.addEventListener('blur', blur); window.addEventListener('focus', focus);
+    const close = () => { o.remove(); document.removeEventListener('visibilitychange', vis); window.removeEventListener('blur', blur); window.removeEventListener('focus', focus); };
+    const err = m => { const e = $('ccOvErr'); if (e) e.textContent = m || ''; };
+    $('ccOvCancel').onclick = close;
+    $('ccOvBio').onclick = async () => {
+      err(''); $('ccOvBio').disabled = true;
+      try { const token = await bioToken(); await call({ action: 'count_confirm', cashier_id: session.cashier_id, pin: session.pin, count_id: id, token }); close(); alert('Confirmed. Thank you.'); checkPending(); }
+      catch (e) { err(e && e.message ? e.message : 'Face ID did not work — try again or use your PIN.'); $('ccOvBio').disabled = false; }
+    };
+    $('ccOvPin').onclick = async () => {
+      err('');
+      try { await call({ action: 'count_confirm', cashier_id: session.cashier_id, pin: session.pin, count_id: id }); close(); alert('Confirmed. Thank you.'); checkPending(); }
+      catch (e) { err(e && e.need_biometric ? 'Your account uses Face ID — tap “I counted this”.' : (e && e.message ? e.message : 'Could not confirm.')); }
+    };
+  }
+
   function forget() {
     session = null;
     clearTimeout(idleTimer);
@@ -645,15 +742,18 @@
     if (!cashier_id) { $('cpErr').textContent = 'Choose your name.'; return; }
     if (!/^\d{4}$/.test(pin)) { $('cpErr').textContent = 'Type your 4-digit PIN.'; return; }
     $('cpGo').disabled = true;
-    session = { cashier_id, pin };
     try {
-      await load();
+      await openSession(cashier_id, pin, true);
       setSaved($('cpRemember').checked ? { cashier_id, pin } : null);
       touch();
+      checkPending();
+      if (pendingSignRoute) { const id = pendingSignRoute; pendingSignRoute = null; openConfirm(id); }
     } catch (err) {
       session = null;
       $('cpPin').value = '';
-      $('cpErr').textContent = err.status === 401 && err.attempts_left != null
+      $('cpErr').textContent = err.name === 'NotAllowedError' || /not allowed|timed out|abort/i.test(err.message || '')
+        ? 'Face ID / fingerprint is needed to open your account. Try again.'
+        : err.status === 401 && err.attempts_left != null
         ? `Wrong PIN. ${err.attempts_left} tr${err.attempts_left === 1 ? 'y' : 'ies'} left before a 15-minute lock.`
         : err.status === 423 && err.locked_until
           ? `Too many wrong PINs. Try again after ${new Date(err.locked_until).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}.`
@@ -702,10 +802,10 @@
     const s = saved();
     if (!s) return false;
     if (!cashiers.some(c => c.id === s.cashier_id)) { setSaved(null); return false; }
-    session = { cashier_id: s.cashier_id, pin: s.pin };
-    try { await load(); return true; }
+    try { await openSession(s.cashier_id, s.pin, false); checkPending(); if (pendingSignRoute) { const id = pendingSignRoute; pendingSignRoute = null; openConfirm(id); } return true; }
     catch (err) {
       session = null;
+      if (err.name === 'NotAllowedError' || /not allowed|timed out|abort/i.test(err.message || '')) { $('cpErr').textContent = 'Unlock with your Face ID / fingerprint to open your account.'; return false; }
       if ([401, 403, 404, 423].includes(err.status)) { setSaved(null); $('cpErr').textContent = 'Please log in again.'; }
       else $('cpErr').textContent = err.message;
       return false;

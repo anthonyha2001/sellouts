@@ -481,11 +481,13 @@ async function runCashiers(today: string) {
   subs.forEach(x => { const t = Date.parse(x.created_at); if (!since.has(x.cashier_id) || t < since.get(x.cashier_id)!) since.set(x.cashier_id, t); });
   const settled = new Date(Date.now() - 5 * 60 * 1000).toISOString();     // 5 minutes after the last edit
   const monday = mondayOf(today);
-  const [{ data: weeks }, { data: diffs }] = await Promise.all([
+  const [{ data: weeks }, { data: diffs }, { data: signs }] = await Promise.all([
     db.from('schedule_weeks').select('week_start, assignments, updated_at').eq('published', true)
       .gte('week_start', monday).lte('week_start', addDays(monday, 14)).lte('updated_at', settled),
     db.from('cash_differences').select('id, cashier_id, day, amount, currency, updated_at').in('cashier_id', ids)
       .gte('updated_at', new Date(Date.now() - 3 * 86400000).toISOString()).lte('updated_at', settled).order('day'),
+    db.from('cash_counts').select('id, cashier_id, count_date, pos, shift, sign_requested_at').in('cashier_id', ids)
+      .is('signed_at', null).not('sign_requested_at', 'is', null).gte('sign_requested_at', new Date(Date.now() - 3 * 86400000).toISOString()),
   ]);
   const cur = 'LBP';   // like the Cash page and the cashier page
   let pushed = 0;
@@ -505,6 +507,14 @@ async function runCashiers(today: string) {
     for (const d of diffs ?? []) {
       if (d.cashier_id !== cid || d.currency !== cur || Date.parse(d.updated_at) < from) continue;
       items.push({ key: `cash:${d.id}:${Number(d.amount)}`, body: `${dayName(d.day)} ${fmt(d.day)}: ${money(Number(d.amount), cur)}` });
+    }
+    // cash counts awaiting this cashier's confirmation: one push per count, deep-linked to the confirm screen
+    for (const s of signs ?? []) {
+      if (s.cashier_id !== cid) continue;
+      const { data, error } = await db.from('cashier_push_log').insert({ key: `ccsign:${s.id}`, cashier_id: cid }).select('key');
+      if (error || !data?.length) continue;   // already notified for this count
+      const devs = subs.filter(x => x.cashier_id === cid) as unknown as Sub[];
+      pushed += (await pushTo(devs, { title: 'Confirm your cash count', body: `POS ${s.pos} · ${String(s.shift).toUpperCase()} · ${fmt(s.count_date)} — tap to review and confirm.`, url: `./cashier.html#sign=${s.id}`, tag: 'lv-ccsign', cashier: true }, 'cashier_push_subscriptions')).sent;
     }
     const fresh: typeof items = [];
     for (const it of items) {

@@ -341,10 +341,28 @@
   }
   const svgTrash = '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>';
   function signHtml(c) {
+    const how = c.sign_method === 'biometric' ? 'with Face ID on their phone' : 'with their PIN';
     const head = c.signed_at
-      ? `<span class="badge active">Signed</span> <span>${esc(c.cashier_name)} confirmed this count with their PIN · ${esc(fmtTs(c.signed_at))}</span>${!c.modified_at && c.signed_at && canEdit1(c) ? ' <span class="muted-note">(a change is flagged as modified)</span>' : ''}`
-      : canCount() ? `<button type="button" class="btn" id="ccSign">${esc(c.cashier_name)} signs with their PIN</button><span class="muted-note">Hand the device to the cashier.</span>` : '<span class="badge warn">Not signed yet</span>';
+      ? `<span class="badge active">Signed</span> <span>${esc(c.cashier_name)} confirmed this count ${how} · ${esc(fmtTs(c.signed_at))}</span>${!c.modified_at && c.signed_at && canEdit1(c) ? ' <span class="muted-note">(a change is flagged as modified)</span>' : ''}`
+      : canCount() ? `<div class="cc-signbtns"><button type="button" class="btn" id="ccReqSign">Request ${esc(c.cashier_name)}’s signature</button><button type="button" class="btn secondary" id="ccSign">Sign here with PIN</button></div>
+          <span class="muted-note">Send it to ${esc(c.cashier_name)}’s phone to confirm with Face ID (a notification + a QR to scan), or hand this device over for the PIN.</span>
+          ${c.sign_requested_at ? `<span class="badge inactive">Asked ${esc(fmtTs(c.sign_requested_at))}</span>` : ''}
+          <div id="ccSignQr" class="cc-signqr" hidden></div>` : '<span class="badge warn">Not signed yet</span>';
     return `<div class="cc-sign">${head}</div>${c.modified_at ? modifiedHtml(c) : ''}`;
+  }
+  // the cashier-page deep link + QR for a count
+  const signLink = id => `https://valeur.anthonyhasrouny.com/cashier.html#sign=${id}`;
+  let qrLib = null;
+  function loadQR() {
+    if (window.QRCode) return Promise.resolve();
+    if (!qrLib) qrLib = new Promise((res, rej) => { const s = document.createElement('script'); s.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js'; s.onload = res; s.onerror = () => { qrLib = null; rej(new Error('Could not load the QR code.')); }; document.head.appendChild(s); });
+    return qrLib;
+  }
+  async function showSignQr(id) {
+    const box = el('ccSignQr'); if (!box) return;
+    box.hidden = false; box.innerHTML = '<span class="muted-note">Loading the QR…</span>';
+    try { await loadQR(); box.innerHTML = '<p class="muted-note" style="margin:0 0 6px;">The cashier scans this with their phone to confirm:</p><div id="ccSignQrImg"></div>'; new window.QRCode(el('ccSignQrImg'), { text: signLink(id), width: 180, height: 180, correctLevel: window.QRCode.CorrectLevel.M }); }
+    catch (e) { box.innerHTML = `<span class="muted-note">Sent to the cashier's phone. (QR unavailable: ${esc(e.message)})</span>`; }
   }
   // "Modified": who and when, and what the cashier signed next to what it is now.
   function modifiedHtml(c) {
@@ -558,6 +576,20 @@
       if (st === 'ok') { logActivity('cashcount', 'sign', { type: 'cash_count', id: c.id }, `${c.cashier_name} signed the cash count of POS ${c.pos}`); showToast('Signed.'); }
       else showToast(st === 'wrong' ? `Wrong PIN${left ? ` — ${left} tries left` : ''}.` : st === 'locked' ? 'Too many wrong PINs: try again later.' : st === 'no_pin' ? `${c.cashier_name} has no PIN yet (Staff page).` : 'Not signed.', true);
       await loadDay(); renderDay();
+    });
+    el('ccReqSign')?.addEventListener('click', async e => {
+      const btn = e.currentTarget; btn.disabled = true;
+      try {
+        syncTotals(c);
+        await sb.from('cash_counts').update({ lbp: c.lbp, usd: c.usd, cards: c.cards, expenses: c.expenses, card_items: c.card_items, expense_items: c.expense_items }).eq('id', c.id);   // the final numbers the cashier will see
+        const { data, error } = await sb.rpc('cash_count_request_sign', { p_count: c.id });
+        if (error) return fail('Could not request', error);
+        if (data && data.already_signed) { showToast('Already signed.'); await loadDay(); return renderDay(); }
+        logActivity('cashcount', 'request_sign', { type: 'cash_count', id: c.id }, `Requested ${c.cashier_name}'s signature for the cash count of POS ${c.pos}`);
+        showToast(`${c.cashier_name} was asked to confirm on their phone.`);
+        c.sign_requested_at = new Date().toISOString();
+        await showSignQr(c.id);
+      } catch (err) { fail('Could not request', err); } finally { btn.disabled = false; }
     });
     el('ccRec')?.addEventListener('click', async () => {
       clearTimeout(timers.get(c.id));
