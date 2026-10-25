@@ -47,7 +47,7 @@ create or replace function public.cashier_biometric_status() returns jsonb
 language plpgsql security definer set search_path = public as $$
 declare res jsonb;
 begin
-  if not (public.is_role('admin') or public.has_perm(array['cash.view'])) then raise exception 'Not allowed'; end if;
+  if not (public.is_role('admin') or public.has_perm('cash.view')) then raise exception 'Not allowed'; end if;
   select coalesce(jsonb_agg(jsonb_build_object('cashier_id', c.id, 'passkeys', (select count(*) from public.cashier_passkeys k where k.cashier_id = c.id)) order by c.name), '[]'::jsonb)
     into res from public.cashiers c where c.active;
   return res;

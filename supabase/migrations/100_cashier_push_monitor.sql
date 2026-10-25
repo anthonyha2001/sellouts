@@ -14,7 +14,7 @@ as $$
 declare
   res jsonb;
 begin
-  if not (public.is_role('admin') or public.has_perm(array['cash.view'])) then
+  if not (public.is_role('admin') or public.has_perm('cash.view')) then
     raise exception 'Not allowed';
   end if;
 
