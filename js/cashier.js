@@ -40,11 +40,56 @@
   const setSaved = v => { try { v ? localStorage.setItem(SAVED, JSON.stringify(v)) : localStorage.removeItem(SAVED); } catch (e) { /* storage blocked */ } };   // { cashier_id, pin, name, data }
 
   async function call(body) {
+    // once unlocked with the biometric, every call carries the short-lived token (the PIN alone is refused by the server)
+    if (session && session.token && body && body.token === undefined && body.cashier_id === session.cashier_id) body = { ...body, token: session.token };
     const res = await fetch(FN_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: PUBLISHABLE_KEY }, body: JSON.stringify(body) });
     let data = {};
     try { data = await res.json(); } catch (e) { /* not JSON */ }
     if (!res.ok) { const err = new Error(data.error || 'Something went wrong. Try again.'); Object.assign(err, data, { status: res.status }); throw err; }
     return data;
+  }
+
+  /* ---------------- biometric login (owner, 2026-10-25; migration 101) ----------------
+     The cashier signs in with their PIN, then unlocks with their phone's Face ID / fingerprint / passcode (a WebAuthn
+     passkey). Once set up, the PIN alone can't open the account — the server demands the biometric. Uses the browser's
+     native WebAuthn (no library); the fingerprint/face never leaves the phone. */
+  const webauthnOK = () => !!(window.PublicKeyCredential && navigator.credentials && navigator.credentials.create);
+  const b64urlToBuf = s => { s = String(s).replace(/-/g, '+').replace(/_/g, '/'); const pad = s.length % 4 ? '='.repeat(4 - s.length % 4) : ''; const bin = atob(s + pad); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u.buffer; };
+  const bufToB64url = b => { const u = new Uint8Array(b); let s = ''; for (const x of u) s += String.fromCharCode(x); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
+  const regJSON = c => ({ id: c.id, rawId: bufToB64url(c.rawId), type: c.type, clientExtensionResults: c.getClientExtensionResults ? c.getClientExtensionResults() : {}, authenticatorAttachment: c.authenticatorAttachment || undefined, response: { clientDataJSON: bufToB64url(c.response.clientDataJSON), attestationObject: bufToB64url(c.response.attestationObject), transports: c.response.getTransports ? c.response.getTransports() : [] } });
+  const authJSON = c => ({ id: c.id, rawId: bufToB64url(c.rawId), type: c.type, clientExtensionResults: c.getClientExtensionResults ? c.getClientExtensionResults() : {}, authenticatorAttachment: c.authenticatorAttachment || undefined, response: { clientDataJSON: bufToB64url(c.response.clientDataJSON), authenticatorData: bufToB64url(c.response.authenticatorData), signature: bufToB64url(c.response.signature), userHandle: c.response.userHandle ? bufToB64url(c.response.userHandle) : undefined } });
+
+  async function biometricUnlock(cashier_id, pin) {
+    const { options } = await call({ action: 'auth_begin', cashier_id, pin });
+    const pub = { ...options, challenge: b64urlToBuf(options.challenge), allowCredentials: (options.allowCredentials || []).map(c => ({ ...c, id: b64urlToBuf(c.id) })) };
+    const cred = await navigator.credentials.get({ publicKey: pub });
+    if (!cred) throw new Error('No fingerprint / Face ID.');
+    const r = await call({ action: 'auth_finish', cashier_id, pin, response: authJSON(cred) });
+    return r.token;
+  }
+  async function enrollBiometric(cashier_id, pin) {
+    const begin = { action: 'passkey_register_begin', cashier_id };
+    if (session && session.token) begin.token = session.token; else begin.pin = pin;
+    const { options } = await call(begin);
+    const pub = { ...options, challenge: b64urlToBuf(options.challenge), user: { ...options.user, id: b64urlToBuf(options.user.id) }, excludeCredentials: (options.excludeCredentials || []).map(c => ({ ...c, id: b64urlToBuf(c.id) })) };
+    const cred = await navigator.credentials.create({ publicKey: pub });
+    if (!cred) throw new Error('Setup cancelled.');
+    const fin = { action: 'passkey_register_finish', cashier_id, response: regJSON(cred), label: (navigator.platform || 'phone').slice(0, 40) };
+    if (session && session.token) fin.token = session.token; else fin.pin = pin;
+    const r = await call(fin);
+    if (r.token && session) session.token = r.token;
+  }
+  // PIN sign-in, then the biometric gate; `offerEnroll` invites a not-yet-protected cashier to set it up.
+  async function openSession(cashier_id, pin, offerEnroll) {
+    session = { cashier_id, pin };
+    const r = await call({ action: 'login', cashier_id, pin });
+    if (r.need_biometric) session.token = await biometricUnlock(cashier_id, pin);
+    else if (r.token) session.token = r.token;
+    await load();
+    if (offerEnroll && !r.need_biometric && r.enroll && webauthnOK()) {
+      try { if (confirm('Protect your account: set up Face ID / fingerprint on this phone, so no one can open it with your PIN alone?')) await enrollBiometric(cashier_id, pin); }
+      catch (e) { /* they can set it up later */ }
+    }
   }
 
   function forget() {

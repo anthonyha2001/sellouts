@@ -34,10 +34,36 @@
 //
 // Deploy with JWT verification OFF (the page has no user session).
 import { createClient } from 'npm:@supabase/supabase-js@2';
+import { generateRegistrationOptions, verifyRegistrationResponse, generateAuthenticationOptions, verifyAuthenticationResponse } from 'npm:@simplewebauthn/server@13.1.0';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('LV_SECRET_KEY') ?? Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const db = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
+
+/* ---------------- biometric login (owner, 2026-10-25; migration 101) ----------------
+   A cashier signs in with their PIN and then unlocks with their phone's Face ID / fingerprint / passcode (a WebAuthn
+   passkey). After the biometric the function mints a short-lived signed token; the cashier page sends that token on every
+   call. Once a cashier has a passkey, PIN alone is refused (authGate) — so the PIN cannot open the account from another
+   phone. The WebAuthn passkey is bound to the phone and never leaves it. */
+const RP_ID = 'valeur.anthonyhasrouny.com', RP_ORIGIN = 'https://valeur.anthonyhasrouny.com', RP_NAME = 'La Valeur';
+const TOKEN_TTL_MS = 12 * 3600e3, TOKEN_SECRET = Deno.env.get('CASHIER_TOKEN_SECRET') || SERVICE_KEY;
+const te = new TextEncoder();
+const b64url = (buf: Uint8Array) => btoa(String.fromCharCode(...buf)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const fromB64url = (s: string) => Uint8Array.from(atob(String(s).replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
+async function hmac(data: string): Promise<string> {
+  const key = await crypto.subtle.importKey('raw', te.encode(TOKEN_SECRET), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  return b64url(new Uint8Array(await crypto.subtle.sign('HMAC', key, te.encode(data))));
+}
+async function mintToken(cashierId: string): Promise<string> {
+  const payload = b64url(te.encode(JSON.stringify({ cid: cashierId, exp: Date.now() + TOKEN_TTL_MS })));
+  return payload + '.' + await hmac(payload);
+}
+async function tokenCashier(token: unknown): Promise<string | null> {
+  const [payload, sig] = String(token || '').split('.'); if (!payload || !sig) return null;
+  if (await hmac(payload) !== sig) return null;
+  try { const p = JSON.parse(new TextDecoder().decode(fromB64url(payload))); return p.cid && p.exp && Date.now() <= p.exp ? String(p.cid) : null; } catch { return null; }
+}
+const hasPasskey = async (cashierId: string) => { const { count } = await db.from('cashier_passkeys').select('id', { count: 'exact', head: true }).eq('cashier_id', cashierId); return (count ?? 0) > 0; };
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -120,7 +146,8 @@ async function logAs(cashierId: string, action: string, summary: string, details
   } catch (e) { console.error('activity log', e); }
 }
 
-async function pinError(body: Record<string, unknown>): Promise<Response | null> {
+// the raw PIN check (no biometric rule): used by the gate and by the login / enrol actions
+async function verifyPin(body: Record<string, unknown>): Promise<Response | null> {
   const cashierId = String(body.cashier_id ?? '');
   const pin = String(body.pin ?? '');
   if (!/^[0-9a-f-]{36}$/i.test(cashierId)) return json({ error: 'Choose your name.' }, 400);
@@ -132,6 +159,15 @@ async function pinError(body: Record<string, unknown>): Promise<Response | null>
   if (result.status === 'wrong') { await logAs(cashierId, 'wrong_pin', `typed a wrong PIN (${result.attempts_left} tries left)`); return json({ error: 'Wrong PIN.', attempts_left: result.attempts_left }, 401); }
   if (result.status === 'no_pin') return json({ error: 'No PIN has been set for you yet. Ask your manager.' }, 403);
   if (result.status !== 'ok') return json({ error: 'Choose your name.' }, 404);
+  return null;
+}
+// the gate every protected action goes through: a valid biometric token passes; otherwise the PIN is checked, but once
+// the cashier has enrolled a passkey the PIN alone is refused (they must unlock with Face ID / fingerprint).
+async function pinError(body: Record<string, unknown>): Promise<Response | null> {
+  const cashierId = String(body.cashier_id ?? '');
+  if (body.token && (await tokenCashier(body.token)) === cashierId) return null;
+  const bad = await verifyPin(body); if (bad) return bad;
+  if (await hasPasskey(cashierId)) return json({ error: 'Unlock with your fingerprint or Face ID.', need_biometric: true }, 401);
   return null;
 }
 
@@ -160,7 +196,82 @@ const handle = async (req: Request): Promise<Response> => {
       const { data, error } = await db.from('cashiers').select('id, name, has_pin')
         .eq('active', true).order('sort_order').order('name');
       if (error) throw error;
-      return json({ cashiers: data });
+      // which cashiers have a biometric passkey (so the page asks for it instead of letting the PIN in alone)
+      const { data: pk } = await db.from('cashier_passkeys').select('cashier_id');
+      const enrolled = new Set((pk || []).map((r: Record<string, unknown>) => String(r.cashier_id)));
+      return json({ cashiers: (data || []).map((c: Record<string, unknown>) => ({ ...c, has_passkey: enrolled.has(String(c.id)) })) });
+    }
+
+    // Biometric login (migration 101). login: PIN first. If the cashier has a passkey -> { need_biometric:true }
+    // (the page then runs auth_begin/auth_finish). If not -> a token is minted and { enroll: true } invites them to set
+    // one up. All amounts/actions are then sent with the token.
+    if (body.action === 'login') {
+      const bad = await verifyPin(body); if (bad) return bad;
+      const cashierId = String(body.cashier_id);
+      if (await hasPasskey(cashierId)) return json({ ok: true, need_biometric: true });
+      return json({ ok: true, need_biometric: false, enroll: true, token: await mintToken(cashierId) });
+    }
+    // Register a passkey on this phone: allowed on a phone already unlocked (valid token) or, the first time, with the
+    // PIN when the cashier has no passkey yet. A second phone needs an admin reset first (prevents a PIN-knower adding one).
+    if (body.action === 'passkey_register_begin') {
+      const cashierId = String(body.cashier_id ?? '');
+      const tokenOk = body.token && (await tokenCashier(body.token)) === cashierId;
+      if (!tokenOk) { const bad = await verifyPin(body); if (bad) return bad; if (await hasPasskey(cashierId)) return json({ error: 'Biometric is already set up on another phone. Ask an admin to reset it to add this one.' }, 409); }
+      const { data: c } = await db.from('cashiers').select('name').eq('id', cashierId).maybeSingle();
+      if (!c) return json({ error: 'Choose your name.' }, 404);
+      const { data: existing } = await db.from('cashier_passkeys').select('credential_id, transports').eq('cashier_id', cashierId);
+      const opts = await generateRegistrationOptions({
+        rpName: RP_NAME, rpID: RP_ID, userID: te.encode(cashierId), userName: String(c.name), userDisplayName: String(c.name),
+        attestationType: 'none', authenticatorSelection: { residentKey: 'preferred', userVerification: 'required' },
+        excludeCredentials: (existing || []).map((e: Record<string, unknown>) => ({ id: String(e.credential_id), transports: e.transports ? String(e.transports).split(',') : undefined })),
+      });
+      await db.from('cashier_webauthn_challenges').upsert({ cashier_id: cashierId, kind: 'register', challenge: opts.challenge, created_at: new Date().toISOString() });
+      return json({ options: opts });
+    }
+    if (body.action === 'passkey_register_finish') {
+      const cashierId = String(body.cashier_id ?? '');
+      const { data: ch } = await db.from('cashier_webauthn_challenges').select('challenge, created_at').eq('cashier_id', cashierId).eq('kind', 'register').maybeSingle();
+      if (!ch || Date.now() - new Date(ch.created_at).getTime() > 5 * 60e3) return json({ error: 'Setup timed out — try again.' }, 400);
+      let v;
+      try {
+        v = await verifyRegistrationResponse({ response: body.response as Parameters<typeof verifyRegistrationResponse>[0]['response'], expectedChallenge: ch.challenge, expectedOrigin: RP_ORIGIN, expectedRPID: RP_ID, requireUserVerification: true });
+      } catch (e) { console.warn('reg verify', e); return json({ error: 'Could not set up Face ID on this phone.' }, 400); }
+      await db.from('cashier_webauthn_challenges').delete().eq('cashier_id', cashierId).eq('kind', 'register');
+      if (!v.verified || !v.registrationInfo) return json({ error: 'Could not set up Face ID on this phone.' }, 400);
+      const cred = v.registrationInfo.credential;
+      const { error } = await db.from('cashier_passkeys').insert({ cashier_id: cashierId, credential_id: cred.id, public_key: b64url(cred.publicKey), counter: cred.counter || 0, transports: (cred.transports || []).join(',') || null, device_label: String(body.label || '').slice(0, 60) || null, last_used_at: new Date().toISOString() });
+      if (error && !/duplicate|unique/i.test(error.message)) throw error;
+      await logAs(cashierId, 'biometric_on', 'turned on biometric sign-in on their phone', null, true);
+      return json({ ok: true, token: await mintToken(cashierId) });
+    }
+    // Unlock with the biometric: begin (challenge) then finish (verify the assertion -> token). PIN is required too.
+    if (body.action === 'auth_begin') {
+      const bad = await verifyPin(body); if (bad) return bad;
+      const cashierId = String(body.cashier_id);
+      const { data: creds } = await db.from('cashier_passkeys').select('credential_id, transports').eq('cashier_id', cashierId);
+      if (!creds || !creds.length) return json({ error: 'No biometric set up yet.', no_passkey: true }, 400);
+      const opts = await generateAuthenticationOptions({ rpID: RP_ID, userVerification: 'required',
+        allowCredentials: creds.map((c: Record<string, unknown>) => ({ id: String(c.credential_id), transports: c.transports ? String(c.transports).split(',') : undefined })) });
+      await db.from('cashier_webauthn_challenges').upsert({ cashier_id: cashierId, kind: 'auth', challenge: opts.challenge, created_at: new Date().toISOString() });
+      return json({ options: opts });
+    }
+    if (body.action === 'auth_finish') {
+      const bad = await verifyPin(body); if (bad) return bad;
+      const cashierId = String(body.cashier_id);
+      const resp = body.response as Record<string, unknown> | undefined;
+      const { data: ch } = await db.from('cashier_webauthn_challenges').select('challenge, created_at').eq('cashier_id', cashierId).eq('kind', 'auth').maybeSingle();
+      if (!ch || !resp || Date.now() - new Date(ch.created_at).getTime() > 5 * 60e3) return json({ error: 'Timed out — try again.' }, 400);
+      const { data: pk } = await db.from('cashier_passkeys').select('*').eq('cashier_id', cashierId).eq('credential_id', String(resp.id)).maybeSingle();
+      if (!pk) return json({ error: 'This phone is not registered for you.' }, 400);
+      let v;
+      try {
+        v = await verifyAuthenticationResponse({ response: resp as Parameters<typeof verifyAuthenticationResponse>[0]['response'], expectedChallenge: ch.challenge, expectedOrigin: RP_ORIGIN, expectedRPID: RP_ID, requireUserVerification: true,
+          credential: { id: pk.credential_id, publicKey: fromB64url(pk.public_key), counter: Number(pk.counter), transports: pk.transports ? String(pk.transports).split(',') : undefined } });
+      } catch (e) { console.warn('auth verify', e); return json({ error: 'Face ID did not match.' }, 400); }
+      await db.from('cashier_webauthn_challenges').delete().eq('cashier_id', cashierId).eq('kind', 'auth');
+      if (!v.verified) return json({ error: 'Face ID did not match.' }, 400);
+      await db.from('cashier_passkeys').update({ counter: v.authenticationInfo.newCounter, last_used_at: new Date().toISOString() }).eq('id', pk.id);
+      return json({ ok: true, token: await mintToken(cashierId) });
     }
 
     if (body.action === 'view') {
