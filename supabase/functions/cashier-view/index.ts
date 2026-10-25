@@ -46,6 +46,13 @@ const db = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: fal
    call. Once a cashier has a passkey, PIN alone is refused (authGate) — so the PIN cannot open the account from another
    phone. The WebAuthn passkey is bound to the phone and never leaves it. */
 const RP_ID = 'valeur.anthonyhasrouny.com', RP_ORIGIN = 'https://valeur.anthonyhasrouny.com', RP_NAME = 'La Valeur';
+// WebAuthn's RP ID must be the page's real domain. Derive it from the request Origin (when it is one of ours) so the
+// passkey works whichever allowed domain the cashier opened — the hardcoded host failed with "RP ID did not match origin".
+function rp(req: Request): { rpID: string; origin: string } {
+  const o = req.headers.get('Origin') || '';
+  if (ALLOW_ORIGINS.includes(o)) { try { return { rpID: new URL(o).hostname, origin: o }; } catch { /* bad origin */ } }
+  return { rpID: RP_ID, origin: RP_ORIGIN };
+}
 const TOKEN_TTL_MS = 12 * 3600e3, TOKEN_SECRET = Deno.env.get('CASHIER_TOKEN_SECRET') || SERVICE_KEY;
 const te = new TextEncoder();
 const b64url = (buf: Uint8Array) => btoa(String.fromCharCode(...buf)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -190,6 +197,7 @@ const handle = async (req: Request): Promise<Response> => {
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
   let body: Record<string, unknown>;
   try { body = await req.json(); } catch { return json({ error: 'Bad request' }, 400); }
+  const WA = rp(req);   // the WebAuthn RP ID / origin for this request's domain
 
   try {
     if (body.action === 'cashiers') {
@@ -221,7 +229,7 @@ const handle = async (req: Request): Promise<Response> => {
       if (!c) return json({ error: 'Choose your name.' }, 404);
       const { data: existing } = await db.from('cashier_passkeys').select('credential_id, transports').eq('cashier_id', cashierId);
       const opts = await generateRegistrationOptions({
-        rpName: RP_NAME, rpID: RP_ID, userID: te.encode(cashierId), userName: String(c.name), userDisplayName: String(c.name),
+        rpName: RP_NAME, rpID: WA.rpID, userID: te.encode(cashierId), userName: String(c.name), userDisplayName: String(c.name),
         attestationType: 'none', authenticatorSelection: { residentKey: 'preferred', userVerification: 'required' },
         excludeCredentials: (existing || []).map((e: Record<string, unknown>) => ({ id: String(e.credential_id), transports: e.transports ? String(e.transports).split(',') : undefined })),
       });
@@ -234,7 +242,7 @@ const handle = async (req: Request): Promise<Response> => {
       if (!ch || Date.now() - new Date(ch.created_at).getTime() > 5 * 60e3) return json({ error: 'Setup timed out — try again.' }, 400);
       let v;
       try {
-        v = await verifyRegistrationResponse({ response: body.response as Parameters<typeof verifyRegistrationResponse>[0]['response'], expectedChallenge: ch.challenge, expectedOrigin: RP_ORIGIN, expectedRPID: RP_ID, requireUserVerification: true });
+        v = await verifyRegistrationResponse({ response: body.response as Parameters<typeof verifyRegistrationResponse>[0]['response'], expectedChallenge: ch.challenge, expectedOrigin: WA.origin, expectedRPID: WA.rpID, requireUserVerification: true });
       } catch (e) { console.warn('reg verify', e); return json({ error: 'Could not set up Face ID on this phone.' }, 400); }
       await db.from('cashier_webauthn_challenges').delete().eq('cashier_id', cashierId).eq('kind', 'register');
       if (!v.verified || !v.registrationInfo) return json({ error: 'Could not set up Face ID on this phone.' }, 400);
@@ -250,7 +258,7 @@ const handle = async (req: Request): Promise<Response> => {
       const cashierId = String(body.cashier_id);
       const { data: creds } = await db.from('cashier_passkeys').select('credential_id, transports').eq('cashier_id', cashierId);
       if (!creds || !creds.length) return json({ error: 'No biometric set up yet.', no_passkey: true }, 400);
-      const opts = await generateAuthenticationOptions({ rpID: RP_ID, userVerification: 'required',
+      const opts = await generateAuthenticationOptions({ rpID: WA.rpID, userVerification: 'required',
         allowCredentials: creds.map((c: Record<string, unknown>) => ({ id: String(c.credential_id), transports: c.transports ? String(c.transports).split(',') : undefined })) });
       await db.from('cashier_webauthn_challenges').upsert({ cashier_id: cashierId, kind: 'auth', challenge: opts.challenge, created_at: new Date().toISOString() });
       return json({ options: opts });
@@ -265,7 +273,7 @@ const handle = async (req: Request): Promise<Response> => {
       if (!pk) return json({ error: 'This phone is not registered for you.' }, 400);
       let v;
       try {
-        v = await verifyAuthenticationResponse({ response: resp as Parameters<typeof verifyAuthenticationResponse>[0]['response'], expectedChallenge: ch.challenge, expectedOrigin: RP_ORIGIN, expectedRPID: RP_ID, requireUserVerification: true,
+        v = await verifyAuthenticationResponse({ response: resp as Parameters<typeof verifyAuthenticationResponse>[0]['response'], expectedChallenge: ch.challenge, expectedOrigin: WA.origin, expectedRPID: WA.rpID, requireUserVerification: true,
           credential: { id: pk.credential_id, publicKey: fromB64url(pk.public_key), counter: Number(pk.counter), transports: pk.transports ? String(pk.transports).split(',') : undefined } });
       } catch (e) { console.warn('auth verify', e); return json({ error: 'Face ID did not match.' }, 400); }
       await db.from('cashier_webauthn_challenges').delete().eq('cashier_id', cashierId).eq('kind', 'auth');
