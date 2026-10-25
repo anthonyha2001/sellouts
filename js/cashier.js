@@ -109,14 +109,24 @@
     try { const r = await call({ action: 'count_pending', cashier_id: session.cashier_id, pin: session.pin }); renderPendingBanner(r.counts || []); }
     catch (e) { /* ignore */ }
   }
+  let knownPending = new Set();
   function renderPendingBanner(counts) {
     let b = $('cpSignBanner');
-    if (!counts.length) { if (b) b.remove(); return; }
+    if (!counts.length) { if (b) b.remove(); knownPending = new Set(); return; }
+    // a count that wasn't there a moment ago = instant alert (vibrate), even with the app open
+    const ids = new Set(counts.map(c => c.id));
+    const isNew = counts.some(c => !knownPending.has(c.id));
+    knownPending = ids;
     if (!b) { b = document.createElement('div'); b.id = 'cpSignBanner'; b.className = 'cp-signbanner'; const v = $('cpView'); if (v && v.parentNode) v.parentNode.insertBefore(b, v); else document.body.appendChild(b); }
     b.innerHTML = `<b>You have ${counts.length} cash count${counts.length > 1 ? 's' : ''} to confirm</b>`
       + counts.map(c => `<button type="button" data-cc="${esc(c.id)}">${esc(sgDate(c.count_date))} · POS ${esc(c.pos)} · ${esc(String(c.shift).toUpperCase())}</button>`).join('');
     b.querySelectorAll('[data-cc]').forEach(x => x.onclick = () => openConfirm(x.dataset.cc));
+    if (isNew) { try { navigator.vibrate && navigator.vibrate([120, 60, 120]); } catch (e) { /* no vibrate */ } b.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
   }
+  // Instant even when the app stays open: poll for new confirmation requests (and when the app comes back to the front).
+  let pendTimer = null;
+  function startPending() { stopPending(); if (session) pendTimer = setInterval(() => { if (document.visibilityState === 'visible' && !$('ccOv')) checkPending(); }, 12000); }
+  function stopPending() { if (pendTimer) { clearInterval(pendTimer); pendTimer = null; } }
   async function openConfirm(id) {
     if (!session) return;
     let data;
@@ -191,6 +201,7 @@
 
   function forget() {
     session = null;
+    stopPending(); $('cpSignBanner')?.remove(); knownPending = new Set();
     clearTimeout(idleTimer);
     $('cpPin').value = '';
     $('cpView').hidden = true;
@@ -746,7 +757,7 @@
       await openSession(cashier_id, pin, true);
       setSaved($('cpRemember').checked ? { cashier_id, pin } : null);
       touch();
-      checkPending();
+      checkPending(); startPending();
       if (pendingSignRoute) { const id = pendingSignRoute; pendingSignRoute = null; openConfirm(id); }
     } catch (err) {
       session = null;
@@ -794,7 +805,7 @@
   $('cpDone').addEventListener('click', async () => { if (pushFor()) await pushOff(); setSaved(null); forget(); });
   // Remembered: refresh when the page comes back to the screen (new week published, new entries).
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && session && session.data && saved()) load(session.data.month).catch(() => {});
+    if (document.visibilityState === 'visible' && session) { if (session.data && saved()) load(session.data.month).catch(() => {}); checkPending(); }
   });
 
   // Opens straight on the remembered person; a changed PIN or removed name goes back to the login.
@@ -802,7 +813,7 @@
     const s = saved();
     if (!s) return false;
     if (!cashiers.some(c => c.id === s.cashier_id)) { setSaved(null); return false; }
-    try { await openSession(s.cashier_id, s.pin, false); checkPending(); if (pendingSignRoute) { const id = pendingSignRoute; pendingSignRoute = null; openConfirm(id); } return true; }
+    try { await openSession(s.cashier_id, s.pin, false); checkPending(); startPending(); if (pendingSignRoute) { const id = pendingSignRoute; pendingSignRoute = null; openConfirm(id); } return true; }
     catch (err) {
       session = null;
       if (err.name === 'NotAllowedError' || /not allowed|timed out|abort/i.test(err.message || '')) { $('cpErr').textContent = 'Unlock with your Face ID / fingerprint to open your account.'; return false; }
