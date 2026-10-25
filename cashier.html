@@ -3,6 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- Content-Security-Policy (owner, 2026-10-25): the cashier page runs only its own code and talks only to Supabase.
+     No inline scripts, no third-party scripts. Biometric sign-in is the browser's native WebAuthn (no library). -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data: blob:; font-src 'self' https://fonts.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; script-src 'self'; worker-src 'self'; manifest-src 'self'; connect-src 'self' https://sezjqcbkiydckhirycjb.supabase.co">
+<meta name="referrer" content="strict-origin-when-cross-origin">
 <title>My page — La Valeur</title>
 <meta name="robots" content="noindex">
 <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">

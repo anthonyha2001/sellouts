@@ -59,9 +59,11 @@
     S.busy = true; S.err = '';
     body.innerHTML = `<div class="card"><p class="muted-note" style="margin:0;">Loading…</p></div>`;
     try {
-      const { data, error } = await sb.rpc('cashier_push_status');
-      if (error) throw new Error(/cashier_push_status|function/.test(error.message) ? 'Not set up yet (run migration 100).' : error.message);
-      S.data = data;
+      const [push, bio] = await Promise.all([sb.rpc('cashier_push_status'), sb.rpc('cashier_biometric_status').catch(() => ({ data: null }))]);
+      if (push.error) throw new Error(/cashier_push_status|function/.test(push.error.message) ? 'Not set up yet (run migration 100).' : push.error.message);
+      const bmap = {}; ((bio && bio.data) || []).forEach(x => { bmap[x.cashier_id] = x.passkeys; });
+      (push.data.cashiers || []).forEach(c => { c.passkeys = bmap[c.id] || 0; });
+      S.data = push.data;
     } catch (e) { S.err = e.message; S.data = null; }
     S.busy = false;
     paint();
@@ -83,13 +85,14 @@
       </div>
       <div class="card">
         <h3 style="margin:0 0 10px;">Cashiers</h3>
-        <div class="items-scroll"><table class="items nt-table"><thead><tr><th>Cashier</th><th>Status</th><th>Phones</th><th>Last delivered</th><th>Registered</th></tr></thead>
+        <div class="items-scroll"><table class="items nt-table"><thead><tr><th>Cashier</th><th>Status</th><th>Phones</th><th>Last delivered</th><th>Biometric</th><th>Registered</th></tr></thead>
           <tbody>${cashiers.map(c => { const s = status(c); return `<tr>
             <td>${esc(c.name)}${c.position === 'supervisor' ? ' <span class="muted-note">(supervisor)</span>' : ''}</td>
             <td><span class="nt-dot ${s.cls}"></span>${esc(s.text)}</td>
             <td class="num">${c.devices}${c.failing ? ` <span class="muted-note">(${c.failing} failing)</span>` : ''}</td>
             <td>${c.last_ok_at ? `${esc(ago(c.last_ok_at))} <span class="muted-note">${esc(when(c.last_ok_at))}</span>` : '<span class="muted-note">never</span>'}</td>
-            <td>${c.registered_at ? esc(when(c.registered_at)) : '—'}</td></tr>`; }).join('') || '<tr><td colspan="5" class="empty-note">No active cashiers.</td></tr>'}</tbody>
+            <td>${c.passkeys ? `<span class="nt-dot ok"></span>On${isAdmin() ? ` <button type="button" class="link-btn" data-bioreset="${esc(c.id)}" data-name="${esc(c.name)}">Reset</button>` : ''}` : '<span class="muted-note">—</span>'}</td>
+            <td>${c.registered_at ? esc(when(c.registered_at)) : '—'}</td></tr>`; }).join('') || '<tr><td colspan="6" class="empty-note">No active cashiers.</td></tr>'}</tbody>
         </table></div>
       </div>
       <div class="card">
@@ -100,6 +103,18 @@
         </table></div>
       </div>
       <p class="muted-note" style="margin:10px 0 0;">Read live from the system. Updated ${esc(ago(d.generated_at))}.</p>`;
+    // admin: reset a cashier's biometric (lost / replaced phone) so they fall back to PIN and can enrol again
+    body.querySelectorAll('[data-bioreset]').forEach(b => b.onclick = async () => {
+      const id = b.dataset.bioreset, name = b.dataset.name;
+      if (!confirm(`Reset biometric for ${name}?\n\nThey will sign in with their PIN and can set up Face ID again on their phone. Use this for a lost or replaced phone.`)) return;
+      b.disabled = true;
+      try {
+        const { error } = await sb.rpc('cashier_reset_biometric', { p_cashier: id });
+        if (error) throw error;
+        if (typeof showToast === 'function') showToast(`Biometric reset for ${name}.`);
+        load();
+      } catch (e) { if (typeof showToast === 'function') showToast(e.message || 'Could not reset.', true); b.disabled = false; }
+    });
   }
 
   function show() { build(); load(); }
