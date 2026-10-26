@@ -50,7 +50,7 @@ const RP_ID = 'valeur.anthonyhasrouny.com', RP_ORIGIN = 'https://valeur.anthonyh
 // passkey works whichever allowed domain the cashier opened — the hardcoded host failed with "RP ID did not match origin".
 function rp(req: Request): { rpID: string; origin: string } {
   const o = req.headers.get('Origin') || '';
-  if (ALLOW_ORIGINS.includes(o)) { try { return { rpID: new URL(o).hostname, origin: o }; } catch { /* bad origin */ } }
+  try { const u = new URL(o); if (u.protocol === 'https:' && u.hostname) return { rpID: u.hostname, origin: u.origin }; } catch { /* no / bad origin */ }
   return { rpID: RP_ID, origin: RP_ORIGIN };
 }
 const TOKEN_TTL_MS = 12 * 3600e3, TOKEN_SECRET = Deno.env.get('CASHIER_TOKEN_SECRET') || SERVICE_KEY;
@@ -61,15 +61,17 @@ async function hmac(data: string): Promise<string> {
   const key = await crypto.subtle.importKey('raw', te.encode(TOKEN_SECRET), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
   return b64url(new Uint8Array(await crypto.subtle.sign('HMAC', key, te.encode(data))));
 }
-async function mintToken(cashierId: string): Promise<string> {
-  const payload = b64url(te.encode(JSON.stringify({ cid: cashierId, exp: Date.now() + TOKEN_TTL_MS })));
+// bio = the token was obtained by an actual biometric assertion (auth_finish / register_finish), not just a PIN login.
+async function mintToken(cashierId: string, bio: boolean): Promise<string> {
+  const payload = b64url(te.encode(JSON.stringify({ cid: cashierId, bio: !!bio, exp: Date.now() + TOKEN_TTL_MS })));
   return payload + '.' + await hmac(payload);
 }
-async function tokenCashier(token: unknown): Promise<string | null> {
+async function verifyToken(token: unknown): Promise<{ cid: string; bio: boolean } | null> {
   const [payload, sig] = String(token || '').split('.'); if (!payload || !sig) return null;
   if (await hmac(payload) !== sig) return null;
-  try { const p = JSON.parse(new TextDecoder().decode(fromB64url(payload))); return p.cid && p.exp && Date.now() <= p.exp ? String(p.cid) : null; } catch { return null; }
+  try { const p = JSON.parse(new TextDecoder().decode(fromB64url(payload))); return p.cid && p.exp && Date.now() <= p.exp ? { cid: String(p.cid), bio: !!p.bio } : null; } catch { return null; }
 }
+const tokenCashier = async (token: unknown): Promise<string | null> => (await verifyToken(token))?.cid ?? null;
 const hasPasskey = async (cashierId: string) => { const { count } = await db.from('cashier_passkeys').select('id', { count: 'exact', head: true }).eq('cashier_id', cashierId); return (count ?? 0) > 0; };
 
 const cors = {
@@ -217,7 +219,7 @@ const handle = async (req: Request): Promise<Response> => {
       const bad = await verifyPin(body); if (bad) return bad;
       const cashierId = String(body.cashier_id);
       if (await hasPasskey(cashierId)) return json({ ok: true, need_biometric: true });
-      return json({ ok: true, need_biometric: false, enroll: true, token: await mintToken(cashierId) });
+      return json({ ok: true, need_biometric: false, enroll: true, token: await mintToken(cashierId, false) });
     }
     // Register a passkey on this phone: allowed on a phone already unlocked (valid token) or, the first time, with the
     // PIN when the cashier has no passkey yet. A second phone needs an admin reset first (prevents a PIN-knower adding one).
@@ -250,7 +252,7 @@ const handle = async (req: Request): Promise<Response> => {
       const { error } = await db.from('cashier_passkeys').insert({ cashier_id: cashierId, credential_id: cred.id, public_key: b64url(cred.publicKey), counter: cred.counter || 0, transports: (cred.transports || []).join(',') || null, device_label: String(body.label || '').slice(0, 60) || null, last_used_at: new Date().toISOString() });
       if (error && !/duplicate|unique/i.test(error.message)) throw error;
       await logAs(cashierId, 'biometric_on', 'turned on biometric sign-in on their phone', null, true);
-      return json({ ok: true, token: await mintToken(cashierId) });
+      return json({ ok: true, token: await mintToken(cashierId, true) });
     }
     // Unlock with the biometric: begin (challenge) then finish (verify the assertion -> token). PIN is required too.
     if (body.action === 'auth_begin') {
@@ -279,7 +281,7 @@ const handle = async (req: Request): Promise<Response> => {
       await db.from('cashier_webauthn_challenges').delete().eq('cashier_id', cashierId).eq('kind', 'auth');
       if (!v.verified) return json({ error: 'Face ID did not match.' }, 400);
       await db.from('cashier_passkeys').update({ counter: v.authenticationInfo.newCounter, last_used_at: new Date().toISOString() }).eq('id', pk.id);
-      return json({ ok: true, token: await mintToken(cashierId) });
+      return json({ ok: true, token: await mintToken(cashierId, true) });
     }
 
     // Cash-count confirmation (migration 102): the counts awaiting THIS cashier's signature.
@@ -309,7 +311,8 @@ const handle = async (req: Request): Promise<Response> => {
       const cashierId = String(body.cashier_id), id = String(body.count_id || '');
       const { data: c } = await db.from('cash_counts').select('id, cashier_id, signed_at').eq('id', id).maybeSingle();
       if (!c || c.cashier_id !== cashierId) return json({ error: 'That count is not yours.' }, 404);
-      const method = body.token && (await tokenCashier(body.token)) === cashierId ? 'biometric' : 'pin';
+      const tk = await verifyToken(body.token);
+      const method = tk && tk.cid === cashierId && tk.bio ? 'biometric' : 'pin';
       const { data: st, error } = await db.rpc('cash_count_sign_cashier', { p_count: id, p_cashier: cashierId, p_method: method });
       if (error) throw error;
       if (st !== 'ok') return json({ error: st === 'mismatch' ? 'That count is not yours.' : 'Could not confirm — try again.' }, 400);

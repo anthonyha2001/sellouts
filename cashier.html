@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <!-- Content-Security-Policy (owner, 2026-10-25): the cashier page runs only its own code and talks only to Supabase.
      No inline scripts, no third-party scripts. Biometric sign-in is the browser's native WebAuthn (no library). -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data: blob:; font-src 'self' https://fonts.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; script-src 'self'; worker-src 'self'; manifest-src 'self'; connect-src 'self' https://sezjqcbkiydckhirycjb.supabase.co">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data: blob:; font-src 'self' https://fonts.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; script-src 'self' 'wasm-unsafe-eval' https://cdn.jsdelivr.net https://fastly.jsdelivr.net; worker-src 'self' blob: https://cdn.jsdelivr.net https://fastly.jsdelivr.net; manifest-src 'self'; connect-src 'self' https://sezjqcbkiydckhirycjb.supabase.co https://cdn.jsdelivr.net https://fastly.jsdelivr.net">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <title>My page — La Valeur</title>
 <meta name="robots" content="noindex">
@@ -45,7 +45,7 @@
   <section id="cpView" hidden>
     <div class="cp-head">
       <div><h2 id="cpWho"></h2><p class="muted-note" id="cpMonthLabel"></p></div>
-      <button class="btn ghost small" id="cpDone" type="button">Log out</button>
+      <div class="cp-head-btns"><button class="btn secondary small" id="cpScan" type="button">Scan a count</button><button class="btn ghost small" id="cpDone" type="button">Log out</button></div>
     </div>
     <div class="cp-notify" id="cpNotify" hidden></div>
     <div id="cpCountEntry"></div>
@@ -90,6 +90,7 @@
     <p class="muted-note" id="cpInstallIos" hidden>On iPhone: open this page in Safari, tap the Share button (square with an arrow), then <b>Add to Home Screen</b>.</p>
   </div>
 </main>
+<script src="js/core/scanner.js"></script>
 <script src="js/cashier.js"></script>
 </body>
 </html>

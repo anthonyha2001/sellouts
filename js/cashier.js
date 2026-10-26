@@ -13,6 +13,7 @@
   const IDLE_MS = 2 * 60 * 1000;
   const $ = id => document.getElementById(id);
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  window.escapeHtml = window.escapeHtml || esc;   // the shared scanner (js/core/scanner.js) uses escapeHtml
   // Amounts in the app's cash currency (settings): LBP in whole pounds, USD with cents.
   let currency = 'LBP';
   const money = n => currency === 'USD'
@@ -803,6 +804,16 @@
     } finally { $('cpPinSave').disabled = false; }
   });
   $('cpDone').addEventListener('click', async () => { if (pushFor()) await pushOff(); setSaved(null); forget(); });
+  // Scan the QR shown on the counting device to open that count (the count also appears by itself in the banner).
+  $('cpScan')?.addEventListener('click', () => {
+    if (!window.Scanner) { alert('The scanner is not available on this device.'); return; }
+    let stop = null;
+    stop = Scanner.open({ title: 'Scan the count’s QR code', continuous: false, onCode: code => {
+      setTimeout(() => stop && stop(), 0);
+      const m = String(code || '').match(/sign=([0-9a-f-]{36})/i);
+      if (m) openConfirm(m[1]); else alert('That QR is not a cash-count code.');
+    } });
+  });
   // Remembered: refresh when the page comes back to the screen (new week published, new entries).
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && session) { if (session.data && saved()) load(session.data.month).catch(() => {}); checkPending(); }

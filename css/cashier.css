@@ -221,3 +221,5 @@ body.cashier-page{display:block;min-height:100vh;}
 .cp-cc-done > .cp-ic{width:44px;height:44px;color:var(--pine);}
 .cp-cc-done h2{margin:0;font-family:var(--font-head);}
 .cp-cc-done .btn{width:100%;min-height:50px;}
+
+.cp-head-btns{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}

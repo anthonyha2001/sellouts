@@ -341,7 +341,7 @@
   }
   const svgTrash = '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>';
   function signHtml(c) {
-    const how = c.sign_method === 'biometric' ? 'with Face ID on their phone' : 'with their PIN';
+    const how = c.sign_method === 'biometric' ? 'with their phone’s Face ID / fingerprint' : 'with their PIN';
     const head = c.signed_at
       ? `<span class="badge active">Signed</span> <span>${esc(c.cashier_name)} confirmed this count ${how} · ${esc(fmtTs(c.signed_at))}</span>${!c.modified_at && c.signed_at && canEdit1(c) ? ' <span class="muted-note">(a change is flagged as modified)</span>' : ''}`
       : canCount() ? `<div class="cc-signbtns"><button type="button" class="btn" id="ccReqSign">Request ${esc(c.cashier_name)}’s signature</button><button type="button" class="btn secondary" id="ccSign">Sign here with PIN</button></div>
