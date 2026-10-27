@@ -49,6 +49,8 @@
     refresh: '<path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/>',
     return: '<path d="M9 15l-4-4 4-4"/><path d="M5 11h9a5 5 0 0 1 5 5v2"/>',
     go: '<path d="M9 6l6 6-6 6"/>',
+    grid: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
+    box: '<path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M3 7l9 4 9-4M12 11v10"/>',
   };
   const svg = (k, cls = '') => `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${I[k]}</svg>`;
 
@@ -262,9 +264,19 @@
   async function loadActivity() {
     return q(sb.from('activity_log').select('at, username, module, summary').order('at', { ascending: false }).limit(14));
   }
+  // Today's sales by category (section) and by supplier, per branch — one summary call each (branch_compare).
+  async function topBy(level) {
+    const t = today();
+    const { data, error } = await sb.functions.invoke('lv-dashboard', { body: { action: 'branch_compare', level, from: t, to: t } });
+    if (error) { let msg = error.message; try { msg = (await error.context.json()).error || msg; } catch (e) { /* keep */ } throw new Error(msg); }
+    if (!data || data.error) throw new Error(data?.error || 'No answer');
+    return data;
+  }
+  const loadTopCat = () => topBy('section');
+  const loadTopSup = () => topBy('supplier');
 
   const PARTS = { cash: loadCash, cashcount: loadCashCount, sellouts: loadSellouts, promotions: loadPromotions, credit: loadCredit, orders: loadOrders,
-    rentals: loadRentals, delivery: loadDelivery, floor: loadFloor, labels: loadLabels, ladies: loadLadies, schedule: loadSchedule, people: loadPeople, activity: loadActivity, link: loadLink, branches: loadBranches, returns: loadReturns };
+    rentals: loadRentals, delivery: loadDelivery, floor: loadFloor, labels: loadLabels, ladies: loadLadies, schedule: loadSchedule, people: loadPeople, activity: loadActivity, link: loadLink, branches: loadBranches, returns: loadReturns, topcat: loadTopCat, topsup: loadTopSup };
 
   /* ---------------- what needs attention ---------------- */
   function alerts(D) {
@@ -374,6 +386,29 @@
     render(S.D, S.E);
   }
 
+  // Top category / supplier today, per branch — ‹ › cycles the branches (data holds every branch, so no refetch).
+  function topHtml(box, part, brKey, navAttr, noun) {
+    return box(part, d => {
+      const branches = d.branches || [];
+      let i = S[brKey] || 0; if (i >= branches.length) i = 0;
+      const branch = branches[i] || branches[0] || 'Ajaltoun';
+      const rows = (d.categories || []).map(c => ({ name: c.name, v: n((c.by || {})[branch] || 0) })).filter(r => r.v > 0).sort((a, b) => b.v - a.v);
+      const total = n((d.branchTotals || {})[branch] || rows.reduce((t, r) => t + r.v, 0));
+      const top = rows.slice(0, 6);
+      const nav = `<div class="db-daynav"><button type="button" class="db-dnav" data-${navAttr}="prev" aria-label="Previous branch" title="Previous branch">‹</button><b>${esc(branch)}</b>
+        <button type="button" class="db-dnav" data-${navAttr}="next" aria-label="Next branch" title="Next branch">›</button></div>`;
+      return nav + `<div class="db-stats">${stat('Top ' + noun, top[0] ? esc(top[0].name) : '—', '', top[0] ? top[0].name : '')}${stat('Its sales', top[0] ? money(top[0].v) : '—')}${stat('Branch total', money(total))}</div>
+        <ul class="db-list">${top.map((r, n2) => line(`<span class="db-rank">${n2 + 1}</span> ${esc(r.name)}`, `${money(r.v)}${total > 0 ? ` <span class="muted-note">${Math.round(r.v / total * 100)}%</span>` : ''}`)).join('') || '<li class="db-note">No sales today.</li>'}</ul>
+        <p class="db-note">Today's sales by ${noun} at ${esc(branch)}, from the system — ‹ › to change branch${i === 0 ? '' : ''}.</p>`;
+    });
+  }
+  function topBranchNav(brKey, part, dir) {
+    if (!S.D) return;
+    const d = S.D[part], len = (d && d.branches && d.branches.length) || 1, cur = S[brKey] || 0;
+    S[brKey] = dir === 'prev' ? (cur - 1 + len) % len : (cur + 1) % len;
+    render(S.D, S.E);
+  }
+
   function render(D, E) {
     const box = (k, fn) => E[k] ? failed(k) : D[k] === undefined ? '<p class="muted-note">Loading…</p>' : D[k] === null ? '<p class="muted-note">Not available.</p>' : fn(D[k]);
     const A = alerts(D);
@@ -394,6 +429,10 @@
 
       <div class="db-grid">
         ${card('branches', null, 'store', 'Branches', branchesHtml(box))}
+
+        ${card('topcat', null, 'grid', 'Top category today', topHtml(box, 'topcat', 'catBr', 'catbr', 'category'))}
+
+        ${card('topsup', null, 'box', 'Top supplier today', topHtml(box, 'topsup', 'supBr', 'supbr', 'supplier'))}
 
         ${card('cash', 'cash', 'cash', 'Cash differences', box('cash', c => `
           <div class="db-stats">${stat('Yesterday', `<span class="${tone(c.yNet)}">${sshort(c.yNet)}</span>`, '', signed(c.yNet, lbp) + ' LBP')}${stat('This month', `<span class="${tone(c.monthNet)}">${sshort(c.monthNet)}</span>`, '', signed(c.monthNet, lbp) + ' LBP')}${stat('Shorts this month', `<span class="neg">${short(-c.monthShort)}</span>`, '', lbp(-c.monthShort) + ' LBP')}</div>
@@ -484,6 +523,8 @@
     el('dbRefresh').onclick = () => load(true);
     panel.querySelectorAll('[data-go]').forEach(b => b.onclick = () => switchTab(b.dataset.go));
     panel.querySelectorAll('[data-bday]').forEach(b => b.onclick = () => branchDay(b.dataset.bday));
+    panel.querySelectorAll('[data-catbr]').forEach(b => b.onclick = () => topBranchNav('catBr', 'topcat', b.dataset.catbr));
+    panel.querySelectorAll('[data-supbr]').forEach(b => b.onclick = () => topBranchNav('supBr', 'topsup', b.dataset.supbr));
     panel.querySelectorAll('[data-rday]').forEach(b => b.onclick = () => returnsDay(b.dataset.rday));
   }
   const el = id => document.getElementById(id);

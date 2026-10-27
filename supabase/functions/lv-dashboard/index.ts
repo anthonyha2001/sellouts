@@ -2583,7 +2583,7 @@ const handle = async (req: Request): Promise<Response> => {
         if (!okp) return json({ error: 'Not allowed.' }, 403);
       }
       const lv = String(body.level || 'section'), f2 = String(body.from || ''), t2 = String(body.to || '');
-      if (!['department', 'section', 'group', 'brand'].includes(lv) || !isDay(f2) || !isDay(t2)) return json({ error: 'Choose a level and dates.' }, 400);
+      if (!['department', 'section', 'group', 'brand', 'supplier'].includes(lv) || !isDay(f2) || !isDay(t2)) return json({ error: 'Choose a level and dates.' }, 400);
       return json(await branchCompare(lv, f2, t2));
     }
     // Performance by scan (owner, 2026-10-25): one item's standing in its category, admin / vendors.manage
