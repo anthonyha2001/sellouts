@@ -868,7 +868,8 @@ async function stockPosition(supplierCodes: string[], branch = BRANCH) {
     try {
       const d = await dash('/wms/stock-position?' + new URLSearchParams({ branch, from_date: today, to_date: today, group_by: 'section', supplier: code, page: '1', page_size: '250' })) as Record<string, unknown>;
       const data = ((d.data as Record<string, unknown>) || d) as Record<string, unknown>;
-      ((data.items as Record<string, unknown>[]) || []).forEach(r => {
+      // the dashboard returns the grouped lines under data.rows (not items) — reading `items` left the value at 0
+      (((data.rows || data.items) as Record<string, unknown>[]) || []).forEach(r => {
         const c = String(r.item_code ?? '').trim() || '?';
         const x = bySec.get(c) || { code: c, name: String(r.item_description ?? '').trim() || c, qty: 0, value: 0 };
         x.qty += Number(r.quantity || 0); x.value += Number(r.stock_value || 0); bySec.set(c, x);
@@ -878,6 +879,41 @@ async function stockPosition(supplierCodes: string[], branch = BRANCH) {
   const r2 = (v: number) => Math.round(v * 100) / 100;
   const sections = [...bySec.values()].map(x => ({ code: x.code, name: x.name, qty: Math.round(x.qty * 1000) / 1000, value: r2(x.value) })).sort((a, b) => b.value - a.value);
   return { branch, totalValue: r2(sections.reduce((t, x) => t + x.value, 0)), totalQty: Math.round(sections.reduce((t, x) => t + x.qty, 0) * 1000) / 1000, sections };
+}
+
+// WMS receiving (owner, 2026-10-27; the dashboard's /wms/documents): the receiving documents of a day — who delivered,
+// before the PU is entered in accounting. Grouped by supplier. Field names are mapped defensively (the capture had no
+// rows for the day), so verify against live data. vendors.manage / vendors.receive.
+async function wmsReceiving(day: string, branch = BRANCH) {
+  // the real /wms/documents row (owner, 2026-10-27, from the dashboard): a receiving document's status, no value or amount —
+  // external_typecode/number, supplier_name/code, status, requested/received/remaining_qty_total, line_count, created_at.
+  const docs: { doc: string; type: string; supplier: string; supplierCode: string; date: string; status: string; lines: number; requested: number; received: number; remaining: number }[] = [];
+  for (let page = 1; page <= 20; page++) {
+    let data: Record<string, unknown> = {};
+    try {
+      const d = await dash('/wms/documents?' + new URLSearchParams({ branch: branch.toLowerCase(), date_from: day, date_to: day, page: String(page), page_size: '100' })) as Record<string, unknown>;
+      data = ((d.data as Record<string, unknown>) || d) as Record<string, unknown>;
+    } catch (e) { console.warn('wms documents', page, e); break; }
+    const items = (data.items as Record<string, unknown>[]) || [];
+    items.forEach(r => docs.push({
+      doc: (String(r.external_typecode ?? '').trim() + String(r.external_number ?? '').trim()) || String(r.id ?? '').trim(),
+      type: String(r.external_typecode || '').trim(),
+      supplier: String(r.supplier_name || '').trim(),
+      supplierCode: trimCode(r.supplier_code),
+      date: String(r.created_at || r.completed_at || day).slice(0, 10),
+      status: String(r.status || '').trim(),
+      lines: Number(r.line_count || 0), requested: Number(r.requested_qty_total || 0), received: Number(r.received_qty_total || 0), remaining: Number(r.remaining_qty_total ?? 0),
+    }));
+    const pg = (data.pagination as Record<string, unknown>) || {};
+    if (!pg.has_next || !items.length) break;
+  }
+  const bySup = new Map<string, { supplier: string; supplierCode: string; docs: { doc: string; status: string }[]; lines: number; requested: number; received: number; remaining: number; last: string }>();
+  docs.forEach(x => { const k = x.supplierCode || x.supplier || '?'; const s = bySup.get(k) || { supplier: x.supplier || x.supplierCode || '?', supplierCode: x.supplierCode, docs: [], lines: 0, requested: 0, received: 0, remaining: 0, last: '' };
+    if (x.doc) s.docs.push({ doc: x.doc, status: x.status }); s.lines += x.lines; s.requested += x.requested; s.received += x.received; s.remaining += x.remaining; if (x.date > s.last) s.last = x.date; bySup.set(k, s); });
+  const r3 = (v: number) => Math.round(v * 1000) / 1000;
+  const suppliers = [...bySup.values()].map(s => ({ supplier: s.supplier, supplierCode: s.supplierCode, docs: s.docs, lines: s.lines, requested: r3(s.requested), received: r3(s.received), remaining: r3(s.remaining), last: s.last }))
+    .sort((a, b) => b.received - a.received || b.lines - a.lines);
+  return { day, branch, documents: docs.length, suppliers };
 }
 
 // Delivery department (owner, 2026-10-22): online-order deliveries for ONE branch (a dropdown picks it; default Ajaltoun).
