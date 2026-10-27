@@ -916,6 +916,59 @@ async function wmsReceiving(day: string, branch = BRANCH) {
   return { day, branch, documents: docs.length, suppliers };
 }
 
+// Customers (owner, 2026-10-27; the dashboard's /customers/*). Three reads, all across the branches ["*"]:
+//   customersSearch — /customers/grid (contact directory): find a customer by name / phone → code, name, tel.
+//   customerProfile — /customers/invoices (every invoice of one customer in the period, all pages): the totals, the
+//     first / last visit, the average basket, and a month-by-month series for the invoice graph; plus the top items they
+//     buy (/customers/purchases/aggregated, first page). The ERP numbers customers within a year, so a period is kept to
+//     one year. vendors.manage.
+async function customersSearch(q: string) {
+  const d = await dash('/customers/grid', postJson({ year: year(), include_points: false, contact_info_only: true, query: q, pagination: { page: 1, items_per_page: 25 } })) as Record<string, unknown>;
+  const items = (((d.data as Record<string, unknown>)?.items || []) as Record<string, unknown>[]);
+  return { customers: items.map(r => ({ code: trimCode(r.code), name: String(r.description ?? '').trim(), tel: String(r.tel ?? r.contact ?? '').trim() })).filter(c => c.code) };
+}
+async function customerProfile(code: string, from: string, to: string) {
+  const yr = from.slice(0, 4);
+  // every invoice in the period (paged); the ERP keeps a customer's invoices within one year
+  const invs: { branch: string; day: string; invoice: string; total: number; qty: number }[] = [];
+  for (let page = 1; page <= 40; page++) {
+    const d = await dash('/customers/invoices', postJson({ year: yr, customer_code: code, from_date: from, to_date: to, branches: ['*'], pagination: { page, items_per_page: 500 } })) as Record<string, unknown>;
+    const data = (d.data as Record<string, unknown>) || {};
+    const items = (data.items as Record<string, unknown>[]) || [];
+    items.forEach(r => invs.push({ branch: String(r.branch ?? '').trim(), day: String(r.transaction_date ?? '').slice(0, 10), invoice: String(r.invoice_number ?? '').trim(),
+      total: Number(r.invoice_total || 0), qty: Number(r.total_quantity || 0) }));
+    const pg = (data.pagination as Record<string, unknown>) || {};
+    const pages = Number(pg.total_pages || pg.pages || 1);
+    if (!items.length || page >= pages) break;
+  }
+  const name = '';
+  const r2 = (v: number) => Math.round(v * 100) / 100;
+  // month-by-month, for the graph; and per branch
+  const byMonth = new Map<string, { total: number; count: number }>(), byBranch = new Map<string, { total: number; count: number }>();
+  let total = 0, qty = 0, first = '', last = '';
+  invs.forEach(v => {
+    total += v.total; qty += v.qty;
+    if (v.day) { if (!first || v.day < first) first = v.day; if (v.day > last) last = v.day; }
+    const mk = (v.day || '').slice(0, 7); if (mk) { const m = byMonth.get(mk) || { total: 0, count: 0 }; m.total += v.total; m.count++; byMonth.set(mk, m); }
+    const b = v.branch || '?'; const bb = byBranch.get(b) || { total: 0, count: 0 }; bb.total += v.total; bb.count++; byBranch.set(b, bb);
+  });
+  const months = [...byMonth.entries()].sort().map(([month, m]) => ({ month, total: r2(m.total), count: m.count }));
+  const branches = [...byBranch.entries()].map(([branch, b]) => ({ branch, total: r2(b.total), count: b.count })).sort((a, b) => b.total - a.total);
+  // the top items they buy (first page of the aggregated purchases)
+  let topItems: Record<string, unknown>[] = [];
+  try {
+    const d = await dash('/customers/purchases/aggregated', postJson({ year: yr, customer_code: code, from_date: from, to_date: to, branches: ['*'], pagination: { page: 1, items_per_page: 500 } })) as Record<string, unknown>;
+    const items = (((d.data as Record<string, unknown>)?.items || []) as Record<string, unknown>[]);
+    topItems = items.map(r => ({ code: trimCode(r.item_code), description: String(r.item_description ?? '').trim(), section: String(r.section ?? '').trim(),
+      qty: Math.round(Number(r.total_quantity || 0) * 1000) / 1000, value: r2(Number(r.total_amount_with_vat || 0)) }))
+      .filter(x => !/TRANSITORY/i.test(String(x.section)) && x.value > 0).sort((a, b) => (b.value as number) - (a.value as number)).slice(0, 15);
+  } catch (e) { console.warn('customer items', code, e); }
+  const invoices = invs.sort((a, b) => b.day.localeCompare(a.day) || b.invoice.localeCompare(a.invoice)).slice(0, 400)
+    .map(v => ({ branch: v.branch, day: v.day, invoice: v.invoice, total: r2(v.total), qty: Math.round(v.qty * 1000) / 1000 }));
+  return { code, name, from, to, total: r2(total), qty: Math.round(qty * 1000) / 1000, invoiceCount: invs.length,
+    avgBasket: invs.length ? r2(total / invs.length) : 0, first, last, months, branches, topItems, invoices };
+}
+
 // Delivery department (owner, 2026-10-22): online-order deliveries for ONE branch (a dropdown picks it; default Ajaltoun).
 // An order counts as a delivery by its fee line(s), items 158147 and 158146 "DELIVERY FEES" (one per order; ~850 a month at
 // Ajaltoun). Either item, or both, is still ONE order. The sales report gives the fee revenue; the count is the distinct
@@ -2669,6 +2722,25 @@ const handle = async (req: Request): Promise<Response> => {
       const wd = isDay(String(body.day || '')) ? String(body.day) : beirutToday();
       const wbr = BRANCHES.includes(String(body.branch)) ? String(body.branch) : BRANCH;
       return json(await wmsReceiving(wd, wbr));
+    }
+    // Customers (owner, 2026-10-27): search a customer, and one customer's profile/invoices. admin / vendors.manage
+    if (body.action === 'customers_search' || body.action === 'customer_profile') {
+      if (!isServer && role !== 'admin') {
+        const anon = Deno.env.get('SUPABASE_ANON_KEY') || '';
+        const asUser = createClient(SUPABASE_URL, anon, { global: { headers: { Authorization: `Bearer ${bearer}` } }, auth: { persistSession: false, autoRefreshToken: false } });
+        const { data: ok } = await asUser.rpc('has_perm', { p_perms: ['vendors.manage'] });
+        if (!ok) return json({ error: 'Not allowed.' }, 403);
+      }
+      if (body.action === 'customers_search') {
+        const cq = String(body.q || '').trim();
+        if (cq.length < 2) return json({ customers: [] });
+        return json(await customersSearch(cq));
+      }
+      const cc = trimCode(body.code);
+      const cf = String(body.from || ''), ct = String(body.to || '');
+      if (!cc) return json({ error: 'Which customer?' }, 400);
+      if (!isDay(cf) || !isDay(ct) || cf > ct || cf.slice(0, 4) !== ct.slice(0, 4)) return json({ error: 'Choose a period within one year.' }, 400);
+      return json(await customerProfile(cc, cf, ct));
     }
     // Performance by scan (owner, 2026-10-25): one item's standing in its category, admin / vendors.manage
     if (body.action === 'scan_perf') {

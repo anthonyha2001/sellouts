@@ -66,7 +66,7 @@ const SECTION_PERMS = {
   delivery: ['delivery.orders', 'delivery.settle', 'delivery.customers', 'delivery.reports', 'delivery.manage', 'sellouts.online'],
   cash: ['cash.view'], cashnotify: ['cash.view'], cashcount: ['cashcount.count', 'cashcount.reconcile', 'cashcount.view'], /* floorcheck: removed (owner, 2026-10-12) */ _floorcheck_removed: ['floorcheck.do', 'floorcheck.manage', 'rentals.spotcheck'],
   labels: ['labels.scan', 'labels.print'], toolcheck: ['tools.convert'], activity: ['activity.view'], tools: ['tools.convert'], scanperf: ['vendors.manage'], promoladies: ['promoladies.manage'], schedule: ['schedule.manage', 'schedule.edit'], staff: ['staff.manage'],
-  expiries: ['expiry.manage', 'expiry.work', 'expiry.decide'], competitors: ['competitors.compare'], pts: ['vendors.manage'],
+  expiries: ['expiry.manage', 'expiry.work', 'expiry.decide'], competitors: ['competitors.compare'], pts: ['vendors.manage'], customers: ['vendors.manage'],
 };
 // Within a group, the first permission ("view") is needed by the others (the Users editor keeps that true).
 const PERMISSION_GROUPS = [...new Set(PERMISSIONS.map(p => p[1]))];
