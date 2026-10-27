@@ -16,7 +16,8 @@
 (function () {
   const esc = escapeHtml;
   const el = id => document.getElementById(id);
-  const W = { openSat: new Set(), loadedAt: 0, loading: null, openForm: null, st: 'complete' };
+  const W = { openSat: new Set(), loadedAt: 0, loading: null, openForm: null, st: 'complete', wms: null, wmsAt: 0, wmsLoading: null, wmsErr: '', wmsTimer: null };
+  const sk = c => String(c || '').trim().replace(/^0+(?=\d)/, '').toUpperCase();
   const dow = d => new Date(d + 'T00:00:00').getDay();
   const nice = d => d ? new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' }) : '';
   const short = d => d ? new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) : '';
@@ -92,6 +93,48 @@
     return out;
   }
 
+  /* ---------------- arriving now, from the system's WMS (owner, 2026-10-27) ----------------
+     The receiving documents the warehouse opened today (lv-dashboard wms_receiving → /wms/documents): who delivered,
+     how many lines, units requested / received / remaining. Each supplier is matched to the app's PENDING orders by the
+     vendor's linked system-supplier codes, so a data-entry user can flag the order received the moment the goods arrive —
+     before accounting enters the PU. Suppliers with no open app order are shown for awareness. Read only; refreshes itself. */
+  async function loadWms(force) {
+    if (!force && W.wms && Date.now() - W.wmsAt < 60e3) return;
+    if (W.wmsLoading) return W.wmsLoading;
+    W.wmsLoading = (async () => {
+      try {
+        const { data, error } = await sb.functions.invoke('lv-dashboard', { body: { action: 'wms_receiving', day: todayStr() } });
+        if (error || !data || data.error) throw new Error(data?.error || (error && error.message) || 'The system did not answer.');
+        W.wms = data; W.wmsErr = ''; W.wmsAt = Date.now();
+      } catch (e) { console.warn('wms receiving', e); W.wmsErr = e.message || 'Could not read the system.'; W.wmsAt = Date.now(); }
+      W.wmsLoading = null;
+    })();
+    return W.wmsLoading;
+  }
+  // the pending app orders whose vendor is linked to this system supplier code
+  function ordersForSupplier(code) {
+    const k = sk(code); if (!k) return [];
+    return ordersList.filter(o => o.status === 'pending' && (() => { const v = vendorOf(o.vendorId); return v && Array.isArray(v.systemSuppliers) && v.systemSuppliers.some(s => sk(s.code) === k); })());
+  }
+  function wmsSection(t) {
+    if (W.wmsErr) return `<section class="card vc-rsec"><h3>Arriving now <button type="button" class="btn ghost small" data-wh-wms-reload style="float:right;">Try again</button></h3><p class="muted-note" style="margin:0;">${esc(W.wmsErr)}</p></section>`;
+    if (!W.wms) return `<section class="card vc-rsec"><h3>Arriving now</h3><p class="muted-note" style="margin:0;">Reading the system…</p></section>`;
+    const sups = W.wms.suppliers || [];
+    const body = sups.length ? `<ul class="vc-rlist">${sups.map(s => {
+      const open = ordersForSupplier(s.supplierCode);
+      const qty = `${s.lines} line${s.lines === 1 ? '' : 's'}${s.received ? ' · ' + s.received + ' received' : ''}${s.remaining > 0 ? ' · ' + s.remaining + ' remaining' : ''}`;
+      const docs = (s.docs || []).map(d => esc(d.doc)).slice(0, 6).join(', ');
+      const match = open.length
+        ? open.map(o => row(o, 'exp', t)).join('')
+        : `<li class="vc-rrow"><div class="vc-rmain"><b>${esc(s.supplier)}</b><span>${esc(qty)}${docs ? ' · ' + docs : ''} · <span class="muted-note">no open order in the app — receive it once the PU is in, or ask the buyer to log the order</span></span></div></li>`;
+      return open.length
+        ? `<li class="vc-wms-grp"><div class="vc-rmain" style="padding:2px 0;"><b>${esc(s.supplier)}</b><span>${esc(qty)}${docs ? ' · ' + docs : ''}</span></div><ul class="vc-rlist" style="margin:4px 0 0;">${match}</ul></li>`
+        : match;
+    }).join('')}</ul>` : '<p class="muted-note" style="margin:0;">Nothing has been received into the warehouse yet today.</p>';
+    return `<section class="card vc-rsec wms"><h3>Arriving now <span class="vc-count">${sups.length}</span> <button type="button" class="btn ghost small" data-wh-wms-reload style="float:right;">Refresh</button></h3>
+      <p class="muted-note" style="margin:0 0 8px;">What the system's warehouse received today. Flag the order received the moment it arrives — before the PU is entered.</p>${body}</section>`;
+  }
+
   /* ---------------- the page ---------------- */
   function row(o, kind, t) {
     const v = vendorOf(o.vendorId) || {}, open = W.openForm === o.id, eff = effective(o);
@@ -134,6 +177,7 @@
           <span class="muted-note">${open ? 'The warehouse is <b>open</b> today.' : `The warehouse is <b>closed</b> today (${esc(closedWhy(t))}). Next open day: <b>${esc(nice(nextOpen(t)))}</b>.`}</span></div>
         <div class="wh-tiles"><span><b>${focusList.length}</b> expected ${focus === t ? 'today' : esc(short(focus))}</span><span class="${lateList.length ? 'bad' : ''}"><b>${lateList.length}</b> late</span><span><b>${recToday.length}</b> received today</span></div>
       </div>
+      ${wmsSection(t)}
       ${lateList.length ? sec('Late', 'late', lateList.map(o => row(o, 'late', t)), '') : ''}
       ${sec(focus === t ? 'Expected today' : 'Expected ' + esc(nice(focus)), 'exp', focusList.map(o => row(o, 'exp', t)), 'No delivery expected.')}
       ${focusPlanned.length ? `<section class="card vc-rsec planned"><h3>Likely ${focus === t ? 'today' : 'that day'} <span class="vc-count">${focusPlanned.length}</span></h3><p class="muted-note" style="margin:0 0 8px;">Not ordered yet: they arrive on this day if they are ordered on their usual day.</p>
@@ -175,9 +219,20 @@
       if (!ok) c.checked = !c.checked;
       render();
     });
+    box.querySelector('[data-wh-wms-reload]')?.addEventListener('click', async () => { W.wms = null; render(); await loadWms(true); render(); });
   }
 
-  async function show() { await ensure(); render(); }
+  // while the page is open, read the WMS again every 90 s so arrivals show on their own (owner: "I want it live")
+  function startWmsPoll() {
+    stopWmsPoll();
+    W.wmsTimer = setInterval(async () => {
+      if (!el('panel-warehouse')?.classList.contains('active')) return stopWmsPoll();
+      await loadWms(true); render();
+    }, 90e3);
+  }
+  function stopWmsPoll() { if (W.wmsTimer) { clearInterval(W.wmsTimer); W.wmsTimer = null; } }
+
+  async function show() { await ensure(); render(); loadWms().then(render); startWmsPoll(); }
   function refresh() { if (el('panel-warehouse')?.classList.contains('active')) render(); }
 
   window.Warehouse = { isOpen, nextOpen, ensure, planned, setOpen, closedWhy, effective, expectedFor, receivingDates, show, refresh };

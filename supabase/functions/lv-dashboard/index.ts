@@ -2658,6 +2658,18 @@ const handle = async (req: Request): Promise<Response> => {
       const sbr = BRANCHES.includes(String(body.branch)) ? String(body.branch) : BRANCH;
       return json(await stockPosition(sups, sbr));
     }
+    // WMS receiving of a day (owner, 2026-10-27): who delivered to the warehouse, admin / vendors.manage / vendors.receive
+    if (body.action === 'wms_receiving') {
+      if (!isServer && role !== 'admin') {
+        const anon = Deno.env.get('SUPABASE_ANON_KEY') || '';
+        const asUser = createClient(SUPABASE_URL, anon, { global: { headers: { Authorization: `Bearer ${bearer}` } }, auth: { persistSession: false, autoRefreshToken: false } });
+        const { data: ok } = await asUser.rpc('has_perm', { p_perms: ['vendors.manage', 'vendors.receive'] });
+        if (!ok) return json({ error: 'Not allowed.' }, 403);
+      }
+      const wd = isDay(String(body.day || '')) ? String(body.day) : beirutToday();
+      const wbr = BRANCHES.includes(String(body.branch)) ? String(body.branch) : BRANCH;
+      return json(await wmsReceiving(wd, wbr));
+    }
     // Performance by scan (owner, 2026-10-25): one item's standing in its category, admin / vendors.manage
     if (body.action === 'scan_perf') {
       if (!isServer && role !== 'admin') {

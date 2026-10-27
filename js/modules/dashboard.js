@@ -51,6 +51,7 @@
     go: '<path d="M9 6l6 6-6 6"/>',
     grid: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
     box: '<path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M3 7l9 4 9-4M12 11v10"/>',
+    dock: '<path d="M3 21V8l9-5 9 5v13"/><path d="M3 21h18M9 21v-6h6v6"/><path d="M7 11h2M15 11h2"/>',
   };
   const svg = (k, cls = '') => `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${I[k]}</svg>`;
 
@@ -274,9 +275,17 @@
   }
   const loadTopCat = () => topBy('section');
   const loadTopSup = () => topBy('supplier');
+  // What the system's warehouse has received today (lv-dashboard wms_receiving → /wms/documents): the real arrivals,
+  // live (the card re-reads itself every 90 s). Separate from "Received today", which is what the app flagged.
+  async function loadWmsRecv() {
+    const { data, error } = await sb.functions.invoke('lv-dashboard', { body: { action: 'wms_receiving', day: today() } });
+    if (error) { let msg = error.message; try { msg = (await error.context.json()).error || msg; } catch (e) { /* keep */ } throw new Error(msg); }
+    if (!data || data.error) throw new Error(data?.error || 'No answer');
+    return data;
+  }
 
   const PARTS = { cash: loadCash, cashcount: loadCashCount, sellouts: loadSellouts, promotions: loadPromotions, credit: loadCredit, orders: loadOrders,
-    rentals: loadRentals, delivery: loadDelivery, floor: loadFloor, labels: loadLabels, ladies: loadLadies, schedule: loadSchedule, people: loadPeople, activity: loadActivity, link: loadLink, branches: loadBranches, returns: loadReturns, topcat: loadTopCat, topsup: loadTopSup };
+    rentals: loadRentals, delivery: loadDelivery, floor: loadFloor, labels: loadLabels, ladies: loadLadies, schedule: loadSchedule, people: loadPeople, activity: loadActivity, link: loadLink, branches: loadBranches, returns: loadReturns, topcat: loadTopCat, topsup: loadTopSup, wmsrecv: loadWmsRecv };
 
   /* ---------------- what needs attention ---------------- */
   function alerts(D) {
@@ -471,6 +480,15 @@
           ${o.received.length ? `<ul class="db-list">${o.received.slice(0, 6).map(x => line(esc(x.vendor_name), x.auto_received ? esc(x.auto_received_pu || 'auto · new PU') : esc(x.received_by_name || 'received'), x.auto_received ? 'warn' : '')).join('')}${o.received.length > 6 ? line(`+${o.received.length - 6} more`, '', 'muted') : ''}</ul>`
             : '<p class="db-note">Nothing received yet today.</p>'}`))}
 
+        ${card('wmsrecv', 'warehouse', 'dock', 'Received into the warehouse', box('wmsrecv', w => {
+          const sups = w.suppliers || [];
+          const lines = sups.reduce((t, s) => t + (s.lines || 0), 0), recv = sups.reduce((t, s) => t + (s.received || 0), 0);
+          return `<div class="db-stats">${stat('Suppliers', sups.length)}${stat('Documents', w.documents || 0)}${stat('Lines', lines)}</div>
+          ${sups.length ? `<ul class="db-list">${sups.slice(0, 6).map(s => line(esc(s.supplier), `${s.lines} line${s.lines === 1 ? '' : 's'}${s.received ? ' · ' + s.received + ' recv' : ''}`, s.remaining > 0 ? 'warn' : '')).join('')}${sups.length > 6 ? line(`+${sups.length - 6} more`, '', 'muted') : ''}</ul>`
+            : '<p class="db-note">Nothing received into the warehouse yet today.</p>'}
+          <p class="db-note">Live from the system — what the warehouse received today, before the PU is entered.</p>`;
+        }))}
+
         ${card('delivery', 'delivery', 'bike', 'Delivery', box('delivery', d => `
           <div class="db-stats">${stat('Orders today', d.today)}${stat('Today', money(d.todayAmt), '', '$' + usd(d.todayAmt))}${stat('Unpaid', d.unpaid, d.oldUnpaid ? 'bad' : '')}</div>
           <ul class="db-list">${line('Yesterday', d.yesterday + ' orders')}${line('This month', `${d.month} orders · $${usd(d.monthAmt)}`)}${line('Unpaid amount', '$' + usd(d.unpaidAmt))}</ul>`))}
@@ -542,9 +560,22 @@
     S.D = D; S.E = E;
     render(D, E);
   }
+  // the warehouse-received card re-reads itself every 90 s while the dashboard is open ("I want it live"); only that
+  // one part, so the whole page is not reloaded. Stops when the dashboard is not the active panel.
+  function startWmsPoll() {
+    if (S.wmsTimer) return;
+    S.wmsTimer = setInterval(async () => {
+      if (!panel.classList.contains('active')) return;
+      if (S.loading || !S.D) return;
+      try { S.D.wmsrecv = await loadWmsRecv(); delete S.E.wmsrecv; }
+      catch (e) { console.warn('wmsrecv poll', e); S.E.wmsrecv = true; }
+      render(S.D, S.E);
+    }, 90e3);
+  }
   async function show() {
     if (!isAdmin()) return;
     await load(false);
+    startWmsPoll();
   }
   window.Dashboard = { show };
 })();
