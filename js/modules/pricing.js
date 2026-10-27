@@ -279,6 +279,16 @@
     paintPu();
     if (S.cache.get(s.code)?.moreReady) prefetch(i + 1);   // the next supplier, while you check this one (else once this one is fully checked)
   }
+  // Re-read this supplier from the system (owner, 2026-10-27): the day's PUs are cached so the page is instant, but a PU
+  // edited in the system afterwards would stay stale. This drops the cache for the supplier and reads it again, keeping
+  // the PU you were on.
+  async function reReadSupplier() {
+    const s = sups()[S.supIdx]; if (!s || S.busy) return;
+    const keepDoc = S.pus[S.puIdx]?.doc;
+    S.cache.delete(s.code); S.loading.delete(s.code);
+    await openSupplier(S.supIdx);
+    if (keepDoc && S.tab === 'purchases') { const k = S.pus.findIndex(p => p.doc === keepDoc); if (k >= 0 && k !== S.puIdx) { S.puIdx = k; S.sel = 0; paintPu(); } }
+  }
   function go(step) {
     if (S.busy) return;
     const k = S.puIdx + step;
@@ -316,6 +326,7 @@
           <span class="muted-note">${esc(dmy(S.day))} · PU ${S.puIdx + 1} of ${nPu} · supplier ${S.supIdx + 1} of ${sups().length} · ${pu.rows.length} line${pu.rows.length === 1 ? '' : 's'} · prices in ${esc(cur || '$')}</span>
           </div>
         ${npButton()}
+        <button type="button" class="icon-btn" id="prReread" title="Read this supplier again from the system (after a PU was edited)" aria-label="Read again from the system"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg></button>
         <button type="button" class="icon-btn" data-go="1" title="Next PU (right arrow)" aria-label="Next PU"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></button>
       </div>
       <div class="items-scroll pr-scroll"><table class="items pr-table"><thead><tr>
@@ -351,6 +362,7 @@
     el('prBody').querySelector('[data-vc-add]')?.addEventListener('click', () => VendorContract.editMargin(cs?.vendor, null, paintPu));
     el('prBody').querySelectorAll('.vc-tags [data-vc-i]').forEach(t => { const open = () => VendorContract.editMargin(cs.vendor, Number(t.dataset.vcI), paintPu); t.onclick = open; t.onkeydown = e => { if (e.key === 'Enter') open(); }; });
     el('prRetry')?.addEventListener('click', () => { const code = sups()[S.supIdx]?.code, d = S.cache.get(code); if (!d) return; d.items.forEach(it => { if (it.prev?.failed) delete it.prev; }); d.moreReady = false; refresh(code); fetchMore(code, d, S.day); });
+    el('prReread')?.addEventListener('click', () => reReadSupplier());
     el('prBody').querySelectorAll('tr[data-r]').forEach(tr => { tr.onclick = () => select(Number(tr.dataset.r)); tr.ondblclick = () => openItem(); });
     el('prBody').querySelector('[data-np-dl]')?.addEventListener('click', npExcel);
     el('prBody').querySelector('[data-np-send]')?.addEventListener('click', e => npSend(e.currentTarget));

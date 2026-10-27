@@ -752,22 +752,59 @@ async function ptsSync(fromIn?: string, toIn?: string) {
     if (day < String(g.pt_date)) g.pt_date = day;
     m.set(k, g);
   });
+  // the authoritative value is the PT DOCUMENT's latest total, not the cardex sum: after a PT is edited the cardex can
+  // still carry the first posting (PT3125 summed to $2,324.55 while the document, corrected, is $130.35). Read each PT's
+  // document and take its total / quantity / date / supplier from there; the cardex only tells us which PTs happened.
+  const keys = [...m.keys()];
+  for (let i = 0; i < keys.length; i += 5) {
+    await Promise.all(keys.slice(i, i + 5).map(async k => {
+      const g = m.get(k)!;
+      try {
+        const v = await readPt(String(g.pt), String(g.year));
+        if (!v) return;
+        g.value = -Math.abs(Number(v.total_with_vat || 0));
+        g.qty = Math.abs(Number(v.total_quantity || 0));
+        if (v.document_date) g.pt_date = String(v.document_date).slice(0, 10);
+        if (v.currency) g.currency = String(v.currency);
+        const partner = supName(v.partner_name); if (partner) g.supplier_name = partner;
+        const sc = trimCode(v.customer_code); if (sc) g.supplier_code = sc;
+        if (Array.isArray(v.lines)) g.lines = (v.lines as unknown[]).length;
+      } catch (e) { console.warn('pt doc value', g.pt, e); }
+    }));
+  }
   const now = new Date().toISOString(), rows = [...m.values()].map(g => ({ ...g, qty: Math.round(Number(g.qty) * 1000) / 1000, value: Math.round(Number(g.value) * 100) / 100, last_seen: now }));
   for (let i = 0; i < rows.length; i += 200) { const { error } = await db.from('pts').upsert(rows.slice(i, i + 200), { onConflict: 'pt,year' }); if (error) throw error; }
-  let refs = null; try { refs = await ptsRefs(20); } catch (e) { console.warn('pt refs', e); }   // migration 097 not run: skipped
+  let refs = null; try { refs = await ptsRefs(40); } catch (e) { console.warn('pt refs', e); }   // migration 097 not run: skipped
   return { from, to, pts: rows.length, truncated, refs };
 }
-// the reference of the PTs not read yet (owner, 2026-10-20; migration 097): read from the PT document itself (its lines' reference_no)
-async function ptsRefs(limit = 20) {
-  const { data, error } = await db.from('pts').select('pt, year').is('refs', null).order('pt_date', { ascending: false }).limit(limit);
-  if (error) throw error;
-  const list = data || []; let read = 0;
+// Read each PT's document (owner, 2026-10-20; migration 097): its reference_no, AND its latest total / quantity / date /
+// supplier (an edited PT's cardex keeps the first posting, so the document is the truth — PT3125 $2,324.55 → $130.35).
+// The PTs still missing a reference, plus the most recent ones re-verified each run so the list the owner reviews stays right.
+async function ptsRefs(limit = 40) {
+  const [{ data: noref, error: e0 }, { data: recent, error: e1 }] = await Promise.all([
+    db.from('pts').select('pt, year').is('refs', null).order('pt_date', { ascending: false }).limit(limit),
+    db.from('pts').select('pt, year').order('pt_date', { ascending: false }).limit(limit),
+  ]);
+  if (e0) throw e0; if (e1) throw e1;
+  const map = new Map<string, { pt: string; year: string }>();
+  [...(noref || []), ...(recent || [])].forEach(r => map.set(r.pt + '|' + r.year, { pt: String(r.pt), year: String(r.year) }));
+  const list = [...map.values()]; let read = 0;
   for (let i = 0; i < list.length; i += 5) {
     await Promise.all(list.slice(i, i + 5).map(async r => {
       try {
-        const v = await readPt(String(r.pt), String(r.year));
+        const v = await readPt(r.pt, r.year);
         const refs = v ? [...new Set([v.reference_no, ...(v.lines as Record<string, unknown>[]).map(l => l.reference_no)].map(x => String(x ?? '').trim()).filter(Boolean))].join(', ') : '';
-        const { error: e } = await db.from('pts').update({ refs }).eq('pt', r.pt).eq('year', r.year);
+        const upd: Record<string, unknown> = { refs };
+        if (v) {
+          upd.value = -Math.abs(Number(v.total_with_vat || 0));
+          upd.qty = Math.round(Math.abs(Number(v.total_quantity || 0)) * 1000) / 1000;
+          if (v.document_date) upd.pt_date = String(v.document_date).slice(0, 10);
+          if (v.currency) upd.currency = String(v.currency);
+          const partner = supName(v.partner_name); if (partner) upd.supplier_name = partner;
+          const sc = trimCode(v.customer_code); if (sc) upd.supplier_code = sc;
+          if (Array.isArray(v.lines)) upd.lines = (v.lines as unknown[]).length;
+        }
+        const { error: e } = await db.from('pts').update(upd).eq('pt', r.pt).eq('year', r.year);
         if (!e) read++;
       } catch (e) { console.warn('pt ref', r.pt, e); }
     }));
