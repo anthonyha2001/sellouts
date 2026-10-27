@@ -2019,6 +2019,11 @@ span.cc-slipbtn{cursor:default;display:inline-block;}
 .po-qty.po-qty-over{border-color:var(--gold) !important;box-shadow:0 0 0 2px color-mix(in srgb, var(--gold) 35%, transparent);}
 
 /* Performance (owner, 2026-10-06) */
+/* Grouped view toolbar (owner, 2026-10-27): the views in labelled clusters (Sales / Reports / More) instead of one long row. */
+.pf-views{display:flex;flex-wrap:wrap;gap:10px;align-items:stretch;margin-bottom:14px;}
+.pf-vgroup{position:relative;padding:8px 8px 6px;border:1px solid var(--line);border-radius:12px;background:var(--paper);align-items:center;}
+.pf-vlabel{font:700 10px var(--font-body);text-transform:uppercase;letter-spacing:.06em;color:var(--ink-faint);align-self:center;padding:0 4px;}
+@media (max-width:640px){ .pf-views{gap:8px;} .pf-vgroup{width:100%;} }
 .pf-controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 16px;}
 .pf-controls label{display:flex;align-items:center;gap:6px;font-size:13px;margin:0;}
 .pf-controls input[type=date]{width:auto;}

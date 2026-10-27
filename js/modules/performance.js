@@ -44,7 +44,11 @@
     if (!root.dataset.built) {
       root.dataset.built = '1';
       root.innerHTML = `
-        <div class="filter-row" id="pfView"><button type="button" data-v="suppliers" class="active">Suppliers</button><button type="button" data-v="cats">Categories</button><button type="button" data-v="daily">Daily sales</button><button type="button" data-v="hourly">By hour</button><button type="button" data-v="delivery">Delivery</button>${isAdmin() ? '<button type="button" data-v="branches">Branches</button>' : ''}<button type="button" data-v="weekly">Weekly report</button>${isAdmin() ? '<button type="button" data-v="profit">Store profit</button>' : ''}${can('rentals.view') ? '<button type="button" data-v="rents">Rental spots</button>' : ''}</div>
+        <div class="pf-views" id="pfView">
+          <div class="filter-row pf-vgroup"><span class="pf-vlabel">Sales</span><button type="button" data-v="suppliers" class="active">Suppliers</button><button type="button" data-v="cats">Categories</button><button type="button" data-v="daily">Daily</button><button type="button" data-v="hourly">By hour</button>${isAdmin() ? '<button type="button" data-v="branches">Branches</button>' : ''}</div>
+          <div class="filter-row pf-vgroup"><span class="pf-vlabel">Reports</span><button type="button" data-v="weekly">Weekly</button>${isAdmin() ? '<button type="button" data-v="profit">Store profit</button>' : ''}</div>
+          <div class="filter-row pf-vgroup"><span class="pf-vlabel">More</span><button type="button" data-v="delivery">Delivery</button>${can('rentals.view') ? '<button type="button" data-v="rents">Rental spots</button>' : ''}</div>
+        </div>
         <div id="pfMain">
         <div class="card pf-controls">
           <label>From <input type="date" id="pfFrom"></label>
