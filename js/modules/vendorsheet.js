@@ -75,6 +75,10 @@
       big: (big.data || []).filter(b => names.some(nm => norm(b.supplier).includes(nm) || nm.includes(norm(b.supplier)) && norm(b.supplier))),
       error: low.error || top.error || rev.error || null,
     };
+    // the value of this supplier's stock on hand now, by section (WMS; owner, 2026-10-27)
+    S.stockVal = null;
+    const sc = (v.systemSuppliers || []).map(s => s.code).filter(Boolean);
+    if (sc.length) { try { const { data, error } = await sb.functions.invoke('lv-dashboard', { body: { action: 'stock_position', suppliers: sc } }); if (!error && data && !data.error) S.stockVal = data; } catch (e) { /* stock value is optional */ } }
   }
 
   /* ---------------- small pieces ---------------- */
@@ -447,6 +451,7 @@
         ${tile('Sales vs purchases', d === null ? '—' : (d > 0 ? '+' : '') + Math.round(d * 100) + '%', money(t.sold - t.bought), d !== null && d < -0.2 ? 'bad' : d !== null && d > 0.2 ? 'ok' : '')}
         ${tile('Profit', money(t.profit), margin === null ? 'no cost known' : 'margin ' + (Math.round(margin * 1000) / 10) + '%', t.profit < 0 ? 'bad' : '')}
         ${tile('Items', t.items, `${t.notSold.length} bought, not sold`)}
+        ${S.stockVal ? `<button type="button" class="vs-tile vs-tile-btn" data-vs="tab" data-tab="stock"><span>Stock value now</span><b>${money(S.stockVal.totalValue)}</b><small>${qty(S.stockVal.totalQty)} units · tap for sections</small></button>` : ''}
       </div>
       <div class="vs-grid">
         <div class="vs-card vs-wide"><h4>Purchases and sales per month</h4>${monthsChart(S.perf.months)}</div>
@@ -498,7 +503,14 @@
 
   function stockHtml() {
     const st = S.stock; if (!st) return '<div class="vs-note vs-loading">Reading the stock…</div>';
-    if (st.error) return `<div class="vs-note vs-err">The stock tables could not be read (migrations 073–075 not run yet?).</div>`;
+    const valCard = S.stockVal && S.stockVal.sections && S.stockVal.sections.length
+      ? `<div class="vs-card vs-wide"><h4>Stock value now <span class="vs-n">${money(S.stockVal.totalValue)}</span></h4>
+          <p class="muted-note" style="margin:0 0 6px;">What this supplier's stock on hand is worth right now, by section (from the system's WMS).</p>
+          <div class="items-scroll vs-scroll"><table class="items vs-table"><thead><tr><th>Section</th><th class="num">Units</th><th class="num">Value</th></tr></thead>
+            <tbody>${S.stockVal.sections.map(s => `<tr><td>${esc(s.name)}</td><td class="num">${qty(s.qty)}</td><td class="num"><b>${money(s.value)}</b></td></tr>`).join('')}</tbody>
+            <tfoot><tr><td><b>Total</b></td><td class="num"><b>${qty(S.stockVal.totalQty)}</b></td><td class="num"><b>${money(S.stockVal.totalValue)}</b></td></tr></tfoot></table></div></div>`
+      : '';
+    if (st.error) return `<div class="vs-grid vs-one">${valCard}<div class="vs-note vs-err">The stock alert tables could not be read (migrations 073–075 not run yet?).</div></div>`;
     const sec = (title, note, rows, head, row) => `<div class="vs-card vs-wide"><h4>${title} <span class="vs-n">${rows.length}</span></h4>${note ? `<p class="muted-note" style="margin:0 0 6px;">${note}</p>` : ''}
       ${rows.length ? `<div class="items-scroll vs-scroll"><table class="items vs-table"><thead><tr>${head}</tr></thead><tbody>${rows.map(row).join('')}</tbody></table></div>` : '<p class="muted-note" style="margin:0;">None.</p>'}</div>`;
     const days = r => r.days_left === null || r.days_left === undefined ? '—' : `<b class="${Number(r.days_left) < 3 ? 'vs-warn' : ''}">${qty(r.days_left)}</b>`;
@@ -508,6 +520,7 @@
     const sups = new Set((vendor().systemSuppliers || []).map(s => k(s.code)).filter(Boolean));
     const na = LS && LS.notAvailable ? LS.notAvailable().filter(l => sups.has(k(l.supplier_code))) : [];
     return `<div class="vs-grid vs-one">
+      ${valCard}
       ${na.length ? sec('Not available', 'Ordered on a PO, the supplier delivered the PO without them, still out of stock: ask the supplier.', na,
         '<th>Code</th><th>Item</th><th>PO</th><th>Ordered</th><th class="num">Qty</th><th>PO delivered</th>',
         l => `<tr data-code="${esc(l.code)}" class="vs-hot"><td class="mono">${esc(l.code)}</td><td>${esc(l.description || '')}</td><td class="mono">${esc(l.po)}</td><td>${esc(dmy(l.po_date))}</td><td class="num">${qty(l.qty)}</td><td>${esc(dmy(l.po_delivered_on))}</td></tr>`) : ''}

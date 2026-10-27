@@ -2329,6 +2329,8 @@ body.vs-lock{overflow:hidden;}
 .vs-tile b{font:700 24px/1.2 var(--font-head);}
 .vs-tile small{color:var(--ink-soft);font-size:12px;}
 .vs-tile.bad b{color:var(--brick);} .vs-tile.ok b{color:#1f7a4d;}
+.vs-tile-btn{cursor:pointer;text-align:left;width:100%;font:inherit;transition:border-color .12s;}
+.vs-tile-btn:hover{border-color:var(--pine);} .vs-tile-btn b{color:var(--pine);}
 .vs-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;}
 .vs-grid.vs-one{grid-template-columns:1fr;}
 .vs-card{background:var(--paper-raised);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;}

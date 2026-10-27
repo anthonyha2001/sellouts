@@ -857,6 +857,29 @@ async function scanPerf(code: string, from: string, to: string) {
   };
 }
 
+// WMS stock position (owner, 2026-10-27; the dashboard's /wms/stock-position): the value of the stock on hand now, by
+// section, for a supplier (its system codes). Each row: section code/name, quantity, stock_value; total_stock_value is
+// what the supplier's stock is worth. group_by=section keeps it to ~20 rows (one page). vendors.manage.
+async function stockPosition(supplierCodes: string[], branch = BRANCH) {
+  const today = beirutToday();
+  const bySec = new Map<string, { code: string; name: string; qty: number; value: number }>();
+  for (const sup of supplierCodes) {
+    const code = trimCode(sup); if (!code) continue;
+    try {
+      const d = await dash('/wms/stock-position?' + new URLSearchParams({ branch, from_date: today, to_date: today, group_by: 'section', supplier: code, page: '1', page_size: '250' })) as Record<string, unknown>;
+      const data = ((d.data as Record<string, unknown>) || d) as Record<string, unknown>;
+      ((data.items as Record<string, unknown>[]) || []).forEach(r => {
+        const c = String(r.item_code ?? '').trim() || '?';
+        const x = bySec.get(c) || { code: c, name: String(r.item_description ?? '').trim() || c, qty: 0, value: 0 };
+        x.qty += Number(r.quantity || 0); x.value += Number(r.stock_value || 0); bySec.set(c, x);
+      });
+    } catch (e) { console.warn('stock position', code, e); }
+  }
+  const r2 = (v: number) => Math.round(v * 100) / 100;
+  const sections = [...bySec.values()].map(x => ({ code: x.code, name: x.name, qty: Math.round(x.qty * 1000) / 1000, value: r2(x.value) })).sort((a, b) => b.value - a.value);
+  return { branch, totalValue: r2(sections.reduce((t, x) => t + x.value, 0)), totalQty: Math.round(sections.reduce((t, x) => t + x.qty, 0) * 1000) / 1000, sections };
+}
+
 // Delivery department (owner, 2026-10-22): online-order deliveries for ONE branch (a dropdown picks it; default Ajaltoun).
 // An order counts as a delivery by its fee line(s), items 158147 and 158146 "DELIVERY FEES" (one per order; ~850 a month at
 // Ajaltoun). Either item, or both, is still ONE order. The sales report gives the fee revenue; the count is the distinct
@@ -2585,6 +2608,19 @@ const handle = async (req: Request): Promise<Response> => {
       const lv = String(body.level || 'section'), f2 = String(body.from || ''), t2 = String(body.to || '');
       if (!['department', 'section', 'group', 'brand', 'supplier'].includes(lv) || !isDay(f2) || !isDay(t2)) return json({ error: 'Choose a level and dates.' }, 400);
       return json(await branchCompare(lv, f2, t2));
+    }
+    // WMS stock value for a supplier (owner, 2026-10-27), admin / vendors.manage
+    if (body.action === 'stock_position') {
+      if (!isServer && role !== 'admin') {
+        const anon = Deno.env.get('SUPABASE_ANON_KEY') || '';
+        const asUser = createClient(SUPABASE_URL, anon, { global: { headers: { Authorization: `Bearer ${bearer}` } }, auth: { persistSession: false, autoRefreshToken: false } });
+        const { data: ok } = await asUser.rpc('has_perm', { p_perms: ['vendors.manage'] });
+        if (!ok) return json({ error: 'Not allowed.' }, 403);
+      }
+      const sups = (Array.isArray(body.suppliers) ? body.suppliers : []).map(String).filter(Boolean).slice(0, 12);
+      if (!sups.length) return json({ error: 'This vendor is not linked to its supplier in the system.' }, 400);
+      const sbr = BRANCHES.includes(String(body.branch)) ? String(body.branch) : BRANCH;
+      return json(await stockPosition(sups, sbr));
     }
     // Performance by scan (owner, 2026-10-25): one item's standing in its category, admin / vendors.manage
     if (body.action === 'scan_perf') {
