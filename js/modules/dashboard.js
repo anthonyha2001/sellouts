@@ -121,16 +121,6 @@
     };
   }
 
-  async function loadPromotions() {
-    const t = today();
-    const rows = await q(sb.from('promotions').select('id, name, from_date, to_date, archived').eq('archived', false));
-    return {
-      running: rows.filter(r => (!r.from_date || r.from_date <= t) && (!r.to_date || r.to_date >= t)),
-      upcoming: rows.filter(r => r.from_date && r.from_date > t).sort((a, b) => a.from_date.localeCompare(b.from_date)),
-      ended: rows.filter(r => r.to_date && r.to_date < t),
-    };
-  }
-
   async function loadCredit() {
     const rows = await q(sb.from('credit_notes').select('status, supplier, created_at'));
     const issued = rows.filter(r => r.status !== 'signed');
@@ -262,9 +252,6 @@
     return { day, count: cur.count, usd: cur.usd, lbp: cur.lbp, prevCount: bef.count, prevUsd: bef.usd, prevLbp: bef.lbp,
       suppliers: [...bySup.values()].sort((a, b) => (b.usd - a.usd) || (b.lbp - a.lbp)).slice(0, 5) };
   }
-  async function loadActivity() {
-    return q(sb.from('activity_log').select('at, username, module, summary').order('at', { ascending: false }).limit(14));
-  }
   // Today's sales by category (section) and by supplier, per branch — one summary call each (branch_compare).
   async function topBy(level) {
     const t = today();
@@ -284,8 +271,8 @@
     return data;
   }
 
-  const PARTS = { cash: loadCash, cashcount: loadCashCount, sellouts: loadSellouts, promotions: loadPromotions, credit: loadCredit, orders: loadOrders,
-    rentals: loadRentals, delivery: loadDelivery, floor: loadFloor, labels: loadLabels, ladies: loadLadies, schedule: loadSchedule, people: loadPeople, activity: loadActivity, link: loadLink, branches: loadBranches, returns: loadReturns, topcat: loadTopCat, topsup: loadTopSup, wmsrecv: loadWmsRecv };
+  const PARTS = { cash: loadCash, cashcount: loadCashCount, sellouts: loadSellouts, credit: loadCredit, orders: loadOrders,
+    rentals: loadRentals, delivery: loadDelivery, floor: loadFloor, labels: loadLabels, ladies: loadLadies, schedule: loadSchedule, people: loadPeople, link: loadLink, branches: loadBranches, returns: loadReturns, topcat: loadTopCat, topsup: loadTopSup, wmsrecv: loadWmsRecv };
 
   /* ---------------- what needs attention ---------------- */
   function alerts(D) {
@@ -345,6 +332,17 @@
       <header><span class="db-ic">${svg(icon)}</span><h3>${title}</h3>${tab && canSee(tab) ? `<button type="button" class="link-btn db-open" data-go="${tab}">Open ${svg('go', 'db-go')}</button>` : ''}</header>
       ${body}</section>`;
   const failed = key => `<p class="muted-note">Could not load this part.</p>`;
+  // The link to the system, as a dot at the top (owner, 2026-10-28): green when working, red when down, grey while
+  // checking. No card — the one line of detail is in the tooltip, and a red alert still shows under "Needs attention".
+  function linkDot(D, E) {
+    const lk = D.link, state = (lk === undefined && !E.link) ? 'load' : (E.link || (lk && !lk.ok)) ? 'down' : 'up';
+    const title = state === 'load' ? 'Checking the link to the system…'
+      : state === 'up' ? `Link to the system: working${lk && lk.ms ? ' · read in ' + (lk.ms / 1000).toFixed(1) + ' s' : ''}`
+      : `Link to the system is DOWN${lk && lk.error ? ': ' + lk.error : ''}. Promotions and stock are not live.`;
+    const style = state === 'up' ? 'background:var(--ok-green, var(--pine))' : state === 'load' ? 'background:var(--muted-ink, #9aa)' : '';
+    return `<span class="db-sysdot" title="${esc(title)}" style="display:inline-flex;align-items:center;gap:6px;font-size:.85em;color:var(--muted-ink, #667);white-space:nowrap;">
+      <span class="db-dot ${state === 'down' ? 'red' : ''}" style="${style}"></span>System</span>`;
+  }
 
   // Branches: the sales of one day (owner, 2026-10-13: daily, not from the beginning of the month), each branch against
   // the day before; ‹ › to go back day by day. An older lv-dashboard (no "daily") still gives today without the comparison.
@@ -426,7 +424,10 @@
       <div class="db-top">
         <div class="db-date"><b>${esc(new Date(today() + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }))}</b>
           <span class="muted-note">${S.at ? 'Updated ' + esc(fmtTs(S.at)) : ''}</span></div>
-        <button type="button" class="btn secondary small" id="dbRefresh">${svg('refresh', 'db-btn-ic')} Refresh</button>
+        <div style="display:flex;align-items:center;gap:12px;">
+          ${linkDot(D, E)}
+          <button type="button" class="btn secondary small" id="dbRefresh">${svg('refresh', 'db-btn-ic')} Refresh</button>
+        </div>
       </div>
 
       <section class="card db-alerts ${A.length ? '' : 'ok'}">
@@ -449,24 +450,10 @@
           ${c.worst.length ? `<h4>Most short this month</h4><ul class="db-list">${c.worst.map(w => line(esc(w.name), `<span class="neg">${signed(w.v, lbp)}</span>`)).join('')}</ul>` : ''}
           <p class="db-note">${esc(monthName(c.lastMonth))}: ${c.lastLocked ? 'locked' : 'not locked'}</p>`))}
 
-        ${card('cashcount', 'cashcount', 'count', 'Cash count', box('cashcount', k => `
-          <div class="db-stats">${stat('Counts today', k.today)}${stat('To reconcile', k.notRec.length, k.notRec.length ? 'warn' : '')}${stat('Missing slips', k.missing.length, k.missing.length ? 'bad' : '')}</div>
-          <ul class="db-list">
-            ${line('Not signed by the cashier', k.notSigned.length)}
-            ${line('Reconciled, not sent to the Cash page', k.notSent.length)}
-            ${line('Changed since sent', k.resend.length)}
-            ${k.missingLbp ? line('Missing slips value', lbp(k.missingLbp) + ' LBP', 'neg') : ''}
-            ${line('This month after the margin', `<span class="${tone(k.monthAfter)}">${signed(k.monthAfter, lbp)} LBP</span>`)}
-          </ul>`))}
-
         ${card('sellouts', 'sellouts', 'sellout', 'Sell-outs', box('sellouts', s => `
           <div class="db-stats">${stat('Active', s.active)}${stat('Ending in 7 days', s.ending.length, s.ending.length ? 'warn' : '')}${stat('Past end, still active', s.overdue.length, s.overdue.length ? 'bad' : '')}</div>
           <p class="db-note">${s.online} online · ${s.starting} starting in the next 7 days</p>
           ${s.ending.length ? `<h4>Ending soon</h4><ul class="db-list">${s.ending.slice(0, 5).map(x => line(esc(x.name), esc(x.to === today() ? 'today' : fmtDate(x.to)), x.to === today() ? 'end-today' : '')).join('')}</ul>` : ''}`))}
-
-        ${card('promotions', 'promotions', 'promo', 'Promotions', box('promotions', p => `
-          <div class="db-stats">${stat('Running now', p.running.length)}${stat('Coming', p.upcoming.length)}${stat('Ended, not archived', p.ended.length, p.ended.length ? 'warn' : '')}</div>
-          <ul class="db-list">${p.running.slice(0, 3).map(x => line(esc(x.name), x.to_date ? 'until ' + esc(fmtDate(x.to_date)) : '')).join('')}${p.upcoming.slice(0, 2).map(x => line(esc(x.name), 'from ' + esc(fmtDate(x.from_date)), 'muted')).join('')}</ul>`))}
 
         ${card('orders', 'vendors', 'truck', 'Supplier orders', box('orders', o => `
           <div class="db-stats">${stat('Waiting delivery', o.pending)}${stat('Due today', o.dueToday.length)}${stat('Late', o.late.length, o.late.length ? 'bad' : '')}</div>
@@ -498,45 +485,6 @@
           <p class="db-note">Yearly value of the active contracts: ${lbp(r.yearlyValue)}</p>
           ${r.ending.length ? `<h4>Ending soon</h4><ul class="db-list">${r.ending.slice(0, 4).map(x => line(esc(x.supplier || x.spot_id), esc(fmtDate(x.end_date)))).join('')}</ul>` : ''}`))}
 
-        ${card('labels', 'labels', 'label', 'Shelf labels', box('labels', l => `
-          <div class="db-stats">${stat('Lists to print', l.lists, l.lists ? 'warn' : '')}${stat('Labels', l.labels)}</div>
-          ${l.oldest ? `<p class="db-note">Oldest waiting since ${esc(fmtTs(l.oldest))}</p>` : '<p class="db-note">Nothing waiting.</p>'}`))}
-
-        ${card('ladies', 'promoladies', 'lady', 'Promo ladies', box('ladies', p => `
-          <div class="db-stats">${stat('Booked today', p.today.length)}${stat('Came', p.came)}${stat('Not marked', p.notMarked, p.notMarked ? 'warn' : '')}</div>
-          <ul class="db-list">${p.today.slice(0, 4).map(x => line(esc(x.supplier || ''), esc(x.item || ''))).join('')}</ul>`))}
-
-        ${card('schedule', 'schedule', 'calendar', 'Staff schedule', box('schedule', s => `
-          <ul class="db-list">
-            ${line('This week (' + esc(fmtDate(s.mon)) + ')', s.thisPub ? '<span class="db-ok">published</span>' : '<span class="neg">not published</span>')}
-            ${line('Next week (' + esc(fmtDate(s.next)) + ')', s.nextPub ? '<span class="db-ok">published</span>' : s.nextStarted ? 'in progress' : 'not started')}
-            ${line('Day-off requests for next week', s.requests)}
-          </ul>`))}
-
-        ${card('people', 'staff', 'people', 'Staff and app', box('people', p => `
-          <div class="db-stats">${stat('Staff working', p.staff)}${stat('Cashiers', p.cashiers)}${stat('Online now', p.online)}</div>
-          <ul class="db-list">
-            ${line('Cashiers with the app installed', `${p.installed} / ${p.cashiers}`)}
-            ${line('Cashiers with notifications on', `${p.notified} / ${p.cashiers}`)}
-            ${line('Cashiers without a PIN', p.noPin.length, p.noPin.length ? 'neg' : '')}
-          </ul>
-          <h4>By job</h4><div class="db-chips">${p.jobs.map(([j, c]) => `<span>${esc(j)} <b>${c}</b></span>`).join('')}</div>`))}
-
-        ${card('users', 'users', 'phone', 'App users', box('people', p => `
-          <ul class="db-list">${p.users.map(u => line(`${esc(u.display_name || u.username)} <span class="muted-note">${esc(u.role || '')}${u.installed_at ? ' · app' : ''}${u.notif ? ' · notifications' : ''}</span>`, esc(ago(u.last_seen_at)))).join('')}</ul>`))}
-
-        ${card('link', null, 'refresh', 'Link to the system', box('link', l => l.ok ? `
-          <div class="db-link ok"><span class="db-dot" style="background:var(--ok-green, var(--pine))"></span><b>Working</b><span class="muted-note">read in ${(l.ms / 1000).toFixed(1)} s</span></div>
-          <ul class="db-list">
-            ${l.sample ? line(esc(l.sample.description), 'stock ' + esc(String(l.sample.stock ?? '—'))) : ''}
-            ${line('Signed in as', esc(l.user || ''))}
-            ${line('Login renews by itself', 'next ' + esc(new Date(l.expires_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })))}
-          </ul>
-          <p class="db-note">Promotions, stock and the sell-out check read the system through this link.</p>`
-          : `<div class="db-link bad"><span class="db-dot red"></span><b>Not working</b></div><p class="db-note">${esc(l.error)}</p>`))}
-
-        ${card('activity', 'activity', 'clock', 'Latest activity', box('activity', a => a.length ? `
-          <ul class="db-feed">${a.map(x => `<li><span class="db-when">${esc(ago(x.at))}</span><span><b>${esc(x.username || '')}</b> ${esc(x.summary || x.module || '')}</span></li>`).join('')}</ul>` : '<p class="muted-note">No activity yet.</p>'))}
       </div>`;
     el('dbRefresh').onclick = () => load(true);
     panel.querySelectorAll('[data-go]').forEach(b => b.onclick = () => switchTab(b.dataset.go));
