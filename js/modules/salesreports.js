@@ -46,6 +46,7 @@
   }
   const failMsg = e => e.message === 'no answer' ? 'The system did not answer. Check the "Link to the system" card on the Dashboard.' : e.message;
   const xlsIcon = '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>';
+  const pdfIcon = '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M8.5 13h1a1.2 1.2 0 0 1 0 2.4h-1V13zm0 2.4V18M13.2 13v5h.8a1.6 2.5 0 0 0 0-5h-.8zM17 13h2m-2 0v5m0-2.6h1.6"/></svg>';
   function xls(aoa, name) {
     const ws = XLSX.utils.aoa_to_sheet(aoa);
     ws['!cols'] = aoa[0].map((h, i) => ({ wch: i === 0 ? 34 : 14 }));
@@ -161,6 +162,7 @@
         <div class="pf-head"><h3>${esc(LABEL[d.level])}s${C.path.length ? ' of ' + esc(C.path[C.path.length - 1].name) : ''}</h3>
           <input type="search" id="scQ" placeholder="Find a ${esc(LABEL[d.level].toLowerCase())}" value="${esc(C.q)}" aria-label="Find">
           <span style="flex:1"></span>
+          <button type="button" class="icon-btn" id="scPdf" title="Top items by units (PDF): the real items under each ${esc(LABEL[d.level].toLowerCase())}, with their supplier" aria-label="Top items (PDF)">${pdfIcon}</button>
           <button type="button" class="icon-btn" id="scXls" title="Download (Excel)" aria-label="Download (Excel)">${xlsIcon}</button></div>
         <div class="items-scroll pf-scroll"><table class="items pf-table sc-table"><thead><tr>
           ${th('name', LABEL[d.level], false)}${th('sales', 'Sales')}<th class="num">Share</th>${th('prevSales', 'Last month')}${th('diff', 'Difference')}${th('ch', 'Change')}${th('qty', 'Units')}${th('prevQty', 'Units last month')}</tr></thead>
@@ -182,10 +184,55 @@
     box.querySelectorAll('[data-acc]').forEach(b => b.onclick = e => { e.stopPropagation(); const c = b.dataset.acc; if (C.open.has(c)) C.open.delete(c); else { C.open.add(c); loadDet(d.level, c); } paintCats(); });
     if (canOpen) box.querySelectorAll('tr[data-code]').forEach(tr => { const go = () => { const r = d.rows.find(x => x.code === tr.dataset.code); C.path.push({ level: d.level, code: r.code, name: r.name }); C.q = ''; loadCats(); };
       tr.onclick = go; tr.onkeydown = e => { if (e.key === 'Enter') go(); }; });
+    el('scPdf').onclick = e => catPdf(e.currentTarget);
     el('scXls').onclick = () => xls([[LABEL[d.level], 'Code', 'Sales ($)', 'Share %', 'Last month ($)', 'Difference ($)', 'Change %', 'Units', 'Units last month'],
       ...rows.map(r => [r.name, r.code, Math.round(r.sales * 100) / 100, total > 0 ? Math.round(r.sales / total * 1000) / 10 : '', Math.round(r.prevSales * 100) / 100, Math.round(r.diff * 100) / 100, r.ch === null ? '' : Math.round(r.ch * 1000) / 10, Math.round(r.qty), Math.round(r.prevQty)]),
       [], ['Total', '', Math.round(total * 100) / 100, '', Math.round(ptotal * 100) / 100, Math.round((total - ptotal) * 100) / 100, ptotal > 0 ? Math.round((total / ptotal - 1) * 1000) / 10 : '']],
       `Sales by ${LABEL[d.level].toLowerCase()} ${d.from} ${d.to}`);
+  }
+
+  // Top items by units (owner, 2026-10-30): the real items under the category now on screen, with their supplier, the top
+  // 20 by units in each sub-category (e.g. Alcoholic Beverages -> Wine / Whiskey / Tequila / Gin). A real PDF to download.
+  async function catPdf(btn) {
+    const lib = window.jspdf; if (!lib || !lib.jsPDF) return showToast('The PDF tool did not load. Hard-refresh the page and try again.', true);
+    const d = C.data; if (!d) return;
+    const levelLabel = LABEL[d.level] || d.level;
+    const scope = C.path.length ? C.path.map(p => p.name).join(' › ') : 'All ' + (LEVELS.find(l => l[0] === C.level)?.[1].toLowerCase() || 'categorie') + 's';
+    const old = btn.innerHTML; btn.disabled = true; btn.innerHTML = '…';
+    try {
+      const res = await call({ action: 'category_items', from: d.from, to: d.to, level: d.level, filters: pathFilters(), top: 20 });
+      const groups = (res.groups || []).filter(g => g.items && g.items.length);
+      if (!groups.length) return showToast('No items to put in the PDF.', true);
+      const doc = new lib.jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
+      const M = 40;
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(15); doc.setTextColor(20);
+      doc.text('Top items by units', M, 46);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(90);
+      doc.text(scope + '  ·  separated by ' + levelLabel.toLowerCase(), M, 62);
+      doc.text(dmy(d.from) + ' → ' + dmy(d.to) + '   ·   top 20 per ' + levelLabel.toLowerCase() + ', by units sold', M, 76);
+      doc.setTextColor(0);
+      let y = 88;
+      groups.forEach(g => {
+        const body = g.items.map((it, i) => [String(i + 1), it.description || it.code, it.code, it.supplier || '—', qty(it.qty), money(it.sales)]);
+        doc.autoTable({
+          startY: y + 8, margin: { left: M, right: M }, theme: 'grid', tableWidth: 'auto',
+          head: [[{ content: g.name + '   —   ' + g.itemCount + ' item' + (g.itemCount === 1 ? '' : 's') + '  ·  ' + qty(g.qty) + ' units  ·  ' + money(g.sales), colSpan: 6, styles: { halign: 'left', fillColor: [31, 61, 58], textColor: 255, fontStyle: 'bold', fontSize: 10 } }],
+            ['#', 'Item', 'Code', 'Supplier', 'Units', 'Turnover']],
+          body,
+          styles: { fontSize: 8.5, cellPadding: 3, overflow: 'linebreak', valign: 'middle' },
+          headStyles: { fillColor: [238, 240, 239], textColor: 40, fontStyle: 'bold', lineColor: [210, 214, 213] },
+          bodyStyles: { lineColor: [225, 228, 227] },
+          alternateRowStyles: { fillColor: [249, 250, 250] },
+          columnStyles: { 0: { cellWidth: 22, halign: 'center', textColor: 120 }, 2: { cellWidth: 58, font: 'courier', fontSize: 8 }, 3: { cellWidth: 120 }, 4: { cellWidth: 48, halign: 'right' }, 5: { cellWidth: 62, halign: 'right' } },
+        });
+        y = doc.lastAutoTable.finalY + 16;
+      });
+      // page numbers
+      const pages = doc.internal.getNumberOfPages(), pw = doc.internal.pageSize.getWidth(), ph = doc.internal.pageSize.getHeight();
+      for (let p = 1; p <= pages; p++) { doc.setPage(p); doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(140); doc.text(p + ' / ' + pages, pw - M, ph - 18, { align: 'right' }); doc.text('La Valeur · ' + scope, M, ph - 18); }
+      doc.save(('Top items ' + scope + ' ' + d.from + ' ' + d.to).replace(/[\\/:*?"<>|›]+/g, ' ').replace(/\s+/g, ' ').trim() + '.pdf');
+    } catch (e) { showToast(failMsg(e), true); }
+    finally { btn.disabled = false; btn.innerHTML = old; }
   }
 
   /* ================= Daily sales ================= */

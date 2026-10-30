@@ -2066,6 +2066,37 @@ async function salesCategories(from: string, to: string, level: string, parentLe
   });
   return { from, to, level, rows: [...m.values()] };
 }
+// The real items under a category, with their supplier, for the PDF on Performance › Categories (owner, 2026-10-30).
+// Separated by the chosen sub-level (e.g. Alcoholic Beverages -> Wine / Whiskey / Tequila / Gin), the top N items by
+// UNITS in each group. One report call (group_by item + level + supplier) keeps it to a single read. vendors.manage.
+async function categoryItems(from: string, to: string, level: string, filters?: Record<string, string>, top = 20) {
+  const extra: Record<string, unknown> = { group_by: ['item', level, 'supplier'] };
+  Object.entries(filters || {}).forEach(([k, v]) => { if (CAT_LEVELS.includes(k) && k !== level && v) extra[k] = [String(v)]; });
+  // one entry per item (it belongs to one category), its supplier kept as the one with the most sales
+  const m = new Map<string, { code: string; description: string; gcode: string; gname: string; qty: number; sales: number; sup: Map<string, number> }>();
+  (await report('sales', from, to, extra)).forEach(r => {
+    const code = trimCode(r.item); if (!code || code.includes(':')) return;
+    const gcode = String(r[level] ?? '').trim() || '?', k = code + '|' + gcode;
+    const x = m.get(k) || { code, description: String(r.item_desc ?? '').trim() || code, gcode, gname: String(r[level + '_desc'] ?? '').trim() || (gcode === '?' ? 'Not classified' : gcode), qty: 0, sales: 0, sup: new Map<string, number>() };
+    const sales = Number(r.total_sales || 0);
+    x.qty += Number(r.total_quantity || 0); x.sales += sales;
+    const sName = String(r.supplier_desc ?? '').trim() || trimCode(r.supplier);
+    if (sName) x.sup.set(sName, (x.sup.get(sName) || 0) + sales);
+    m.set(k, x);
+  });
+  const r2 = (v: number) => Math.round(v * 100) / 100;
+  const groups = new Map<string, { code: string; name: string; qty: number; sales: number; itemCount: number; items: { code: string; description: string; supplier: string; qty: number; sales: number }[] }>();
+  for (const x of m.values()) {
+    if (x.qty <= 0 && x.sales <= 0) continue;
+    const supplier = [...x.sup.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || '';
+    const g = groups.get(x.gcode) || { code: x.gcode, name: x.gname, qty: 0, sales: 0, itemCount: 0, items: [] };
+    g.qty += x.qty; g.sales += x.sales; g.itemCount++;
+    g.items.push({ code: x.code, description: x.description, supplier, qty: r2(x.qty), sales: r2(x.sales) });
+    groups.set(x.gcode, g);
+  }
+  const out = [...groups.values()].map(g => ({ code: g.code, name: g.name, qty: r2(g.qty), sales: r2(g.sales), itemCount: g.itemCount, items: g.items.sort((a, b) => b.qty - a.qty).slice(0, top) })).sort((a, b) => b.sales - a.sales);
+  return { from, to, level, top, groups: out };
+}
 // Sales by hour (owner, 2026-10-12; migration 086): today's running sales per section, kept when they changed since the last one.
 // The day after midnight the job still runs until 00:45 Beirut: yesterday's last sync lands on yesterday.
 async function salesSnapshot() {
@@ -2895,7 +2926,7 @@ const handle = async (req: Request): Promise<Response> => {
       }
       return json(await priceChangesSync(120));
     }
-    if (['perf_suppliers', 'perf_supplier', 'store_daily', 'sales_categories', 'vendor_pts', 'pt_detail', 'supplier_report', 'promo_ideas', 'pricing_day', 'pricing_supplier', 'returns_range', 'recent_returns', 'pts_refs', 'pu_find', 'vendor_pos', 'pos_of_day', 'po_detail'].includes(String(body.action))) {
+    if (['perf_suppliers', 'perf_supplier', 'store_daily', 'sales_categories', 'category_items', 'vendor_pts', 'pt_detail', 'supplier_report', 'promo_ideas', 'pricing_day', 'pricing_supplier', 'returns_range', 'recent_returns', 'pts_refs', 'pu_find', 'vendor_pos', 'pos_of_day', 'po_detail'].includes(String(body.action))) {
       if (!isServer && role !== 'admin') {
         const anon = Deno.env.get('SUPABASE_ANON_KEY') || '';
         const asUser = createClient(SUPABASE_URL, anon, { global: { headers: { Authorization: `Bearer ${bearer}` } }, auth: { persistSession: false, autoRefreshToken: false } });
@@ -2952,6 +2983,14 @@ const handle = async (req: Request): Promise<Response> => {
         if (!CAT_LEVELS.includes(level) || (pl && !CAT_LEVELS.includes(pl))) return json({ error: 'Unknown level.' }, 400);
         const filters = body.filters && typeof body.filters === 'object' ? Object.fromEntries(Object.entries(body.filters as Record<string, unknown>).map(([k, v]) => [k, String(v ?? '')])) : undefined;
         return json(await salesCategories(from, to, level, pl || undefined, body.parentCode ? String(body.parentCode) : undefined, filters));
+      }
+      if (body.action === 'category_items') {
+        if (!isDay(from) || !isDay(to) || from > to || Number(to.slice(0, 4)) - Number(from.slice(0, 4)) > 1) return json({ error: 'Choose dates within two years.' }, 400);
+        const level = String(body.level || 'section');
+        if (!CAT_LEVELS.includes(level)) return json({ error: 'Unknown level.' }, 400);
+        const filters = body.filters && typeof body.filters === 'object' ? Object.fromEntries(Object.entries(body.filters as Record<string, unknown>).map(([k, v]) => [k, String(v ?? '')])) : undefined;
+        const top = Math.min(100, Math.max(1, Math.round(Number(body.top) || 20)));
+        return json(await categoryItems(from, to, level, filters, top));
       }
       if (body.action === 'perf_suppliers' || body.action === 'perf_supplier') {
         if (!isDay(from) || !isDay(to) || from > to || Number(to.slice(0, 4)) - Number(from.slice(0, 4)) > 1) return json({ error: 'Choose dates within two years.' }, 400);
