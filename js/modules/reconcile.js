@@ -52,16 +52,30 @@
   }
 
   /* ---------------- what the app has ---------------- */
+  // Supabase caps an unbounded select at 1000 rows. Archived sell-outs and (above all) promotion rows
+  // pile up over time, so a plain select drops everything past row 1000 — and those items then show as
+  // "not found / never" even though they are in a live promotion. Page through every row, ordered by a
+  // stable key so no row is skipped or repeated across pages (owner, 2026-11-02).
+  async function fetchAll(table, columns, orderCol = 'id') {
+    const PAGE = 1000;
+    let out = [], from = 0;
+    for (;;) {
+      const { data, error } = await sb.from(table).select(columns).order(orderCol, { ascending: true }).range(from, from + PAGE - 1);
+      if (error) throw error;
+      out = out.concat(data || []);
+      if (!data || data.length < PAGE) break;
+      from += PAGE;
+    }
+    return out;
+  }
   async function loadApp() {
     const today = todayStr();
-    const [{ data: so, error: e1 }, { data: pr, error: e2 }] = await Promise.all([
-      sb.from('sellouts').select('id, name, from, to, active, archived, online, items, priced_items, price_column'),
-      sb.from('promotions').select('id, name, from_date, to_date, archived'),
+    const [so, pr] = await Promise.all([
+      fetchAll('sellouts', 'id, name, from, to, active, archived, online, items, priced_items, price_column'),
+      fetchAll('promotions', 'id, name, from_date, to_date, archived'),
     ]);
-    if (e1 || e2) throw e1 || e2;
     const promos = pr || [];
-    const { data: rows, error: e3 } = promos.length ? await sb.from('promotion_rows').select('promotion_id, code, promo_price') : { data: [] };
-    if (e3) throw e3;
+    const rows = promos.length ? await fetchAll('promotion_rows', 'promotion_id, code, promo_price') : [];
     const now = new Map(), past = new Map();   // code key -> [where]
     const put = (m, k, v) => { if (!k) return; if (!m.has(k)) m.set(k, []); m.get(k).push(v); };
     // an in-store sell-out runs when it is on (active); an ONLINE-only sell-out runs like the Online-promotion page
