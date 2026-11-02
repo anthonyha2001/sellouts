@@ -533,7 +533,7 @@ async function runCashiers(today: string) {
   return { devices: subs.length, pushed };
 }
 
-const ALLOW_ORIGINS = ['https://valeur.anthonyhasrouny.com', 'https://anthonyha2001.github.io'];
+const ALLOW_ORIGINS = ['https://lavaleur.anthonyhasrouny.com', 'https://valeur.anthonyhasrouny.com', 'https://anthonyha2001.github.io'];
 function secure(req: Request, res: Response): Response {
   const h = new Headers(res.headers);
   const o = req.headers.get('Origin') || '';
