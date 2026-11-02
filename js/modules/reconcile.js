@@ -64,8 +64,11 @@
     if (e3) throw e3;
     const now = new Map(), past = new Map();   // code key -> [where]
     const put = (m, k, v) => { if (!k) return; if (!m.has(k)) m.set(k, []); m.get(k).push(v); };
+    // an in-store sell-out runs when it is on (active); an ONLINE-only sell-out runs like the Online-promotion page
+    // treats it — not archived and not ended (online sell-outs are not toggled "active"), owner 2026-11-02.
+    const liveSellout = s => !s.archived && (s.online ? (!s.to || String(s.to) >= today) && (!s.from || String(s.from) <= today) : !!s.active);
     (so || []).forEach(s => {
-      const live = s.active && !s.archived;
+      const live = liveSellout(s);
       const shape = { items: s.items || [], pricedItems: Array.isArray(s.priced_items) ? s.priced_items : null, priceColumn: s.price_column };
       let codes = [];
       try { codes = pricedRowsOf(shape).map(p => ({ code: p.code, price: p.newPrice })); } catch (e) { codes = []; }
@@ -77,7 +80,7 @@
       const live = !p.archived && (!p.from_date || p.from_date <= today) && (!p.to_date || p.to_date >= today);
       put(live ? now : past, key(r.code), { kind: 'Promotion', name: p.name, to: p.to_date, archived: p.archived, price: num(r.promo_price) });
     });
-    return { now, past, sellouts: (so || []).filter(s => s.active && !s.archived).length, promotions: promos.filter(p => !p.archived && (!p.from_date || p.from_date <= today) && (!p.to_date || p.to_date >= today)).length };
+    return { now, past, sellouts: (so || []).filter(liveSellout).length, promotions: promos.filter(p => !p.archived && (!p.from_date || p.from_date <= today) && (!p.to_date || p.to_date >= today)).length };
   }
 
   /* ---------------- page ---------------- */
