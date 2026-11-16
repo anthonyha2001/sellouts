@@ -1157,6 +1157,19 @@ tr.sh-dragging th,tr.sh-dragging td{background:var(--pine-tint);}
 /* Staff schedule: exact times on a cell (arrives late / leaves early) */
 .sh-cell button .sh-time{display:block;font:600 11px var(--font-mono);color:var(--gold);margin-top:1px;}
 .sh-time-box input[type=time]{width:100%;padding:9px 10px;border:1px solid var(--line-strong);border-radius:var(--radius-sm);background:var(--paper-raised);color:var(--ink);font:500 15px var(--font-mono);}
+/* Several shifts in one day (owner, 2026-11-16): stacked in the cell, one line each in the dialog. */
+.sh-mseg{display:block;}
+.sh-mseg + .sh-mseg{border-top:1px dashed var(--line-strong);margin-top:4px;padding-top:4px;}
+.modal-box.sh-time-box{max-width:680px;}
+.sh-trows{display:flex;flex-direction:column;gap:10px;}
+.sh-trow{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px;padding:10px;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--paper);}
+.sh-trow > .sh-tf{flex:1 1 110px;display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600;color:var(--ink-soft, var(--ink));}
+.sh-trow > .sh-tf[hidden]{display:none;}
+.sh-trow select{width:100%;}
+.sh-t-n{align-self:center;width:24px;height:24px;border-radius:50%;display:grid;place-items:center;background:var(--pine-tint);color:var(--pine);font:700 12px var(--font-mono);flex:none;}
+.sh-t-del{align-self:center;flex:none;}
+.sh-tadd{margin-top:10px;}
+@media (max-width:560px){.sh-trow > .sh-tf{flex-basis:calc(50% - 10px);}}
 .sh-chip.sh-time{border-style:dashed;}
 
 /* Staff schedule: step 1 shifts, step 2 station */

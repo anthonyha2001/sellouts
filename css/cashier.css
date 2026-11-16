@@ -223,3 +223,6 @@ body.cashier-page{display:block;min-height:100vh;}
 .cp-cc-done .btn{width:100%;min-height:50px;}
 
 .cp-head-btns{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+/* Several shifts in one day (owner, 2026-11-16): a dashed line between them. */
+.cp-and{display:block;border-top:1px dashed var(--line);margin:5px 0;}
+.cp-more{display:inline-block;margin-left:6px;}

@@ -389,7 +389,9 @@ async function buildAlerts(today: string): Promise<Alert[]> {
   }
   // A supervisor changed a PUBLISHED week (migration 031): HR is told once the editing has stopped
   // (5 minutes without a change), with what was changed per person and day.
-  const lab = (c: string) => { if (!c) return '—'; if (c === 'off') return 'Off'; const [m, t] = c.split('|'); const [sh, st] = m.split(':');
+  // Several shifts in one day (migration 104): "am:front|07:30-11:00;pm:back|17:00-22:00" -> "AM Front 07:30-11:00 + PM Back 17:00-22:00".
+  const lab = (c: string): string => c && c.includes(';') ? c.split(';').filter(Boolean).map(lab1).join(' + ') : lab1(c);
+  const lab1 = (c: string) => { if (!c) return '—'; if (c === 'off') return 'Off'; const [m, t] = c.split('|'); const [sh, st] = m.split(':');
     // Station: "front", "back", or a split full day "front/back" (AM half / PM half, migration 035).
     const ST = (x: string) => x === 'front' ? 'Front' : 'Back', [a, b] = (st || '').split('/');
     const stn = !a ? '' : b && b !== a ? ` AM ${ST(a)} · PM ${ST(b)}` : ' ' + ST(a);

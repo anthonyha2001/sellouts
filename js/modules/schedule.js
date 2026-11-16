@@ -14,6 +14,8 @@
    the cell, the printout and the cashier page show them, hours follow.
    Code: "am:front|08:30-14:30" (the "|…" part only when not the default).
    Full day split (owner, 2026-10-02): "full:front/back" = AM at the front, PM at the back.
+   Several shifts a day (owner, 2026-11-16; migration 104): the shifts joined by ";",
+   "am:front|07:30-11:00;pm:back|17:00-22:00" — right-click a cell > "Add another shift".
    Staff tab: the staff list (the cashiers table): position, usual
    station, PIN, active.
    Everyone (owner, 2026-10-03/04; migration 043): the people come from the Staff list only, one
@@ -62,8 +64,12 @@
   const inTab = p => tabOf(S.tab)[2].includes(p.dept);
   // "am:front|08:30-13:00" -> shift, station, and the start / end when they differ from the shift's.
   const DEF = { am: ['07:30', '14:30'], pm: ['14:30', '22:00'], full: ['07:30', '22:00'] };
+  // Several shifts in one day (owner, 2026-11-16; migration 104): the shifts joined by ";",
+  // e.g. "am:front|07:30-11:00;pm:back|17:00-22:00". parse() reads the first one.
+  const segs = code => String(code || '').split(';').filter(Boolean);
+  const isMulti = code => segs(code).length > 1;
   const parse = code => {
-    const [main, t] = String(code || '').split('|');
+    const [main, t] = (segs(code)[0] || '').split('|');
     const [shift, station] = main.split(':');
     const [start, end] = (t || '').split('-');
     return { shift: shift || '', station: station || '', start: start || '', end: end || '' };
@@ -71,7 +77,9 @@
   const timesOf = code => { const x = parse(code); return SHIFT[x.shift] ? [x.start || DEF[x.shift][0], x.end || DEF[x.shift][1]] : null; };
   const custom = code => { const x = parse(code); return !!(SHIFT[x.shift] && (x.start || x.end)); };
   const mins = t => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
-  const hoursOf = code => { const t = timesOf(code); return t ? Math.max(0, mins(t[1]) - mins(t[0])) / 60 : 0; };
+  const hoursOf = code => segs(code).reduce((h, s) => { const t = timesOf(s); return h + (t ? Math.max(0, mins(t[1]) - mins(t[0])) / 60 : 0); }, 0);
+  // Every shift's times, for a day with several: "07:30–11:00 + 17:00–22:00".
+  const allTimes = code => segs(code).map(timesOf).filter(Boolean).map(t => `${t[0]}–${t[1]}`).join(' + ');
   const withTimes = (code, start, end) => {
     const x = parse(code); if (!SHIFT[x.shift]) return code;
     const main = x.shift + (x.station ? ':' + x.station : '');
@@ -86,19 +94,23 @@
   const stationsOf = st => [...new Set(halves(st).filter(Boolean))];   // for the Front / Back counts
   const cellLabel = code => { const { shift, station } = parse(code); if (shift === 'off') return 'Off'; if (!SHIFT[shift]) return '—'; return SHIFT[shift].label + (station && !isSplit(station) ? ' · ' + ST(station) : ''); };
   // The cell: the shift, its two stations when a full day is split, and its exact times when someone arrives late or leaves early.
-  const cellHtml = code => { const t = custom(code) ? timesOf(code) : null, st = parse(code).station;
+  const segHtml = (code, always) => { const t = always || custom(code) ? timesOf(code) : null, st = parse(code).station;
     return esc(cellLabel(code)) + (isSplit(st) ? `<small class="sh-split">${esc(stLabel(st))}</small>` : '') + (t ? `<small class="sh-time">${t[0]}–${t[1]}</small>` : ''); };
+  // A day with several shifts: each one with its times, one under the other.
+  const cellHtml = code => isMulti(code) ? segs(code).map(s => `<span class="sh-mseg">${segHtml(s, true)}</span>`).join('') : segHtml(code);
   // What a tool does to a cell. A shift keeps the cell's station (or takes the person's usual one);
-  // Front / Back only change the station of a cell that already has a shift (and keep its times).
+  // Front / Back only change the station of a cell that already has a shift (and keep its times) —
+  // of every shift on a day with several. Another shift replaces the whole day.
   const applyTool = (p, cur, tool) => {
     const x = parse(cur);
     if (tool === 'front' || tool === 'back') {
       if (!SHIFT[x.shift] || (p.dept && !hasStation(p))) return cur;
-      const t = x.start || x.end ? `|${x.start || DEF[x.shift][0]}-${x.end || DEF[x.shift][1]}` : '';
-      return `${x.shift}:${tool}${t}`;
+      return segs(cur).map(s => { const y = parse(s); if (!SHIFT[y.shift]) return s;
+        const t = y.start || y.end ? `|${y.start || DEF[y.shift][0]}-${y.end || DEF[y.shift][1]}` : '';
+        return `${y.shift}:${tool}${t}`; }).join(';');
     }
     if (!SHIFT[tool]) return tool;               // 'off', or '' to clear
-    if (x.shift === tool) return cur;            // same shift: keep station and times
+    if (x.shift === tool) return cur;            // same shift: keep station and times (and the other shifts)
     let st = p.dept && !hasStation(p) ? '' : x.station || p.default_station || '';
     if (isSplit(st) && tool !== 'full') st = halves(st)[tool === 'am' ? 0 : 1];
     return tool + (st ? ':' + st : '');
@@ -142,7 +154,8 @@
     const n = Math.round((new Date(w + 'T00:00:00') - new Date(mondayOf(beirutToday()) + 'T00:00:00')) / 604800000);
     return n === 0 ? 'This week' : n === 1 ? 'Next week' : n === -1 ? 'Last week' : n > 1 ? `In ${n} weeks` : `${-n} weeks ago`;
   };
-  const SH_LABEL = c => { const x = parse(c); if (x.shift === 'off') return 'Off'; if (!SHIFT[x.shift]) return '—'; return SHIFT[x.shift].label + (x.station ? ' ' + stLabel(x.station) : '') + (x.start ? ` ${x.start}–${x.end}` : ''); };
+  const SH_ONE = c => { const x = parse(c); if (x.shift === 'off') return 'Off'; if (!SHIFT[x.shift]) return '—'; return SHIFT[x.shift].label + (x.station ? ' ' + stLabel(x.station) : '') + (x.start ? ` ${x.start}–${x.end}` : ''); };
+  const SH_LABEL = c => segs(c).length ? segs(c).map(SH_ONE).join(' + ') : '—';
 
   async function loadWeek() {
     const [cur, prev] = await Promise.all([
@@ -207,11 +220,12 @@
     const c = { am: 0, pm: 0, front: 0, back: 0 };
     list.forEach(p => {
       if (p.trainee) return;   // trainees are shown but not counted in the coverage (owner, 2026-10-18)
-      const { shift, station } = parse((a[p.id] || [])[day]);
-      if (!SHIFT[shift]) return;
-      if (shift === 'am' || shift === 'full') c.am++;
-      if (shift === 'pm' || shift === 'full') c.pm++;
-      if (hasStation(p)) stationsOf(station || p.default_station).forEach(st => { if (st === 'front') c.front++; else if (st === 'back') c.back++; });
+      // A day with several shifts counts the person once in the AM / PM and once per station.
+      const xs = segs((a[p.id] || [])[day]).map(parse).filter(x => SHIFT[x.shift]);
+      if (!xs.length) return;
+      if (xs.some(x => x.shift === 'am' || x.shift === 'full')) c.am++;
+      if (xs.some(x => x.shift === 'pm' || x.shift === 'full')) c.pm++;
+      if (hasStation(p)) new Set(xs.flatMap(x => stationsOf(x.station || p.default_station))).forEach(st => { if (st === 'front') c.front++; else if (st === 'back') c.back++; });
     });
     return c;
   }
@@ -253,7 +267,7 @@
       const off = days.filter(c => c === 'off').length;
       return `<tr data-p="${p.id}" data-grp="${p.dept}">
         <th class="sh-name">${RowDrag.handle()}${esc(p.name)}${p.active ? '' : ' <span class="muted-note">(inactive)</span>'}${p.trainee ? ' <span class="sh-trainee" title="Shown but not counted">trainee</span>' : ''}<small>${esc(p.job || '') + (hasStation(p) && p.default_station ? ' · ' + (p.default_station === 'front' ? 'Front' : 'Back') : '')}</small>${breakBtn(p)}</th>
-        ${dates.map((d, i) => { const c = days[i] || '', { shift } = parse(c); const q = askOf(p.id, i); return `<td class="sh-cell sh-${shift || 'none'}${editableDay(i) ? '' : ' sh-ro'}"><button type="button" data-day="${i}" ${editableDay(i) ? '' : 'disabled'} aria-label="${esc(p.name)} ${DAYS[i]}" ${q ? `title="Asked for ${ASK_LABEL[q]}"` : ''}>${cellHtml(c)}${q ? `<i class="sh-ask-dot ${shift === q ? 'ok' : ''}">${ASK_LABEL[q]}</i>` : ''}</button></td>`; }).join('')}
+        ${dates.map((d, i) => { const c = days[i] || '', { shift } = parse(c); const q = askOf(p.id, i); return `<td class="sh-cell sh-${shift || 'none'}${isMulti(c) ? ' sh-multi' : ''}${editableDay(i) ? '' : ' sh-ro'}"><button type="button" data-day="${i}" ${editableDay(i) ? '' : 'disabled'} aria-label="${esc(p.name)} ${DAYS[i]}" ${q ? `title="Asked for ${ASK_LABEL[q]}"` : ''}>${cellHtml(c)}${q ? `<i class="sh-ask-dot ${shift === q ? 'ok' : ''}">${ASK_LABEL[q]}</i>` : ''}</button></td>`; }).join('')}
         <td class="num sh-hours">${hours ? hours + 'h' : '—'}<small>${off} off</small></td></tr>`;
     };
     const gs = groups();
@@ -291,7 +305,7 @@
           ${STATION_TOOLS.map(([v, l]) => `<button type="button" class="sh-chip sh-${v || 'none'} ${S.brush.tool === v ? 'on' : ''}" data-tool="${v}">${l}</button>`).join('')}` : ''}
           <span class="sh-brush-sep"></span>
           ${OTHER_TOOLS.map(([v, l]) => `<button type="button" class="sh-chip sh-${v || 'none'} ${S.brush.tool === v ? 'on' : ''}" data-tool="${v}">${l}</button>`).join('')}
-          <span class="muted-note">${isTills() ? '1 — pick a shift and click or drag across the days. 2 — pick Front or Back and go over the same days.' : `${esc(tabName)}: pick a shift and click or drag across the days.`}${isTills() ? ' Right-click a cell for exact times (arrives late / leaves early) or, on a full day, a different station for the AM and the PM. Keys on a cell: A P F O, 1 = Front, 2 = Back, T = times, Delete.' : ' Right-click a cell for exact times (arrives late / leaves early). Keys on a cell: A P F O, T = times, Delete.'}</span>
+          <span class="muted-note">${isTills() ? '1 — pick a shift and click or drag across the days. 2 — pick Front or Back and go over the same days.' : `${esc(tabName)}: pick a shift and click or drag across the days.`}${isTills() ? ' Right-click a cell for exact times (arrives late / leaves early), more than one shift that day, or, on a full day, a different station for the AM and the PM. Keys on a cell: A P F O, 1 = Front, 2 = Back, T = times, Delete.' : ' Right-click a cell for exact times (arrives late / leaves early) or more than one shift that day. Keys on a cell: A P F O, T = times, Delete.'}</span>
         </div>
         <div class="items-scroll" style="margin-bottom:0;"><table class="sh-grid">
         <thead><tr><th></th>${dates.map((d, i) => `<th>${DAYS[i]}<small>${dayLabel(d, { day: 'numeric', month: 'short' })}</small></th>`).join('')}<th class="num">Week</th></tr></thead>
@@ -359,7 +373,7 @@
       if ((days[i] || '') === code) return false;
       days[i] = code;
       btn.innerHTML = cellHtml(code);
-      btn.parentElement.className = `sh-cell sh-${parse(code).shift || 'none'}`;
+      btn.parentElement.className = `sh-cell sh-${parse(code).shift || 'none'}${isMulti(code) ? ' sh-multi' : ''}`;
       return true;
     };
     let painting = false, changed = false;
@@ -427,11 +441,12 @@
     const everyone = gs.flatMap(g => g.list);
     if (!S.vperson || !everyone.some(p => p.id === S.vperson)) S.vperson = everyone[0]?.id || null;
     const seg = (code, p, day) => {
-      const x = parse(code), working = !!SHIFT[x.shift], t = custom(code) ? timesOf(code) : null, ro = !editableDay(day);
+      const x = parse(code), working = !!SHIFT[x.shift], ro = !editableDay(day);
+      const t = isMulti(code) ? [allTimes(code)] : custom(code) ? timesOf(code) : null;
       return `<div class="sh-seg">${[['', '—'], ['am', 'AM'], ['pm', 'PM'], ['full', 'Full'], ['off', 'Off']].map(([v, l]) => `<button type="button" data-set="${v}" class="sh-seg-${v || 'none'} ${x.shift === v ? 'on' : ''}" ${ro ? 'disabled' : ''}>${l}</button>`).join('')}</div>
         ${!hasStation(p) ? '' : x.shift === 'full' ? ['am', 'pm'].map((h, k) => `<div class="sh-seg sh-seg-st sh-seg-half"><span>${h.toUpperCase()}</span>${[['front', 'Front'], ['back', 'Back']].map(([v, l]) => `<button type="button" data-set="half:${h}:${v}" class="${halves(x.station || p.default_station)[k] === v ? 'on' : ''}" ${ro ? 'disabled' : ''}>${l}</button>`).join('')}</div>`).join('')
           : `<div class="sh-seg sh-seg-st">${[['front', 'Front'], ['back', 'Back']].map(([v, l]) => `<button type="button" data-set="${v}" class="${working && x.station === v ? 'on' : ''}" ${working && !ro ? '' : 'disabled'}>${l}</button>`).join('')}</div>`}
-        <button type="button" class="btn ghost small sh-le-time ${t ? 'has' : ''}" data-set="time" ${working && !ro ? '' : 'disabled'} title="Arrives late / leaves early">${t ? `${t[0]}–${t[1]}` : 'Times…'}</button>`;
+        <button type="button" class="btn ghost small sh-le-time ${t ? 'has' : ''}" data-set="time" ${working && !ro ? '' : 'disabled'} title="Arrives late / leaves early, or more than one shift">${t ? t.join('–') : 'Times…'}</button>`;
     };
     if (S.view === 'day') {
       const d = S.vday;
@@ -464,9 +479,9 @@
   function weekSummaryHtml(days, p) {
     const n = { am: 0, pm: 0, full: 0, off: 0, front: 0, back: 0, none: 0 };
     for (let i = 0; i < 7; i++) {
-      const x = parse(days[i]);
-      if (SHIFT[x.shift]) { n[x.shift]++; if (hasStation(p)) stationsOf(x.station || p.default_station).forEach(st => { if (st in n) n[st]++; }); }
-      else if (x.shift === 'off') n.off++; else n.none++;
+      const xs = segs(days[i]).map(parse), work = xs.filter(x => SHIFT[x.shift]);
+      if (work.length) { work.forEach(x => n[x.shift]++); if (hasStation(p)) new Set(work.flatMap(x => stationsOf(x.station || p.default_station))).forEach(st => { if (st in n) n[st]++; }); }
+      else if (xs[0]?.shift === 'off') n.off++; else n.none++;
     }
     const chip = (k, label) => `<span class="sh-sum-chip sh-sum-${k} ${n[k] ? '' : 'zero'}"><b>${n[k]}</b> ${label}</span>`;
     return `<div class="sh-sum">${chip('am', 'AM')}${chip('pm', 'PM')}${chip('full', 'Full')}${chip('off', 'Off')}${hasStation(p) ? `<span class="sh-sum-sep"></span>${chip('front', 'Front')}${chip('back', 'Back')}` : ''}${n.none ? `<span class="sh-sum-left">${n.none} day${n.none === 1 ? '' : 's'} not set</span>` : ''}</div>`;
@@ -501,32 +516,29 @@
     const x = parse(cur); if (x.shift !== 'full') return cur;
     const [a, b] = halves(x.station || p.default_station || st);
     const t = x.start || x.end ? `|${x.start || DEF.full[0]}-${x.end || DEF.full[1]}` : '';
-    return `full:${half === 'am' ? joinSt(st, b) : joinSt(a, st)}${t}`;
+    return [`full:${half === 'am' ? joinSt(st, b) : joinSt(a, st)}${t}`, ...segs(cur).slice(1)].join(';');
   }
-  // Arrives late / leaves early: the cell's shift, station and exact start / end.
   function editTimes(btn, row) { editTimesAt(btn.closest('tr').dataset.p, Number(btn.dataset.day), row, btn); }
+  // The day's shifts (owner, 2026-11-16: more than one a day): for each, its shift, station(s) and exact
+  // start / end (arrives late / leaves early). "Add another shift" for a split day, e.g. 07:30–11:00 and 17:00–22:00.
   function editTimesAt(id, i, row, btn) {
     if (!editableDay(i)) return showToast(locked() ? 'This week is published — press Unlock to edit first.' : 'That day is already past.', true);
     const p = S.staff.find(x => x.id === id); if (!p) return;
     const days = (row.assignments[id] = row.assignments[id] || Array(7).fill(''));
-    let x = parse(days[i]);
-    if (!SHIFT[x.shift]) {   // empty or Off: start from the brush's shift (or AM)
-      const sh = SHIFT[S.brush.tool] ? S.brush.tool : 'am';
-      x = parse(applyTool(p, '', sh));
+    let list = segs(days[i]).map(parse).filter(x => SHIFT[x.shift]);
+    if (!list.length) {   // empty or Off: start from the brush's shift (or AM)
+      const x = parse(applyTool(p, '', SHIFT[S.brush.tool] ? S.brush.tool : 'am'));
       if (!x.station && hasStation(p)) x.station = p.default_station || 'front';
+      list = [x];
     }
+    const MAX = 4;
     if (!el('shTimeOverlay')) document.body.insertAdjacentHTML('beforeend', `
       <div class="modal-overlay" id="shTimeOverlay">
         <div class="modal-box form-box sh-time-box">
           <h3 id="shTimeTitle" style="margin:0 0 14px;font-family:var(--font-head);"></h3>
           <form id="shTimeForm" autocomplete="off">
-            <div class="form-grid">
-              <div><label for="shTShift">Shift</label><select id="shTShift"><option value="am">AM</option><option value="pm">PM</option><option value="full">Full day</option></select></div>
-              <div><label for="shTStation" id="shTStationL">Station</label><select id="shTStation"><option value="front">Front</option><option value="back">Back</option></select></div>
-              <div id="shTStation2W" hidden><label for="shTStation2">PM station</label><select id="shTStation2"><option value="front">Front</option><option value="back">Back</option></select></div>
-              <div><label for="shTFrom">Arrives at</label><input type="time" id="shTFrom" required></div>
-              <div><label for="shTTo">Leaves at</label><input type="time" id="shTTo" required></div>
-            </div>
+            <div id="shTRows" class="sh-trows"></div>
+            <button type="button" class="btn ghost small sh-tadd" id="shTAdd">+ Add another shift</button>
             <p class="muted-note" id="shTNote" style="margin:10px 0 0;"></p>
             <div class="actions-row">
               <button type="button" class="btn ghost small" id="shTReset" style="margin-right:auto;">Usual times</button>
@@ -536,39 +548,65 @@
           </form>
         </div>
       </div>`);
-    const ov = el('shTimeOverlay');
-    const fill = (shift, keepTimes) => {
-      el('shTShift').value = shift;
-      if (!keepTimes) { el('shTFrom').value = DEF[shift][0]; el('shTTo').value = DEF[shift][1]; }
-      el('shTNote').textContent = `Usual ${SHIFT[shift].label}: ${DEF[shift][0]}–${DEF[shift][1]}.`;
-      // A full day: one station for the AM half, one for the PM half.
-      el('shTStation2W').hidden = shift !== 'full' || !hasStation(p);
-      el('shTStation').parentElement.hidden = !hasStation(p);
-      el('shTStationL').textContent = shift === 'full' ? 'AM station' : 'Station';
+    const ov = el('shTimeOverlay'), box = el('shTRows');
+    const ST_OPTS = '<option value="front">Front</option><option value="back">Back</option>';
+    // One line per shift: { shift, st (AM / only station), st2 (PM station of a full day), from, to }.
+    const read = () => [...box.querySelectorAll('.sh-trow')].map(r => ({ shift: r.querySelector('.sh-t-shift').value,
+      st: r.querySelector('.sh-t-st')?.value || '', st2: r.querySelector('.sh-t-st2')?.value || '',
+      from: r.querySelector('.sh-t-from').value, to: r.querySelector('.sh-t-to').value }));
+    const draw = rows => {
+      box.innerHTML = rows.map((r, k) => `<div class="sh-trow">
+          ${rows.length > 1 ? `<span class="sh-t-n">${k + 1}</span>` : ''}
+          <label class="sh-tf"><span>Shift</span><select class="sh-t-shift"><option value="am">AM</option><option value="pm">PM</option><option value="full">Full day</option></select></label>
+          ${hasStation(p) ? `<label class="sh-tf"><span>${r.shift === 'full' ? 'AM station' : 'Station'}</span><select class="sh-t-st">${ST_OPTS}</select></label>
+          <label class="sh-tf" ${r.shift === 'full' ? '' : 'hidden'}><span>PM station</span><select class="sh-t-st2">${ST_OPTS}</select></label>` : ''}
+          <label class="sh-tf"><span>Arrives at</span><input type="time" class="sh-t-from" required></label>
+          <label class="sh-tf"><span>Leaves at</span><input type="time" class="sh-t-to" required></label>
+          ${rows.length > 1 ? `<button type="button" class="icon-btn sh-t-del" data-del="${k}" aria-label="Remove shift ${k + 1}" title="Remove this shift"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>` : ''}
+        </div>`).join('');
+      box.querySelectorAll('.sh-trow').forEach((line, k) => { const r = rows[k];
+        line.querySelector('.sh-t-shift').value = r.shift;
+        if (line.querySelector('.sh-t-st')) { line.querySelector('.sh-t-st').value = r.st || 'front'; line.querySelector('.sh-t-st2').value = r.st2 || r.st || 'front'; }
+        line.querySelector('.sh-t-from').value = r.from; line.querySelector('.sh-t-to').value = r.to; });
+      el('shTAdd').hidden = rows.length >= MAX;
+      el('shTNote').textContent = `Usual: AM ${DEF.am.join('–')} · PM ${DEF.pm.join('–')} · Full ${DEF.full.join('–')}.` + (rows.length > 1 ? ' The shifts cannot overlap.' : '');
     };
     el('shTimeTitle').textContent = `${p.name} — ${DAYS[i]} ${dayLabel(addDays(S.week, i), { day: 'numeric', month: 'short' })}`;
-    el('shTStation').value = halves(x.station || p.default_station || 'front')[0] || 'front';
-    el('shTStation2').value = halves(x.station || p.default_station || 'front')[1] || 'front';
-    el('shTFrom').value = x.start || DEF[x.shift][0];
-    el('shTTo').value = x.end || DEF[x.shift][1];
-    fill(x.shift, true);
-    el('shTShift').onchange = () => fill(el('shTShift').value, false);
-    el('shTReset').onclick = () => fill(el('shTShift').value, false);
+    draw(list.map(x => { const [a, b] = halves(x.station || p.default_station || 'front');
+      return { shift: x.shift, st: a || 'front', st2: b || a || 'front', from: x.start || DEF[x.shift][0], to: x.end || DEF[x.shift][1] }; }));
+    // Another shift picked on a line: that shift's usual times.
+    box.onchange = e => {
+      if (!e.target.classList.contains('sh-t-shift')) return;
+      const rows = read(), k = [...box.querySelectorAll('.sh-t-shift')].indexOf(e.target);
+      rows[k].from = DEF[rows[k].shift][0]; rows[k].to = DEF[rows[k].shift][1];
+      draw(rows);
+    };
+    box.onclick = e => { const b = e.target.closest('[data-del]'); if (!b) return; const rows = read(); rows.splice(Number(b.dataset.del), 1); draw(rows); };
+    el('shTAdd').onclick = () => {
+      const rows = read(); if (rows.length >= MAX) return;
+      const last = rows[rows.length - 1], sh = rows.some(r => r.shift === 'pm') ? 'am' : 'pm';
+      rows.push({ shift: sh, st: (last && last.shift === 'full' ? last.st2 : last?.st) || p.default_station || 'front', st2: '', from: DEF[sh][0], to: DEF[sh][1] });
+      draw(rows);
+      box.querySelector('.sh-trow:last-child .sh-t-from')?.focus();
+    };
+    el('shTReset').onclick = () => draw(read().map(r => ({ ...r, from: DEF[r.shift][0], to: DEF[r.shift][1] })));
     const close = () => { ov.classList.remove('open'); btn?.focus(); };
     el('shTCancel').onclick = close;
     ov.onclick = e => { if (e.target === ov) close(); };
     el('shTimeForm').onsubmit = e => {
       e.preventDefault();
-      const shift = el('shTShift').value, from = el('shTFrom').value, to = el('shTTo').value;
-      if (!from || !to || mins(to) <= mins(from)) return showToast('"Leaves at" must be after "Arrives at".', true);
-      const st = !hasStation(p) ? '' : shift === 'full' ? joinSt(el('shTStation').value, el('shTStation2').value) : el('shTStation').value;
-      days[i] = withTimes(`${shift}${st ? ':' + st : ''}`, from, to);
+      const rows = read();
+      if (rows.some(r => !r.from || !r.to || mins(r.to) <= mins(r.from))) return showToast('"Leaves at" must be after "Arrives at".', true);
+      rows.sort((a, b) => mins(a.from) - mins(b.from));
+      if (rows.some((r, k) => k && mins(r.from) < mins(rows[k - 1].to))) return showToast('Two shifts overlap — the next one must start after the one before ends.', true);
+      days[i] = rows.map(r => { const st = !hasStation(p) ? '' : r.shift === 'full' ? joinSt(r.st, r.st2) : r.st;
+        return withTimes(`${r.shift}${st ? ':' + st : ''}`, r.from, r.to); }).join(';');
       ov.classList.remove('open');
       save(); renderWeek();
       el('shBody').querySelector(`.sh-grid tr[data-p="${id}"] button[data-day="${i}"]`)?.focus();
     };
     ov.classList.add('open');
-    setTimeout(() => el('shTFrom').focus(), 30);
+    setTimeout(() => box.querySelector('.sh-t-from')?.focus(), 30);
   }
 
   function wireNav() {
@@ -850,7 +888,10 @@
 
   function print() {
     const w = S.week, a = S.row.assignments || {}, dates = DAYS.map((_, i) => addDays(w, i));
-    const cell = (p, i) => { const { shift, station } = parse((a[p.id] || [])[i]); if (shift === 'off') return '<td class="off">Off</td>'; if (!SHIFT[shift]) return '<td></td>'; const code = (a[p.id] || [])[i], t = custom(code) ? timesOf(code) : null; return `<td class="${shift}"><b>${SHIFT[shift].label}</b>${station ? `<br><small>${esc(stLabel(station))}</small>` : ''}${t ? `<br><small class="t">${t[0]}–${t[1]}</small>` : ''}</td>`; };
+    // A day with several shifts: each one with its times, one under the other.
+    const one = (code, always) => { const { shift, station } = parse(code), t = always || custom(code) ? timesOf(code) : null; return `<b>${SHIFT[shift].label}</b>${station ? `<br><small>${esc(stLabel(station))}</small>` : ''}${t ? `<br><small class="t">${t[0]}–${t[1]}</small>` : ''}`; };
+    const cell = (p, i) => { const code = (a[p.id] || [])[i], { shift } = parse(code); if (shift === 'off') return '<td class="off">Off</td>'; if (!SHIFT[shift]) return '<td></td>';
+      return isMulti(code) ? `<td class="${shift}">${segs(code).filter(s => SHIFT[parse(s).shift]).map(s => one(s, true)).join('<hr>')}</td>` : `<td class="${shift}">${one(code)}</td>`; };
     const sect = (title, list) => list.length ? `<tr class="g"><td colspan="8">${title}</td></tr>${list.map(p => `<tr><th>${esc(p.name)}${hasBreak(p) && p.breakStart ? `<br><small>${esc(breakText(p))}</small>` : ''}</th>${dates.map((_, i) => cell(p, i)).join('')}</tr>`).join('')}` : '';
     const win = window.open('', '_blank'); if (!win) return showToast('Allow pop-ups to print.', true);
     win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(tabOf(S.tab)[1])} schedule ${esc(weekTitle(w))}</title><style>
@@ -858,6 +899,7 @@
       table{border-collapse:collapse;width:100%}th,td{border:1px solid #bbb;padding:6px;text-align:center}th{text-align:left;white-space:nowrap}
       thead th{text-align:center;background:#eef1ff}tr.g td{background:#1943AF;color:#fff;text-align:left;font-weight:700}
       small.t{color:#b25b00;font-weight:700}td.am{background:#e6f0ff}td.pm{background:#fff3dc}td.full{background:#e8f6ec}td.off{color:#999}small{color:#555}
+      td hr{border:0;border-top:1px dashed #999;margin:4px 0}
       @media print{body{margin:8mm}}</style></head><body>
       <h1>La Valeur — ${esc(tabOf(S.tab)[1])} schedule</h1><p>Week of ${esc(weekTitle(w))} · AM ${SHIFT.am.time} · PM ${SHIFT.pm.time} · Full ${SHIFT.full.time}</p>
       <table><thead><tr><th></th>${dates.map((d, i) => `<th>${DAYS[i]}<br><small>${dayLabel(d, { day: 'numeric', month: 'short' })}</small></th>`).join('')}</tr></thead>

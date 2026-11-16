@@ -215,8 +215,10 @@
 
   // The person's shifts for this week and next (published weeks only).
   // "am:front|08:30-13:00": shift, station, and the exact times when someone arrives late / leaves early.
+  // Several shifts in one day (migration 104): joined by ";" — parseCode reads the first one, segsOf all of them.
+  const segsOf = code => String(code || '').split(';').filter(Boolean);
   const parseCode = code => {
-    const [main, t] = String(code || '').split('|');
+    const [main, t] = (segsOf(code)[0] || '').split('|');
     const [shift, station] = main.split(':');
     const [start, end] = (t || '').split('-');
     return { shift: shift || '', station: station || '', times: start && end ? `${start} – ${end}` : '' };
@@ -230,10 +232,12 @@
   const stationsOf = st => [...new Set(halves(st).filter(Boolean))];
   function renderSchedule(weeks) {
     const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Beirut' });
+    const one = c => { const { shift, station, times } = parseCode(c); return SHIFTS[shift] ? `<b>${SHIFTS[shift][0]}${station ? ' · ' + stLabel(station) : ''}</b><small class="${times ? 'cp-custom' : ''}">${times || SHIFTS[shift][1]}</small>` : ''; };
     const cell = (code, date) => {
-      const { shift, station, times } = parseCode(code);
+      const { shift } = parseCode(code);
       const iso = date.toLocaleDateString('en-CA'), day = date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
-      const what = shift === 'off' ? '<b>Off</b>' : SHIFTS[shift] ? `<b>${SHIFTS[shift][0]}${station ? ' · ' + stLabel(station) : ''}</b><small class="${times ? 'cp-custom' : ''}">${times || SHIFTS[shift][1]}</small>` : '<span class="muted-note">—</span>';
+      // A day with several shifts: each one with its times, one under the other.
+      const what = shift === 'off' ? '<b>Off</b>' : SHIFTS[shift] ? segsOf(code).map(one).filter(Boolean).join('<span class="cp-and"></span>') : '<span class="muted-note">—</span>';
       return `<li class="cp-day cp-${shift || 'none'}${iso === today ? ' today' : ''}${iso < today ? ' past' : ''}"><span>${DAYS[(date.getDay() + 6) % 7]}<small>${day}</small></span><div>${what}</div></li>`;
     };
     $('cpSchedule').innerHTML = '<h3 class="cp-sec">My schedule</h3>' + (weeks && weeks.length
@@ -259,10 +263,11 @@
     if (team.d === null || team.d > 6) { const t = dates.findIndex(d => isoOf(d) === today); team.d = t >= 0 ? t : 0; }
     const day = team.d;
     const groups = { am: [], pm: [], full: [], off: [] };
+    // Someone with several shifts that day shows under each of them, with that shift's times.
     w.people.forEach(p => {
-      const x = parseCode(p.days[day]);
-      if (SHIFTS[x.shift]) groups[x.shift].push({ ...p, ...x });
-      else if (x.shift === 'off') groups.off.push(p);
+      const xs = segsOf(p.days[day]).map(parseCode);
+      xs.forEach(x => { if (SHIFTS[x.shift]) groups[x.shift].push({ ...p, ...x }); });
+      if (xs[0]?.shift === 'off') groups.off.push(p);
     });
     const sortSup = list => list.sort((x, y) => (y.position === 'supervisor') - (x.position === 'supervisor'));
     const person = p => `<li><span class="cp-cal-name">${esc(p.name)}${p.position === 'supervisor' ? '<em>Supervisor</em>' : ''}</span>
@@ -302,9 +307,11 @@
     } catch (err) { draft.on = false; $('cpDraft').innerHTML = ''; }
   }
   // Same rules as the HR page: a shift keeps the station (or takes the usual one); Front / Back keep the shift and times.
+  // A day with several shifts (set by HR): Front / Back go on all of them; another shift replaces the day.
   function applyTool(p, cur, tool) {
-    const x = parseCode(cur), main = String(cur || '').split('|'), times = main[1] ? '|' + main[1] : '';
-    if (tool === 'front' || tool === 'back') return SHIFTS[x.shift] ? `${x.shift}:${tool}${times}` : cur;
+    const x = parseCode(cur);
+    if (tool === 'front' || tool === 'back') return SHIFTS[x.shift] ? segsOf(cur).map(s => { const y = parseCode(s), t = s.split('|')[1];
+      return SHIFTS[y.shift] ? `${y.shift}:${tool}${t ? '|' + t : ''}` : s; }).join(';') : cur;
     if (!SHIFTS[tool]) return tool;
     if (x.shift === tool) return cur;
     let st = x.station || p.default_station || '';
@@ -314,9 +321,9 @@
   // A full day's AM or PM station (the other half keeps its own).
   function setHalf(p, cur, half, st) {
     const x = parseCode(cur); if (x.shift !== 'full') return cur;
-    const times = String(cur || '').split('|')[1];
+    const times = (segsOf(cur)[0] || '').split('|')[1];
     const [a, b] = halves(x.station || p.default_station || st);
-    return `full:${half === 'am' ? joinSt(st, b) : joinSt(a, st)}${times ? '|' + times : ''}`;
+    return [`full:${half === 'am' ? joinSt(st, b) : joinSt(a, st)}${times ? '|' + times : ''}`, ...segsOf(cur).slice(1)].join(';');
   }
   // ---- My requests (migration 027): what I'd like for an upcoming week — sent here instead of WhatsApp.
   // Per day: Any / AM / PM / Full / Off, and a note. Can be changed until the week is published.
@@ -370,9 +377,9 @@
   function weekSummary(p, a) {
     const n = { am: 0, pm: 0, full: 0, off: 0, front: 0, back: 0, none: 0 };
     for (let d = 0; d < 7; d++) {
-      const x = parseCode((a[p.id] || [])[d]);
-      if (SHIFTS[x.shift]) { n[x.shift]++; stationsOf(x.station || p.default_station).forEach(st => { if (st in n) n[st]++; }); }
-      else if (x.shift === 'off') n.off++; else n.none++;
+      const xs = segsOf((a[p.id] || [])[d]).map(parseCode), work = xs.filter(x => SHIFTS[x.shift]);
+      if (work.length) { work.forEach(x => n[x.shift]++); new Set(work.flatMap(x => stationsOf(x.station || p.default_station))).forEach(st => { if (st in n) n[st]++; }); }
+      else if (xs[0]?.shift === 'off') n.off++; else n.none++;
     }
     const chip = (k, l) => `<span class="cp-sum-chip cp-sum-${k} ${n[k] ? '' : 'zero'}"><b>${n[k]}</b> ${l}</span>`;
     return `<div class="cp-sum">${chip('am', 'AM')}${chip('pm', 'PM')}${chip('full', 'Full')}${chip('off', 'Off')}${chip('front', 'Front')}${chip('back', 'Back')}${n.none ? `<span class="cp-sum-left">${n.none} not set</span>` : ''}</div>`;
@@ -394,7 +401,9 @@
       const dates = DAYS.map((_, i) => addDays(draft.w, i));
       const day = draft.d;
       const cnt = { am: 0, pm: 0, front: 0, back: 0 };
-      draft.staff.forEach(p => { const x = parseCode((a[p.id] || [])[day]); if (!SHIFTS[x.shift]) return; if (x.shift !== 'pm') cnt.am++; if (x.shift !== 'am') cnt.pm++; stationsOf(x.station || p.default_station).forEach(st => { if (st === 'front') cnt.front++; else if (st === 'back') cnt.back++; }); });
+      // A day with several shifts counts the person once in the AM / PM and once per station.
+      const workOf = (p, d) => segsOf((a[p.id] || [])[d]).map(parseCode).filter(x => SHIFTS[x.shift]);
+      draft.staff.forEach(p => { const xs = workOf(p, day); if (!xs.length) return; if (xs.some(x => x.shift !== 'pm')) cnt.am++; if (xs.some(x => x.shift !== 'am')) cnt.pm++; new Set(xs.flatMap(x => stationsOf(x.station || p.default_station))).forEach(st => { if (st === 'front') cnt.front++; else if (st === 'back') cnt.back++; }); });
       // One line: a person on a day (By day: everyone on draft.d; By person: draft.p on each day).
       const line = (p, d, who) => {
         const code = (a[p.id] || [])[d] || '', x = parseCode(code), working = !!SHIFTS[x.shift];
@@ -403,7 +412,9 @@
         // A full day: a station for the AM half and one for the PM half.
         const half = (h, k) => `<div class="cp-dr-seg cp-dr-stn cp-dr-half"><span>${h.toUpperCase()}</span>${[['front', 'Front'], ['back', 'Back']].map(([v, l]) => `<button type="button" data-dset="half:${h}:${v}" class="${halves(x.station || p.default_station)[k] === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
         const asked = ((draft.requests || []).find(q => q.cashier_id === p.id)?.days || [])[d];
-        return `<li data-pid="${p.id}" data-day="${d}"><div class="cp-dr-who">${who}${x.times ? `<span class="cp-custom">${x.times}</span>` : ''}${asked ? `<span class="cp-ask ${asked === x.shift ? 'ok' : ''}">asked ${asked === 'full' ? 'Full' : asked === 'off' ? 'Off' : asked.toUpperCase()}</span>` : ''}</div>
+        // The day's other shifts (HR sets them in the app): shown, kept by Front / Back, replaced by another shift.
+        const more = segsOf(code).slice(1).map(parseCode).filter(y => SHIFTS[y.shift]).map(y => `<span class="cp-custom cp-more">+ ${SHIFTS[y.shift][0]}${y.station ? ' ' + stLabel(y.station) : ''} ${y.times || SHIFTS[y.shift][1]}</span>`).join('');
+        return `<li data-pid="${p.id}" data-day="${d}"><div class="cp-dr-who">${who}${x.times ? `<span class="cp-custom">${x.times}</span>` : ''}${more}${asked ? `<span class="cp-ask ${asked === x.shift ? 'ok' : ''}">asked ${asked === 'full' ? 'Full' : asked === 'off' ? 'Off' : asked.toUpperCase()}</span>` : ''}</div>
           <div class="cp-dr-seg">${seg}</div>${x.shift === 'full' ? half('am', 0) + half('pm', 1) : `<div class="cp-dr-seg cp-dr-stn">${st}</div>`}</li>`;
       };
       const row = p => line(p, day, `<b>${esc(p.name)}</b>${p.position === 'supervisor' ? '<em>Supervisor</em>' : ''}`);
@@ -429,7 +440,7 @@
         <p class="cp-dr-count"><b>${dates[day].toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}</b></p>
         <p class="cp-dr-counts">${(() => {
           // Per group (owner, 2026-10-01): "Supervisors 1 AM · 1 PM | Cashiers 3 AM · 3 PM".
-          const k = list => { const n = { am: 0, pm: 0 }; list.forEach(p => { const x = parseCode((a[p.id] || [])[day]); if (!SHIFTS[x.shift]) return; if (x.shift !== 'pm') n.am++; if (x.shift !== 'am') n.pm++; }); return n; };
+          const k = list => { const n = { am: 0, pm: 0 }; list.forEach(p => { const xs = workOf(p, day); if (!xs.length) return; if (xs.some(x => x.shift !== 'pm')) n.am++; if (xs.some(x => x.shift !== 'am')) n.pm++; }); return n; };
           const g = (label, list) => { if (!list.length) return ''; const n = k(list); return `<span><b>${label}</b> ${n.am} AM · ${n.pm} PM</span>`; };
           return g('Supervisors', sups) + g('Cashiers', cash) + `<span>Front ${cnt.front} · Back ${cnt.back}</span>`;
         })()}</p>
