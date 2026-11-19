@@ -226,3 +226,6 @@ body.cashier-page{display:block;min-height:100vh;}
 /* Several shifts in one day (owner, 2026-11-16): a dashed line between them. */
 .cp-and{display:block;border-top:1px dashed var(--line);margin:5px 0;}
 .cp-more{display:inline-block;margin-left:6px;}
+/* Supervisors' rows in the draft: set by HR only (migration 105). */
+.cp-hronly{display:inline-block;margin-left:6px;padding:1px 6px;border-radius:10px;border:1px solid var(--line);font-size:11px;font-weight:600;color:var(--ink-faint);}
+.cp-dr-ro .cp-dr-seg{opacity:.55;}

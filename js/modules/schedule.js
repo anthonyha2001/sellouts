@@ -150,6 +150,11 @@
   const locked = () => !isHR() && !!(isPublishable() && S.row && S.row.published && S.unlocked !== S.week);
   const dayLocked = i => !isHR() && dayPast(i);
   const editableDay = i => !locked() && !dayLocked(i);
+  // The supervisors' shifts are HR's (owner, 2026-11-19; migration 105): a supervisor (schedule.edit) cannot
+  // change them — theirs or another supervisor's. Their rows are shown, greyed out.
+  const supLocked = p => !isHR() && !!p && isSup(p);
+  const editableCell = (p, i) => editableDay(i) && !supLocked(p);
+  const SUP_MSG = 'Only HR can change the supervisors’ shifts.';
   const weekRel = w => {
     const n = Math.round((new Date(w + 'T00:00:00') - new Date(mondayOf(beirutToday()) + 'T00:00:00')) / 604800000);
     return n === 0 ? 'This week' : n === 1 ? 'Next week' : n === -1 ? 'Last week' : n > 1 ? `In ${n} weeks` : `${-n} weeks ago`;
@@ -266,8 +271,8 @@
       const hours = Math.round(days.reduce((t, c) => t + hoursOf(c), 0) * 100) / 100;
       const off = days.filter(c => c === 'off').length;
       return `<tr data-p="${p.id}" data-grp="${p.dept}">
-        <th class="sh-name">${RowDrag.handle()}${esc(p.name)}${p.active ? '' : ' <span class="muted-note">(inactive)</span>'}${p.trainee ? ' <span class="sh-trainee" title="Shown but not counted">trainee</span>' : ''}<small>${esc(p.job || '') + (hasStation(p) && p.default_station ? ' · ' + (p.default_station === 'front' ? 'Front' : 'Back') : '')}</small>${breakBtn(p)}</th>
-        ${dates.map((d, i) => { const c = days[i] || '', { shift } = parse(c); const q = askOf(p.id, i); return `<td class="sh-cell sh-${shift || 'none'}${isMulti(c) ? ' sh-multi' : ''}${editableDay(i) ? '' : ' sh-ro'}"><button type="button" data-day="${i}" ${editableDay(i) ? '' : 'disabled'} aria-label="${esc(p.name)} ${DAYS[i]}" ${q ? `title="Asked for ${ASK_LABEL[q]}"` : ''}>${cellHtml(c)}${q ? `<i class="sh-ask-dot ${shift === q ? 'ok' : ''}">${ASK_LABEL[q]}</i>` : ''}</button></td>`; }).join('')}
+        <th class="sh-name">${RowDrag.handle()}${esc(p.name)}${p.active ? '' : ' <span class="muted-note">(inactive)</span>'}${p.trainee ? ' <span class="sh-trainee" title="Shown but not counted">trainee</span>' : ''}${supLocked(p) ? ' <span class="sh-hronly" title="Only HR can change the supervisors’ shifts">set by HR</span>' : ''}<small>${esc(p.job || '') + (hasStation(p) && p.default_station ? ' · ' + (p.default_station === 'front' ? 'Front' : 'Back') : '')}</small>${breakBtn(p)}</th>
+        ${dates.map((d, i) => { const c = days[i] || '', { shift } = parse(c); const q = askOf(p.id, i); return `<td class="sh-cell sh-${shift || 'none'}${isMulti(c) ? ' sh-multi' : ''}${editableCell(p, i) ? '' : ' sh-ro'}"><button type="button" data-day="${i}" ${editableCell(p, i) ? '' : 'disabled'} aria-label="${esc(p.name)} ${DAYS[i]}" ${q ? `title="Asked for ${ASK_LABEL[q]}"` : ''}>${cellHtml(c)}${q ? `<i class="sh-ask-dot ${shift === q ? 'ok' : ''}">${ASK_LABEL[q]}</i>` : ''}</button></td>`; }).join('')}
         <td class="num sh-hours">${hours ? hours + 'h' : '—'}<small>${off} off</small></td></tr>`;
     };
     const gs = groups();
@@ -366,8 +371,8 @@
     const tbody = el('shBody').querySelector('.sh-grid tbody');
     const set = (btn, tool) => {
       if (tool === 'time') return false;   // the Times… tool opens the dialog instead
-      if (!editableDay(Number(btn.dataset.day))) return false;   // locked week or a day already past
       const id = btn.closest('tr').dataset.p, p = S.staff.find(x => x.id === id); if (!p) return false;
+      if (!editableCell(p, Number(btn.dataset.day))) return false;   // locked week, a day already past, or a supervisor's row
       const days = (row.assignments[id] = row.assignments[id] || Array(7).fill(''));
       const i = Number(btn.dataset.day), code = applyTool(p, days[i] || '', tool);
       if ((days[i] || '') === code) return false;
@@ -441,7 +446,7 @@
     const everyone = gs.flatMap(g => g.list);
     if (!S.vperson || !everyone.some(p => p.id === S.vperson)) S.vperson = everyone[0]?.id || null;
     const seg = (code, p, day) => {
-      const x = parse(code), working = !!SHIFT[x.shift], ro = !editableDay(day);
+      const x = parse(code), working = !!SHIFT[x.shift], ro = !editableCell(p, day);
       const t = isMulti(code) ? [allTimes(code)] : custom(code) ? timesOf(code) : null;
       return `<div class="sh-seg">${[['', '—'], ['am', 'AM'], ['pm', 'PM'], ['full', 'Full'], ['off', 'Off']].map(([v, l]) => `<button type="button" data-set="${v}" class="sh-seg-${v || 'none'} ${x.shift === v ? 'on' : ''}" ${ro ? 'disabled' : ''}>${l}</button>`).join('')}</div>
         ${!hasStation(p) ? '' : x.shift === 'full' ? ['am', 'pm'].map((h, k) => `<div class="sh-seg sh-seg-st sh-seg-half"><span>${h.toUpperCase()}</span>${[['front', 'Front'], ['back', 'Back']].map(([v, l]) => `<button type="button" data-set="half:${h}:${v}" class="${halves(x.station || p.default_station)[k] === v ? 'on' : ''}" ${ro ? 'disabled' : ''}>${l}</button>`).join('')}</div>`).join('')
@@ -502,6 +507,7 @@
       const p = S.staff.find(x => x.id === id); if (!p) return;
       if (b.dataset.set === 'time') return editTimesAt(id, i, row);
       if (!editableDay(i)) return;
+      if (supLocked(p)) return showToast(SUP_MSG, true);
       const days = (row.assignments[id] = row.assignments[id] || Array(7).fill(''));
       const code = b.dataset.set.startsWith('half:') ? setHalf(p, days[i] || '', ...b.dataset.set.split(':').slice(1)) : applyTool(p, days[i] || '', b.dataset.set);
       if ((days[i] || '') === code) return;
@@ -524,6 +530,7 @@
   function editTimesAt(id, i, row, btn) {
     if (!editableDay(i)) return showToast(locked() ? 'This week is published — press Unlock to edit first.' : 'That day is already past.', true);
     const p = S.staff.find(x => x.id === id); if (!p) return;
+    if (supLocked(p)) return showToast(SUP_MSG, true);
     const days = (row.assignments[id] = row.assignments[id] || Array(7).fill(''));
     let list = segs(days[i]).map(parse).filter(x => SHIFT[x.shift]);
     if (!list.length) {   // empty or Off: start from the brush's shift (or AM)
@@ -639,7 +646,7 @@
   // The open tab's people only (the other departments keep their week).
   async function emptyWeek() {
     if (locked()) return showToast('This week is published — press Unlock to edit first.', true);
-    const ids = new Set(S.staff.filter(inTab).map(p => p.id)), tabName = tabOf(S.tab)[1];
+    const ids = new Set(S.staff.filter(p => inTab(p) && !supLocked(p)).map(p => p.id)), tabName = tabOf(S.tab)[1];   // supervisors' rows: HR's
     const n = Object.entries(S.row.assignments || {}).filter(([id]) => ids.has(id)).reduce((t, [, d]) => t + (d || []).filter(Boolean).length, 0);
     if (!n) return showToast(`${tabName}: this week is already empty.`);
     const what = `${n} shift${n === 1 ? '' : 's'} will be removed.`;
@@ -658,7 +665,7 @@
   }
   async function copyLast() {
     if (locked()) return showToast('This week is published — press Unlock to edit first.', true);
-    const ids = new Set(S.staff.filter(inTab).map(p => p.id));
+    const ids = new Set(S.staff.filter(p => inTab(p) && !supLocked(p)).map(p => p.id));   // supervisors' rows: HR's
     if (!(await showConfirm(`Replace ${tabOf(S.tab)[1]} for this week with last week's (${weekTitle(addDays(S.week, -7))})?`, 'Copy'))) return;
     const all = copied(), cur = S.row.assignments || {};
     // this tab from last week, the other departments as they are

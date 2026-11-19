@@ -291,6 +291,7 @@
   // same unpublished week, one cell at a time; "Send to HR", and HR publishes it in the app.
   const draft = { on: false, weeks: [], week: null, staff: [], canCopy: false, w: null, d: 0, busy: false, mode: 'day', p: null };
   const WEEK_NAMES = ['This week', 'Next week', 'In 2 weeks', 'In 3 weeks'];
+  const isSupRow = p => p.position === 'supervisor';   // HR sets the supervisors' shifts (migration 105)
   const STATUS = { none: 'Not started', draft: 'Draft', sent: 'Sent to HR', published: 'Published' };
   async function loadDraft(week) {
     if (!session) return;
@@ -407,14 +408,16 @@
       // One line: a person on a day (By day: everyone on draft.d; By person: draft.p on each day).
       const line = (p, d, who) => {
         const code = (a[p.id] || [])[d] || '', x = parseCode(code), working = !!SHIFTS[x.shift];
-        const seg = [['', '—'], ['am', 'AM'], ['pm', 'PM'], ['full', 'Full'], ['off', 'Off']].map(([v, l]) => `<button type="button" data-dset="${v}" class="${x.shift === v ? 'on' : ''} cp-dr-${v || 'none'}">${l}</button>`).join('');
-        const st = [['front', 'Front'], ['back', 'Back']].map(([v, l]) => `<button type="button" data-dset="${v}" class="${working && x.station === v ? 'on' : ''}" ${working ? '' : 'disabled'}>${l}</button>`).join('');
+        // The supervisors' shifts are set by HR only (owner, 2026-11-19; migration 105): shown, not editable.
+        const ro = isSupRow(p) ? 'disabled' : '';
+        const seg = [['', '—'], ['am', 'AM'], ['pm', 'PM'], ['full', 'Full'], ['off', 'Off']].map(([v, l]) => `<button type="button" data-dset="${v}" class="${x.shift === v ? 'on' : ''} cp-dr-${v || 'none'}" ${ro}>${l}</button>`).join('');
+        const st = [['front', 'Front'], ['back', 'Back']].map(([v, l]) => `<button type="button" data-dset="${v}" class="${working && x.station === v ? 'on' : ''}" ${working && !ro ? '' : 'disabled'}>${l}</button>`).join('');
         // A full day: a station for the AM half and one for the PM half.
-        const half = (h, k) => `<div class="cp-dr-seg cp-dr-stn cp-dr-half"><span>${h.toUpperCase()}</span>${[['front', 'Front'], ['back', 'Back']].map(([v, l]) => `<button type="button" data-dset="half:${h}:${v}" class="${halves(x.station || p.default_station)[k] === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+        const half = (h, k) => `<div class="cp-dr-seg cp-dr-stn cp-dr-half"><span>${h.toUpperCase()}</span>${[['front', 'Front'], ['back', 'Back']].map(([v, l]) => `<button type="button" data-dset="half:${h}:${v}" class="${halves(x.station || p.default_station)[k] === v ? 'on' : ''}" ${ro}>${l}</button>`).join('')}</div>`;
         const asked = ((draft.requests || []).find(q => q.cashier_id === p.id)?.days || [])[d];
         // The day's other shifts (HR sets them in the app): shown, kept by Front / Back, replaced by another shift.
         const more = segsOf(code).slice(1).map(parseCode).filter(y => SHIFTS[y.shift]).map(y => `<span class="cp-custom cp-more">+ ${SHIFTS[y.shift][0]}${y.station ? ' ' + stLabel(y.station) : ''} ${y.times || SHIFTS[y.shift][1]}</span>`).join('');
-        return `<li data-pid="${p.id}" data-day="${d}"><div class="cp-dr-who">${who}${x.times ? `<span class="cp-custom">${x.times}</span>` : ''}${more}${asked ? `<span class="cp-ask ${asked === x.shift ? 'ok' : ''}">asked ${asked === 'full' ? 'Full' : asked === 'off' ? 'Off' : asked.toUpperCase()}</span>` : ''}</div>
+        return `<li data-pid="${p.id}" data-day="${d}" class="${ro ? 'cp-dr-ro' : ''}"><div class="cp-dr-who">${who}${ro ? '<span class="cp-hronly">set by HR</span>' : ''}${x.times ? `<span class="cp-custom">${x.times}</span>` : ''}${more}${asked ? `<span class="cp-ask ${asked === x.shift ? 'ok' : ''}">asked ${asked === 'full' ? 'Full' : asked === 'off' ? 'Off' : asked.toUpperCase()}</span>` : ''}</div>
           <div class="cp-dr-seg">${seg}</div>${x.shift === 'full' ? half('am', 0) + half('pm', 1) : `<div class="cp-dr-seg cp-dr-stn">${st}</div>`}</li>`;
       };
       const row = p => line(p, day, `<b>${esc(p.name)}</b>${p.position === 'supervisor' ? '<em>Supervisor</em>' : ''}`);
@@ -422,7 +425,7 @@
       const everyone = [...sups, ...cash];
       if (!draft.p || !everyone.some(p => p.id === draft.p)) draft.p = everyone[0]?.id || null;
       const modes = `<div class="cp-dr-modes">${[['day', 'By day'], ['person', 'By person']].map(([v, l]) => `<button type="button" data-dmode="${v}" class="${draft.mode === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
-      const note = `<p class="muted-note cp-dr-note">${info.status === 'sent' ? `Sent to HR by ${esc(info.submitted_by || '')} — you can still change it until HR publishes it.` : 'Draft — staff cannot see it yet.'}${wk.last_editor ? ` Last change by ${esc(wk.last_editor)}.` : ''}</p>`;
+      const note = `<p class="muted-note cp-dr-note">${info.status === 'sent' ? `Sent to HR by ${esc(info.submitted_by || '')} — you can still change it until HR publishes it.` : 'Draft — staff cannot see it yet.'} The supervisors’ shifts are set by HR.${wk.last_editor ? ` Last change by ${esc(wk.last_editor)}.` : ''}</p>`;
       const send = `<div class="cp-dr-send"><button type="button" class="btn" id="cpDraftSend">${info.status === 'sent' ? 'Send to HR again' : 'Send to HR'}</button>
           <span class="muted-note">HR reviews it and publishes it to everyone.</span></div>`;
       if (draft.mode === 'person') {
@@ -471,6 +474,7 @@
     }
     if (t.dataset.dset !== undefined) {
       const li = t.closest('li[data-pid]'), p = draft.staff.find(x => x.id === li.dataset.pid), d = Number(li.dataset.day);
+      if (!p || isSupRow(p)) return err('Only HR can change the supervisors’ shifts.');
       const a = draft.week.assignments, days = (a[p.id] = a[p.id] || ['', '', '', '', '', '', '']);
       const before = days[d] || '', code = t.dataset.dset.startsWith('half:') ? setHalf(p, before, ...t.dataset.dset.split(':').slice(1)) : applyTool(p, before, t.dataset.dset);
       if (code === before) return;
