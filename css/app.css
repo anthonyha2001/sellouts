@@ -1169,6 +1169,9 @@ tr.sh-dragging th,tr.sh-dragging td{background:var(--pine-tint);}
 .sh-t-n{align-self:center;width:24px;height:24px;border-radius:50%;display:grid;place-items:center;background:var(--pine-tint);color:var(--pine);font:700 12px var(--font-mono);flex:none;}
 .sh-t-del{align-self:center;flex:none;}
 .sh-tadd{margin-top:10px;}
+/* Undo / redo on the week bar (Ctrl+Z / Ctrl+Y). */
+.sh-undo-btns{display:inline-flex;gap:2px;}
+.sh-undo-btns .icon-btn:disabled{opacity:.35;cursor:default;}
 /* Supervisors' rows: HR sets them (migration 105) — shown greyed out to a supervisor. */
 .sh-hronly{display:inline-block;margin-left:4px;padding:1px 6px;border-radius:10px;background:var(--paper);border:1px solid var(--line-strong);font:600 10.5px var(--font-mono);color:var(--ink-faint);vertical-align:middle;}
 @media (max-width:560px){.sh-trow > .sh-tf{flex-basis:calc(50% - 10px);}}

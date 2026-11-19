@@ -33,7 +33,7 @@
   const esc = escapeHtml;
   const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   const SHIFT = { am: { label: 'AM', time: '07:30–14:30', hours: 7 }, pm: { label: 'PM', time: '14:30–22:00', hours: 7.5 }, full: { label: 'Full', time: '07:30–22:00', hours: 14.5 } };
-  const S = { brush: { tool: 'am' }, view: 'grid', vday: null, vperson: null, started: false, tab: 'tills', week: null, staff: [], row: null, prev: null, missing: false };
+  const S = { brush: { tool: 'am' }, view: 'grid', vday: null, vperson: null, started: false, tab: 'tills', week: null, staff: [], row: null, prev: null, missing: false, undo: [], redo: [], base: null, undoWeek: null };
 
   const iso = d => d.toLocaleDateString('en-CA');
   const mondayOf = s => { const d = new Date(s + 'T00:00:00'); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return iso(d); };
@@ -169,6 +169,7 @@
     ]);
     if (cur.error) { S.missing = true; return; }
     S.row = cur.data || null; S.prev = prev.data || null;
+    undoBase();
     // The cashiers' requests for this week (cashier page; migration 027). None before the migration.
     const { data: reqs } = await sb.from('schedule_requests').select('cashier_id, days, note, updated_at').eq('week_start', S.week);
     S.reqs = reqs || [];
@@ -247,6 +248,7 @@
         ${row && !isPublishable() ? '<span class="muted-note">Planning only — not published</span>' : ''}
         ${row && row.last_editor && !row.published && isPublishable() ? `<span class="muted-note">Last change by ${esc(row.last_editor)}</span>` : ''}
         <span style="flex:1"></span>
+        ${row ? `<span class="sh-undo-btns"><button class="icon-btn" id="shUndo" ${S.undo.length ? '' : 'disabled'} title="Undo (Ctrl+Z)" aria-label="Undo"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg></button><button class="icon-btn" id="shRedo" ${S.redo.length ? '' : 'disabled'} title="Redo (Ctrl+Y)" aria-label="Redo"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg></button></span>` : ''}
         ${row ? `<button class="btn ghost small" id="shCopy" ${S.prev ? '' : 'disabled'} title="${S.prev ? 'Replace this week with last week’s schedule' : 'Last week has no schedule'}">Copy last week</button>
           <button class="btn ghost small sh-empty-btn" id="shEmpty" title="Clear every shift of this week">Empty table</button>
           <button class="btn secondary small" id="shPrint">Print</button>
@@ -310,7 +312,7 @@
           ${STATION_TOOLS.map(([v, l]) => `<button type="button" class="sh-chip sh-${v || 'none'} ${S.brush.tool === v ? 'on' : ''}" data-tool="${v}">${l}</button>`).join('')}` : ''}
           <span class="sh-brush-sep"></span>
           ${OTHER_TOOLS.map(([v, l]) => `<button type="button" class="sh-chip sh-${v || 'none'} ${S.brush.tool === v ? 'on' : ''}" data-tool="${v}">${l}</button>`).join('')}
-          <span class="muted-note">${isTills() ? '1 — pick a shift and click or drag across the days. 2 — pick Front or Back and go over the same days.' : `${esc(tabName)}: pick a shift and click or drag across the days.`}${isTills() ? ' Right-click a cell for exact times (arrives late / leaves early), more than one shift that day, or, on a full day, a different station for the AM and the PM. Keys on a cell: A P F O, 1 = Front, 2 = Back, T = times, Delete.' : ' Right-click a cell for exact times (arrives late / leaves early) or more than one shift that day. Keys on a cell: A P F O, T = times, Delete.'}</span>
+          <span class="muted-note">${isTills() ? '1 — pick a shift and click or drag across the days. 2 — pick Front or Back and go over the same days.' : `${esc(tabName)}: pick a shift and click or drag across the days.`}${isTills() ? ' Right-click a cell for exact times (arrives late / leaves early), more than one shift that day, or, on a full day, a different station for the AM and the PM. Keys on a cell: A P F O, 1 = Front, 2 = Back, T = times, Delete. Ctrl+Z = undo, Ctrl+Y = redo.' : ' Right-click a cell for exact times (arrives late / leaves early) or more than one shift that day. Keys on a cell: A P F O, T = times, Delete. Ctrl+Z = undo, Ctrl+Y = redo.'}</span>
         </div>
         <div class="items-scroll" style="margin-bottom:0;"><table class="sh-grid">
         <thead><tr><th></th>${dates.map((d, i) => `<th>${DAYS[i]}<small>${dayLabel(d, { day: 'numeric', month: 'short' })}</small></th>`).join('')}<th class="num">Week</th></tr></thead>
@@ -617,6 +619,8 @@
   }
 
   function wireNav() {
+    el('shUndo')?.addEventListener('click', () => undoRedo(false));
+    el('shRedo')?.addEventListener('click', () => undoRedo(true));
     el('shUnlock')?.addEventListener('click', async () => {
       if (!(await showConfirm(`Unlock the published week of ${weekTitle(S.week)}? Staff see your changes straight away${isHR() ? '' : ', and HR is told about them'}.`, 'Unlock'))) return;
       S.unlocked = S.week; renderWeek();
@@ -639,6 +643,7 @@
     const { data, error } = await sb.from('schedule_weeks').insert(row).select().single();
     if (error) return showToast('Could not create the week — ' + friendlyError(error), true);
     S.row = data;
+    undoBase();
     logActivity('schedule', 'create', { type: 'schedule_week', id: S.week }, `Created the schedule of the week ${weekTitle(S.week)}${copy ? ' (copied from last week)' : ''}`);
     renderWeek();
   }
@@ -677,7 +682,52 @@
     S.row.assignments = cp; await save(true); renderWeek();
   }
   let timer = null;
-  function save(now) {
+  /* ---------------- undo / redo (owner, 2026-11-19): Ctrl+Z, Ctrl+Y (or Ctrl+Shift+Z) ----------------
+     Every save is one step: the cells it changed, from -> to (a brush stroke, a key, the times dialog,
+     Empty table, Copy last week). Undo puts back only those cells, so someone else's edits meanwhile stay.
+     The steps belong to the open week; another week starts with none. */
+  const snap = () => JSON.parse(JSON.stringify(S.row?.assignments || {}));
+  function undoBase() {
+    if (S.undoWeek !== S.week) { S.undo = []; S.redo = []; S.undoWeek = S.week; }
+    S.base = snap();
+  }
+  function diffCells(a, b) {
+    const out = [];
+    new Set([...Object.keys(a || {}), ...Object.keys(b || {})]).forEach(id => {
+      for (let d = 0; d < 7; d++) { const f = ((a || {})[id] || [])[d] || '', t = ((b || {})[id] || [])[d] || ''; if (f !== t) out.push({ id, d, from: f, to: t }); }
+    });
+    return out;
+  }
+  function record() {
+    if (!S.row) return;
+    const cur = snap(), ch = diffCells(S.base, cur);
+    if (ch.length) { S.undo.push(ch); if (S.undo.length > 100) S.undo.shift(); S.redo = []; }
+    S.base = cur;
+  }
+  function undoRedo(redo) {
+    const from = redo ? S.redo : S.undo, to = redo ? S.undo : S.redo;
+    if (!S.row || !from.length) return showToast(redo ? 'Nothing to redo.' : 'Nothing to undo.');
+    if (locked()) return showToast('This week is published — press Unlock to edit first.', true);
+    const ch = from.pop();
+    // cells that cannot be changed any more (a day now past, a supervisor's row) stay as they are
+    const ok = ch.filter(c => editableCell(S.staff.find(x => x.id === c.id) || { id: c.id }, c.d));
+    ok.forEach(c => { const days = (S.row.assignments[c.id] = S.row.assignments[c.id] || Array(7).fill('')); days[c.d] = redo ? c.to : c.from; });
+    to.push(ch);
+    S.base = snap();
+    save(true, true); renderWeek();
+    const n = ok.length;
+    showToast(`${redo ? 'Redone' : 'Undone'}: ${n} cell${n === 1 ? '' : 's'}${n < ch.length ? ` (${ch.length - n} could not be changed)` : ''}.`);
+  }
+  document.addEventListener('keydown', e => {
+    if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+    const k = e.key.toLowerCase(); if (k !== 'z' && k !== 'y') return;
+    if (!S.started || !panel.offsetParent || !S.row || !isPublishable()) return;   // the weekly schedule is on screen
+    if (document.querySelector('.modal-overlay.open') || e.target.closest?.('input, textarea, select, [contenteditable]')) return;
+    e.preventDefault();
+    undoRedo(k === 'y' || e.shiftKey);
+  });
+  function save(now, fromUndo) {
+    if (!fromUndo) record();
     clearTimeout(timer);
     const go = async () => {
       const { error } = await sb.from('schedule_weeks').update({ assignments: S.row.assignments, published: S.row.published, last_editor: (typeof Session !== 'undefined' && (Session.profile?.display_name || Session.profile?.username)) || 'HR' }).eq('week_start', S.row.week_start);
