@@ -1078,7 +1078,24 @@ body.rentals-map-expanded #rentalsMap .sm-canvas{ min-height:0; height:100%; bor
 .pa-biglist .pa-dayrow{padding:12px 0 2px;border-top:0;}
 .pa-biglist .pa-dayrow + .pa-item{border-top:0;}
 .pa-date{font:600 11.5px var(--font-mono);text-transform:uppercase;letter-spacing:.04em;color:var(--ink-soft);}
-@media (max-width:640px){.pa-acts{margin-left:64px;width:100%;}}
+.pa-postpone{display:inline-flex;align-items:center;gap:5px;}
+.pa-postpone:hover{border-color:var(--gold);}
+/* Today: the accountant's dashboard (owner, 2026-11-23) */
+.pa-today-head{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;}
+.pa-today-head h3{margin:0;}
+.pa-kpis{display:flex;gap:8px;flex-wrap:wrap;}
+.pa-kpi{min-width:84px;padding:8px 12px;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--paper);display:flex;flex-direction:column;}
+.pa-kpi b{font:700 22px/1.1 var(--font-mono);}
+.pa-kpi span{font-size:11.5px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.03em;}
+.pa-kpi-booked b{color:var(--pine);}
+.pa-kpi-paid b{color:var(--pine-deep);}
+.pa-kpi-no_show b{color:var(--brick);}
+.pa-kpi-moved b{color:var(--gold);}
+.pa-today .pa-acts .sc-btn{min-height:42px;padding:8px 14px;font-size:14px;}
+.pa-earlier{border-color:var(--gold);}
+.pa-next{list-style:none;margin:8px 0 0;padding:0;}
+.pa-next li{display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--line);}
+@media (max-width:640px){.pa-acts{margin-left:64px;width:100%;}.pa-kpi{flex:1 1 40%;}}
 .pl-seg button.on{background:var(--pine);color:#fff;}
 @media (max-width:760px){
   .pl-day{min-height:52px;padding:4px;}

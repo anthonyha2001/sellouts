@@ -16,7 +16,7 @@ const ROLES = {
     label: 'Accountant',
     sections: ['sellouts', 'onlinepromo', 'promotions', 'cash', 'payappts', 'delivery', 'labels'],
     delivery: ['settle'],
-    home: 'sellouts',
+    home: 'payappts',   // the payment appointments of the day (owner, 2026-11-23)
   },
   delivery: {
     label: 'Delivery',

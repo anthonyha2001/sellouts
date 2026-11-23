@@ -1,9 +1,12 @@
 /* ============================================================
    Payment appointments (owner, 2026-11-23; migration 106): the day (and
    time) a supplier comes to be paid. Any day, any time.
+   Today (the accountant's dashboard and landing page): today's
+   appointments with Paid / Postpone / Not paid, the earlier ones still
+   without a status, and tomorrow's.
    Calendar: a month; click a day to see its appointments in time order
-   and mark each one Paid / Didn't come, or Move it to another day (the
-   old one stays as "Moved", the new one is booked). List: what needs a
+   and mark each one Paid / Not paid, or Postpone it to another day (the
+   old one stays as "Postponed", the new one is booked). List: what needs a
    status (a past day still "booked"), the upcoming ones, and the past.
    Who booked it and who set the status (and when) come from the database.
    Permission: payments.appointments (accountant, admin).
@@ -21,13 +24,13 @@
   const fmtLong = d => new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
   const hm = t => t ? String(t).slice(0, 5) : '';
   const stamp = ts => ts ? new Date(ts).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
-  const STATUS = { booked: 'Booked', paid: 'Paid', no_show: "Didn't come", moved: 'Moved' };
+  const STATUS = { booked: 'Booked', paid: 'Paid', no_show: 'Not paid', moved: 'Postponed' };
   const IC = {
     prev: '<path d="M15 18l-6-6 6-6"/>', next: '<path d="M9 18l6-6-6-6"/>', check: '<path d="M20 6 9 17l-5-5"/>',
     x: '<path d="M18 6 6 18M6 6l12 12"/>', move: '<path d="M5 12h14"/><path d="m13 6 6 6-6 6"/>', undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
   };
   const svg = k => `<svg class="ui-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${IC[k]}</svg>`;
-  const S = { started: false, tab: 'calendar', month: null, day: null, rows: [], vendors: [], when: 'todo', missing: false };
+  const S = { started: false, tab: 'today', month: null, day: null, rows: [], vendors: [], when: 'todo', missing: false };
 
   /* ---------------- data ---------------- */
   async function load() {
@@ -50,6 +53,7 @@
     panel.innerHTML = `
       <div class="filter-row pa-top" style="justify-content:space-between;flex-wrap:wrap;">
         <div id="paTabs" style="display:flex;gap:8px;">
+          <button data-tab="today">Today <span class="sh-tab-n" id="paTodayN" hidden></span></button>
           <button data-tab="calendar">Calendar</button>
           <button data-tab="list">List <span class="sh-tab-n" id="paTodoN" hidden></span></button>
         </div>
@@ -66,8 +70,31 @@
     panel.querySelectorAll('#paTabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === S.tab));
     const todo = S.rows.filter(late).length;
     el('paTodoN').hidden = !todo; el('paTodoN').textContent = todo;
+    const waiting = S.rows.filter(r => r.status === 'booked' && r.day <= today()).length;   // today's still to do + earlier ones
+    el('paTodayN').hidden = !waiting; el('paTodayN').textContent = waiting;
     el('paNotice').innerHTML = S.missing ? '<div class="card"><p style="margin:0;"><b>Not set up yet.</b> Payment appointments can be saved once migration 106 is applied.</p></div>' : '';
-    if (S.tab === 'calendar') renderCalendar(); else renderList();
+    if (S.tab === 'today') renderToday(); else if (S.tab === 'calendar') renderCalendar(); else renderList();
+  }
+
+  /* ---------------- today: the accountant's dashboard (owner, 2026-11-23) ----------------
+     Today's appointments in time order with Paid / Postpone / Not paid on each; above them the earlier
+     ones still without a status; below, tomorrow's. The accountant lands here (js/core/roles.js). */
+  function renderToday() {
+    const t = today(), tm = addDays(t, 1);
+    const list = onDay(t), live = list.filter(shown), earlier = S.rows.filter(late).sort(byTime), next = onDay(tm).filter(shown);
+    const c = k => list.filter(r => r.status === k).length;
+    const kpi = (label, n, k) => `<div class="pa-kpi pa-kpi-${k}"><b>${n}</b><span>${label}</span></div>`;
+    el('paBody').innerHTML = `
+      <div class="card pa-today-head">
+        <div><h3>${esc(fmtLong(t))}</h3><p class="muted-note" style="margin:2px 0 0;">${live.length ? `${live.length} supplier${live.length === 1 ? '' : 's'} to pay today` : 'No supplier to pay today'}${earlier.length ? ` · ${earlier.length} from earlier days still without a status` : ''}</p></div>
+        <div class="pa-kpis">${kpi('To do', c('booked'), 'booked')}${kpi('Paid', c('paid'), 'paid')}${kpi('Not paid', c('no_show'), 'no_show')}${kpi('Postponed', c('moved'), 'moved')}</div>
+      </div>
+      ${earlier.length ? `<div class="card pa-today pa-earlier"><div class="pl-dayhead"><h3>From earlier days — no status yet</h3></div>
+        <ul class="pl-daylist pa-list">${earlier.map(r => itemHtml(r, true)).join('')}</ul></div>` : ''}
+      <div class="card pa-today"><div class="pl-dayhead"><h3>Today</h3><button class="btn small secondary" data-add="${t}">+ Book today</button></div>
+        ${list.length ? `<ul class="pl-daylist pa-list">${list.map(r => itemHtml(r)).join('')}</ul>` : '<p class="muted-note" style="margin:6px 0 0;">Nothing booked for today.</p>'}</div>
+      <div class="card"><div class="pl-dayhead"><h3>Tomorrow <span class="muted-note" style="font-size:13px;font-weight:400;">${esc(fmtLong(tm))}</span></h3><button class="btn small ghost" data-add="${tm}">+ Book tomorrow</button></div>
+        ${next.length ? `<ul class="pa-next">${next.map(r => `<li><span class="pa-time">${r.at_time ? hm(r.at_time) : '<span class="muted-note">Any time</span>'}</span><b>${esc(r.supplier)}</b>${r.note ? ` <span class="muted-note">· ${esc(r.note)}</span>` : ''}<button type="button" class="btn ghost small" data-edit="${r.id}" style="margin-left:auto;">Edit</button></li>`).join('')}</ul>` : '<p class="muted-note" style="margin:6px 0 0;">Nothing booked for tomorrow.</p>'}</div>`;
   }
 
   /* ---------------- calendar ---------------- */
@@ -88,7 +115,7 @@
           <h3>${esc(monthLabel(ym))}</h3>
           <button class="icon-btn" data-m="1" aria-label="Next month"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${IC.next}</svg></button>
           <button class="btn ghost small" data-m="0">Today</button>
-          <span class="pl-cal-sum">${month.length} appointment${month.length === 1 ? '' : 's'} · ${n('paid')} paid · ${n('booked')} booked${n('no_show') ? ` · ${n('no_show')} didn't come` : ''}</span>
+          <span class="pl-cal-sum">${month.length} appointment${month.length === 1 ? '' : 's'} · ${n('paid')} paid · ${n('booked')} booked${n('no_show') ? ` · ${n('no_show')} not paid` : ''}</span>
         </div>
         <div class="pl-cal">
           ${['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(d => `<div class="pl-dow">${d}</div>`).join('')}
@@ -101,7 +128,7 @@
             </div>`;
           }).join('')}
         </div>
-        <div class="pl-legend pa-legend"><span><i class="pa-booked"></i> Booked</span><span><i class="pa-paid"></i> Paid</span><span><i class="pa-no_show"></i> Didn't come</span><span><i class="pa-late"></i> Past, no status yet</span>
+        <div class="pl-legend pa-legend"><span><i class="pa-booked"></i> Booked</span><span><i class="pa-paid"></i> Paid</span><span><i class="pa-no_show"></i> Not paid</span><span><i class="pa-late"></i> Past, no status yet</span>
           <span class="muted-note">Click a day to see its appointments; click a name to edit.</span></div>
       </div>
       <div class="card" id="paDayCard">${dayHtml(S.day)}</div>`;
@@ -113,18 +140,18 @@
         ${d >= today() ? `<button class="btn small secondary" data-add="${d}">+ Book on this day</button>` : ''}</div>
       ${list.length ? `<ul class="pl-daylist pa-list">${list.map(itemHtml).join('')}</ul>` : '<p class="muted-note" style="margin:6px 0 0;">No appointment on this day.</p>'}`;
   }
-  function itemHtml(r) {
+  function itemHtml(r, withDate) {
     const moved = r.status === 'moved' ? S.rows.find(x => x.id === r.moved_to) : null;
     const who = r.status !== 'booked' && r.status_by_name ? ` · ${esc(r.status_by_name)}, ${esc(stamp(r.status_at))}` : '';
     return `<li class="pa-item pa-st-${late(r) ? 'late' : r.status}" data-id="${r.id}">
       <span class="pa-time">${r.at_time ? hm(r.at_time) : '<span class="muted-note">Any time</span>'}</span>
-      <div class="pl-dl-main"><b>${esc(r.supplier)}</b>
+      <div class="pl-dl-main">${withDate ? `<span class="pa-date">${esc(fmt(r.day))}</span><br>` : ''}<b>${esc(r.supplier)}</b>
         <span class="pa-badge pa-${late(r) ? 'late' : r.status}">${late(r) ? 'No status yet' : STATUS[r.status]}</span>
-        <div class="muted-note">${moved ? `Moved to ${esc(fmt(moved.day))}${moved.at_time ? ' ' + hm(moved.at_time) : ''}` : ''}${r.note ? (moved ? ' · ' : '') + esc(r.note) : ''}${r.created_by_name ? `${moved || r.note ? ' · ' : ''}booked by ${esc(r.created_by_name)}` : ''}${who}</div></div>
+        <div class="muted-note">${moved ? `Postponed to ${esc(fmt(moved.day))}${moved.at_time ? ' ' + hm(moved.at_time) : ''}` : ''}${r.note ? (moved ? ' · ' : '') + esc(r.note) : ''}${r.created_by_name ? `${moved || r.note ? ' · ' : ''}booked by ${esc(r.created_by_name)}` : ''}${who}</div></div>
       <div class="pa-acts">
         ${r.status === 'booked' ? `<button type="button" class="sc-btn ok" data-st="paid" title="They came and were paid">${svg('check')} Paid</button>
-          <button type="button" class="sc-btn other" data-st="no_show" title="They did not come">${svg('x')} Didn't come</button>
-          <button type="button" class="btn ghost small" data-move="${r.id}" title="Give them another day">${svg('move')} Move</button>`
+          <button type="button" class="sc-btn other" data-st="no_show" title="Not paid (did not come, or not paid this time)">${svg('x')} Not paid</button>
+          <button type="button" class="sc-btn pa-postpone" data-move="${r.id}" title="Give them another day">${svg('move')} Postpone</button>`
         : r.status !== 'moved' || !moved ? `<button type="button" class="btn ghost small" data-st="booked" title="Back to booked">${svg('undo')} Undo</button>` : ''}
         ${r.status !== 'moved' ? `<button type="button" class="btn ghost small" data-edit="${r.id}">Edit</button>` : ''}
       </div></li>`;
@@ -215,7 +242,7 @@
     if (S.missing) return showToast('Payment appointments can be saved once migration 106 is applied.', true);
     const r = id ? S.rows.find(x => x.id === id) : null;
     editing = r; moveFrom = pre.moveFrom || null;
-    el('paTitle').textContent = r ? `Edit — ${r.supplier}` : moveFrom ? `Move — ${moveFrom.supplier}` : 'Book a payment appointment';
+    el('paTitle').textContent = r ? `Edit — ${r.supplier}` : moveFrom ? `Postpone — ${moveFrom.supplier}` : 'Book a payment appointment';
     const names = [...new Set([...S.vendors, ...S.rows.map(x => x.supplier)])].sort((a, b) => a.localeCompare(b));
     el('paVendors').innerHTML = names.map(v => `<option value="${esc(v)}">`).join('');
     el('paSupplier').value = r ? r.supplier : pre.supplier || '';
@@ -223,7 +250,7 @@
     el('paTime').value = hm(r ? r.at_time : pre.at_time);
     el('paNote').value = r ? r.note || '' : pre.note || '';
     el('paDelete').hidden = !r;
-    el('paSave').textContent = moveFrom ? 'Move' : 'Save';
+    el('paSave').textContent = moveFrom ? 'Postpone' : 'Save';
     checkForm();
     el('paOverlay').classList.add('open');
     (moveFrom ? el('paDay') : el('paSupplier')).focus();
@@ -268,10 +295,10 @@
       }
     } finally { el('paSave').disabled = false; }
     const wasMove = !!moveFrom;
-    S.tab = S.tab === 'list' && !wasMove ? S.tab : 'calendar';
+    // stay on the tab you are on (Today keeps its list; the calendar opens the new day)
     S.month = day.slice(0, 7); S.day = day;
     closeForm(); render();
-    showToast(wasMove ? `Moved to ${when}.` : 'Saved.');
+    showToast(wasMove ? `Postponed to ${when}.` : 'Saved.');
   }
   async function removeRow() {
     const r = editing; if (!r) return;
