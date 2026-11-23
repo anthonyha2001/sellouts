@@ -151,13 +151,13 @@
       </div>`;
   }
   function rowHtml(r, withSupplier = true, big = null) {
-    const ref = r.refs === null || r.refs === undefined ? `<span class="muted-note">${'refs' in r ? '…' : ''}</span>` : r.refs ? `<span class="pts-ref">${esc(r.refs)}</span>` : '<span class="muted-note">—</span>';
+    const ref = r.refs === null || r.refs === undefined ? `<span class="muted-note">${'refs' in r ? '…' : ''}</span>` : r.refs ? `<span class="pts-ref pts-ref-clip" title="${esc(r.refs)}">${esc(r.refs)}</span>` : '<span class="muted-note">—</span>';
     const isBig = big && big.has(r.pt + '|' + r.year);
     return `<tr data-pt="${esc(r.pt)}" data-year="${esc(r.year)}" class="${r.status ? 'pts-done' : ''}${isBig ? ' pts-biggest' : ''}" title="Double-click for its lines">
       <td class="mono"><b>${esc(r.pt)}</b>${isNew(r) ? ' <span class="pts-new" title="Came in from the system in the last 24 hours">New</span>' : ''}
         <button type="button" class="pts-hist" data-pts-hist="${esc(r.pt)}" data-pts-year="${esc(r.year)}" title="Who changed this, and when"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></button></td><td data-label="Date">${esc(dmy(r.pt_date))}</td>
       ${withSupplier ? `<td data-label="Supplier"><button type="button" class="link-btn pts-suplink" data-pts-open="${esc(supOf(r))}">${esc(supOf(r))}</button></td>` : ''}
-      <td data-label="Reference">${ref}</td><td class="num" data-label="Lines">${r.lines ?? ''}</td><td class="num" data-label="Units">${qty(Math.abs(n(r.qty)))}</td><td class="num" data-label="Value">${isBig ? '<span class="pts-bigtag" title="One of the biggest returns">●</span> ' : ''}<b class="pts-cardval">${money(r.value, r.currency)}</b></td>
+      <td data-label="Reference" class="pts-refcell">${ref}</td><td class="num" data-label="Lines">${r.lines ?? ''}</td><td class="num" data-label="Units">${qty(Math.abs(n(r.qty)))}</td><td class="num" data-label="Value">${isBig ? '<span class="pts-bigtag" title="One of the biggest returns">●</span> ' : ''}<b class="pts-cardval">${money(r.value, r.currency)}</b></td>
       <td data-label="Status"><select class="pts-sel k-${r.status || 'none'}" data-pts-set="${esc(r.pt)}" data-pts-year="${esc(r.year)}" aria-label="Status"><option value="">Not set</option>${STATUS.map(([k, l]) => `<option value="${k}" ${r.status === k ? 'selected' : ''}>${l}</option>`).join('')}</select>${r.status_by_name ? `<div class="pts-sub" title="Last changed${r.status_at ? ' on ' + esc(dmy(r.status_at)) + ' ' + new Date(r.status_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : ''}">${esc(r.status_by_name)}${r.status_at ? ' · ' + esc(dmy(r.status_at)) : ''}</div>` : ''}</td>
       <td data-label="Note"><input type="text" class="pts-note" data-pts-note="${esc(r.pt)}" data-pts-year="${esc(r.year)}" value="${esc(r.note || '')}" placeholder="Add a note…" aria-label="Note"></td></tr>`;
   }

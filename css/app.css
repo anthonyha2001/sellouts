@@ -3594,6 +3594,10 @@ tr.sc-det > td{background:var(--paper);padding:14px 16px !important;white-space:
 
 /* Returns: reference, by supplier, a supplier's page (owner, 2026-10-20) */
 .pts-ref{font:12px var(--font-mono);color:var(--ink-soft);}
+/* A long reference list wraps (2 lines, the rest on hover) instead of stretching the column and pushing
+   Lines / Units / Value / Status / Note off the screen (owner, 2026-11-23). */
+.pts-tbl td.pts-refcell{white-space:normal;max-width:260px;min-width:120px;}
+.pts-ref-clip{display:-webkit-box;-webkit-line-clamp:2;line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere;}
 .pts-suplink{background:none;border:0;padding:0;font:inherit;color:var(--ink);cursor:pointer;text-align:left;}
 .pts-suplink:hover{color:var(--pine);text-decoration:underline;}
 .pts-suprow{cursor:pointer;}
@@ -3635,6 +3639,7 @@ tr.sc-det > td{background:var(--paper);padding:14px 16px !important;white-space:
   .pts-cards .pts-hist { margin-left:auto; }
   .pts-cards .pts-cardval { font-size:15px; }
   .pts-cards td[data-label="Status"] { flex-wrap:wrap; }
+  .pts-cards td.pts-refcell { max-width:none; min-width:0; }
   .pts-cards .pts-sel, .pts-cards .pts-note { flex:1; }
   .pts-cards .pts-suplink { font-weight:600; }
   .pts-cards .pts-sub { flex:1 1 100%; margin-left:92px; }
