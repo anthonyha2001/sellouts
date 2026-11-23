@@ -1053,6 +1053,32 @@ body.rentals-map-expanded #rentalsMap .sm-canvas{ min-height:0; height:100%; bor
 .pl-seg{display:inline-flex;border:1px solid var(--line-strong);border-radius:8px;overflow:hidden;}
 .pl-seg button{border:0;background:none;padding:8px 18px;font:500 13.5px var(--font-body);cursor:pointer;color:var(--ink);}
 .pl-seg button + button{border-left:1px solid var(--line-strong);}
+/* Payment appointments (migration 106): the Promo ladies calendar, coloured by status. */
+.pa-chip.pa-booked{background:var(--pine-tint);color:var(--pine-deep);border-left:3px solid var(--pine);}
+.pa-chip.pa-paid{background:var(--paper);color:var(--ink-soft);border-left:3px solid var(--ink-faint);text-decoration:line-through;text-decoration-color:var(--ink-faint);}
+.pa-chip.pa-no_show{background:var(--brick-tint);color:var(--brick);border-left:3px solid var(--brick);}
+.pa-chip.pa-late{background:var(--gold-tint);color:var(--ink);border-left:3px solid var(--gold);}
+.pa-legend i.pa-booked{background:var(--pine-tint);border-left:3px solid var(--pine);}
+.pa-legend i.pa-paid{background:var(--paper);border-left:3px solid var(--ink-faint);}
+.pa-legend i.pa-no_show{background:var(--brick-tint);border-left:3px solid var(--brick);}
+.pa-legend i.pa-late{background:var(--gold-tint);border-left:3px solid var(--gold);}
+.pa-list .pa-item{flex-wrap:wrap;}
+.pa-time{flex:0 0 64px;font:700 14px var(--font-mono);}
+.pa-badge{display:inline-block;margin-left:6px;padding:1px 8px;border-radius:999px;font-size:11.5px;font-weight:600;vertical-align:1px;}
+.pa-badge.pa-booked{background:var(--pine-tint);color:var(--pine-deep);}
+.pa-badge.pa-paid{background:var(--pine);color:#fff;}
+.pa-badge.pa-no_show{background:var(--brick-tint);color:var(--brick);}
+.pa-badge.pa-moved{background:var(--paper);color:var(--ink-faint);border:1px solid var(--line);}
+.pa-badge.pa-late{background:var(--gold-tint);color:var(--ink);}
+.pa-st-moved{opacity:.6;}
+.pa-acts{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-left:auto;}
+.pa-acts .sc-btn{min-height:34px;padding:5px 10px;display:inline-flex;align-items:center;gap:5px;}
+.pa-acts .btn{display:inline-flex;align-items:center;gap:5px;}
+.pa-acts .ui-ic{width:14px;height:14px;}
+.pa-biglist .pa-dayrow{padding:12px 0 2px;border-top:0;}
+.pa-biglist .pa-dayrow + .pa-item{border-top:0;}
+.pa-date{font:600 11.5px var(--font-mono);text-transform:uppercase;letter-spacing:.04em;color:var(--ink-soft);}
+@media (max-width:640px){.pa-acts{margin-left:64px;width:100%;}}
 .pl-seg button.on{background:var(--pine);color:#fff;}
 @media (max-width:760px){
   .pl-day{min-height:52px;padding:4px;}

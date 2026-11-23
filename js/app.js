@@ -1380,6 +1380,7 @@ const PAGES = {
   expiries:    { eyebrow: 'Store floor', title: 'Expiries', sub: 'What expires on the shelves, month by month, and which shelf worker deals with it.' },
   competitors: { eyebrow: 'Market', title: 'Competitors', sub: 'Scan an item in a competitor’s store and compare its price with ours.' },
   customers:   { eyebrow: 'Market', title: 'Customers', sub: 'Find a customer, see what they spend, a graph of their invoices, the branches they shop at and what they buy most — live from the system.' },
+  payappts:    { eyebrow: 'Suppliers', title: 'Payment appointments', sub: 'The day and time each supplier comes to be paid — then mark it Paid, Didn’t come, or move it.' },
   pts:         { eyebrow: 'Suppliers', title: 'Returns (PTs)', sub: 'Every return to a supplier, with the status you set: Taken, Compensated, Traded or Owner.' },
   labels:      { eyebrow: 'Shelves', title: 'Shelf labels', sub: 'Items that need a new shelf label: scanned on the floor, printed by the accountant.' },
   staff:       { eyebrow: 'People', title: 'Staff', sub: 'Everyone who works here: job, phone, start date, salary — and their app login.' },
@@ -1443,6 +1444,7 @@ function switchTab(name, sub) {
   if (name === 'competitors' && window.Competitors) Competitors.show();
   if (name === 'customers' && window.Customers) Customers.show();
   if (name === 'pts' && window.PTs) PTs.show();
+  if (name === 'payappts' && window.PayAppts) PayAppts.show();
   if (name === 'warehouse' && window.Warehouse) Warehouse.show();
   if (name === 'stockcontrol' && window.StockControl) StockControl.show();
   if (name === 'performance' && window.Performance) Performance.show();
