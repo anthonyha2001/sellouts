@@ -10,6 +10,13 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const BASE = 'https://dashboard.lavaleursupermarche.com/api/lavaleur';
+// Sent like the dashboard's own web page (owner, 2026-11-24): the dashboard's protection refused the login
+// from this server with 403 while the same account works in a browser — a script-looking request is blocked.
+const WEB = { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+  Origin: 'https://dashboard.lavaleursupermarche.com', Referer: 'https://dashboard.lavaleursupermarche.com/dashboard/home', 'Accept-Language': 'en-US,en;q=0.9' };
+// What the dashboard answered, in one short line (a JSON "detail", or the title of a blocking page).
+const why = (text: string) => { try { const d = JSON.parse(text).detail; if (d) return String(typeof d === 'string' ? d : JSON.stringify(d)).slice(0, 160); } catch { /* not JSON */ }
+  const t = /<title>([^<]*)<\/title>/i.exec(text)?.[1]; return (t || text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ')).trim().slice(0, 160); };
 const BRANCH = 'Ajaltoun';
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('LV_SECRET_KEY') ?? Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -38,9 +45,9 @@ function expOf(t: string): number {
 async function login(): Promise<string> {
   const username = Deno.env.get('LV_DASH_USER'), password = Deno.env.get('LV_DASH_PASS');
   if (!username || !password) throw new Error('The dashboard login is not set (server secrets).');
-  const r = await fetch(`${BASE}/auth/token`, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify({ username, password }) });
+  const r = await fetch(`${BASE}/auth/token`, { method: 'POST', headers: { ...WEB, 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify({ username, password }) });
   const text = await r.text();
-  if (!r.ok) throw new Error(`Dashboard login refused (${r.status})`);
+  if (!r.ok) { const w = why(text); throw new Error(`Dashboard login refused (${r.status})${w ? ': ' + w : ''}`); }
   let d: Record<string, unknown> = {};
   try { d = JSON.parse(text); } catch { /* the token as plain text */ }
   const t = String(d.access_token ?? d.token ?? (d.data as Record<string, unknown>)?.access_token ?? (d.data as Record<string, unknown>)?.token ?? (text.startsWith('ey') ? text : ''));
@@ -59,7 +66,7 @@ async function dash(path: string, init: RequestInit = {}, retry = true, tries = 
   const wait = ensureLogin(); if (wait) await wait;
   let r: Response;
   try {   // a request that hangs is given up after 25 s and tried once more
-    r = await fetch(`${BASE}${path}`, { ...init, signal: AbortSignal.timeout(25000), headers: { ...(init.headers || {}), Authorization: `Bearer ${token}`, Accept: 'application/json' } });
+    r = await fetch(`${BASE}${path}`, { ...init, signal: AbortSignal.timeout(25000), headers: { ...WEB, ...(init.headers || {}), Authorization: `Bearer ${token}`, Accept: 'application/json' } });
   } catch (e) {
     if (tries > 1) return dash(path, init, retry, tries - 1);
     throw e;
@@ -75,7 +82,7 @@ async function dash(path: string, init: RequestInit = {}, retry = true, tries = 
     }
     return j;
   }
-  if (!r.ok) throw new Error(`Dashboard answered ${r.status}${r.status === 422 ? ": " + (await r.text()).slice(0, 300) : ""}`);
+  if (!r.ok) { const text = await r.text(); throw new Error(`Dashboard answered ${r.status}${r.status === 422 ? ": " + text.slice(0, 300) : why(text) ? ': ' + why(text) : ''}`); }
   return r.json();
 }
 // The normal UNIT price (owner, 2026-10-06): SalePrice is the price of the whole pack (7721 Tahina: pack 12, 82.20);
