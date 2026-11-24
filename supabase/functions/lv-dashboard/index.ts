@@ -13,7 +13,10 @@ const BASE = 'https://dashboard.lavaleursupermarche.com/api/lavaleur';
 // Sent like the dashboard's own web page (owner, 2026-11-24): the dashboard's protection refused the login
 // from this server with 403 while the same account works in a browser — a script-looking request is blocked.
 const WEB = { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-  Origin: 'https://dashboard.lavaleursupermarche.com', Referer: 'https://dashboard.lavaleursupermarche.com/dashboard/home', 'Accept-Language': 'en-US,en;q=0.9' };
+  Origin: 'https://dashboard.lavaleursupermarche.com', Referer: 'https://dashboard.lavaleursupermarche.com/dashboard/home', 'Accept-Language': 'en-US,en;q=0.9',
+  // The dashboard's Cloudflare blocks this server ("Attention Required! | Cloudflare", 2026-11-24): its admin adds a WAF rule
+  // that lets through requests carrying this secret header (server secret LV_CF_KEY; sent only when set).
+  ...(Deno.env.get('LV_CF_KEY') ? { 'X-LV-Key': Deno.env.get('LV_CF_KEY')! } : {}) } as Record<string, string>;
 // What the dashboard answered, in one short line (a JSON "detail", or the title of a blocking page).
 const why = (text: string) => { try { const d = JSON.parse(text).detail; if (d) return String(typeof d === 'string' ? d : JSON.stringify(d)).slice(0, 160); } catch { /* not JSON */ }
   const t = /<title>([^<]*)<\/title>/i.exec(text)?.[1]; return (t || text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ')).trim().slice(0, 160); };
