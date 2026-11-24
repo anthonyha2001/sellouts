@@ -9,7 +9,21 @@
 // Deploy with JWT verification OFF (the user is checked here).
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
-const BASE = 'https://dashboard.lavaleursupermarche.com/api/lavaleur';
+const DIRECT = 'https://dashboard.lavaleursupermarche.com', API = '/api/lavaleur';
+// The road to the dashboard (owner, 2026-11-24): its Cloudflare blocks this server, so the requests go through the relay on
+// the office computer in Lebanon (scripts/relay.mjs) while it is alive: it writes its tunnel address and key in
+// public.app_relay and checks in every 2 minutes. Read at most once a minute; a row older than 15 minutes = go direct.
+let relayRow: { url: string; key: string } | null = null, relayAt = 0;
+async function road(): Promise<{ base: string; headers: Record<string, string> }> {
+  if (Date.now() - relayAt > 60e3) {
+    relayAt = Date.now();
+    try {
+      const { data } = await db.from('app_relay').select('url, key, seen_at').eq('id', 1).maybeSingle();
+      relayRow = data && data.url && data.key && Date.now() - Date.parse(String(data.seen_at)) < 15 * 60e3 ? { url: String(data.url), key: String(data.key) } : null;
+    } catch { relayRow = null; }
+  }
+  return relayRow ? { base: relayRow.url + API, headers: { 'X-Relay-Key': relayRow.key } } : { base: DIRECT + API, headers: {} };
+}
 // Sent like the dashboard's own web page (owner, 2026-11-24): the dashboard's protection refused the login
 // from this server with 403 while the same account works in a browser — a script-looking request is blocked.
 const WEB = { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
@@ -48,7 +62,10 @@ function expOf(t: string): number {
 async function login(): Promise<string> {
   const username = Deno.env.get('LV_DASH_USER'), password = Deno.env.get('LV_DASH_PASS');
   if (!username || !password) throw new Error('The dashboard login is not set (server secrets).');
-  const r = await fetch(`${BASE}/auth/token`, { method: 'POST', headers: { ...WEB, 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify({ username, password }) });
+  const rd = await road();
+  let r: Response;
+  try { r = await fetch(`${rd.base}/auth/token`, { method: 'POST', headers: { ...WEB, ...rd.headers, 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify({ username, password }), signal: AbortSignal.timeout(30000) }); }
+  catch (e) { relayAt = 0; throw e; }   // the relay may have moved: read its row again next time
   const text = await r.text();
   if (!r.ok) { const w = why(text); throw new Error(`Dashboard login refused (${r.status})${w ? ': ' + w : ''}`); }
   let d: Record<string, unknown> = {};
@@ -69,8 +86,10 @@ async function dash(path: string, init: RequestInit = {}, retry = true, tries = 
   const wait = ensureLogin(); if (wait) await wait;
   let r: Response;
   try {   // a request that hangs is given up after 25 s and tried once more
-    r = await fetch(`${BASE}${path}`, { ...init, signal: AbortSignal.timeout(25000), headers: { ...WEB, ...(init.headers || {}), Authorization: `Bearer ${token}`, Accept: 'application/json' } });
+    const rd = await road();
+    r = await fetch(`${rd.base}${path}`, { ...init, signal: AbortSignal.timeout(25000), headers: { ...WEB, ...rd.headers, ...(init.headers || {}), Authorization: `Bearer ${token}`, Accept: 'application/json' } });
   } catch (e) {
+    relayAt = 0;   // the relay may have moved: read its row again
     if (tries > 1) return dash(path, init, retry, tries - 1);
     throw e;
   }

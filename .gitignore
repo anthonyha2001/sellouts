@@ -9,3 +9,6 @@ supabase/secrets/
 
 # Recorded dashboard traffic (owner, 2026-10-06): never committed
 *.har
+
+# The relay's log (scripts/relay.mjs)
+scripts/relay.log
