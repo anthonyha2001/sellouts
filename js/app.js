@@ -291,7 +291,7 @@ function promoRowPayload(row) {
     // Only sent when there is one, so saving keeps working before migration 008 adds the column.
     ...(row.barcode ? { barcode: String(row.barcode) } : {}),
     // Purchase tab: only sent once migration 108 has added the column (the row was loaded with it).
-    ...(row.promoCost !== undefined ? { promo_cost: (row.promoCost === null || row.promoCost === '') ? null : Number(row.promoCost) } : {})
+    ...(row.promoCost !== undefined ? { promo_cost: (row.promoCost === null || String(row.promoCost).trim() === '') ? null : String(row.promoCost).trim() } : {})
   };
 }
 function isFkViolation(error) {

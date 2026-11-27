@@ -4,7 +4,7 @@
    - Cost: what was really paid the last time (lv-dashboard last_cost, the same as Audit's Last purchase);
      the price sheet's own Cost shows under it when there is one.
    - Quantity: the stock now at Ajaltoun (Items from the system), else the row's stock.
-   - Promo cost: saved on the row (promotion_rows.promo_cost, migration 108). Enter / arrows move down and up;
+   - Promo cost: free text, saved on the row (promotion_rows.promo_cost, migration 108). Enter / arrows move down and up;
      pasting a column from Excel fills the rows downward. Only promotions.edit may change it.
    Public API: window.PromoPurchase = { render(container, promo, rows), paint() }.
    ============================================================ */
@@ -13,14 +13,8 @@
   const n = v => { const x = Number(v); return Number.isFinite(x) ? x : null; };
   const money = v => (Math.round(v * 1000) / 1000).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 3 });
   const qtyTxt = v => (Math.round(v * 100) / 100).toLocaleString('en-US');
-  // "1.25", "$1.25", "1,25" -> 1.25; "1,050" -> 1050; blank -> null; not a number -> NaN
-  const parseCost = s => {
-    s = String(s ?? '').trim().replace(/^\$\s*/, '');
-    if (!s) return null;
-    if (/^\d+,\d{1,2}$/.test(s)) s = s.replace(',', '.');
-    s = s.replace(/,/g, '');
-    return /^-?\d*\.?\d+$/.test(s) ? Math.round(Number(s) * 10000) / 10000 : NaN;
-  };
+  // Promo cost is free text (owner, 2026-11-27): "1.10", "1.10 + 10% free", "same"… Blank -> null.
+  const cleanCost = v => { v = String(v ?? '').trim(); return v === '' ? null : v; };
   let box = null, promoNow = null, rowsNow = [];
 
   const lastCostOf = row => {
@@ -59,7 +53,7 @@
       <div class="card" style="padding:0;">
         <div class="pr-head">
           <div><b>Purchase</b> <span class="muted-note">· ${rows.length} item${rows.length === 1 ? '' : 's'} · <span id="ppFilled">${filled}</span> with a promo cost</span><br>
-            <span class="muted-note">Cost = the last purchase (live from the system) · Quantity = stock now${edit ? ' · type the promo cost; Enter goes down, paste a column from Excel to fill down' : ''}</span></div>
+            <span class="muted-note">Cost = the last purchase (live from the system) · Quantity = stock now${edit ? ' · type the promo cost (any text); Enter goes down, paste a column from Excel to fill down' : ''}</span></div>
           <button type="button" class="btn secondary small ibtn" id="ppExport">${ICONS.excel}Export to Excel</button>
         </div>
         ${noColumn ? '<p class="login-err" style="margin:0 18px 12px;">Promo cost cannot be saved yet: run migration 108_promo_cost.sql in Supabase.</p>' : ''}
@@ -73,8 +67,8 @@
             <td class="num" data-pp-cost="${esc(r.id)}">${costCellHtml(r)}</td>
             <td class="num" data-pp-qty="${esc(r.id)}">${qtyCellHtml(r)}</td>
             <td class="num pp-edit">${edit && !noColumn
-              ? `<input type="text" inputmode="decimal" class="pp-input" data-pp-id="${esc(r.id)}" value="${r.promoCost === null || r.promoCost === undefined ? '' : esc(String(r.promoCost))}" aria-label="Promo cost of ${esc(r.code || 'this item')}">`
-              : (r.promoCost === null || r.promoCost === undefined ? '' : money(Number(r.promoCost)))}</td>
+              ? `<input type="text" class="pp-input" data-pp-id="${esc(r.id)}" value="${r.promoCost === null || r.promoCost === undefined ? '' : esc(String(r.promoCost))}" aria-label="Promo cost of ${esc(r.code || 'this item')}">`
+              : esc(r.promoCost ?? '')}</td>
           </tr>`).join('')}</tbody>
         </table></div>
       </div>`;
@@ -92,9 +86,7 @@
     const rowOf = el => rowsNow.find(r => r.id === el.dataset.ppId);
     const save = async (el) => {
       const row = rowOf(el); if (!row) return;
-      const v = parseCost(el.value);
-      if (Number.isNaN(v)) { el.classList.add('pp-bad'); showToast('Promo cost: type a number, e.g. 1.25', true); return; }
-      el.classList.remove('pp-bad');
+      const v = cleanCost(el.value);
       if ((row.promoCost ?? null) === v) return;
       row.promoCost = v;
       el.value = v === null ? '' : String(v);
@@ -113,12 +105,10 @@
         const lines = text.replace(/\r/g, '').split('\n'); if (lines[lines.length - 1] === '') lines.pop();
         if (lines.length < 2) return;
         e.preventDefault();
-        const changed = [], bad = [];
+        const changed = [];
         lines.forEach((line, k) => {
           const target = inputs[i + k]; if (!target) return;
-          const v = parseCost(line.split('\t')[0]);
-          if (Number.isNaN(v)) { bad.push(i + k + 1); target.classList.add('pp-bad'); return; }
-          target.classList.remove('pp-bad');
+          const v = cleanCost(line.split('\t')[0]);
           const row = rowOf(target); if (!row) return;
           target.value = v === null ? '' : String(v);
           if ((row.promoCost ?? null) !== v) { row.promoCost = v; changed.push(row); }
@@ -126,7 +116,7 @@
         if (changed.length) await persistRowsBulk(changed);
         updateFilled();
         const skipped = lines.length - Math.min(lines.length, inputs.length - i);
-        showToast(`Pasted ${changed.length} promo cost${changed.length === 1 ? '' : 's'}${bad.length ? ` · not a number on row${bad.length === 1 ? '' : 's'} ${bad.join(', ')}` : ''}${skipped ? ` · ${skipped} line${skipped === 1 ? '' : 's'} past the last row ignored` : ''}.`, !!bad.length);
+        showToast(`Pasted ${changed.length} promo cost${changed.length === 1 ? '' : 's'}${skipped ? ` · ${skipped} line${skipped === 1 ? '' : 's'} past the last row ignored` : ''}.`);
       });
     });
   }
@@ -152,11 +142,11 @@
       aoa.push([String(r.code || ''), r.description || '', r.supplier || '',
         c.state === 'ok' ? Math.round(c.cost * 1000) / 1000 : '', c.state === 'ok' ? c.date : '',
         sheetCostOf(r), q === null ? '' : q,
-        r.promoCost === null || r.promoCost === undefined ? '' : Number(r.promoCost)]);
+        r.promoCost ?? '']);
     });
     const ws = XLSX.utils.aoa_to_sheet(aoa);
-    // codes stay text (leading zeros)
-    for (let i = 3; i < aoa.length; i++) { const ref = XLSX.utils.encode_cell({ r: i, c: 0 }); if (ws[ref]) { ws[ref].t = 's'; ws[ref].z = '@'; } }
+    // codes and promo costs stay text, exactly as typed (leading zeros, "1.10 + 10% free")
+    for (let i = 3; i < aoa.length; i++) [0, 7].forEach(c => { const ref = XLSX.utils.encode_cell({ r: i, c }); if (ws[ref]) { ws[ref].t = 's'; ws[ref].v = String(ws[ref].v); ws[ref].z = '@'; } });
     ws['!cols'] = [{ wch: 12 }, { wch: 44 }, { wch: 24 }, { wch: 10 }, { wch: 16 }, { wch: 14 }, { wch: 10 }, { wch: 11 }];
     const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Purchase');
     XLSX.writeFile(wb, `${(promo.name || 'promotion').replace(/[^\w-]+/g, '-')}-purchase.xlsx`);

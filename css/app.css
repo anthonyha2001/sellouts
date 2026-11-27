@@ -1935,9 +1935,8 @@ table.items td.lp-cell{white-space:normal;width:300px;max-width:300px;overflow-w
 .pp-table td{vertical-align:middle;}
 .pp-table td.num,.pp-table th.num{text-align:right;font-family:var(--font-mono);}
 .pp-sub{font-size:11.5px;color:var(--ink-soft);font-weight:400;}
-.pp-edit{width:120px;}
-.pp-input{width:100px;text-align:right;font-family:var(--font-mono);padding:5px 8px;}
-.pp-input.pp-bad{border-color:var(--brick);box-shadow:0 0 0 2px color-mix(in srgb,var(--brick) 25%,transparent);}
+.pp-edit{width:180px;}
+.pp-input{width:160px;text-align:right;font-family:var(--font-mono);padding:5px 8px;}
 .pr-row-zero td{color:var(--ink-faint);}
 @media (max-width:760px){ .pr-stats{grid-template-columns:repeat(2,minmax(0,1fr));} }
 
