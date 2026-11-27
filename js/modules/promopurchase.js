@@ -1,8 +1,9 @@
 /* ============================================================
    Promotions › Purchase (owner, 2026-11-27): per item of the promotion, its cost and quantity, with a
    Promo cost typed by hand, and an Excel export.
-   - Cost: what was really paid the last time (lv-dashboard last_cost, the same as Audit's Last purchase);
-     the price sheet's own Cost shows under it when there is one.
+   - Cost and Last purchase: exactly as in Audit (owner, 2026-11-27: "I should know what is free and what is the
+     cost"): the price sheet's Cost as typed, then the last purchase from the system (lastCostHtml): the paid
+     lines ("30 @ 1.20"), the free ones ("6 free", trade deal), the real cost = paid / all the units, the document.
    - Quantity: the stock now at Ajaltoun (Items from the system), else the row's stock.
    - Promo cost: free text, saved on the row (promotion_rows.promo_cost, migration 108). Enter / arrows move down and up;
      pasting a column from Excel fills the rows downward. Only promotions.edit may change it.
@@ -11,19 +12,22 @@
 (function () {
   const esc = escapeHtml;
   const n = v => { const x = Number(v); return Number.isFinite(x) ? x : null; };
-  const money = v => (Math.round(v * 1000) / 1000).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 3 });
   const qtyTxt = v => (Math.round(v * 100) / 100).toLocaleString('en-US');
   // Promo cost is free text (owner, 2026-11-27): "1.10", "1.10 + 10% free", "same"… Blank -> null.
   const cleanCost = v => { v = String(v ?? '').trim(); return v === '' ? null : v; };
   let box = null, promoNow = null, rowsNow = [];
 
-  const lastCostOf = row => {
+  // The last purchase split for the export: paid units / free units / what was paid / real cost, per document.
+  const lastBuyOf = row => {
     const h = lastCostCache.get(normalizeCatalogCode(row.code));
-    if (!h) return { state: 'wait' };
-    if (h.v === undefined) return { state: 'noanswer' };
-    if (!h.v || h.v.failed || !h.v.docs?.length) return { state: 'none' };
-    const d = h.v.docs[0];
-    return { state: 'ok', cost: n(d.realCost), currency: d.currency || '$', date: h.v.date, more: h.v.docs.length - 1 };
+    if (!h || !h.v || h.v.failed || !h.v.docs?.length) return null;
+    const docs = h.v.docs.map(d => {
+      const paid = d.lines.filter(l => !l.free), free = d.lines.filter(l => l.free);
+      return { cur: d.currency || '$', real: n(d.realCost), doc: d.doc || '', deal: !!d.tradeDeal,
+        paidQty: paid.reduce((t, l) => t + (n(l.qty) || 0), 0), freeQty: free.reduce((t, l) => t + (n(l.qty) || 0), 0),
+        paidTxt: paid.map(l => `${lcQty(l.qty)} @ ${lcMoney(l.unit)}${l.discountPct ? ` −${l.discountPct}% = ${lcMoney(l.net)}` : ''}`).join(' + ') };
+    });
+    return { date: h.v.date, docs };
   };
   const sheetCostOf = row => String(row.cost ?? '').trim();
   const qtyOf = row => {
@@ -31,15 +35,8 @@
     return n(live?.balance ?? row.balance);
   };
 
-  function costCellHtml(row) {
-    if (!String(row.code || '').trim()) return '';
-    const c = lastCostOf(row), sheet = sheetCostOf(row);
-    const main = c.state === 'wait' ? '<span class="muted-note">…</span>'
-      : c.state === 'noanswer' ? '<span class="muted-note" title="The system did not answer">—</span>'
-      : c.state === 'none' ? '<span class="muted-note">no purchase</span>'
-      : `<b title="Last purchase ${esc(c.date)}${c.more ? ` (+${c.more} other document${c.more === 1 ? '' : 's'} that day)` : ''}">${esc(c.currency)}${money(c.cost)}</b>`;
-    return main + (sheet ? `<div class="pp-sub" title="The price sheet's Cost">sheet: ${esc(sheet)}</div>` : '');
-  }
+  // the same cell as Audit's Last purchase
+  const costCellHtml = row => lastCostHtml(row);
 
   function render(container, promo, rows) {
     box = container; promoNow = promo; rowsNow = rows;
@@ -53,18 +50,19 @@
       <div class="card" style="padding:0;">
         <div class="pr-head">
           <div><b>Purchase</b> <span class="muted-note">· ${rows.length} item${rows.length === 1 ? '' : 's'} · <span id="ppFilled">${filled}</span> with a promo cost</span><br>
-            <span class="muted-note">Cost = the last purchase (live from the system) · Quantity = stock now${edit ? ' · type the promo cost (any text); Enter goes down, paste a column from Excel to fill down' : ''}</span></div>
+            <span class="muted-note">Cost = the price sheet · Last purchase = live from the system: what was paid, what came free (trade deal) and the real cost per unit · Quantity = stock now${edit ? ' · type the promo cost (any text); Enter goes down, paste a column from Excel to fill down' : ''}</span></div>
           <button type="button" class="btn secondary small ibtn" id="ppExport">${ICONS.excel}Export to Excel</button>
         </div>
         ${noColumn ? '<p class="login-err" style="margin:0 18px 12px;">Promo cost cannot be saved yet: run migration 108_promo_cost.sql in Supabase.</p>' : ''}
         <div class="items-scroll" style="margin:0;border:0;"><table class="items pp-table">
-          <thead><tr><th>#</th><th>Code</th><th>Description</th><th>Supplier</th><th class="num">Cost</th><th class="num">Quantity</th><th class="num">Promo cost</th></tr></thead>
+          <thead><tr><th>#</th><th>Code</th><th>Description</th><th>Supplier</th><th class="num">Cost</th><th>Last purchase</th><th class="num">Quantity</th><th class="num">Promo cost</th></tr></thead>
           <tbody>${rows.map((r, i) => `<tr>
             <td class="muted-note">${i + 1}</td>
             <td class="mono">${esc(r.code || '')}</td>
             <td>${esc(r.description || '')}</td>
             <td>${esc(r.supplier || '')}</td>
-            <td class="num" data-pp-cost="${esc(r.id)}">${costCellHtml(r)}</td>
+            <td class="num">${esc(sheetCostOf(r))}</td>
+            <td class="lp-cell" data-pp-cost="${esc(r.id)}">${costCellHtml(r)}</td>
             <td class="num" data-pp-qty="${esc(r.id)}">${qtyCellHtml(r)}</td>
             <td class="num pp-edit">${edit && !noColumn
               ? `<input type="text" class="pp-input" data-pp-id="${esc(r.id)}" value="${r.promoCost === null || r.promoCost === undefined ? '' : esc(String(r.promoCost))}" aria-label="Promo cost of ${esc(r.code || 'this item')}">`
@@ -136,18 +134,18 @@
   function exportXlsx() {
     const promo = promoNow;
     const aoa = [[`${promo.name || 'Promotion'} — purchase${promo.from ? ` · ${promo.from}${promo.to ? ' to ' + promo.to : ''}` : ''}`], [],
-      ['Code', 'Description', 'Supplier', 'Cost', 'Last purchase date', 'Sheet cost', 'Quantity', 'Promo cost']];
+      ['Code', 'Description', 'Supplier', 'Cost (sheet)', 'Paid (last purchase)', 'Paid units', 'Free units', 'Real cost per unit', 'Document', 'Purchase date', 'Quantity', 'Promo cost']];
     rowsNow.forEach(r => {
-      const c = lastCostOf(r), q = qtyOf(r);
-      aoa.push([String(r.code || ''), r.description || '', r.supplier || '',
-        c.state === 'ok' ? Math.round(c.cost * 1000) / 1000 : '', c.state === 'ok' ? c.date : '',
-        sheetCostOf(r), q === null ? '' : q,
-        r.promoCost ?? '']);
+      const b = lastBuyOf(r), q = qtyOf(r);
+      // one line per document of that day (usually one)
+      (b ? b.docs : [null]).forEach((d, k) => aoa.push([String(r.code || ''), r.description || '', r.supplier || '', sheetCostOf(r),
+        d ? d.paidTxt : '', d ? d.paidQty : '', d ? d.freeQty : '', d && d.real !== null ? Math.round(d.real * 1000) / 1000 : '',
+        d ? d.doc : '', b ? b.date : '', k === 0 && q !== null ? q : '', k === 0 ? (r.promoCost ?? '') : '']));
     });
     const ws = XLSX.utils.aoa_to_sheet(aoa);
-    // codes and promo costs stay text, exactly as typed (leading zeros, "1.10 + 10% free")
-    for (let i = 3; i < aoa.length; i++) [0, 7].forEach(c => { const ref = XLSX.utils.encode_cell({ r: i, c }); if (ws[ref]) { ws[ref].t = 's'; ws[ref].v = String(ws[ref].v); ws[ref].z = '@'; } });
-    ws['!cols'] = [{ wch: 12 }, { wch: 44 }, { wch: 24 }, { wch: 10 }, { wch: 16 }, { wch: 14 }, { wch: 10 }, { wch: 11 }];
+    // code, sheet cost and promo cost stay text, exactly as typed (leading zeros, "1.10 + 10% free")
+    for (let i = 3; i < aoa.length; i++) [0, 3, 11].forEach(c => { const ref = XLSX.utils.encode_cell({ r: i, c }); if (ws[ref]) { ws[ref].t = 's'; ws[ref].v = String(ws[ref].v); ws[ref].z = '@'; } });
+    ws['!cols'] = [{ wch: 12 }, { wch: 40 }, { wch: 22 }, { wch: 12 }, { wch: 24 }, { wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 14 }, { wch: 13 }, { wch: 10 }, { wch: 14 }];
     const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Purchase');
     XLSX.writeFile(wb, `${(promo.name || 'promotion').replace(/[^\w-]+/g, '-')}-purchase.xlsx`);
     logActivity('promotions', 'purchase_export', { type: 'promotion', id: promo.id }, `Exported the purchase sheet of ${promo.name}`);
