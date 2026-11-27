@@ -1931,6 +1931,13 @@ table.items td.lp-cell{white-space:normal;width:300px;max-width:300px;overflow-w
 .pr-sort{cursor:pointer;}
 .pr-sort.on{color:var(--pine);text-decoration:underline;}
 .pr-sup{font-size:11.5px;color:var(--ink-soft);}
+/* Promotions › Purchase (owner, 2026-11-27) */
+.pp-table td{vertical-align:middle;}
+.pp-table td.num,.pp-table th.num{text-align:right;font-family:var(--font-mono);}
+.pp-sub{font-size:11.5px;color:var(--ink-soft);font-weight:400;}
+.pp-edit{width:120px;}
+.pp-input{width:100px;text-align:right;font-family:var(--font-mono);padding:5px 8px;}
+.pp-input.pp-bad{border-color:var(--brick);box-shadow:0 0 0 2px color-mix(in srgb,var(--brick) 25%,transparent);}
 .pr-row-zero td{color:var(--ink-faint);}
 @media (max-width:760px){ .pr-stats{grid-template-columns:repeat(2,minmax(0,1fr));} }
 
@@ -1976,6 +1983,17 @@ table.items td.lp-cell{white-space:normal;width:300px;max-width:300px;overflow-w
 .ip-chosen{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0;}
 .ip-chip{display:inline-flex;align-items:center;gap:4px;padding:3px 4px 3px 10px;border-radius:999px;background:var(--pine);color:#fff;font-size:12.5px;font-weight:600;}
 .ip-chip button{border:0;background:transparent;color:#fff;font-size:16px;line-height:1;cursor:pointer;padding:0 4px;}
+/* Item suggestions under a code box (js/modules/itemsuggest.js) */
+.isg-box{position:fixed;z-index:3000;max-height:min(360px,50vh);overflow:auto;display:flex;flex-direction:column;gap:1px;padding:4px;
+  background:var(--paper-raised);border:1px solid var(--line-strong);border-radius:10px;box-shadow:0 10px 28px rgba(0,0,0,.16);}
+.isg-opt{display:flex;flex-direction:column;align-items:flex-start;gap:1px;text-align:left;padding:7px 10px;border:1px solid transparent;border-radius:7px;
+  background:transparent;cursor:pointer;font:13px var(--font-body);color:var(--ink);}
+.isg-opt:hover{background:var(--paper);}
+.isg-opt.on{background:var(--pine-tint);border-color:var(--pine);}
+.isg-desc{font-weight:600;}
+.isg-meta{font:11.5px var(--font-mono);color:var(--ink-soft);}
+.isg-note{padding:8px 10px;font-size:12.5px;color:var(--ink-soft);}
+.isg-err{color:var(--brick);}
 .ip-options{overflow:auto;max-height:42vh;display:flex;flex-direction:column;gap:2px;}
 .ip-opt{text-align:left;padding:8px 10px;border:1px solid transparent;border-radius:8px;background:transparent;cursor:pointer;font:inherit;color:var(--ink);}
 .ip-opt:hover{background:var(--paper);}

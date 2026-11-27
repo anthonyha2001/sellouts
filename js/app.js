@@ -246,6 +246,8 @@ async function fetchPromoRows(promoId) {
     country: r.country || '',
     outYtd: r.out_ytd === undefined ? null : r.out_ytd,
     barcode: r.barcode || '',
+    // Purchase tab (migration 108). undefined = the column is not there yet, so saving leaves it out.
+    promoCost: r.promo_cost === undefined ? undefined : r.promo_cost,
     note: r.note || '',
     sortOrder: r.sort_order || 0, _savedSortOrder: r.sort_order ?? null, _lastLookupCode: r.code || ''
   }));
@@ -287,7 +289,9 @@ function promoRowPayload(row) {
     note: row.note || null,
     sort_order: row.sortOrder,
     // Only sent when there is one, so saving keeps working before migration 008 adds the column.
-    ...(row.barcode ? { barcode: String(row.barcode) } : {})
+    ...(row.barcode ? { barcode: String(row.barcode) } : {}),
+    // Purchase tab: only sent once migration 108 has added the column (the row was loaded with it).
+    ...(row.promoCost !== undefined ? { promo_cost: (row.promoCost === null || row.promoCost === '') ? null : Number(row.promoCost) } : {})
   };
 }
 function isFkViolation(error) {
@@ -754,6 +758,18 @@ async function runLiveItems() {
   paintLiveZone();
   if (liveQueue.size && !liveState.failed) runLiveItems();
 }
+// One code, right now (owner, 2026-11-10): a code typed or picked in a row is asked on its own, without waiting for the
+// queue, so that row fills in at once. Returns the item, or null (not in the system / no answer: then it goes to the queue).
+async function fetchLiveItemNow(code) {
+  code = String(code ?? '').trim(); if (!code) return null;
+  try {
+    const { data, error } = await sb.functions.invoke('lv-dashboard', { body: { action: 'items_info', codes: [code] } });
+    if (error || !data?.items) throw error || new Error('no answer');
+    liveFetched.set(normalizeCatalogCode(code), Date.now());
+    Object.entries(data.items).forEach(([asked, it]) => mergeLiveItem(asked, it));
+    return catalogMap.get(normalizeCatalogCode(code)) || null;
+  } catch (e) { console.warn('live item', e); queueLiveItems([code]); return null; }
+}
 function mergeLiveItem(asked, it) {
   const item = { code: it.code || asked, description: it.description || '', balance: it.stock ?? null, salePrice: it.salePrice ?? null,
     supplier: it.supplier || '', country: '', outYtd: it.outYtd ?? null, lastPurchase: it.lastPurchase || '', lastInvoice: '',
@@ -920,6 +936,7 @@ function paintLastCost() {
   document.querySelectorAll('#promoAuditView [data-lp]').forEach(td => {
     const row = currentRows.find(r => r.id === td.dataset.lp); if (row) td.innerHTML = lastCostHtml(row);
   });
+  if (window.PromoPurchase) PromoPurchase.paint();
 }
 function paintLiveZone() { const z = document.getElementById('catZoneInfo'); if (z) z.textContent = liveStatusText(); }
 // Re-runs the catalog lookup for every row that already has a code, against
@@ -958,7 +975,7 @@ let currentPromoId = null;
 let currentRows = [];
 let selectedRowIds = new Set();
 let expandedSupplierRowIds = new Set();
-let promoViewMode = 'table'; // 'table', 'audit' or 'results' (owner, 2026-10-06: js/modules/promoresults.js)
+let promoViewMode = 'table'; // 'table', 'audit', 'results' (owner, 2026-10-06: js/modules/promoresults.js) or 'purchase' (owner, 2026-11-27: js/modules/promopurchase.js)
 let tableSubView = 'rows'; // 'rows' (the editable grid) or 'supplier' (grouped-by-supplier accordion), both inside Table
 let auditSubView = 'cost'; // 'cost' (cost-check table) or 'supplier' (grouped-by-supplier accordion), both inside Audit
 let expandedSupplierGroups = new Set();
@@ -2496,6 +2513,7 @@ async function renderPromoWorkspace() {
           <button class="${promoViewMode === 'table' ? 'active' : ''}" data-view="table">${ICONS.table}Table</button>
           <button class="${promoViewMode === 'audit' ? 'active' : ''}" data-view="audit">${ICONS.audit}Audit</button>
           ${window.PromoResults ? `<button class="${promoViewMode === 'results' ? 'active' : ''}" data-view="results">${svgIcon('<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>')}Results</button>` : ''}
+          ${window.PromoPurchase ? `<button class="${promoViewMode === 'purchase' ? 'active' : ''}" data-view="purchase">${svgIcon('<circle cx="9" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/><path d="M2 3h3l2.6 12.4a2 2 0 0 0 2 1.6h8.2a2 2 0 0 0 2-1.6L21 7H6"/>')}Purchase</button>` : ''}
         </div>
         <div class="promo-top-btns">
           ${window.ItemPicker && can('promotions.edit') ? `<button type="button" class="btn small ibtn" id="liveAddBtn" title="Pick items by supplier, brand, group, sub-group or section, with a discount"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="15" height="15" style="stroke:currentColor"><path d="M12 5v14M5 12h14"/></svg>Import from the system</button>` : ''}
@@ -2651,6 +2669,14 @@ async function renderPromoWorkspace() {
     let rv = document.getElementById('promoResultsView');
     if (!rv) { rv = document.createElement('div'); rv.id = 'promoResultsView'; document.getElementById('promoAuditView').after(rv); }
     PromoResults.render(rv, promo, currentRows);
+  }
+  // Purchase (owner, 2026-11-27): cost, quantity and a promo cost typed by hand, with an Excel export
+  if (promoViewMode === 'purchase' && window.PromoPurchase) {
+    document.getElementById('promoTableView').style.display = 'none';
+    document.getElementById('promoAuditView').style.display = 'none';
+    const bar = document.getElementById('promoStickyBar'); if (bar) bar.style.display = 'none';
+    const pv = document.createElement('div'); pv.id = 'promoPurchaseView'; document.getElementById('promoAuditView').after(pv);
+    PromoPurchase.render(pv, promo, currentRows);
   }
   if (promoViewMode === 'table' && tableSubView === 'supplier') wireSupplierGroupEvents('promoTableSupplierView', 'stock');
   if (promoViewMode === 'audit' && auditSubView === 'supplier') wireSupplierGroupEvents('promoAuditSupplierView', 'audit');
@@ -3192,7 +3218,13 @@ function wirePromoRowElement(tr) {
         return;
       }
       const item = catalogMap.get(normalizeCatalogCode(code));
-      if (!item) queueLiveItems([code]);
+      if (!item && !liveTried(code)) {
+        // not known yet: ask the system for this code now, then fill this row in place (no wait for a redraw)
+        fetchLiveItemNow(code).then(() => {
+          if (row.code !== code || codeInput.value.trim() !== code || !tr.isConnected) return;
+          row._lastLookupCode = null; doLookup();
+        });
+      }
       if (item) {
         row.description = item.description;
         row.balance = item.balance === undefined ? null : item.balance;
@@ -3234,6 +3266,8 @@ function wirePromoRowElement(tr) {
       if (e.key === 'Enter') { e.preventDefault(); doLookup(); focusDown('code'); }
     });
     codeInput.addEventListener('blur', doLookup);
+    // Search the system from the code box: a code, a barcode or part of the name; the item picked fills the row.
+    if (window.ItemSuggest && can('promotions.edit')) ItemSuggest.attach(codeInput, () => { doLookup(); });
 
     descInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); focusDown('description'); } });
     descInput.addEventListener('blur', () => { row.description = descInput.value; savePromoRow(row); refreshRowValidationUi(tr, row); });
