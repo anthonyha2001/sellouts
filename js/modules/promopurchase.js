@@ -51,6 +51,7 @@
         <div class="pr-head">
           <div><b>Purchase</b> <span class="muted-note">· ${rows.length} item${rows.length === 1 ? '' : 's'} · <span id="ppFilled">${filled}</span> with a promo cost</span><br>
             <span class="muted-note">Cost = the price sheet · Last purchase = live from the system: what was paid, what came free (trade deal) and the real cost per unit · Quantity = stock now${edit ? ' · type the promo cost (any text); Enter goes down, paste a column from Excel to fill down' : ''}</span></div>
+          <button type="button" class="btn secondary small ibtn" id="ppPrint">${ICONS.print}Print</button>
           <button type="button" class="btn secondary small ibtn" id="ppExport">${ICONS.excel}Export to Excel</button>
         </div>
         ${noColumn ? '<p class="login-err" style="margin:0 18px 12px;">Promo cost cannot be saved yet: run migration 108_promo_cost.sql in Supabase.</p>' : ''}
@@ -71,6 +72,7 @@
         </table></div>
       </div>`;
     box.querySelector('#ppExport').onclick = exportXlsx;
+    box.querySelector('#ppPrint').onclick = printPurchase;
     wireInputs();
   }
 
@@ -149,6 +151,32 @@
     const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Purchase');
     XLSX.writeFile(wb, `${(promo.name || 'promotion').replace(/[^\w-]+/g, '-')}-purchase.xlsx`);
     logActivity('promotions', 'purchase_export', { type: 'promotion', id: promo.id }, `Exported the purchase sheet of ${promo.name}`);
+  }
+
+  // Print (owner, 2026-11-27): the same page as Audit's print (#auditPrintRoot, body.printing-audit).
+  function printPurchase() {
+    const promo = promoNow;
+    if (!rowsNow.length) { showToast('Nothing to print.', true); return; }
+    let root = document.getElementById('auditPrintRoot');
+    if (!root) { root = document.createElement('div'); root.id = 'auditPrintRoot'; document.body.appendChild(root); }
+    const th = (t, right) => `<th style="text-align:${right ? 'right' : 'left'};padding:5px 6px;border-bottom:2px solid #333;">${t}</th>`;
+    const td = (v, right) => `<td style="padding:5px 6px;border-bottom:1px solid #ccc;vertical-align:top;${right ? 'text-align:right;' : ''}">${v}</td>`;
+    const lastBuyHtml = r => {
+      const b = lastBuyOf(r); if (!b) return '';
+      return b.docs.map(d => `<b>${esc(d.cur)}${d.real === null ? '' : lcMoney(d.real)}</b>${d.deal ? ' (trade deal)' : ''}<br>`
+        + `<span style="font-size:11.5px;">${esc(d.paidTxt)}${d.freeQty ? ` + ${lcQty(d.freeQty)} free` : ''} · ${esc(d.doc)} · ${esc(b.date)}</span>`).join('<br>');
+    };
+    const dates = promo.from ? ` · ${promo.from}${promo.to ? ' to ' + promo.to : ''}` : '';
+    root.innerHTML = `
+      <h2 style="font-family:Georgia,serif;margin:0 0 4px;">${esc(promo.name || 'Untitled promotion')} — Purchase</h2>
+      <p style="margin:0 0 14px;color:#555;font-size:12.5px;">${rowsNow.length} item${rowsNow.length === 1 ? '' : 's'}${esc(dates)} · last purchase: what was paid, what came free, real cost per unit</p>
+      <table style="width:100%;border-collapse:collapse;font-size:12.5px;">
+        <thead><tr>${th('Code')}${th('Description')}${th('Supplier')}${th('Cost', 1)}${th('Last purchase')}${th('Quantity', 1)}${th('Promo cost', 1)}</tr></thead>
+        <tbody>${rowsNow.map(r => { const q = qtyOf(r); return `<tr>${td(esc(r.code || ''))}${td(esc(r.description || ''))}${td(esc(r.supplier || ''))}${td(esc(sheetCostOf(r)), 1)}${td(lastBuyHtml(r))}${td(q === null ? '' : qtyTxt(q), 1)}${td(esc(r.promoCost ?? ''), 1)}</tr>`; }).join('')}</tbody>
+      </table>`;
+    document.body.classList.add('printing-audit');
+    window.print();
+    logActivity('promotions', 'purchase_print', { type: 'promotion', id: promo.id }, `Printed the purchase sheet of ${promo.name}`);
   }
 
   window.PromoPurchase = { render, paint };
